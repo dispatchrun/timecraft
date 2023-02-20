@@ -1,10 +1,13 @@
 .PHONY: test testdata
 .PRECIOUS: %.wasm
 
+pkg.src.go = \
+	$(wildcard pkg/*/*.go)
+
 sdk.src.go = \
 	$(wildcard sdk/go/*/*.go)
 
-timecraft.src.go = \
+timecraft.src.go = $(pkg.src.go) \
 	$(wildcard *.go) \
 	$(wildcard cmd/*.go)
 
