@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -15,5 +16,8 @@ func main() {
 		log.Fatal(err)
 	}
 	defer r.Body.Close()
-	io.Copy(os.Stdout, r.Body)
+	fmt.Fprintf(os.Stderr, "%s %d %s\r\n", r.Proto, r.StatusCode, r.Status)
+	r.Header.Write(os.Stderr)
+	fmt.Fprintln(os.Stderr)
+	io.CopyBuffer(os.Stdout, r.Body, make([]byte, 1024))
 }

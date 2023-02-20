@@ -14,7 +14,6 @@ import (
 )
 
 type Record struct {
-	Session  [16]byte       `parquet:"session,dict"`
 	Walltime int64          `parquet:"walltime,delta"`
 	Duration int64          `parquet:"duration,delta"`
 	Module   string         `parquet:"module,dict"`
@@ -27,7 +26,7 @@ type Record struct {
 type MemoryRecord struct {
 	Offset uint32 `parquet:"offset,plain"`
 	Length uint32 `parquet:"length,plain"`
-	Bytes  []byte `parquet:"bytes,plain,zstd"`
+	Bytes  []byte `parquet:"bytes,zstd"`
 	Write  bool   `parquet:"write"`
 }
 
