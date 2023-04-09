@@ -3,16 +3,16 @@ module github.com/stealthrocket/timecraft
 go 1.20
 
 require (
-	github.com/google/uuid v1.3.0
 	github.com/segmentio/parquet-go v0.0.0-20230216234451-674602166e6d
 	github.com/spf13/cobra v1.6.1
 	github.com/stealthrocket/plugins v0.0.0-20230220032900-eb2737727415
-	github.com/tetratelabs/wazero v1.0.0-pre.9
+	github.com/tetratelabs/wazero v1.0.0-rc.2
 	golang.org/x/exp v0.0.0-20230213192124-5e25df0256eb
 )
 
 require (
 	github.com/andybalholm/brotli v1.0.3 // indirect
+	github.com/google/uuid v1.3.0 // indirect
 	github.com/inconshreveable/mousetrap v1.0.1 // indirect
 	github.com/klauspost/compress v1.15.9 // indirect
 	github.com/mattn/go-runewidth v0.0.9 // indirect
