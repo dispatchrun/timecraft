@@ -18,6 +18,29 @@ var hostModule wazergo.HostModule[*Module] = functions{
 	"promise_resolve": wazergo.F1((*Module).promiseResolve),
 	"promise_discard": wazergo.F1((*Module).promiseDiscard),
 	"promise_wait":    wazergo.F1((*Module).promiseWait),
+
+	"http_client_create":                         wazergo.F12((*Module).httpClientCreate),
+	"http_client_shutdown":                       wazergo.F1((*Module).httpClientShutdown),
+	"http_client_exchange_create":                wazergo.F3((*Module).httpClientExchangeCreate),
+	"http_client_excahnge_write_request_header":  wazergo.F5((*Module).httpClientExchangeWriteRequestHeader),
+	"http_client_exchange_write_request_body":    wazergo.F3((*Module).httpClientExchangeWriteRequestBody),
+	"http_client_exchange_write_request_trailer": wazergo.F2((*Module).httpClientExchangeWriteRequestTrailer),
+	"http_client_exchange_send_request":          wazergo.F1((*Module).httpClientExchangeSendRequest),
+	"http_client_exchange_read_response_header":  wazergo.F7((*Module).httpClientExchangeReadResponseHeader),
+	"http_client_exchange_read_response_body":    wazergo.F3((*Module).httpClientExchangeReadResponseBody),
+	"http_client_exchange_read_response_trailer": wazergo.F2((*Module).httpClientExchangeReadResponseTrailer),
+	"http_client_exchange_close":                 wazergo.F1((*Module).httpClientExchangeClose),
+
+	"http_server_create":                          wazergo.F7((*Module).httpServerCreate),
+	"http_server_shutdown":                        wazergo.F1((*Module).httpServerShutdown),
+	"http_server_exchange_create":                 wazergo.F2((*Module).httpServerExchangeCreate),
+	"http_server_exchange_read_request_header":    wazergo.F5((*Module).httpServerExchangeReadRequestHeader),
+	"http_server_exchange_read_request_body":      wazergo.F3((*Module).httpServerExchangeReadRequestBody),
+	"http_server_exchange_read_request_trailer":   wazergo.F2((*Module).httpServerExchangeReadRequestTrailer),
+	"http_server_exchange_write_response_header":  wazergo.F5((*Module).httpServerExchangeWriteResponseHeader),
+	"http_server_exchange_write_response_body":    wazergo.F3((*Module).httpServerExchangeWriteResponseBody),
+	"http_server_exchange_write_response_trailer": wazergo.F2((*Module).httpServerExchangeWriteResponseTrailer),
+	"http_server_exchange_close":                  wazergo.F1((*Module).httpServerExchangeClose),
 }
 
 type functions wazergo.Functions[*Module]

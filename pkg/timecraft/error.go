@@ -23,9 +23,10 @@ func (m *Module) errorMessageRead(ctx context.Context, err Int32, buf Bytes) Int
 }
 
 const (
-	errNone = iota
+	errNone Errno = iota
 	errInvalidArgument
 	errTimeout
+	errNotImplemented
 )
 
 type errorValue struct {
@@ -36,7 +37,7 @@ type errorValue struct {
 
 var errorValues = [...]errorValue{
 	errNone: {
-		message: "(none)",
+		message: "OK",
 	},
 
 	errInvalidArgument: {
@@ -48,6 +49,10 @@ var errorValues = [...]errorValue{
 		temporary: true,
 		timeout:   true,
 	},
+
+	errNotImplemented: {
+		message: "not implemented",
+	},
 }
 
 func errorValueOf(err Int32) errorValue {
@@ -55,4 +60,12 @@ func errorValueOf(err Int32) errorValue {
 		return errorValues[err]
 	}
 	return errorValue{message: "unknown runtime error"}
+}
+
+func init() {
+	errorStrings := make([]string, len(errorValues))
+	for i := range errorValues {
+		errorStrings[i] = errorValues[i].message
+	}
+	ErrorStrings = errorStrings
 }
