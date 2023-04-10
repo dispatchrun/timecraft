@@ -33,6 +33,7 @@ func (f functions) Functions() wazergo.Functions[*Module] {
 func (f functions) Instantiate(ctx context.Context, opts ...Option) (*Module, error) {
 	mod := &Module{
 		Transport: http.DefaultTransport,
+		promises:  make(map[int64]context.CancelCauseFunc),
 		ready:     make(chan int64),
 	}
 	mod.ctx, mod.cancel = context.WithCancel(context.Background())

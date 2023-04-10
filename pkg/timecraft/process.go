@@ -1,3 +1,5 @@
+//go:build !wasm
+
 package timecraft
 
 import (
@@ -46,6 +48,8 @@ func (p *Process) Run(ctx context.Context) error {
 	m, err := p.runtime.InstantiateModule(ctx, p.module,
 		// TODO: fix module config
 		wazero.NewModuleConfig().
+			WithFSConfig(wazero.NewFSConfig().WithDirMount("/", "/")).
+			WithArgs(os.Args...).
 			WithStderr(os.Stderr).
 			WithStdout(os.Stdout).
 			WithSysWalltime().

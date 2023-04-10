@@ -1,25 +1,28 @@
-.PHONY: test testdata
+.PHONY: clean test testdata
 .PRECIOUS: %.wasm
 
 pkg.src.go = \
 	$(wildcard pkg/*/*.go)
 
-sdk.src.go = \
-	$(wildcard sdk/go/*/*.go)
-
 timecraft.src.go = $(pkg.src.go) \
 	$(wildcard *.go) \
 	$(wildcard cmd/*.go)
 
-testdata.src.go = $(wildcard testdata/*.go)
-
-%.wasm: %.go $(sdk.src.go)
-	tinygo build -o $@ -target=wasi $<
+timecraft.testdata.go = \
+	$(wildcard pkg/timecraft/testdata/*_test.go)
+timecraft.testdata.wasm = \
+	$(timecraft.testdata.go:_test.go=_test.wasm)
 
 timecraft: go.mod $(timecraft.src.go)
 	go build -o timecraft
 
-test:
-	go test ./...
+clean:
+	rm -f timecraft $(timecraft.testdata.wasm)
 
-testdata: $(testdata.src.go:.go=.wasm)
+test: testdata
+	go test -v ./...
+
+testdata: $(timecraft.testdata.wasm)
+
+%_test.wasm: %_test.go
+	GOROOT=$(PWD)/../go GOARCH=wasm GOOS=wasip1 ../go/bin/go test -tags timecraft -c -o $@ $<

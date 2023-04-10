@@ -1,3 +1,5 @@
+//go:build !wasm
+
 package timecraft
 
 import (
@@ -23,7 +25,9 @@ func (m *Module) errorMessageRead(ctx context.Context, err Int32, buf Bytes) Int
 }
 
 const (
-	errNone Int32 = iota
+	errNone = iota
+	errInvalidArgument
+	errTimeout
 )
 
 type errorValue struct {
@@ -35,6 +39,16 @@ type errorValue struct {
 var errorValues = [...]errorValue{
 	errNone: {
 		message: "(none)",
+	},
+
+	errInvalidArgument: {
+		message: "invalid argument",
+	},
+
+	errTimeout: {
+		message:   "timeout",
+		temporary: true,
+		timeout:   true,
 	},
 }
 
