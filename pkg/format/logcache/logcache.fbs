@@ -10,7 +10,7 @@ namespace logcache;
 // can then hit a single record set, which causes a single update of the LRU
 // and single access to the storage layer.
 table RecordSet {
-  // Unique identifier of the process that the records belonged to.
+ // Unique identifier of the process that the records belonged to.
  process_id:[ubyte] (required);
  // CRC32 checksum of the records data (Castagnoli).
  checksum:uint;
