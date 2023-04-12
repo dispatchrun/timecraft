@@ -1,13 +1,5 @@
 namespace format;
 
-// UUID represents a globally unique identifer. The struct is implemented as
-// a pair of 64 bits integers because flatbuffers fixed-size arrays are not
-// supported in Go.
-struct UUID {
- lo:ulong;
- hi:ulong;
-}
-
 // Runtime captures information about the runtime that recorded the log.
 table Runtime {
  version:string (required);
@@ -26,7 +18,7 @@ table Module {
 // Process contains information about the process that the log was recorded for.
 table Process {
  // A globally unique identifier for the process.
- id:UUID (required);
+ id:[ubyte] (required);
  // The unix start time of the process.
  unix_start_time:long;
  // URI of the WebAssembly module that the process was instantiated from.
@@ -38,7 +30,7 @@ table Process {
  // List of environment variables passed to the process when it was started.
  environment:[string];
  // Unique identifier of the parent that created this process (may be zero).
- parent_process_id:UUID;
+ parent_process_id:[ubyte];
  // Logical offset in the parent log of the host call that created the process.
  parent_fork_offset:long;
 }

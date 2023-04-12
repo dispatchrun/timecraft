@@ -58,39 +58,6 @@ func (v MemoryAccessType) String() string {
 	return "MemoryAccessType(" + strconv.FormatInt(int64(v), 10) + ")"
 }
 
-type UUID struct {
-	_tab flatbuffers.Struct
-}
-
-func (rcv *UUID) Init(buf []byte, i flatbuffers.UOffsetT) {
-	rcv._tab.Bytes = buf
-	rcv._tab.Pos = i
-}
-
-func (rcv *UUID) Table() flatbuffers.Table {
-	return rcv._tab.Table
-}
-
-func (rcv *UUID) Lo() uint64 {
-	return rcv._tab.GetUint64(rcv._tab.Pos + flatbuffers.UOffsetT(0))
-}
-func (rcv *UUID) MutateLo(n uint64) bool {
-	return rcv._tab.MutateUint64(rcv._tab.Pos+flatbuffers.UOffsetT(0), n)
-}
-
-func (rcv *UUID) Hi() uint64 {
-	return rcv._tab.GetUint64(rcv._tab.Pos + flatbuffers.UOffsetT(8))
-}
-func (rcv *UUID) MutateHi(n uint64) bool {
-	return rcv._tab.MutateUint64(rcv._tab.Pos+flatbuffers.UOffsetT(8), n)
-}
-
-func CreateUUID(builder *flatbuffers.Builder, lo uint64, hi uint64) flatbuffers.UOffsetT {
-	builder.Prep(8, 16)
-	builder.PrependUint64(hi)
-	builder.PrependUint64(lo)
-	return builder.Offset()
-}
 type Runtime struct {
 	_tab flatbuffers.Table
 }
@@ -266,17 +233,38 @@ func (rcv *Process) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-func (rcv *Process) Id(obj *UUID) *UUID {
+func (rcv *Process) Id(j int) byte {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
-		x := o + rcv._tab.Pos
-		if obj == nil {
-			obj = new(UUID)
-		}
-		obj.Init(rcv._tab.Bytes, x)
-		return obj
+		a := rcv._tab.Vector(o)
+		return rcv._tab.GetByte(a + flatbuffers.UOffsetT(j*1))
+	}
+	return 0
+}
+
+func (rcv *Process) IdLength() int {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
+	if o != 0 {
+		return rcv._tab.VectorLen(o)
+	}
+	return 0
+}
+
+func (rcv *Process) IdBytes() []byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
+	if o != 0 {
+		return rcv._tab.ByteVector(o + rcv._tab.Pos)
 	}
 	return nil
+}
+
+func (rcv *Process) MutateId(j int, n byte) bool {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
+	if o != 0 {
+		a := rcv._tab.Vector(o)
+		return rcv._tab.MutateByte(a+flatbuffers.UOffsetT(j*1), n)
+	}
+	return false
 }
 
 func (rcv *Process) UnixStartTime() int64 {
@@ -333,17 +321,38 @@ func (rcv *Process) EnvironmentLength() int {
 	return 0
 }
 
-func (rcv *Process) ParentProcessId(obj *UUID) *UUID {
+func (rcv *Process) ParentProcessId(j int) byte {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
 	if o != 0 {
-		x := o + rcv._tab.Pos
-		if obj == nil {
-			obj = new(UUID)
-		}
-		obj.Init(rcv._tab.Bytes, x)
-		return obj
+		a := rcv._tab.Vector(o)
+		return rcv._tab.GetByte(a + flatbuffers.UOffsetT(j*1))
+	}
+	return 0
+}
+
+func (rcv *Process) ParentProcessIdLength() int {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
+	if o != 0 {
+		return rcv._tab.VectorLen(o)
+	}
+	return 0
+}
+
+func (rcv *Process) ParentProcessIdBytes() []byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
+	if o != 0 {
+		return rcv._tab.ByteVector(o + rcv._tab.Pos)
 	}
 	return nil
+}
+
+func (rcv *Process) MutateParentProcessId(j int, n byte) bool {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
+	if o != 0 {
+		a := rcv._tab.Vector(o)
+		return rcv._tab.MutateByte(a+flatbuffers.UOffsetT(j*1), n)
+	}
+	return false
 }
 
 func (rcv *Process) ParentForkOffset() int64 {
@@ -362,7 +371,10 @@ func ProcessStart(builder *flatbuffers.Builder) {
 	builder.StartObject(7)
 }
 func ProcessAddId(builder *flatbuffers.Builder, id flatbuffers.UOffsetT) {
-	builder.PrependStructSlot(0, flatbuffers.UOffsetT(id), 0)
+	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(id), 0)
+}
+func ProcessStartIdVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
+	return builder.StartVector(1, numElems, 1)
 }
 func ProcessAddUnixStartTime(builder *flatbuffers.Builder, unixStartTime int64) {
 	builder.PrependInt64Slot(1, unixStartTime, 0)
@@ -383,7 +395,10 @@ func ProcessStartEnvironmentVector(builder *flatbuffers.Builder, numElems int) f
 	return builder.StartVector(4, numElems, 4)
 }
 func ProcessAddParentProcessId(builder *flatbuffers.Builder, parentProcessId flatbuffers.UOffsetT) {
-	builder.PrependStructSlot(5, flatbuffers.UOffsetT(parentProcessId), 0)
+	builder.PrependUOffsetTSlot(5, flatbuffers.UOffsetT(parentProcessId), 0)
+}
+func ProcessStartParentProcessIdVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
+	return builder.StartVector(1, numElems, 1)
 }
 func ProcessAddParentForkOffset(builder *flatbuffers.Builder, parentForkOffset int64) {
 	builder.PrependInt64Slot(6, parentForkOffset, 0)
