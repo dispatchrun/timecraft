@@ -77,54 +77,12 @@ func (rcv *Runtime) Version() []byte {
 	return nil
 }
 
-func (rcv *Runtime) Names(j int) []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.ByteVector(a + flatbuffers.UOffsetT(j*4))
-	}
-	return nil
-}
-
-func (rcv *Runtime) NamesLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *Runtime) Modules(j int) uint32 {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.GetUint32(a + flatbuffers.UOffsetT(j*4))
-	}
-	return 0
-}
-
-func (rcv *Runtime) ModulesLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *Runtime) MutateModules(j int, n uint32) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.MutateUint32(a+flatbuffers.UOffsetT(j*4), n)
-	}
-	return false
-}
-
 func (rcv *Runtime) Functions(obj *Function, j int) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
 		x := rcv._tab.Vector(o)
-		x += flatbuffers.UOffsetT(j) * 8
+		x += flatbuffers.UOffsetT(j) * 4
+		x = rcv._tab.Indirect(x)
 		obj.Init(rcv._tab.Bytes, x)
 		return true
 	}
@@ -132,7 +90,7 @@ func (rcv *Runtime) Functions(obj *Function, j int) bool {
 }
 
 func (rcv *Runtime) FunctionsLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
 		return rcv._tab.VectorLen(o)
 	}
@@ -140,7 +98,7 @@ func (rcv *Runtime) FunctionsLength() int {
 }
 
 func RuntimeStart(builder *flatbuffers.Builder) {
-	builder.StartObject(5)
+	builder.StartObject(3)
 }
 func RuntimeAddRuntime(builder *flatbuffers.Builder, runtime flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(runtime), 0)
@@ -148,30 +106,32 @@ func RuntimeAddRuntime(builder *flatbuffers.Builder, runtime flatbuffers.UOffset
 func RuntimeAddVersion(builder *flatbuffers.Builder, version flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(1, flatbuffers.UOffsetT(version), 0)
 }
-func RuntimeAddNames(builder *flatbuffers.Builder, names flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(2, flatbuffers.UOffsetT(names), 0)
-}
-func RuntimeStartNamesVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(4, numElems, 4)
-}
-func RuntimeAddModules(builder *flatbuffers.Builder, modules flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(3, flatbuffers.UOffsetT(modules), 0)
-}
-func RuntimeStartModulesVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(4, numElems, 4)
-}
 func RuntimeAddFunctions(builder *flatbuffers.Builder, functions flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(4, flatbuffers.UOffsetT(functions), 0)
+	builder.PrependUOffsetTSlot(2, flatbuffers.UOffsetT(functions), 0)
 }
 func RuntimeStartFunctionsVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(8, numElems, 4)
+	return builder.StartVector(4, numElems, 4)
 }
 func RuntimeEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
 
 type Function struct {
-	_tab flatbuffers.Struct
+	_tab flatbuffers.Table
+}
+
+func GetRootAsFunction(buf []byte, offset flatbuffers.UOffsetT) *Function {
+	n := flatbuffers.GetUOffsetT(buf[offset:])
+	x := &Function{}
+	x.Init(buf, n+offset)
+	return x
+}
+
+func GetSizePrefixedRootAsFunction(buf []byte, offset flatbuffers.UOffsetT) *Function {
+	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
+	x := &Function{}
+	x.Init(buf, n+offset+flatbuffers.SizeUint32)
+	return x
 }
 
 func (rcv *Function) Init(buf []byte, i flatbuffers.UOffsetT) {
@@ -180,28 +140,36 @@ func (rcv *Function) Init(buf []byte, i flatbuffers.UOffsetT) {
 }
 
 func (rcv *Function) Table() flatbuffers.Table {
-	return rcv._tab.Table
+	return rcv._tab
 }
 
-func (rcv *Function) Module() uint32 {
-	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(0))
-}
-func (rcv *Function) MutateModule(n uint32) bool {
-	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(0), n)
-}
-
-func (rcv *Function) Name() uint32 {
-	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(4))
-}
-func (rcv *Function) MutateName(n uint32) bool {
-	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(4), n)
+func (rcv *Function) Module() []byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
+	if o != 0 {
+		return rcv._tab.ByteVector(o + rcv._tab.Pos)
+	}
+	return nil
 }
 
-func CreateFunction(builder *flatbuffers.Builder, module uint32, name uint32) flatbuffers.UOffsetT {
-	builder.Prep(4, 8)
-	builder.PrependUint32(name)
-	builder.PrependUint32(module)
-	return builder.Offset()
+func (rcv *Function) Name() []byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
+	if o != 0 {
+		return rcv._tab.ByteVector(o + rcv._tab.Pos)
+	}
+	return nil
+}
+
+func FunctionStart(builder *flatbuffers.Builder) {
+	builder.StartObject(2)
+}
+func FunctionAddModule(builder *flatbuffers.Builder, module flatbuffers.UOffsetT) {
+	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(module), 0)
+}
+func FunctionAddName(builder *flatbuffers.Builder, name flatbuffers.UOffsetT) {
+	builder.PrependUOffsetTSlot(1, flatbuffers.UOffsetT(name), 0)
+}
+func FunctionEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
+	return builder.EndObject()
 }
 
 type Process struct {

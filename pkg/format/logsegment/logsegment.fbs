@@ -6,16 +6,13 @@ namespace logsegment;
 table Runtime {
  runtime:string (required);
  version:string (required);
- names:[string];
- modules:[uint];
  functions:[Function];
 }
 
-// Function represents a function from a host module. The function contains
-// indexes in the runtime names section for the module and function names.
-struct Function {
- module:uint;
- name:uint;
+// Function represents a function from a host module.
+table Function {
+ module:string;
+ name:string;
 }
 
 // Process contains information about the process that the log was recorded for.
