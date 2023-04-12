@@ -1,4 +1,4 @@
-namespace offsetindex;
+namespace logindex;
 
 table File {
  // Unique identifier of the process that the range was index was generated
@@ -6,14 +6,13 @@ table File {
  process_id:[ubyte];
  // Log segment that this index file was generated for.
  segment:uint;
- // The actual index mapping start offsets of record batches to their positions
- // in the log file.
- record_batch_offsets:[RecordBatchLocation];
+ // The actual index mapping keys to file locations as absolute byte offsets.
+ index:[Entry];
 }
 
-struct RecordBatchLocation {
- start_offset:long;
- file_offset:long;
+struct Entry {
+ key:ulong;
+ value:ulong;
 }
 
 root_type File;
