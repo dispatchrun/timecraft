@@ -4,15 +4,14 @@ namespace format;
 table Runtime {
  version:string (required);
  runtime:string (required);
- modules:[Module];
+ modules:[string];
+ functions:[Function];
 }
 
-// Module represents a module instantiated in the runtime.
-table Module {
- // Name of the module (e.g. "wasi_snapshot_preview1").
- module:string (required);
- // List of function names exported by the module.
- functions:[string];
+// Function represents a function from a host module.
+table Function {
+ module:uint; // module index in the runtime module list
+ name:string (required);
 }
 
 // Process contains information about the process that the log was recorded for.
@@ -69,9 +68,8 @@ table Record {
  // Monotonic timestamp relative to the process start time of the function
  // invocation time (expressed in nanoseconds).
  timestamp:long;
- // Index in the Runtime table of the module and function that was
- module:ushort;
- function:ushort;
+ // Index in the Runtime function table.
+ function:uint;
  // State of the WebAssembly stack when the function was called and when it
  // returned.
  params:[ulong];
