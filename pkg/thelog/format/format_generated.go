@@ -34,28 +34,28 @@ func (v Compression) String() string {
 	return "Compression(" + strconv.FormatInt(int64(v), 10) + ")"
 }
 
-type MemoryAccess uint32
+type MemoryAccessType uint32
 
 const (
-	MemoryAccessMemoryRead  MemoryAccess = 0
-	MemoryAccessMemoryWrite MemoryAccess = 1
+	MemoryAccessTypeMemoryRead  MemoryAccessType = 0
+	MemoryAccessTypeMemoryWrite MemoryAccessType = 1
 )
 
-var EnumNamesMemoryAccess = map[MemoryAccess]string{
-	MemoryAccessMemoryRead:  "MemoryRead",
-	MemoryAccessMemoryWrite: "MemoryWrite",
+var EnumNamesMemoryAccessType = map[MemoryAccessType]string{
+	MemoryAccessTypeMemoryRead:  "MemoryRead",
+	MemoryAccessTypeMemoryWrite: "MemoryWrite",
 }
 
-var EnumValuesMemoryAccess = map[string]MemoryAccess{
-	"MemoryRead":  MemoryAccessMemoryRead,
-	"MemoryWrite": MemoryAccessMemoryWrite,
+var EnumValuesMemoryAccessType = map[string]MemoryAccessType{
+	"MemoryRead":  MemoryAccessTypeMemoryRead,
+	"MemoryWrite": MemoryAccessTypeMemoryWrite,
 }
 
-func (v MemoryAccess) String() string {
-	if s, ok := EnumNamesMemoryAccess[v]; ok {
+func (v MemoryAccessType) String() string {
+	if s, ok := EnumNamesMemoryAccessType[v]; ok {
 		return s
 	}
-	return "MemoryAccess(" + strconv.FormatInt(int64(v), 10) + ")"
+	return "MemoryAccessType(" + strconv.FormatInt(int64(v), 10) + ")"
 }
 
 type UUID struct {
@@ -444,14 +444,29 @@ func (rcv *LogHeader) Process(obj *Process) *Process {
 	return nil
 }
 
+func (rcv *LogHeader) Segment() uint32 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
+	if o != 0 {
+		return rcv._tab.GetUint32(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *LogHeader) MutateSegment(n uint32) bool {
+	return rcv._tab.MutateUint32Slot(8, n)
+}
+
 func LogHeaderStart(builder *flatbuffers.Builder) {
-	builder.StartObject(2)
+	builder.StartObject(3)
 }
 func LogHeaderAddRuntime(builder *flatbuffers.Builder, runtime flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(runtime), 0)
 }
 func LogHeaderAddProcess(builder *flatbuffers.Builder, process flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(1, flatbuffers.UOffsetT(process), 0)
+}
+func LogHeaderAddSegment(builder *flatbuffers.Builder, segment uint32) {
+	builder.PrependUint32Slot(2, segment, 0)
 }
 func LogHeaderEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
@@ -714,7 +729,7 @@ func (rcv *Record) MutateLength(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(16, n)
 }
 
-func (rcv *Record) MemorySnapshots(obj *MemorySnapshot, j int) bool {
+func (rcv *Record) MemoryAccess(obj *MemoryAccess, j int) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(18))
 	if o != 0 {
 		x := rcv._tab.Vector(o)
@@ -725,7 +740,7 @@ func (rcv *Record) MemorySnapshots(obj *MemorySnapshot, j int) bool {
 	return false
 }
 
-func (rcv *Record) MemorySnapshotsLength() int {
+func (rcv *Record) MemoryAccessLength() int {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(18))
 	if o != 0 {
 		return rcv._tab.VectorLen(o)
@@ -763,57 +778,57 @@ func RecordAddOffset(builder *flatbuffers.Builder, offset uint32) {
 func RecordAddLength(builder *flatbuffers.Builder, length uint32) {
 	builder.PrependUint32Slot(6, length, 0)
 }
-func RecordAddMemorySnapshots(builder *flatbuffers.Builder, memorySnapshots flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(7, flatbuffers.UOffsetT(memorySnapshots), 0)
+func RecordAddMemoryAccess(builder *flatbuffers.Builder, memoryAccess flatbuffers.UOffsetT) {
+	builder.PrependUOffsetTSlot(7, flatbuffers.UOffsetT(memoryAccess), 0)
 }
-func RecordStartMemorySnapshotsVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
+func RecordStartMemoryAccessVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
 	return builder.StartVector(16, numElems, 4)
 }
 func RecordEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
-type MemorySnapshot struct {
+type MemoryAccess struct {
 	_tab flatbuffers.Struct
 }
 
-func (rcv *MemorySnapshot) Init(buf []byte, i flatbuffers.UOffsetT) {
+func (rcv *MemoryAccess) Init(buf []byte, i flatbuffers.UOffsetT) {
 	rcv._tab.Bytes = buf
 	rcv._tab.Pos = i
 }
 
-func (rcv *MemorySnapshot) Table() flatbuffers.Table {
+func (rcv *MemoryAccess) Table() flatbuffers.Table {
 	return rcv._tab.Table
 }
 
-func (rcv *MemorySnapshot) MemoryOffset() uint32 {
+func (rcv *MemoryAccess) MemoryOffset() uint32 {
 	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(0))
 }
-func (rcv *MemorySnapshot) MutateMemoryOffset(n uint32) bool {
+func (rcv *MemoryAccess) MutateMemoryOffset(n uint32) bool {
 	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(0), n)
 }
 
-func (rcv *MemorySnapshot) RecordOffset() uint32 {
+func (rcv *MemoryAccess) RecordOffset() uint32 {
 	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(4))
 }
-func (rcv *MemorySnapshot) MutateRecordOffset(n uint32) bool {
+func (rcv *MemoryAccess) MutateRecordOffset(n uint32) bool {
 	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(4), n)
 }
 
-func (rcv *MemorySnapshot) Length() uint32 {
+func (rcv *MemoryAccess) Length() uint32 {
 	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(8))
 }
-func (rcv *MemorySnapshot) MutateLength(n uint32) bool {
+func (rcv *MemoryAccess) MutateLength(n uint32) bool {
 	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(8), n)
 }
 
-func (rcv *MemorySnapshot) Access() MemoryAccess {
-	return MemoryAccess(rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(12)))
+func (rcv *MemoryAccess) Access() MemoryAccessType {
+	return MemoryAccessType(rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(12)))
 }
-func (rcv *MemorySnapshot) MutateAccess(n MemoryAccess) bool {
+func (rcv *MemoryAccess) MutateAccess(n MemoryAccessType) bool {
 	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(12), uint32(n))
 }
 
-func CreateMemorySnapshot(builder *flatbuffers.Builder, memoryOffset uint32, recordOffset uint32, length uint32, access MemoryAccess) flatbuffers.UOffsetT {
+func CreateMemoryAccess(builder *flatbuffers.Builder, memoryOffset uint32, recordOffset uint32, length uint32, access MemoryAccessType) flatbuffers.UOffsetT {
 	builder.Prep(4, 16)
 	builder.PrependUint32(uint32(access))
 	builder.PrependUint32(length)

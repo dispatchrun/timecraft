@@ -48,6 +48,7 @@ table Process {
 table LogHeader {
  runtime:Runtime (required);
  process:Process (required);
+ segment:uint; // index of the log segment
 }
 
 enum Compression:byte {
@@ -91,23 +92,23 @@ table Record {
  // Sections of the record containing snapshots of each memory access done by
  // the function. The record_offset is relative to the beginning of the record
  // data (at offset in the uncompressed record batch).
- memory_snapshots:[MemorySnapshot];
+ memory_access:[MemoryAccess];
 }
 
-enum MemoryAccess:uint {
+enum MemoryAccessType:uint {
   MemoryRead, MemoryWrite
 }
 
-// MemorySnapshot represents the snapshot of a section of memory that was either
+// MemoryAccess represents the capture of a section of memory that was either
 // read or written during a host function call.
-struct MemorySnapshot {
+struct MemoryAccess {
  // Byte offset in the WebAssembly module's linear memory where the memory
- // snapshot starts.
+ // access starts.
  memory_offset:uint;
- // Byte offset in the Record data section where the memory snapshot is written.
+ // Byte offset in the Record data section where the memory capture is written.
  record_offset:uint;
- // Size of the memory snapshot (in bytes).
+ // Size of the memory access (in bytes).
  length:uint;
- // Type of memory access recorded by the snapshot (read or write).
- access:MemoryAccess;
+ // Type of the recorded memory access (read or write).
+ access:MemoryAccessType;
 }
