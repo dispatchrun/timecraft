@@ -29,6 +29,7 @@ clean:
 generate: flatbuffers
 
 flatbuffers: go.mod $(format.src.go)
+	go build ./pkg/format/...
 
 test: flatbuffers testdata
 	go test -v ./...
