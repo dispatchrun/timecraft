@@ -1,3 +1,5 @@
+include "../types/types.fbs";
+
 namespace segment;
 
 // Runtime captures information about the runtime that recorded the log.
@@ -16,37 +18,23 @@ struct Function {
  name:ushort;
 }
 
-// Hash represents a OCI hash which pairs a algorithm name to a digest.
-// The digest length depends on the algorithm in use (e.g. 32 bytes for
-// "sha256").
-table Hash {
- algorithm:string (required);
- digest:[ubyte] (required);
-}
-
 // Process contains information about the process that the log was recorded for.
 table Process {
  // A globally unique identifier for the process.
- id:Hash (required);
- // The unix start time of the process (in nanoseconds).
- unix_start_time:long;
+ id:types.Hash (required);
  // OCI identifier of the WebAssembly module image that the process was
  // instantiated from.
- image:Hash (required);
+ image:types.Hash (required);
+ // The unix start time of the process (in nanoseconds).
+ unix_start_time:long;
  // List of arguments passed to the process when it was started.
  arguments:[string];
  // List of environment variables passed to the process when it was started.
  environment:[string];
  // Unique identifier of the parent that created this process (may be zero).
- parent_process_id:Hash;
+ parent_process_id:types.Hash;
  // Logical offset in the parent log of the host call that created the process.
  parent_fork_offset:long;
-}
-
-// Compression is the enumeration representing the supported compression
-// algorithms for data sections of log segments.
-enum Compression:uint {
-  None, Snappy, Zstd
 }
 
 // Header represents the very first section of the log recording information
@@ -55,7 +43,7 @@ table LogHeader {
  runtime:Runtime (required);
  process:Process (required);
  segment:uint; // index of the log segment
- compression:Compression;
+ compression:types.Compression;
 }
 
 // The RecordBatch table represents a group of records. Metadata bout the record
@@ -114,5 +102,5 @@ struct MemoryAccess {
 
 root_type LogHeader;
 
-file_identifier "TC.L";
+file_identifier "TC.0";
 file_extension "log";

@@ -1,0 +1,15 @@
+namespace types;
+
+// Compression is the enumeration representing the supported compression
+// algorithms for data sections of log snapshots.
+enum Compression:uint {
+  None, Snappy, Zstd
+}
+
+// Hash represents a OCI hash which pairs an algorithm name to a digest.
+// The digest length depends on the algorithm in use (e.g. 32 bytes for
+// "sha256").
+table Hash {
+ algorithm:string (required);
+ digest:[ubyte] (required);
+}

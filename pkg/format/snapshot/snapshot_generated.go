@@ -3,121 +3,11 @@
 package snapshot
 
 import (
-	"strconv"
 	flatbuffers "github.com/google/flatbuffers/go"
+
+	types "github.com/stealthrocket/timecraft/pkg/format/types"
 )
 
-type Compression uint32
-
-const (
-	CompressionNone   Compression = 0
-	CompressionSnappy Compression = 1
-	CompressionZstd   Compression = 2
-)
-
-var EnumNamesCompression = map[Compression]string{
-	CompressionNone:   "None",
-	CompressionSnappy: "Snappy",
-	CompressionZstd:   "Zstd",
-}
-
-var EnumValuesCompression = map[string]Compression{
-	"None":   CompressionNone,
-	"Snappy": CompressionSnappy,
-	"Zstd":   CompressionZstd,
-}
-
-func (v Compression) String() string {
-	if s, ok := EnumNamesCompression[v]; ok {
-		return s
-	}
-	return "Compression(" + strconv.FormatInt(int64(v), 10) + ")"
-}
-
-type Hash struct {
-	_tab flatbuffers.Table
-}
-
-func GetRootAsHash(buf []byte, offset flatbuffers.UOffsetT) *Hash {
-	n := flatbuffers.GetUOffsetT(buf[offset:])
-	x := &Hash{}
-	x.Init(buf, n+offset)
-	return x
-}
-
-func GetSizePrefixedRootAsHash(buf []byte, offset flatbuffers.UOffsetT) *Hash {
-	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
-	x := &Hash{}
-	x.Init(buf, n+offset+flatbuffers.SizeUint32)
-	return x
-}
-
-func (rcv *Hash) Init(buf []byte, i flatbuffers.UOffsetT) {
-	rcv._tab.Bytes = buf
-	rcv._tab.Pos = i
-}
-
-func (rcv *Hash) Table() flatbuffers.Table {
-	return rcv._tab
-}
-
-func (rcv *Hash) Algorithm() []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		return rcv._tab.ByteVector(o + rcv._tab.Pos)
-	}
-	return nil
-}
-
-func (rcv *Hash) Digest(j int) byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.GetByte(a + flatbuffers.UOffsetT(j*1))
-	}
-	return 0
-}
-
-func (rcv *Hash) DigestLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *Hash) DigestBytes() []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		return rcv._tab.ByteVector(o + rcv._tab.Pos)
-	}
-	return nil
-}
-
-func (rcv *Hash) MutateDigest(j int, n byte) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.MutateByte(a+flatbuffers.UOffsetT(j*1), n)
-	}
-	return false
-}
-
-func HashStart(builder *flatbuffers.Builder) {
-	builder.StartObject(2)
-}
-func HashAddAlgorithm(builder *flatbuffers.Builder, algorithm flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(algorithm), 0)
-}
-func HashAddDigest(builder *flatbuffers.Builder, digest flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(1, flatbuffers.UOffsetT(digest), 0)
-}
-func HashStartDigestVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(1, numElems, 1)
-}
-func HashEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
-	return builder.EndObject()
-}
 type RecordRange struct {
 	_tab flatbuffers.Table
 }
@@ -145,12 +35,12 @@ func (rcv *RecordRange) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-func (rcv *RecordRange) ProcessId(obj *Hash) *Hash {
+func (rcv *RecordRange) ProcessId(obj *types.Hash) *types.Hash {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
 		x := rcv._tab.Indirect(o + rcv._tab.Pos)
 		if obj == nil {
-			obj = new(Hash)
+			obj = new(types.Hash)
 		}
 		obj.Init(rcv._tab.Bytes, x)
 		return obj
@@ -218,15 +108,15 @@ func (rcv *RecordRange) MutateUncompressedSize(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(14, n)
 }
 
-func (rcv *RecordRange) Compression() Compression {
+func (rcv *RecordRange) Compression() types.Compression {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(16))
 	if o != 0 {
-		return Compression(rcv._tab.GetUint32(o + rcv._tab.Pos))
+		return types.Compression(rcv._tab.GetUint32(o + rcv._tab.Pos))
 	}
 	return 0
 }
 
-func (rcv *RecordRange) MutateCompression(n Compression) bool {
+func (rcv *RecordRange) MutateCompression(n types.Compression) bool {
 	return rcv._tab.MutateUint32Slot(16, uint32(n))
 }
 
@@ -242,12 +132,12 @@ func (rcv *RecordRange) MutateChecksum(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(18, n)
 }
 
-func (rcv *RecordRange) OciLayer(obj *Hash) *Hash {
+func (rcv *RecordRange) OciLayer(obj *types.Hash) *types.Hash {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(20))
 	if o != 0 {
 		x := rcv._tab.Indirect(o + rcv._tab.Pos)
 		if obj == nil {
-			obj = new(Hash)
+			obj = new(types.Hash)
 		}
 		obj.Init(rcv._tab.Bytes, x)
 		return obj
@@ -335,7 +225,7 @@ func RecordRangeAddCompressedSize(builder *flatbuffers.Builder, compressedSize u
 func RecordRangeAddUncompressedSize(builder *flatbuffers.Builder, uncompressedSize uint32) {
 	builder.PrependUint32Slot(5, uncompressedSize, 0)
 }
-func RecordRangeAddCompression(builder *flatbuffers.Builder, compression Compression) {
+func RecordRangeAddCompression(builder *flatbuffers.Builder, compression types.Compression) {
 	builder.PrependUint32Slot(6, uint32(compression), 0)
 }
 func RecordRangeAddChecksum(builder *flatbuffers.Builder, checksum uint32) {
@@ -365,6 +255,7 @@ func RecordRangeStartMemoryWritesVector(builder *flatbuffers.Builder, numElems i
 func RecordRangeEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
+
 type OpenFile struct {
 	_tab flatbuffers.Table
 }
@@ -439,6 +330,7 @@ func OpenFileAddPath(builder *flatbuffers.Builder, path flatbuffers.UOffsetT) {
 func OpenFileEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
+
 type OpenHandle struct {
 	_tab flatbuffers.Table
 }
@@ -487,6 +379,7 @@ func OpenHandleAddHandle(builder *flatbuffers.Builder, handle int64) {
 func OpenHandleEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
+
 type MemoryPage struct {
 	_tab flatbuffers.Struct
 }

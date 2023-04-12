@@ -4,35 +4,11 @@ package segment
 
 import (
 	"strconv"
+
 	flatbuffers "github.com/google/flatbuffers/go"
+
+	types "github.com/stealthrocket/timecraft/pkg/format/types"
 )
-
-type Compression uint32
-
-const (
-	CompressionNone   Compression = 0
-	CompressionSnappy Compression = 1
-	CompressionZstd   Compression = 2
-)
-
-var EnumNamesCompression = map[Compression]string{
-	CompressionNone:   "None",
-	CompressionSnappy: "Snappy",
-	CompressionZstd:   "Zstd",
-}
-
-var EnumValuesCompression = map[string]Compression{
-	"None":   CompressionNone,
-	"Snappy": CompressionSnappy,
-	"Zstd":   CompressionZstd,
-}
-
-func (v Compression) String() string {
-	if s, ok := EnumNamesCompression[v]; ok {
-		return s
-	}
-	return "Compression(" + strconv.FormatInt(int64(v), 10) + ")"
-}
 
 type MemoryAccessType uint32
 
@@ -193,6 +169,7 @@ func RuntimeStartFunctionsVector(builder *flatbuffers.Builder, numElems int) fla
 func RuntimeEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
+
 type Function struct {
 	_tab flatbuffers.Struct
 }
@@ -226,90 +203,7 @@ func CreateFunction(builder *flatbuffers.Builder, module uint16, name uint16) fl
 	builder.PrependUint16(module)
 	return builder.Offset()
 }
-type Hash struct {
-	_tab flatbuffers.Table
-}
 
-func GetRootAsHash(buf []byte, offset flatbuffers.UOffsetT) *Hash {
-	n := flatbuffers.GetUOffsetT(buf[offset:])
-	x := &Hash{}
-	x.Init(buf, n+offset)
-	return x
-}
-
-func GetSizePrefixedRootAsHash(buf []byte, offset flatbuffers.UOffsetT) *Hash {
-	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
-	x := &Hash{}
-	x.Init(buf, n+offset+flatbuffers.SizeUint32)
-	return x
-}
-
-func (rcv *Hash) Init(buf []byte, i flatbuffers.UOffsetT) {
-	rcv._tab.Bytes = buf
-	rcv._tab.Pos = i
-}
-
-func (rcv *Hash) Table() flatbuffers.Table {
-	return rcv._tab
-}
-
-func (rcv *Hash) Algorithm() []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		return rcv._tab.ByteVector(o + rcv._tab.Pos)
-	}
-	return nil
-}
-
-func (rcv *Hash) Digest(j int) byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.GetByte(a + flatbuffers.UOffsetT(j*1))
-	}
-	return 0
-}
-
-func (rcv *Hash) DigestLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *Hash) DigestBytes() []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		return rcv._tab.ByteVector(o + rcv._tab.Pos)
-	}
-	return nil
-}
-
-func (rcv *Hash) MutateDigest(j int, n byte) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.MutateByte(a+flatbuffers.UOffsetT(j*1), n)
-	}
-	return false
-}
-
-func HashStart(builder *flatbuffers.Builder) {
-	builder.StartObject(2)
-}
-func HashAddAlgorithm(builder *flatbuffers.Builder, algorithm flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(algorithm), 0)
-}
-func HashAddDigest(builder *flatbuffers.Builder, digest flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(1, flatbuffers.UOffsetT(digest), 0)
-}
-func HashStartDigestVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(1, numElems, 1)
-}
-func HashEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
-	return builder.EndObject()
-}
 type Process struct {
 	_tab flatbuffers.Table
 }
@@ -337,12 +231,25 @@ func (rcv *Process) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-func (rcv *Process) Id(obj *Hash) *Hash {
+func (rcv *Process) Id(obj *types.Hash) *types.Hash {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
 		x := rcv._tab.Indirect(o + rcv._tab.Pos)
 		if obj == nil {
-			obj = new(Hash)
+			obj = new(types.Hash)
+		}
+		obj.Init(rcv._tab.Bytes, x)
+		return obj
+	}
+	return nil
+}
+
+func (rcv *Process) Image(obj *types.Hash) *types.Hash {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
+	if o != 0 {
+		x := rcv._tab.Indirect(o + rcv._tab.Pos)
+		if obj == nil {
+			obj = new(types.Hash)
 		}
 		obj.Init(rcv._tab.Bytes, x)
 		return obj
@@ -351,7 +258,7 @@ func (rcv *Process) Id(obj *Hash) *Hash {
 }
 
 func (rcv *Process) UnixStartTime() int64 {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
 		return rcv._tab.GetInt64(o + rcv._tab.Pos)
 	}
@@ -359,20 +266,7 @@ func (rcv *Process) UnixStartTime() int64 {
 }
 
 func (rcv *Process) MutateUnixStartTime(n int64) bool {
-	return rcv._tab.MutateInt64Slot(6, n)
-}
-
-func (rcv *Process) Image(obj *Hash) *Hash {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
-	if o != 0 {
-		x := rcv._tab.Indirect(o + rcv._tab.Pos)
-		if obj == nil {
-			obj = new(Hash)
-		}
-		obj.Init(rcv._tab.Bytes, x)
-		return obj
-	}
-	return nil
+	return rcv._tab.MutateInt64Slot(8, n)
 }
 
 func (rcv *Process) Arguments(j int) []byte {
@@ -409,12 +303,12 @@ func (rcv *Process) EnvironmentLength() int {
 	return 0
 }
 
-func (rcv *Process) ParentProcessId(obj *Hash) *Hash {
+func (rcv *Process) ParentProcessId(obj *types.Hash) *types.Hash {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
 	if o != 0 {
 		x := rcv._tab.Indirect(o + rcv._tab.Pos)
 		if obj == nil {
-			obj = new(Hash)
+			obj = new(types.Hash)
 		}
 		obj.Init(rcv._tab.Bytes, x)
 		return obj
@@ -440,11 +334,11 @@ func ProcessStart(builder *flatbuffers.Builder) {
 func ProcessAddId(builder *flatbuffers.Builder, id flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(id), 0)
 }
-func ProcessAddUnixStartTime(builder *flatbuffers.Builder, unixStartTime int64) {
-	builder.PrependInt64Slot(1, unixStartTime, 0)
-}
 func ProcessAddImage(builder *flatbuffers.Builder, image flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(2, flatbuffers.UOffsetT(image), 0)
+	builder.PrependUOffsetTSlot(1, flatbuffers.UOffsetT(image), 0)
+}
+func ProcessAddUnixStartTime(builder *flatbuffers.Builder, unixStartTime int64) {
+	builder.PrependInt64Slot(2, unixStartTime, 0)
 }
 func ProcessAddArguments(builder *flatbuffers.Builder, arguments flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(3, flatbuffers.UOffsetT(arguments), 0)
@@ -467,6 +361,7 @@ func ProcessAddParentForkOffset(builder *flatbuffers.Builder, parentForkOffset i
 func ProcessEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
+
 type LogHeader struct {
 	_tab flatbuffers.Table
 }
@@ -532,15 +427,15 @@ func (rcv *LogHeader) MutateSegment(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(8, n)
 }
 
-func (rcv *LogHeader) Compression() Compression {
+func (rcv *LogHeader) Compression() types.Compression {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
 	if o != 0 {
-		return Compression(rcv._tab.GetUint32(o + rcv._tab.Pos))
+		return types.Compression(rcv._tab.GetUint32(o + rcv._tab.Pos))
 	}
 	return 0
 }
 
-func (rcv *LogHeader) MutateCompression(n Compression) bool {
+func (rcv *LogHeader) MutateCompression(n types.Compression) bool {
 	return rcv._tab.MutateUint32Slot(10, uint32(n))
 }
 
@@ -556,12 +451,13 @@ func LogHeaderAddProcess(builder *flatbuffers.Builder, process flatbuffers.UOffs
 func LogHeaderAddSegment(builder *flatbuffers.Builder, segment uint32) {
 	builder.PrependUint32Slot(2, segment, 0)
 }
-func LogHeaderAddCompression(builder *flatbuffers.Builder, compression Compression) {
+func LogHeaderAddCompression(builder *flatbuffers.Builder, compression types.Compression) {
 	builder.PrependUint32Slot(3, uint32(compression), 0)
 }
 func LogHeaderEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
+
 type RecordBatch struct {
 	_tab flatbuffers.Table
 }
@@ -666,6 +562,7 @@ func RecordBatchStartRecordsVector(builder *flatbuffers.Builder, numElems int) f
 func RecordBatchEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
+
 type Record struct {
 	_tab flatbuffers.Table
 }
@@ -848,6 +745,7 @@ func RecordStartMemoryAccessVector(builder *flatbuffers.Builder, numElems int) f
 func RecordEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
+
 type MemoryAccess struct {
 	_tab flatbuffers.Struct
 }

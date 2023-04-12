@@ -1,18 +1,6 @@
+include "../types/types.fbs";
+
 namespace snapshot;
-
-// Compression is the enumeration representing the supported compression
-// algorithms for data sections of log snapshots.
-enum Compression:uint {
-  None, Snappy, Zstd
-}
-
-// Hash represents a OCI hash which pairs an algorithm name to a digest.
-// The digest length depends on the algorithm in use (e.g. 32 bytes for
-// "sha256").
-table Hash {
- algorithm:string (required);
- digest:[ubyte] (required);
-}
 
 // RecordRange represents the snapshot of mutations that occured over a
 // range of log records.
@@ -20,7 +8,7 @@ table RecordRange {
  // Unique identifier of the process that the range was snapshot was generated
  // from. This is useful to retrieve other metadata about the process from its
  // own log records.
- process_id:Hash;
+ process_id:types.Hash;
  // Timestamp of the first record in the range, computed by adding the record's
  // monotonic timestamp to the process' unix start time.
  start_timestamp:long;
@@ -33,12 +21,12 @@ table RecordRange {
  // Uncompressed size of the record range data section (in bytes).
  uncompressed_size:uint;
  // Compression algorithm used to encode the record range data sections.
- compression:Compression;
+ compression:types.Compression;
  // CRC32 cheksum of the record range data section (Castagnoli).
  checksum:uint;
  // Unique identifier for the OCI layer which records the file system mutations
  // that occured through the file range.
- oci_layer:Hash;
+ oci_layer:types.Hash;
  // List of files opened at the end the range.
  open_files:[OpenFile];
  // List of handles opened at the end the range.
@@ -70,5 +58,5 @@ struct MemoryPage {
 
 root_type RecordRange;
 
-file_identifier "TC.S";
+file_identifier "TC.1";
 file_extension "snap";

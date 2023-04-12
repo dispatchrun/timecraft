@@ -38,5 +38,8 @@ testdata: $(timecraft.testdata.wasm)
 %_test.wasm: %_test.go
 	GOROOT=$(PWD)/../go GOARCH=wasm GOOS=wasip1 ../go/bin/go test -tags timecraft -c -o $@ $<
 
+# We run goimports because the flatc compiler sometimes adds an unused import of
+# strconv.
 %_generated.go: %.fbs
-	flatc --go --gen-onefile --go-namespace $(basename $(notdir $<)) -o $(dir $@) $<
+	flatc --go --gen-onefile --go-namespace $(basename $(notdir $<)) --go-module-name github.com/stealthrocket/timecraft/pkg/format -o $(dir $@) $<
+	goimports -w $@
