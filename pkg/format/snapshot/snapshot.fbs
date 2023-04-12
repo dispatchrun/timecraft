@@ -6,29 +6,69 @@ enum Compression:uint {
   None, Snappy, Zstd
 }
 
-table LogSnapshot {
+// Hash represents a OCI hash which pairs an algorithm name to a digest.
+// The digest length depends on the algorithm in use (e.g. 32 bytes for
+// "sha256").
+table Hash {
+ algorithm:string (required);
+ digest:[ubyte] (required);
+}
+
+// RecordRange represents the snapshot of mutations that occured over a
+// range of log records.
+table RecordRange {
+ // Unique identifier of the process that the range was snapshot was generated
+ // from. This is useful to retrieve other metadata about the process from its
+ // own log records.
  process_id:[ubyte];
- first_offset:long;
- last_offset:long;
- checksum:uint;
+ // Timestamp of the first record in the range, computed by adding the record's
+ // monotonic timestamp to the process' unix start time.
+ start_timestamp:long;
+ // Position of the first record of the range in the original process log.
+ start_offset:long;
+ // Number of compacted records in the range.
+ num_records:long;
+ // Compressed size of the record range data section (in bytes).
+ compressed_size:uint;
+ // Uncompressed size of the record range data section (in bytes).
+ uncompressed_size:uint;
+ // Compression algorithm used to encode the record range data sections.
  compression:Compression;
- memory_pages:[MemoryPage];
+ // CRC32 cheksum of the record range data section (Castagnoli).
+ checksum:uint;
+ // Unique identifier for the OCI layer which records the file system mutations
+ // that occured through the file range.
+ oci_layer:Hash;
+ // List of files opened at the end the range.
  open_files:[OpenFile];
+ // List of handles opened at the end the range.
+ open_handles:[OpenHandle];
+ // List of memory writes to apply at the end of the range.
+ memory_writes:[MemoryPage];
 }
 
-struct MemoryPage {
- memory_offset:uint;
- record_offset:uint;
-}
-
+// OpenFile represents a file that was opened at the end of a record range.
 table OpenFile {
  fd:int;
  seek:long;
  path:string;
 }
 
-root_type LogSnapshot;
+// OpenHandle represents a handle that was opened at the end of a record range.
+table OpenHandle {
+ handle:long;
+}
 
-file_identifier "SNAP";
+// MemoryPage captures the positions of memory pages that were touched in a
+// record range. The fields are expressed in page numbers, the WebAssembly page
+// size is 64 KiB. The mapping associates the page number in the process memory
+// to the page number is the record data section following a record range.
+struct MemoryPage {
+ memory_page_number:ushort;
+ record_page_number:ushort;
+}
+
+root_type RecordRange;
+
+file_identifier "TC.S";
 file_extension "snap";
-

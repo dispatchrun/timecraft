@@ -39,4 +39,4 @@ testdata: $(timecraft.testdata.wasm)
 	GOROOT=$(PWD)/../go GOARCH=wasm GOOS=wasip1 ../go/bin/go test -tags timecraft -c -o $@ $<
 
 %_generated.go: %.fbs
-	flatc --go --gen-onefile -o $(dir $@) $<
+	flatc --go --gen-onefile --go-namespace $(basename $(notdir $<)) -o $(dir $@) $<

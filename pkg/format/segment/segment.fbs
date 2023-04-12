@@ -12,20 +12,27 @@ table Runtime {
 // Function represents a function from a host module. The function contains
 // indexes in the runtime names section for the module and function names.
 struct Function {
- module:uint;
- name:uint;
+ module:ushort;
+ name:ushort;
+}
+
+// Hash represents a OCI hash which pairs a algorithm name to a digest.
+// The digest length depends on the algorithm in use (e.g. 32 bytes for
+// "sha256").
+table Hash {
+ algorithm:string (required);
+ digest:[ubyte] (required);
 }
 
 // Process contains information about the process that the log was recorded for.
 table Process {
  // A globally unique identifier for the process.
  id:[ubyte] (required);
- // The unix start time of the process.
+ // The unix start time of the process (in nanoseconds).
  unix_start_time:long;
- // URI of the WebAssembly module that the process was instantiated from.
- // This field is useful to know where to locate the process in order to
- // recreate its state from the records.
- module:string (required);
+ // OCI identifier of the WebAssembly module image that the process was
+ // instantiated from.
+ image:Hash (required);
  // List of arguments passed to the process when it was started.
  arguments:[string];
  // List of environment variables passed to the process when it was started.
@@ -36,18 +43,19 @@ table Process {
  parent_fork_offset:long;
 }
 
-// LogHeader represents the very first section of the log recording information
+// Compression is the enumeration representing the supported compression
+// algorithms for data sections of log segments.
+enum Compression:uint {
+  None, Snappy, Zstd
+}
+
+// Header represents the very first section of the log recording information
 // about the runtime and the process being recorded.
 table LogHeader {
  runtime:Runtime (required);
  process:Process (required);
  segment:uint; // index of the log segment
-}
-
-// Compression is the enumeration representing the supported compression
-// algorithms for data sections of log segments.
-enum Compression:uint {
-  None, Snappy, Zstd
+ compression:Compression;
 }
 
 // The RecordBatch table represents a group of records. Metadata bout the record
@@ -60,8 +68,6 @@ table RecordBatch {
  uncompressed_size:uint;
  // CRC32 checksum of the memory snapshots (Castagnoli).
  checksum:uint;
- // Compression algorithm used to encode the memory snapshots.
- compression:Compression;
  // List of records that are part of the batch.
  records:[Record];
 }
@@ -73,14 +79,13 @@ table Record {
  // invocation time (expressed in nanoseconds).
  timestamp:long;
  // Index in the Runtime function table.
- function:uint;
+ function:ushort;
  // State of the WebAssembly stack when the function was called and when it
  // returned.
- params:[ulong];
- results:[ulong];
+ params:[ulong]; results:[ulong];
  // Offset and length of the record in the uncompressed record data following
- // the record batch header. This contains all the memory access performed by
- // the function call.
+ // the record batch. This contains all the memory access performed by the
+ // function call.
  offset:uint;
  length:uint;
  // Sections of the record containing snapshots of each memory access done by
@@ -109,5 +114,5 @@ struct MemoryAccess {
 
 root_type LogHeader;
 
-file_identifier "LOG\x00";
+file_identifier "TC.L";
 file_extension "log";
