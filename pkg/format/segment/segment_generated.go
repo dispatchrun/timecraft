@@ -124,7 +124,7 @@ func (rcv *Runtime) Functions(obj *Function, j int) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
 	if o != 0 {
 		x := rcv._tab.Vector(o)
-		x += flatbuffers.UOffsetT(j) * 4
+		x += flatbuffers.UOffsetT(j) * 8
 		obj.Init(rcv._tab.Bytes, x)
 		return true
 	}
@@ -164,7 +164,7 @@ func RuntimeAddFunctions(builder *flatbuffers.Builder, functions flatbuffers.UOf
 	builder.PrependUOffsetTSlot(4, flatbuffers.UOffsetT(functions), 0)
 }
 func RuntimeStartFunctionsVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(4, numElems, 2)
+	return builder.StartVector(8, numElems, 4)
 }
 func RuntimeEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
@@ -183,24 +183,24 @@ func (rcv *Function) Table() flatbuffers.Table {
 	return rcv._tab.Table
 }
 
-func (rcv *Function) Module() uint16 {
-	return rcv._tab.GetUint16(rcv._tab.Pos + flatbuffers.UOffsetT(0))
+func (rcv *Function) Module() uint32 {
+	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(0))
 }
-func (rcv *Function) MutateModule(n uint16) bool {
-	return rcv._tab.MutateUint16(rcv._tab.Pos+flatbuffers.UOffsetT(0), n)
-}
-
-func (rcv *Function) Name() uint16 {
-	return rcv._tab.GetUint16(rcv._tab.Pos + flatbuffers.UOffsetT(2))
-}
-func (rcv *Function) MutateName(n uint16) bool {
-	return rcv._tab.MutateUint16(rcv._tab.Pos+flatbuffers.UOffsetT(2), n)
+func (rcv *Function) MutateModule(n uint32) bool {
+	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(0), n)
 }
 
-func CreateFunction(builder *flatbuffers.Builder, module uint16, name uint16) flatbuffers.UOffsetT {
-	builder.Prep(2, 4)
-	builder.PrependUint16(name)
-	builder.PrependUint16(module)
+func (rcv *Function) Name() uint32 {
+	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(4))
+}
+func (rcv *Function) MutateName(n uint32) bool {
+	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(4), n)
+}
+
+func CreateFunction(builder *flatbuffers.Builder, module uint32, name uint32) flatbuffers.UOffsetT {
+	builder.Prep(4, 8)
+	builder.PrependUint32(name)
+	builder.PrependUint32(module)
 	return builder.Offset()
 }
 
@@ -650,16 +650,16 @@ func (rcv *Record) MutateTimestamp(n int64) bool {
 	return rcv._tab.MutateInt64Slot(4, n)
 }
 
-func (rcv *Record) Function() uint16 {
+func (rcv *Record) Function() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
 	if o != 0 {
-		return rcv._tab.GetUint16(o + rcv._tab.Pos)
+		return rcv._tab.GetUint32(o + rcv._tab.Pos)
 	}
 	return 0
 }
 
-func (rcv *Record) MutateFunction(n uint16) bool {
-	return rcv._tab.MutateUint16Slot(6, n)
+func (rcv *Record) MutateFunction(n uint32) bool {
+	return rcv._tab.MutateUint32Slot(6, n)
 }
 
 func (rcv *Record) Params(j int) uint64 {
@@ -763,8 +763,8 @@ func RecordStart(builder *flatbuffers.Builder) {
 func RecordAddTimestamp(builder *flatbuffers.Builder, timestamp int64) {
 	builder.PrependInt64Slot(0, timestamp, 0)
 }
-func RecordAddFunction(builder *flatbuffers.Builder, function uint16) {
-	builder.PrependUint16Slot(1, function, 0)
+func RecordAddFunction(builder *flatbuffers.Builder, function uint32) {
+	builder.PrependUint32Slot(1, function, 0)
 }
 func RecordAddParams(builder *flatbuffers.Builder, params flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(2, flatbuffers.UOffsetT(params), 0)

@@ -14,8 +14,8 @@ table Runtime {
 // Function represents a function from a host module. The function contains
 // indexes in the runtime names section for the module and function names.
 struct Function {
- module:ushort;
- name:ushort;
+ module:uint;
+ name:uint;
 }
 
 // Process contains information about the process that the log was recorded for.
@@ -67,7 +67,7 @@ table Record {
  // invocation time (expressed in nanoseconds).
  timestamp:long;
  // Index in the Runtime function table.
- function:ushort;
+ function:uint;
  // State of the WebAssembly stack when the function was called and when it
  // returned.
  params:[ulong]; results:[ulong];
