@@ -337,38 +337,17 @@ func (rcv *Process) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-func (rcv *Process) Id(j int) byte {
+func (rcv *Process) Id(obj *Hash) *Hash {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.GetByte(a + flatbuffers.UOffsetT(j*1))
-	}
-	return 0
-}
-
-func (rcv *Process) IdLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *Process) IdBytes() []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		return rcv._tab.ByteVector(o + rcv._tab.Pos)
+		x := rcv._tab.Indirect(o + rcv._tab.Pos)
+		if obj == nil {
+			obj = new(Hash)
+		}
+		obj.Init(rcv._tab.Bytes, x)
+		return obj
 	}
 	return nil
-}
-
-func (rcv *Process) MutateId(j int, n byte) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.MutateByte(a+flatbuffers.UOffsetT(j*1), n)
-	}
-	return false
 }
 
 func (rcv *Process) UnixStartTime() int64 {
@@ -430,38 +409,17 @@ func (rcv *Process) EnvironmentLength() int {
 	return 0
 }
 
-func (rcv *Process) ParentProcessId(j int) byte {
+func (rcv *Process) ParentProcessId(obj *Hash) *Hash {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
 	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.GetByte(a + flatbuffers.UOffsetT(j*1))
-	}
-	return 0
-}
-
-func (rcv *Process) ParentProcessIdLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *Process) ParentProcessIdBytes() []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
-	if o != 0 {
-		return rcv._tab.ByteVector(o + rcv._tab.Pos)
+		x := rcv._tab.Indirect(o + rcv._tab.Pos)
+		if obj == nil {
+			obj = new(Hash)
+		}
+		obj.Init(rcv._tab.Bytes, x)
+		return obj
 	}
 	return nil
-}
-
-func (rcv *Process) MutateParentProcessId(j int, n byte) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.MutateByte(a+flatbuffers.UOffsetT(j*1), n)
-	}
-	return false
 }
 
 func (rcv *Process) ParentForkOffset() int64 {
@@ -481,9 +439,6 @@ func ProcessStart(builder *flatbuffers.Builder) {
 }
 func ProcessAddId(builder *flatbuffers.Builder, id flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(id), 0)
-}
-func ProcessStartIdVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(1, numElems, 1)
 }
 func ProcessAddUnixStartTime(builder *flatbuffers.Builder, unixStartTime int64) {
 	builder.PrependInt64Slot(1, unixStartTime, 0)
@@ -505,9 +460,6 @@ func ProcessStartEnvironmentVector(builder *flatbuffers.Builder, numElems int) f
 }
 func ProcessAddParentProcessId(builder *flatbuffers.Builder, parentProcessId flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(5, flatbuffers.UOffsetT(parentProcessId), 0)
-}
-func ProcessStartParentProcessIdVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(1, numElems, 1)
 }
 func ProcessAddParentForkOffset(builder *flatbuffers.Builder, parentForkOffset int64) {
 	builder.PrependInt64Slot(6, parentForkOffset, 0)

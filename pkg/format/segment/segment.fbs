@@ -27,7 +27,7 @@ table Hash {
 // Process contains information about the process that the log was recorded for.
 table Process {
  // A globally unique identifier for the process.
- id:[ubyte] (required);
+ id:Hash (required);
  // The unix start time of the process (in nanoseconds).
  unix_start_time:long;
  // OCI identifier of the WebAssembly module image that the process was
@@ -38,7 +38,7 @@ table Process {
  // List of environment variables passed to the process when it was started.
  environment:[string];
  // Unique identifier of the parent that created this process (may be zero).
- parent_process_id:[ubyte];
+ parent_process_id:Hash;
  // Logical offset in the parent log of the host call that created the process.
  parent_fork_offset:long;
 }
