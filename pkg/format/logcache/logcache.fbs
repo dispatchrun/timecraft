@@ -1,0 +1,26 @@
+include "../types/types.fbs";
+
+namespace logcache;
+
+// RecordSet is the type used to represent files that hold cached records.
+//
+// The file is designed to contain one or more records. The intent is to
+// support grouping together caches of records that are likely to be accessed
+// together (e.g. multiple stages of a transation). Bulk lookup operations
+// can then hit a single record set, which causes a single update of the LRU
+// and single access to the storage layer.
+table RecordSet {
+  // Unique identifier of the process that the records belonged to.
+ process_id:[ubyte] (required);
+ // CRC32 checksum of the records data (Castagnoli).
+ checksum:uint;
+ // Log offsets of each record stored in the set.
+ offsets:[long];
+ // List of records stored in the set.
+ records:[types.Record];
+}
+
+root_type RecordSet;
+
+file_identifier "TC.3";
+file_extension "records";

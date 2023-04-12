@@ -6,34 +6,34 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
-type File struct {
+type RecordIndex struct {
 	_tab flatbuffers.Table
 }
 
-func GetRootAsFile(buf []byte, offset flatbuffers.UOffsetT) *File {
+func GetRootAsRecordIndex(buf []byte, offset flatbuffers.UOffsetT) *RecordIndex {
 	n := flatbuffers.GetUOffsetT(buf[offset:])
-	x := &File{}
+	x := &RecordIndex{}
 	x.Init(buf, n+offset)
 	return x
 }
 
-func GetSizePrefixedRootAsFile(buf []byte, offset flatbuffers.UOffsetT) *File {
+func GetSizePrefixedRootAsRecordIndex(buf []byte, offset flatbuffers.UOffsetT) *RecordIndex {
 	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
-	x := &File{}
+	x := &RecordIndex{}
 	x.Init(buf, n+offset+flatbuffers.SizeUint32)
 	return x
 }
 
-func (rcv *File) Init(buf []byte, i flatbuffers.UOffsetT) {
+func (rcv *RecordIndex) Init(buf []byte, i flatbuffers.UOffsetT) {
 	rcv._tab.Bytes = buf
 	rcv._tab.Pos = i
 }
 
-func (rcv *File) Table() flatbuffers.Table {
+func (rcv *RecordIndex) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-func (rcv *File) ProcessId(j int) byte {
+func (rcv *RecordIndex) ProcessId(j int) byte {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
 		a := rcv._tab.Vector(o)
@@ -42,7 +42,7 @@ func (rcv *File) ProcessId(j int) byte {
 	return 0
 }
 
-func (rcv *File) ProcessIdLength() int {
+func (rcv *RecordIndex) ProcessIdLength() int {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
 		return rcv._tab.VectorLen(o)
@@ -50,7 +50,7 @@ func (rcv *File) ProcessIdLength() int {
 	return 0
 }
 
-func (rcv *File) ProcessIdBytes() []byte {
+func (rcv *RecordIndex) ProcessIdBytes() []byte {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
 		return rcv._tab.ByteVector(o + rcv._tab.Pos)
@@ -58,7 +58,7 @@ func (rcv *File) ProcessIdBytes() []byte {
 	return nil
 }
 
-func (rcv *File) MutateProcessId(j int, n byte) bool {
+func (rcv *RecordIndex) MutateProcessId(j int, n byte) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
 		a := rcv._tab.Vector(o)
@@ -67,7 +67,7 @@ func (rcv *File) MutateProcessId(j int, n byte) bool {
 	return false
 }
 
-func (rcv *File) Segment() uint32 {
+func (rcv *RecordIndex) Segment() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
 	if o != 0 {
 		return rcv._tab.GetUint32(o + rcv._tab.Pos)
@@ -75,11 +75,11 @@ func (rcv *File) Segment() uint32 {
 	return 0
 }
 
-func (rcv *File) MutateSegment(n uint32) bool {
+func (rcv *RecordIndex) MutateSegment(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(6, n)
 }
 
-func (rcv *File) Index(obj *Entry, j int) bool {
+func (rcv *RecordIndex) Index(obj *Entry, j int) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
 		x := rcv._tab.Vector(o)
@@ -90,7 +90,7 @@ func (rcv *File) Index(obj *Entry, j int) bool {
 	return false
 }
 
-func (rcv *File) IndexLength() int {
+func (rcv *RecordIndex) IndexLength() int {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
 		return rcv._tab.VectorLen(o)
@@ -98,25 +98,25 @@ func (rcv *File) IndexLength() int {
 	return 0
 }
 
-func FileStart(builder *flatbuffers.Builder) {
+func RecordIndexStart(builder *flatbuffers.Builder) {
 	builder.StartObject(3)
 }
-func FileAddProcessId(builder *flatbuffers.Builder, processId flatbuffers.UOffsetT) {
+func RecordIndexAddProcessId(builder *flatbuffers.Builder, processId flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(processId), 0)
 }
-func FileStartProcessIdVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
+func RecordIndexStartProcessIdVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
 	return builder.StartVector(1, numElems, 1)
 }
-func FileAddSegment(builder *flatbuffers.Builder, segment uint32) {
+func RecordIndexAddSegment(builder *flatbuffers.Builder, segment uint32) {
 	builder.PrependUint32Slot(1, segment, 0)
 }
-func FileAddIndex(builder *flatbuffers.Builder, index flatbuffers.UOffsetT) {
+func RecordIndexAddIndex(builder *flatbuffers.Builder, index flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(2, flatbuffers.UOffsetT(index), 0)
 }
-func FileStartIndexVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
+func RecordIndexStartIndexVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
 	return builder.StartVector(16, numElems, 8)
 }
-func FileEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
+func RecordIndexEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
 

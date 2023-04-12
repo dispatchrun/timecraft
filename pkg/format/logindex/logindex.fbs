@@ -1,6 +1,6 @@
 namespace logindex;
 
-table File {
+table RecordIndex {
  // Unique identifier of the process that the range was index was generated
  // from.
  process_id:[ubyte];
@@ -15,7 +15,7 @@ struct Entry {
  value:ulong;
 }
 
-root_type File;
+root_type RecordIndex;
 
 file_identifier "TC.2";
 file_extension "index";
