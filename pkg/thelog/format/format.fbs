@@ -112,3 +112,6 @@ struct MemoryAccess {
  // Type of the recorded memory access (read or write).
  access:MemoryAccessType;
 }
+
+root_type LogHeader;
+root_type RecordBatch;
