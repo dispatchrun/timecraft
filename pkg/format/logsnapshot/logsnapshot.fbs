@@ -1,6 +1,6 @@
 include "../types/types.fbs";
 
-namespace snapshot;
+namespace logsnapshot;
 
 // RecordRange represents the snapshot of mutations that occured over a
 // range of log records.
@@ -16,6 +16,10 @@ table RecordRange {
  start_offset:long;
  // Number of compacted records in the range.
  num_records:long;
+ // Index of the first log segment that this record range was generated from.
+ start_segment:uint;
+ // Number of log segments included in this record range.
+ num_segments:uint;
  // Compressed size of the record range data section (in bytes).
  compressed_size:uint;
  // Uncompressed size of the record range data section (in bytes).
@@ -59,4 +63,4 @@ struct MemoryPage {
 root_type RecordRange;
 
 file_identifier "TC.1";
-file_extension "snap";
+file_extension "snapshot";

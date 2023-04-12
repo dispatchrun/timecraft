@@ -1,0 +1,22 @@
+namespace offsetindex;
+
+table File {
+ // Unique identifier of the process that the range was index was generated
+ // from.
+ process_id:[ubyte];
+ // Log segment that this index file was generated for.
+ segment:uint;
+ // The actual index mapping start offsets of record batches to their positions
+ // in the log file.
+ record_batch_offsets:[RecordBatchLocation];
+}
+
+struct RecordBatchLocation {
+ start_offset:long;
+ file_offset:long;
+}
+
+root_type File;
+
+file_identifier "TC.2";
+file_extension "index";

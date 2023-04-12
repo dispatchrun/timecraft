@@ -1,6 +1,6 @@
 include "../types/types.fbs";
 
-namespace segment;
+namespace logsegment;
 
 // Runtime captures information about the runtime that recorded the log.
 table Runtime {
