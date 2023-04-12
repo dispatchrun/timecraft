@@ -1,10 +1,17 @@
-.PHONY: clean flatbuffers test testdata
+.PHONY: clean flatbuffers generate test testdata
 .PRECIOUS: %.wasm
 
 pkg.src.go = \
 	$(wildcard pkg/*/*.go)
 
-timecraft.src.go = $(pkg.src.go) \
+format.src.fbs = \
+	$(wildcard pkg/format/*/*.fbs)
+format.src.go = \
+	$(format.src.fbs:.fbs=_generated.go)
+
+timecraft.src.go = \
+	$(format.src.go) \
+	$(pkg.src.go) \
 	$(wildcard *.go) \
 	$(wildcard cmd/*.go)
 
@@ -13,25 +20,23 @@ timecraft.testdata.go = \
 timecraft.testdata.wasm = \
 	$(timecraft.testdata.go:_test.go=_test.wasm)
 
-thelog.format.fbs = pkg/thelog/format/format.fbs
-thelog.format.go = $(thelog.format.fbs:.fbs=_generated.go)
-
-timecraft: go.mod flatbuffers $(timecraft.src.go)
+timecraft: go.mod $(timecraft.src.go)
 	go build -o timecraft
 
 clean:
-	rm -f timecraft $(timecraft.testdata.wasm) $(thelog.format.go)
+	rm -f timecraft $(timecraft.testdata.wasm) $(format.src.go)
+
+generate: flatbuffers
+
+flatbuffers: go.mod $(format.src.go)
 
 test: flatbuffers testdata
 	go test -v ./...
 
 testdata: $(timecraft.testdata.wasm)
 
-flatbuffers: $(thelog.format.go)
-
 %_test.wasm: %_test.go
 	GOROOT=$(PWD)/../go GOARCH=wasm GOOS=wasip1 ../go/bin/go test -tags timecraft -c -o $@ $<
 
 %_generated.go: %.fbs
-	flatc --go --go-namespace format --gen-onefile $<
-	mv $(notdir $@) $@
+	flatc --go --gen-onefile -o $(dir $@) $<

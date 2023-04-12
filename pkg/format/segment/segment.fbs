@@ -1,4 +1,4 @@
-namespace format;
+namespace segment;
 
 // Runtime captures information about the runtime that recorded the log.
 table Runtime {
@@ -44,7 +44,9 @@ table LogHeader {
  segment:uint; // index of the log segment
 }
 
-enum Compression:byte {
+// Compression is the enumeration representing the supported compression
+// algorithms for data sections of log segments.
+enum Compression:uint {
   None, Snappy, Zstd
 }
 
@@ -106,4 +108,6 @@ struct MemoryAccess {
 }
 
 root_type LogHeader;
-root_type RecordBatch;
+
+file_identifier "LOG\x00";
+file_extension "log";

@@ -1,0 +1,34 @@
+namespace snapshot;
+
+// Compression is the enumeration representing the supported compression
+// algorithms for data sections of log snapshots.
+enum Compression:uint {
+  None, Snappy, Zstd
+}
+
+table LogSnapshot {
+ process_id:[ubyte];
+ first_offset:long;
+ last_offset:long;
+ checksum:uint;
+ compression:Compression;
+ memory_pages:[MemoryPage];
+ open_files:[OpenFile];
+}
+
+struct MemoryPage {
+ memory_offset:uint;
+ record_offset:uint;
+}
+
+table OpenFile {
+ fd:int;
+ seek:long;
+ path:string;
+}
+
+root_type LogSnapshot;
+
+file_identifier "SNAP";
+file_extension "snap";
+
