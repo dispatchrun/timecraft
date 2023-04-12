@@ -11,8 +11,8 @@ table Runtime {
 
 // Function represents a function from a host module.
 table Function {
- module:string;
- name:string;
+ module:string (required);
+ name:string (required);
 }
 
 // Process contains information about the process that the log was recorded for.
