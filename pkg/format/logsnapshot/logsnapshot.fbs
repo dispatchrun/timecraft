@@ -62,5 +62,5 @@ struct MemoryPage {
 
 root_type RecordRange;
 
-file_identifier "TC.1";
+file_identifier "TL.1";
 file_extension "snapshot";

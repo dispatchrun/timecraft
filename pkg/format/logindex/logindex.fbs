@@ -17,5 +17,5 @@ struct Entry {
 
 root_type RecordIndex;
 
-file_identifier "TC.2";
+file_identifier "TL.2";
 file_extension "index";

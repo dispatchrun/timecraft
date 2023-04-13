@@ -22,5 +22,5 @@ table RecordSet {
 
 root_type RecordSet;
 
-file_identifier "TC.3";
+file_identifier "TL.3";
 file_extension "records";
