@@ -1,9 +1,11 @@
+include "../types/types.fbs";
+
 namespace logindex;
 
 table RecordIndex {
  // Unique identifier of the process that the range was index was generated
  // from.
- process_id:[ubyte];
+ process_id:types.Hash;
  // Log segment that this index file was generated for.
  segment:uint;
  // The actual index mapping keys to file locations as absolute byte offsets.

@@ -4,6 +4,8 @@ package logindex
 
 import (
 	flatbuffers "github.com/google/flatbuffers/go"
+
+	types "github.com/stealthrocket/timecraft/pkg/format/types"
 )
 
 type RecordIndex struct {
@@ -33,38 +35,17 @@ func (rcv *RecordIndex) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-func (rcv *RecordIndex) ProcessId(j int) byte {
+func (rcv *RecordIndex) ProcessId(obj *types.Hash) *types.Hash {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.GetByte(a + flatbuffers.UOffsetT(j*1))
-	}
-	return 0
-}
-
-func (rcv *RecordIndex) ProcessIdLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *RecordIndex) ProcessIdBytes() []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		return rcv._tab.ByteVector(o + rcv._tab.Pos)
+		x := rcv._tab.Indirect(o + rcv._tab.Pos)
+		if obj == nil {
+			obj = new(types.Hash)
+		}
+		obj.Init(rcv._tab.Bytes, x)
+		return obj
 	}
 	return nil
-}
-
-func (rcv *RecordIndex) MutateProcessId(j int, n byte) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.MutateByte(a+flatbuffers.UOffsetT(j*1), n)
-	}
-	return false
 }
 
 func (rcv *RecordIndex) Segment() uint32 {
@@ -103,9 +84,6 @@ func RecordIndexStart(builder *flatbuffers.Builder) {
 }
 func RecordIndexAddProcessId(builder *flatbuffers.Builder, processId flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(processId), 0)
-}
-func RecordIndexStartProcessIdVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(1, numElems, 1)
 }
 func RecordIndexAddSegment(builder *flatbuffers.Builder, segment uint32) {
 	builder.PrependUint32Slot(1, segment, 0)

@@ -1,4 +1,5 @@
 include "../types/types.fbs";
+include "../logsegment/logsegment.fbs";
 
 namespace logcache;
 
@@ -11,13 +12,13 @@ namespace logcache;
 // and single access to the storage layer.
 table RecordSet {
  // Unique identifier of the process that the records belonged to.
- process_id:[ubyte] (required);
+ process_id:types.Hash (required);
  // CRC32 checksum of the records data (Castagnoli).
  checksum:uint;
  // Log offsets of each record stored in the set.
  offsets:[long];
  // List of records stored in the set.
- records:[types.Record];
+ records:[logsegment.Record];
 }
 
 root_type RecordSet;

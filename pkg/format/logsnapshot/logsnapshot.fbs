@@ -8,7 +8,7 @@ table RecordRange {
  // Unique identifier of the process that the range was snapshot was generated
  // from. This is useful to retrieve other metadata about the process from its
  // own log records.
- process_id:[ubyte];
+ process_id:types.Hash;
  // Timestamp of the first record in the range, computed by adding the record's
  // monotonic timestamp to the process' unix start time.
  start_timestamp:long;

@@ -5,6 +5,7 @@ package logcache
 import (
 	flatbuffers "github.com/google/flatbuffers/go"
 
+	logsegment "github.com/stealthrocket/timecraft/pkg/format/logsegment"
 	types "github.com/stealthrocket/timecraft/pkg/format/types"
 )
 
@@ -35,38 +36,17 @@ func (rcv *RecordSet) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-func (rcv *RecordSet) ProcessId(j int) byte {
+func (rcv *RecordSet) ProcessId(obj *types.Hash) *types.Hash {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.GetByte(a + flatbuffers.UOffsetT(j*1))
-	}
-	return 0
-}
-
-func (rcv *RecordSet) ProcessIdLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *RecordSet) ProcessIdBytes() []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		return rcv._tab.ByteVector(o + rcv._tab.Pos)
+		x := rcv._tab.Indirect(o + rcv._tab.Pos)
+		if obj == nil {
+			obj = new(types.Hash)
+		}
+		obj.Init(rcv._tab.Bytes, x)
+		return obj
 	}
 	return nil
-}
-
-func (rcv *RecordSet) MutateProcessId(j int, n byte) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.MutateByte(a+flatbuffers.UOffsetT(j*1), n)
-	}
-	return false
 }
 
 func (rcv *RecordSet) Checksum() uint32 {
@@ -107,7 +87,7 @@ func (rcv *RecordSet) MutateOffsets(j int, n int64) bool {
 	return false
 }
 
-func (rcv *RecordSet) Records(obj *types.Record, j int) bool {
+func (rcv *RecordSet) Records(obj *logsegment.Record, j int) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
 	if o != 0 {
 		x := rcv._tab.Vector(o)
@@ -132,9 +112,6 @@ func RecordSetStart(builder *flatbuffers.Builder) {
 }
 func RecordSetAddProcessId(builder *flatbuffers.Builder, processId flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(processId), 0)
-}
-func RecordSetStartProcessIdVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(1, numElems, 1)
 }
 func RecordSetAddChecksum(builder *flatbuffers.Builder, checksum uint32) {
 	builder.PrependUint32Slot(1, checksum, 0)
