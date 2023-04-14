@@ -63,7 +63,7 @@ type LogHeader struct {
 
 type Record struct {
 	Timestamp    time.Time
-	Function     Function
+	Function     int
 	Params       []uint64
 	Results      []uint64
 	MemoryAccess []MemoryAccess

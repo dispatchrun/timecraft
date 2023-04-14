@@ -86,7 +86,7 @@ func BenchmarkLogWriter(b *testing.B) {
 				batch: []timelog.Record{
 					{
 						Timestamp: header.Process.StartTime.Add(1 * time.Millisecond),
-						Function:  timelog.Function{Module: "env", Name: "f0"},
+						Function:  0,
 						Params:    []uint64{1},
 						Results:   []uint64{42},
 						MemoryAccess: []timelog.MemoryAccess{
@@ -101,7 +101,7 @@ func BenchmarkLogWriter(b *testing.B) {
 				batch: []timelog.Record{
 					{
 						Timestamp: header.Process.StartTime.Add(1 * time.Millisecond),
-						Function:  timelog.Function{Module: "env", Name: "f0"},
+						Function:  0,
 						Params:    []uint64{1},
 						Results:   []uint64{42},
 						MemoryAccess: []timelog.MemoryAccess{
@@ -110,19 +110,19 @@ func BenchmarkLogWriter(b *testing.B) {
 					},
 					{
 						Timestamp: header.Process.StartTime.Add(2 * time.Millisecond),
-						Function:  timelog.Function{Module: "env", Name: "f1"},
+						Function:  1,
 						Params:    []uint64{1, 2},
 						Results:   []uint64{42},
 					},
 					{
 						Timestamp: header.Process.StartTime.Add(3 * time.Millisecond),
-						Function:  timelog.Function{Module: "env", Name: "f2"},
+						Function:  2,
 						Params:    []uint64{1, 2, 3},
 						Results:   []uint64{42},
 					},
 					{
 						Timestamp: header.Process.StartTime.Add(4 * time.Millisecond),
-						Function:  timelog.Function{Module: "env", Name: "f3"},
+						Function:  3,
 						MemoryAccess: []timelog.MemoryAccess{
 							{Memory: []byte("A"), Offset: 1, Access: timelog.MemoryRead},
 							{Memory: []byte("B"), Offset: 2, Access: timelog.MemoryRead},
@@ -132,7 +132,7 @@ func BenchmarkLogWriter(b *testing.B) {
 					},
 					{
 						Timestamp: header.Process.StartTime.Add(5 * time.Millisecond),
-						Function:  timelog.Function{Module: "env", Name: "f4"},
+						Function:  4,
 						Params:    []uint64{1},
 						Results:   []uint64{42},
 						MemoryAccess: []timelog.MemoryAccess{

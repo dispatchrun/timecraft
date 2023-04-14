@@ -2,7 +2,6 @@ package timelog
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"time"
 
@@ -15,7 +14,6 @@ type LogWriter struct {
 	output    io.Writer
 	builder   *flatbuffers.Builder
 	buffer    *bytes.Buffer
-	functions map[Function]uint32
 	startTime time.Time
 	records   []flatbuffers.UOffsetT
 	offsets   []flatbuffers.UOffsetT
@@ -35,10 +33,6 @@ func (w *LogWriter) Reset(output io.Writer) {
 	w.buffer.Reset()
 	w.startTime = time.Time{}
 	w.records = w.records[:0]
-
-	for fn := range w.functions {
-		delete(w.functions, fn)
-	}
 }
 
 func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
@@ -73,12 +67,7 @@ func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
 		functionOffsets = make([][2]flatbuffers.UOffsetT, len(header.Runtime.Functions))
 	}
 
-	if w.functions == nil {
-		w.functions = make(map[Function]uint32, len(header.Runtime.Functions))
-	}
-
 	for i, fn := range header.Runtime.Functions {
-		w.functions[fn] = uint32(i)
 		functionOffsets[i][0] = w.builder.CreateSharedString(fn.Module)
 		functionOffsets[i][1] = w.builder.CreateString(fn.Name)
 	}
@@ -138,25 +127,14 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) error {
 
 		logsegment.RecordStartMemoryAccessVector(w.builder, len(record.MemoryAccess))
 		for i := len(record.MemoryAccess) - 1; i >= 0; i-- {
-			a := record.MemoryAccess[i]
-			logsegment.CreateMemoryAccess(w.builder,
-				a.Offset,
-				offset,
-				uint32(len(a.Memory)),
-				logsegment.MemoryAccessType(a.Access))
+			w.prependMemoryAccess(offset, &record.MemoryAccess[i])
 		}
 
 		memory := w.builder.EndVector(len(record.MemoryAccess))
 		params := w.prependUint64Vector(record.Params)
 		results := w.prependUint64Vector(record.Results)
 		timestamp := int64(record.Timestamp.Sub(w.startTime))
-
-		function, ok := w.functions[record.Function]
-		if !ok {
-			return fmt.Errorf("record for unknown function: %s %s",
-				record.Function.Module,
-				record.Function.Name)
-		}
+		function := uint32(record.Function)
 
 		logsegment.RecordStart(w.builder)
 		logsegment.RecordAddTimestamp(w.builder, timestamp)
@@ -228,4 +206,18 @@ func (w *LogWriter) prependOffsetVector(offsets []flatbuffers.UOffsetT) flatbuff
 		w.builder.PlaceUOffsetT(offsets[i])
 	}
 	return w.builder.EndVector(len(offsets))
+}
+
+// prependMemoryAccess is likst the generated logsegment.CreateMemoryAccess but
+// it uses PlaceUint32 instead of PrependUint32 for higher efficiency.
+//
+// Using this custom function is useful because the memory access are in the
+// inner-most loop of the writer and the most common type of values written.
+func (w *LogWriter) prependMemoryAccess(offset uint32, access *MemoryAccess) flatbuffers.UOffsetT {
+	w.builder.Prep(4, 16)
+	w.builder.PlaceUint32(uint32(access.Access))
+	w.builder.PlaceUint32(uint32(len(access.Memory)))
+	w.builder.PlaceUint32(offset)
+	w.builder.PlaceUint32(access.Offset)
+	return w.builder.Offset()
 }
