@@ -126,8 +126,12 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) error {
 		}
 
 		logsegment.RecordStartMemoryAccessVector(w.builder, len(record.MemoryAccess))
+		recordOffset := uncompressedSize
+
 		for i := len(record.MemoryAccess) - 1; i >= 0; i-- {
-			w.prependMemoryAccess(offset, &record.MemoryAccess[i])
+			access := &record.MemoryAccess[i]
+			recordOffset -= uint32(len(access.Memory))
+			w.prependMemoryAccess(recordOffset, access)
 		}
 
 		memory := w.builder.EndVector(len(record.MemoryAccess))
