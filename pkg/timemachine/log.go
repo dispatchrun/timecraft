@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
@@ -14,23 +15,29 @@ import (
 )
 
 type Hash struct {
-	Algorithm string
-	Digest    string
+	Algorithm, Digest string
 }
 
-type Compression uint32
+func makeHash(h *types.Hash) Hash {
+	return Hash{
+		Algorithm: string(h.Algorithm()),
+		Digest:    string(h.Digest()),
+	}
+}
+
+type Compression = types.Compression
 
 const (
-	Uncompressed Compression = Compression(types.CompressionUncompressed)
-	Snappy       Compression = Compression(types.CompressionSnappy)
-	Zstd         Compression = Compression(types.CompressionZstd)
+	Uncompressed Compression = types.CompressionUncompressed
+	Snappy       Compression = types.CompressionSnappy
+	Zstd         Compression = types.CompressionZstd
 )
 
-type MemoryAccessType uint32
+type MemoryAccessType = logsegment.MemoryAccessType
 
 const (
-	MemoryRead  MemoryAccessType = MemoryAccessType(logsegment.MemoryAccessTypeMemoryRead)
-	MemoryWrite MemoryAccessType = MemoryAccessType(logsegment.MemoryAccessTypeMemoryWrite)
+	MemoryRead  MemoryAccessType = logsegment.MemoryAccessTypeMemoryRead
+	MemoryWrite MemoryAccessType = logsegment.MemoryAccessTypeMemoryWrite
 )
 
 type MemoryAccess struct {
@@ -80,89 +87,152 @@ var (
 	tl1 = []byte("TL.1")
 	tl2 = []byte("TL.2")
 	tl3 = []byte("TL.3")
+
+	errMissingRuntime          = errors.New("missing runtime in log header")
+	errMissingProcess          = errors.New("missing process in log header")
+	errMissingProcessID        = errors.New("missing process id in log header")
+	errMissingProcessImage     = errors.New("missing process image in log header")
+	errMissingProcessStartTime = errors.New("missing process start time in log header")
 )
 
 const (
 	defaultBufferSize = 16 * 1024
 )
 
+// LogReader instances allow programs to read the content of a record log.
+//
+// The LogReader type has two main methods, ReadLogHeader and ReadRecordBatch.
+// ReadLogHeader should be called first to load the header and initialize the
+// reader state. ReadRecrdBatch may be called multiple times until io.EOF is
+// returned to scan through the log.
 type LogReader struct {
-	input   *bufio.Reader
-	header  LogHeader
-	batch   []Record
-	frame   []byte
-	discard int
-	buffer  bytes.Buffer
+	input       *bufio.Reader
+	frame       []byte
+	startTime   time.Time
+	compression Compression
 }
 
+// NewLogReader construct a new log reader consuming input from the given
+// io.Reader.
 func NewLogReader(input io.Reader) *LogReader {
 	return NewLogReaderSize(input, defaultBufferSize)
 }
 
+// NewLogReaderSize is like NewLogReader but it allows the program to configure
+// the read buffer size.
 func NewLogReaderSize(input io.Reader, bufferSize int) *LogReader {
 	return &LogReader{
 		input: bufio.NewReaderSize(input, bufferSize),
 	}
 }
 
+// Reset clears the reader state and sets it to consume input from the given
+// io.Reader.
 func (r *LogReader) Reset(input io.Reader) {
 	r.input.Reset(input)
-	r.header = LogHeader{}
-	r.batch = nil
-	r.buffer.Reset()
+	r.startTime = time.Time{}
+	r.compression = Uncompressed
 }
 
+// ReadLogHeader reads and returns the log header from r.
+//
+// This method must be called once when the reader is positioned at the
+// beginning of the log.
 func (r *LogReader) ReadLogHeader() (*LogHeader, error) {
 	b, err := r.readFrame()
 	if err != nil {
 		return nil, err
 	}
 
-	_ = b
+	var h LogHeader
+	var header = logsegment.GetRootAsLogHeader(b, 0)
+	var runtime logsegment.Runtime
+	if header.Runtime(&runtime) == nil {
+		return nil, errMissingRuntime
+	}
+	h.Runtime.Runtime = string(runtime.Runtime())
+	h.Runtime.Version = string(runtime.Version())
+	h.Runtime.Functions = make([]Function, runtime.FunctionsLength())
 
-	// header := logsegment.GetSizePrefixedRootAsLogHeader(b, 0)
+	for i := range h.Runtime.Functions {
+		f := logsegment.Function{}
+		if !runtime.Functions(&f, i) {
+			return nil, fmt.Errorf("missing runtime function in log header: expected %d but could not load function at index %d", len(h.Runtime.Functions), i)
+		}
+		h.Runtime.Functions[i] = Function{
+			Module: string(f.Module()),
+			Name:   string(f.Name()),
+		}
+	}
 
-	// runtime := logsegment.Runtime{}
-	// header.Runtime(&runtime)
+	var hash types.Hash
+	var process logsegment.Process
+	if header.Process(&process) == nil {
+		return nil, errMissingProcess
+	}
+	if process.Id(&hash) == nil {
+		return nil, errMissingProcessID
+	}
+	h.Process.ID = makeHash(&hash)
+	if process.Image(&hash) == nil {
+		return nil, errMissingProcessImage
+	}
+	h.Process.Image = makeHash(&hash)
+	if unixStartTime := process.UnixStartTime(); unixStartTime == 0 {
+		return nil, errMissingProcessStartTime
+	} else {
+		h.Process.StartTime = time.Unix(0, unixStartTime)
+	}
+	h.Process.Args = make([]string, process.ArgumentsLength())
+	for i := range h.Process.Args {
+		h.Process.Args[i] = string(process.Arguments(i))
+	}
+	h.Process.Environ = make([]string, process.EnvironmentLength())
+	for i := range h.Process.Environ {
+		h.Process.Environ[i] = string(process.Environment(i))
+	}
+	if process.ParentProcessId(&hash) != nil {
+		h.Process.ParentProcessID = makeHash(&hash)
+		h.Process.ParentForkOffset = process.ParentForkOffset()
+	}
+	h.Segment = header.Segment()
+	h.Compression = header.Compression()
 
-	// process := logsegment.Process{}
-	// header.Process(&process)
-
-	return nil, io.EOF
+	r.startTime = h.Process.StartTime
+	r.compression = h.Compression
+	return &h, nil
 }
 
-func (r *LogReader) ReadRecordBatch() ([]Record, error) {
-	return nil, io.EOF
+type RecordBatch struct {
+	logsegment.RecordBatch
+}
+
+func (b *RecordBatch) FirstOffset() int64 {
+	return 0
+}
+
+func (r *LogReader) ReadRecordBatch() (*RecordBatch, error) {
+	b, err := r.readFrame()
+	if err != nil {
+		return nil, err
+	}
+	_ = b
+	return nil, io.EOF // TODO
 }
 
 func (r *LogReader) readFrame() ([]byte, error) {
-	if r.discard > 0 {
-		n, err := r.input.Discard(r.discard)
-		r.discard -= n
-		if err != nil {
-			return nil, err
-		}
-	}
 	b, err := r.input.Peek(4)
 	if err != nil {
 		return nil, err
 	}
 	n := 4 + int(binary.LittleEndian.Uint32(b))
-	b, err = r.input.Peek(n)
-	if err == nil {
-		r.discard = n
-		return b, nil
-	}
-	if !errors.Is(err, bufio.ErrBufferFull) {
-		return nil, err
-	}
 	if n <= cap(r.frame) {
 		r.frame = r.frame[:n]
 	} else {
 		r.frame = make([]byte, n)
 	}
 	_, err = io.ReadFull(r.input, r.frame)
-	return r.frame, err
+	return r.frame[4:], err
 }
 
 // LogWriter supports writing log segments to an io.Writer.
@@ -269,7 +339,7 @@ func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
 		}
 	}
 
-	functions := w.prependObjectVector(len(header.Runtime.Functions),
+	functions := w.prependObjectVector(len(functionOffsets),
 		func(i int) flatbuffers.UOffsetT {
 			logsegment.FunctionStart(w.builder)
 			logsegment.FunctionAddModule(w.builder, functionOffsets[i].module)
@@ -290,7 +360,7 @@ func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
 	logsegment.LogHeaderAddRuntime(w.builder, runtimeOffset)
 	logsegment.LogHeaderAddProcess(w.builder, processOffset)
 	logsegment.LogHeaderAddSegment(w.builder, header.Segment)
-	logsegment.LogHeaderAddCompression(w.builder, types.Compression(header.Compression))
+	logsegment.LogHeaderAddCompression(w.builder, header.Compression)
 	logHeader := logsegment.LogHeaderEnd(w.builder)
 
 	w.builder.FinishSizePrefixedWithFileIdentifier(logHeader, tl0)
@@ -401,7 +471,7 @@ func (w *LogWriter) prependStringVector(values []string) flatbuffers.UOffsetT {
 func (w *LogWriter) prependUint64Vector(values []uint64) flatbuffers.UOffsetT {
 	w.builder.StartVector(8, len(values), 8)
 	for i := len(values) - 1; i >= 0; i-- {
-		w.builder.PlaceUint64(values[i])
+		w.builder.PrependUint64(values[i])
 	}
 	return w.builder.EndVector(len(values))
 }
@@ -421,17 +491,19 @@ func (w *LogWriter) prependObjectVector(numElems int, create func(int) flatbuffe
 func (w *LogWriter) prependOffsetVector(offsets []flatbuffers.UOffsetT) flatbuffers.UOffsetT {
 	w.builder.StartVector(4, len(offsets), 4)
 	for i := len(offsets) - 1; i >= 0; i-- {
-		w.builder.PlaceUOffsetT(offsets[i])
+		w.builder.PrependUOffsetT(offsets[i])
 	}
 	return w.builder.EndVector(len(offsets))
 }
 
-// prependMemoryAccess is likst the generated logsegment.CreateMemoryAccess but
-// it uses PlaceUint32 instead of PrependUint32 for higher efficiency.
-//
-// Using this custom function is useful because the memory access are in the
-// inner-most loop of the writer and the most common type of values written.
 func (w *LogWriter) prependMemoryAccess(offset uint32, access *MemoryAccess) flatbuffers.UOffsetT {
+	// return logsegment.CreateMemoryAccess(
+	// 	w.builder,
+	// 	access.Offset,
+	// 	offset,
+	// 	uint32(len(access.Memory)),
+	// 	access.Access,
+	// )
 	w.builder.Prep(4, 16)
 	w.builder.PlaceUint32(uint32(access.Access))
 	w.builder.PlaceUint32(uint32(len(access.Memory)))
