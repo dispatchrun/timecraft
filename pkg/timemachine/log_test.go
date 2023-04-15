@@ -168,7 +168,7 @@ func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.LogHea
 	w.WriteLogHeader(header)
 
 	for i := 0; i < b.N; i++ {
-		if err := w.WriteRecordBatch(batch); err != nil {
+		if _, err := w.WriteRecordBatch(batch); err != nil {
 			b.Fatal(err)
 		}
 	}

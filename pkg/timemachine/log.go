@@ -165,18 +165,33 @@ func (r *LogReader) readFrame() ([]byte, error) {
 	return r.frame, err
 }
 
+// LogWriter supports writing log segments to an io.Writer.
+//
+// The type has two main methods, WriteLogHeader and WriteRecordBatch.
+// The former must be called first and only once to write the log header and
+// initialize the state of the writer, zero or more record batches may then
+// be written to the log after that.
 type LogWriter struct {
-	output     io.Writer
-	builder    *flatbuffers.Builder
-	buffer     *bytes.Buffer
-	startTime  time.Time
+	output  io.Writer
+	builder *flatbuffers.Builder
+	buffer  *bytes.Buffer
+	// The start time is captured when writing the log header to compute
+	// monontonic timestamps for the records written to the log.
+	startTime time.Time
+	// This field keeps track of the logical offset for the next record
+	// batch that will be written to the log.
 	nextOffset int64
+	// When writing to the underlying io.Writer causes an error, we stop
+	// accepting writes and assume the log is corrupted.
+	stickyErr error
 	// Those fields are local buffers retained as an optimization to avoid
 	// reallocation of temporary arrays when serializing log records.
 	records []flatbuffers.UOffsetT
 	offsets []flatbuffers.UOffsetT
 }
 
+// NewLogWriter constructs a new log writer which produces output to the given
+// io.Writer.
 func NewLogWriter(output io.Writer) *LogWriter {
 	return &LogWriter{
 		output:  output,
@@ -185,16 +200,27 @@ func NewLogWriter(output io.Writer) *LogWriter {
 	}
 }
 
+// Reset resets the state of the log writer to produce to output to the given
+// io.Writer.
+//
+// WriteLogHeader should be called again after resetting the writer.
 func (w *LogWriter) Reset(output io.Writer) {
 	w.output = output
 	w.builder.Reset()
 	w.buffer.Reset()
 	w.startTime = time.Time{}
 	w.nextOffset = 0
+	w.stickyErr = nil
 	w.records = w.records[:0]
+	w.offsets = w.offsets[:0]
 }
 
+// WriteLogHeader writes the log header. The method must be called before any
+// records are written to the log via calls to WriteRecordBatch.
 func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
+	if w.stickyErr != nil {
+		return w.stickyErr
+	}
 	w.builder.Reset()
 
 	processID := w.prependHash(header.Process.ID)
@@ -219,23 +245,29 @@ func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
 	}
 	processOffset := logsegment.ProcessEnd(w.builder)
 
-	functionOffsets := make([][2]flatbuffers.UOffsetT, 0, 64)
+	type function struct {
+		module, name flatbuffers.UOffsetT
+	}
+
+	functionOffsets := make([]function, 0, 64)
 	if len(header.Runtime.Functions) <= cap(functionOffsets) {
 		functionOffsets = functionOffsets[:len(header.Runtime.Functions)]
 	} else {
-		functionOffsets = make([][2]flatbuffers.UOffsetT, len(header.Runtime.Functions))
+		functionOffsets = make([]function, len(header.Runtime.Functions))
 	}
 
 	for i, fn := range header.Runtime.Functions {
-		functionOffsets[i][0] = w.builder.CreateSharedString(fn.Module)
-		functionOffsets[i][1] = w.builder.CreateString(fn.Name)
+		functionOffsets[i] = function{
+			module: w.builder.CreateSharedString(fn.Module),
+			name:   w.builder.CreateString(fn.Name),
+		}
 	}
 
 	functions := w.prependObjectVector(len(header.Runtime.Functions),
 		func(i int) flatbuffers.UOffsetT {
 			logsegment.FunctionStart(w.builder)
-			logsegment.FunctionAddModule(w.builder, functionOffsets[i][0])
-			logsegment.FunctionAddName(w.builder, functionOffsets[i][1])
+			logsegment.FunctionAddModule(w.builder, functionOffsets[i].module)
+			logsegment.FunctionAddName(w.builder, functionOffsets[i].name)
 			return logsegment.FunctionEnd(w.builder)
 		},
 	)
@@ -258,13 +290,23 @@ func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
 	w.builder.FinishSizePrefixedWithFileIdentifier(logHeader, tl0)
 
 	if _, err := w.output.Write(w.builder.FinishedBytes()); err != nil {
+		w.stickyErr = err
 		return err
 	}
 	w.startTime = header.Process.StartTime
 	return nil
 }
 
-func (w *LogWriter) WriteRecordBatch(batch []Record) error {
+// WriteRecordBatch writes a record batch to the log. The method returns the
+// logical offset of the first record, or a non-nil error if the write failed.
+//
+// If the error occurred while writing to the underlying io.Writer, the writer
+// is broken and will always error on future calls to WriteRecordBatch until
+// the program calls Reset.
+func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
+	if w.stickyErr != nil {
+		return w.nextOffset, w.stickyErr
+	}
 	w.builder.Reset()
 	w.buffer.Reset()
 	w.records = w.records[:0]
@@ -280,7 +322,7 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) error {
 			length += uint32(len(access.Memory))
 
 			if _, err := w.buffer.Write(access.Memory); err != nil {
-				return err
+				return w.nextOffset, err
 			}
 		}
 
@@ -310,10 +352,11 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) error {
 		w.records = append(w.records, logsegment.RecordEnd(w.builder))
 	}
 
-	records := w.prependOffsetVector(w.records)
-	compressedSize := uint32(w.buffer.Len())
 	firstOffset := w.nextOffset
 	w.nextOffset += int64(len(batch))
+
+	records := w.prependOffsetVector(w.records)
+	compressedSize := uint32(w.buffer.Len())
 
 	logsegment.RecordBatchStart(w.builder)
 	logsegment.RecordBatchAddFirstOffset(w.builder, firstOffset)
@@ -323,12 +366,15 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) error {
 	logsegment.RecordBatchAddRecords(w.builder, records)
 	w.builder.FinishSizePrefixed(logsegment.RecordBatchEnd(w.builder))
 
-	_, err := w.output.Write(w.builder.FinishedBytes())
-	if err != nil {
-		return err
+	if _, err := w.output.Write(w.builder.FinishedBytes()); err != nil {
+		w.stickyErr = err
+		return firstOffset, err
 	}
-	_, err = w.output.Write(w.buffer.Bytes())
-	return err
+	if _, err := w.output.Write(w.buffer.Bytes()); err != nil {
+		w.stickyErr = err
+		return firstOffset, err
+	}
+	return firstOffset, nil
 }
 
 func (w *LogWriter) prependHash(hash Hash) flatbuffers.UOffsetT {
