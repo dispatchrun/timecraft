@@ -48,7 +48,7 @@ func (rcv *RecordRange) ProcessId(obj *types.Hash) *types.Hash {
 	return nil
 }
 
-func (rcv *RecordRange) StartTimestamp() int64 {
+func (rcv *RecordRange) FirstTimestamp() int64 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
 	if o != 0 {
 		return rcv._tab.GetInt64(o + rcv._tab.Pos)
@@ -56,11 +56,11 @@ func (rcv *RecordRange) StartTimestamp() int64 {
 	return 0
 }
 
-func (rcv *RecordRange) MutateStartTimestamp(n int64) bool {
+func (rcv *RecordRange) MutateFirstTimestamp(n int64) bool {
 	return rcv._tab.MutateInt64Slot(6, n)
 }
 
-func (rcv *RecordRange) StartOffset() int64 {
+func (rcv *RecordRange) FirstOffset() int64 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
 		return rcv._tab.GetInt64(o + rcv._tab.Pos)
@@ -68,7 +68,7 @@ func (rcv *RecordRange) StartOffset() int64 {
 	return 0
 }
 
-func (rcv *RecordRange) MutateStartOffset(n int64) bool {
+func (rcv *RecordRange) MutateFirstOffset(n int64) bool {
 	return rcv._tab.MutateInt64Slot(8, n)
 }
 
@@ -84,7 +84,7 @@ func (rcv *RecordRange) MutateNumRecords(n int64) bool {
 	return rcv._tab.MutateInt64Slot(10, n)
 }
 
-func (rcv *RecordRange) StartSegment() uint32 {
+func (rcv *RecordRange) FirstSegment() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
 	if o != 0 {
 		return rcv._tab.GetUint32(o + rcv._tab.Pos)
@@ -92,7 +92,7 @@ func (rcv *RecordRange) StartSegment() uint32 {
 	return 0
 }
 
-func (rcv *RecordRange) MutateStartSegment(n uint32) bool {
+func (rcv *RecordRange) MutateFirstSegment(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(12, n)
 }
 
@@ -234,17 +234,17 @@ func RecordRangeStart(builder *flatbuffers.Builder) {
 func RecordRangeAddProcessId(builder *flatbuffers.Builder, processId flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(processId), 0)
 }
-func RecordRangeAddStartTimestamp(builder *flatbuffers.Builder, startTimestamp int64) {
-	builder.PrependInt64Slot(1, startTimestamp, 0)
+func RecordRangeAddFirstTimestamp(builder *flatbuffers.Builder, firstTimestamp int64) {
+	builder.PrependInt64Slot(1, firstTimestamp, 0)
 }
-func RecordRangeAddStartOffset(builder *flatbuffers.Builder, startOffset int64) {
-	builder.PrependInt64Slot(2, startOffset, 0)
+func RecordRangeAddFirstOffset(builder *flatbuffers.Builder, firstOffset int64) {
+	builder.PrependInt64Slot(2, firstOffset, 0)
 }
 func RecordRangeAddNumRecords(builder *flatbuffers.Builder, numRecords int64) {
 	builder.PrependInt64Slot(3, numRecords, 0)
 }
-func RecordRangeAddStartSegment(builder *flatbuffers.Builder, startSegment uint32) {
-	builder.PrependUint32Slot(4, startSegment, 0)
+func RecordRangeAddFirstSegment(builder *flatbuffers.Builder, firstSegment uint32) {
+	builder.PrependUint32Slot(4, firstSegment, 0)
 }
 func RecordRangeAddNumSegments(builder *flatbuffers.Builder, numSegments uint32) {
 	builder.PrependUint32Slot(5, numSegments, 0)

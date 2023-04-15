@@ -453,19 +453,19 @@ func (rcv *RecordBatch) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-func (rcv *RecordBatch) CompressedSize() uint32 {
+func (rcv *RecordBatch) FirstOffset() int64 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
 	if o != 0 {
-		return rcv._tab.GetUint32(o + rcv._tab.Pos)
+		return rcv._tab.GetInt64(o + rcv._tab.Pos)
 	}
 	return 0
 }
 
-func (rcv *RecordBatch) MutateCompressedSize(n uint32) bool {
-	return rcv._tab.MutateUint32Slot(4, n)
+func (rcv *RecordBatch) MutateFirstOffset(n int64) bool {
+	return rcv._tab.MutateInt64Slot(4, n)
 }
 
-func (rcv *RecordBatch) UncompressedSize() uint32 {
+func (rcv *RecordBatch) CompressedSize() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
 	if o != 0 {
 		return rcv._tab.GetUint32(o + rcv._tab.Pos)
@@ -473,11 +473,11 @@ func (rcv *RecordBatch) UncompressedSize() uint32 {
 	return 0
 }
 
-func (rcv *RecordBatch) MutateUncompressedSize(n uint32) bool {
+func (rcv *RecordBatch) MutateCompressedSize(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(6, n)
 }
 
-func (rcv *RecordBatch) Checksum() uint32 {
+func (rcv *RecordBatch) UncompressedSize() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
 		return rcv._tab.GetUint32(o + rcv._tab.Pos)
@@ -485,12 +485,24 @@ func (rcv *RecordBatch) Checksum() uint32 {
 	return 0
 }
 
-func (rcv *RecordBatch) MutateChecksum(n uint32) bool {
+func (rcv *RecordBatch) MutateUncompressedSize(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(8, n)
 }
 
-func (rcv *RecordBatch) Records(obj *Record, j int) bool {
+func (rcv *RecordBatch) Checksum() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
+	if o != 0 {
+		return rcv._tab.GetUint32(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *RecordBatch) MutateChecksum(n uint32) bool {
+	return rcv._tab.MutateUint32Slot(10, n)
+}
+
+func (rcv *RecordBatch) Records(obj *Record, j int) bool {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
 	if o != 0 {
 		x := rcv._tab.Vector(o)
 		x += flatbuffers.UOffsetT(j) * 4
@@ -502,7 +514,7 @@ func (rcv *RecordBatch) Records(obj *Record, j int) bool {
 }
 
 func (rcv *RecordBatch) RecordsLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
 	if o != 0 {
 		return rcv._tab.VectorLen(o)
 	}
@@ -510,19 +522,22 @@ func (rcv *RecordBatch) RecordsLength() int {
 }
 
 func RecordBatchStart(builder *flatbuffers.Builder) {
-	builder.StartObject(4)
+	builder.StartObject(5)
+}
+func RecordBatchAddFirstOffset(builder *flatbuffers.Builder, firstOffset int64) {
+	builder.PrependInt64Slot(0, firstOffset, 0)
 }
 func RecordBatchAddCompressedSize(builder *flatbuffers.Builder, compressedSize uint32) {
-	builder.PrependUint32Slot(0, compressedSize, 0)
+	builder.PrependUint32Slot(1, compressedSize, 0)
 }
 func RecordBatchAddUncompressedSize(builder *flatbuffers.Builder, uncompressedSize uint32) {
-	builder.PrependUint32Slot(1, uncompressedSize, 0)
+	builder.PrependUint32Slot(2, uncompressedSize, 0)
 }
 func RecordBatchAddChecksum(builder *flatbuffers.Builder, checksum uint32) {
-	builder.PrependUint32Slot(2, checksum, 0)
+	builder.PrependUint32Slot(3, checksum, 0)
 }
 func RecordBatchAddRecords(builder *flatbuffers.Builder, records flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(3, flatbuffers.UOffsetT(records), 0)
+	builder.PrependUOffsetTSlot(4, flatbuffers.UOffsetT(records), 0)
 }
 func RecordBatchStartRecordsVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
 	return builder.StartVector(4, numElems, 4)

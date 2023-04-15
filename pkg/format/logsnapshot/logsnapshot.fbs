@@ -11,13 +11,13 @@ table RecordRange {
  process_id:types.Hash;
  // Timestamp of the first record in the range, computed by adding the record's
  // monotonic timestamp to the process' unix start time.
- start_timestamp:long;
+ first_timestamp:long;
  // Position of the first record of the range in the original process log.
- start_offset:long;
+ first_offset:long;
  // Number of compacted records in the range.
  num_records:long;
  // Index of the first log segment that this record range was generated from.
- start_segment:uint;
+ first_segment:uint;
  // Number of log segments included in this record range.
  num_segments:uint;
  // Compressed size of the record range data section (in bytes).

@@ -1,4 +1,4 @@
-package timelog_test
+package timemachine_test
 
 import (
 	"io"
@@ -6,22 +6,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stealthrocket/timecraft/pkg/timelog"
+	"github.com/stealthrocket/timecraft/pkg/timemachine"
 )
 
 func BenchmarkLogWriter(b *testing.B) {
 	b.Run("WriteLogHeader", func(b *testing.B) {
 		tests := []struct {
 			scenario string
-			header   *timelog.LogHeader
+			header   *timemachine.LogHeader
 		}{
 			{
 				scenario: "common log header",
-				header: &timelog.LogHeader{
-					Runtime: timelog.Runtime{
+				header: &timemachine.LogHeader{
+					Runtime: timemachine.Runtime{
 						Runtime: "test",
 						Version: "dev",
-						Functions: []timelog.Function{
+						Functions: []timemachine.Function{
 							{Module: "env", Name: "f0"},
 							{Module: "env", Name: "f1"},
 							{Module: "env", Name: "f2"},
@@ -29,15 +29,15 @@ func BenchmarkLogWriter(b *testing.B) {
 							{Module: "env", Name: "f4"},
 						},
 					},
-					Process: timelog.Process{
-						ID:        timelog.Hash{"sha", "f572d396fae9206628714fb2ce00f72e94f2258f"},
-						Image:     timelog.Hash{"sha", "28935580a9bbb8cc7bcdea62e7dfdcf7e0f31f87"},
+					Process: timemachine.Process{
+						ID:        timemachine.Hash{"sha", "f572d396fae9206628714fb2ce00f72e94f2258f"},
+						Image:     timemachine.Hash{"sha", "28935580a9bbb8cc7bcdea62e7dfdcf7e0f31f87"},
 						StartTime: time.Now(),
 						Args:      os.Args,
 						Environ:   os.Environ(),
 					},
 					Segment:     42,
-					Compression: timelog.Zstd,
+					Compression: timemachine.Zstd,
 				},
 			},
 		}
@@ -50,11 +50,11 @@ func BenchmarkLogWriter(b *testing.B) {
 	})
 
 	b.Run("WriteRecordBatch", func(b *testing.B) {
-		header := &timelog.LogHeader{
-			Runtime: timelog.Runtime{
+		header := &timemachine.LogHeader{
+			Runtime: timemachine.Runtime{
 				Runtime: "test",
 				Version: "dev",
-				Functions: []timelog.Function{
+				Functions: []timemachine.Function{
 					{Module: "env", Name: "f0"},
 					{Module: "env", Name: "f1"},
 					{Module: "env", Name: "f2"},
@@ -62,20 +62,20 @@ func BenchmarkLogWriter(b *testing.B) {
 					{Module: "env", Name: "f4"},
 				},
 			},
-			Process: timelog.Process{
-				ID:        timelog.Hash{"sha", "f572d396fae9206628714fb2ce00f72e94f2258f"},
-				Image:     timelog.Hash{"sha", "28935580a9bbb8cc7bcdea62e7dfdcf7e0f31f87"},
+			Process: timemachine.Process{
+				ID:        timemachine.Hash{"sha", "f572d396fae9206628714fb2ce00f72e94f2258f"},
+				Image:     timemachine.Hash{"sha", "28935580a9bbb8cc7bcdea62e7dfdcf7e0f31f87"},
 				StartTime: time.Now(),
 				Args:      os.Args,
 				Environ:   os.Environ(),
 			},
 			Segment:     42,
-			Compression: timelog.Zstd,
+			Compression: timemachine.Zstd,
 		}
 
 		tests := []struct {
 			scenario string
-			batch    []timelog.Record
+			batch    []timemachine.Record
 		}{
 			{
 				scenario: "zero records",
@@ -83,14 +83,14 @@ func BenchmarkLogWriter(b *testing.B) {
 
 			{
 				scenario: "one record",
-				batch: []timelog.Record{
+				batch: []timemachine.Record{
 					{
 						Timestamp: header.Process.StartTime.Add(1 * time.Millisecond),
 						Function:  0,
 						Params:    []uint64{1},
 						Results:   []uint64{42},
-						MemoryAccess: []timelog.MemoryAccess{
-							{Memory: []byte("hello world!"), Offset: 1234, Access: timelog.MemoryRead},
+						MemoryAccess: []timemachine.MemoryAccess{
+							{Memory: []byte("hello world!"), Offset: 1234, Access: timemachine.MemoryRead},
 						},
 					},
 				},
@@ -98,14 +98,14 @@ func BenchmarkLogWriter(b *testing.B) {
 
 			{
 				scenario: "five records",
-				batch: []timelog.Record{
+				batch: []timemachine.Record{
 					{
 						Timestamp: header.Process.StartTime.Add(1 * time.Millisecond),
 						Function:  0,
 						Params:    []uint64{1},
 						Results:   []uint64{42},
-						MemoryAccess: []timelog.MemoryAccess{
-							{Memory: []byte("hello world!"), Offset: 1234, Access: timelog.MemoryRead},
+						MemoryAccess: []timemachine.MemoryAccess{
+							{Memory: []byte("hello world!"), Offset: 1234, Access: timemachine.MemoryRead},
 						},
 					},
 					{
@@ -123,11 +123,11 @@ func BenchmarkLogWriter(b *testing.B) {
 					{
 						Timestamp: header.Process.StartTime.Add(4 * time.Millisecond),
 						Function:  3,
-						MemoryAccess: []timelog.MemoryAccess{
-							{Memory: []byte("A"), Offset: 1, Access: timelog.MemoryRead},
-							{Memory: []byte("B"), Offset: 2, Access: timelog.MemoryRead},
-							{Memory: []byte("C"), Offset: 3, Access: timelog.MemoryRead},
-							{Memory: []byte("D"), Offset: 4, Access: timelog.MemoryRead},
+						MemoryAccess: []timemachine.MemoryAccess{
+							{Memory: []byte("A"), Offset: 1, Access: timemachine.MemoryRead},
+							{Memory: []byte("B"), Offset: 2, Access: timemachine.MemoryRead},
+							{Memory: []byte("C"), Offset: 3, Access: timemachine.MemoryRead},
+							{Memory: []byte("D"), Offset: 4, Access: timemachine.MemoryRead},
 						},
 					},
 					{
@@ -135,9 +135,9 @@ func BenchmarkLogWriter(b *testing.B) {
 						Function:  4,
 						Params:    []uint64{1},
 						Results:   []uint64{42},
-						MemoryAccess: []timelog.MemoryAccess{
-							{Memory: []byte("hello world!"), Offset: 1234, Access: timelog.MemoryRead},
-							{Memory: make([]byte, 10e3), Offset: 1234567, Access: timelog.MemoryWrite},
+						MemoryAccess: []timemachine.MemoryAccess{
+							{Memory: []byte("hello world!"), Offset: 1234, Access: timemachine.MemoryRead},
+							{Memory: make([]byte, 10e3), Offset: 1234567, Access: timemachine.MemoryWrite},
 						},
 					},
 				},
@@ -152,8 +152,8 @@ func BenchmarkLogWriter(b *testing.B) {
 	})
 }
 
-func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timelog.LogHeader) {
-	w := timelog.NewLogWriter(io.Discard)
+func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timemachine.LogHeader) {
+	w := timemachine.NewLogWriter(io.Discard)
 
 	for i := 0; i < b.N; i++ {
 		if err := w.WriteLogHeader(header); err != nil {
@@ -163,8 +163,8 @@ func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timelog.LogHeader) {
 	}
 }
 
-func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timelog.LogHeader, batch []timelog.Record) {
-	w := timelog.NewLogWriter(io.Discard)
+func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.LogHeader, batch []timemachine.Record) {
+	w := timemachine.NewLogWriter(io.Discard)
 	w.WriteLogHeader(header)
 
 	for i := 0; i < b.N; i++ {

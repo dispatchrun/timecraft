@@ -1,7 +1,10 @@
-package timelog
+package timemachine
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"io"
 	"time"
 
@@ -10,13 +13,168 @@ import (
 	"github.com/stealthrocket/timecraft/pkg/format/types"
 )
 
+type Hash struct {
+	Algorithm string
+	Digest    string
+}
+
+type Compression uint32
+
+const (
+	Uncompressed Compression = Compression(types.CompressionUncompressed)
+	Snappy       Compression = Compression(types.CompressionSnappy)
+	Zstd         Compression = Compression(types.CompressionZstd)
+)
+
+type MemoryAccessType uint32
+
+const (
+	MemoryRead  MemoryAccessType = MemoryAccessType(logsegment.MemoryAccessTypeMemoryRead)
+	MemoryWrite MemoryAccessType = MemoryAccessType(logsegment.MemoryAccessTypeMemoryWrite)
+)
+
+type MemoryAccess struct {
+	Memory []byte
+	Offset uint32
+	Access MemoryAccessType
+}
+
+type Runtime struct {
+	Runtime   string
+	Version   string
+	Functions []Function
+}
+
+type Function struct {
+	Module string
+	Name   string
+}
+
+type Process struct {
+	ID               Hash
+	Image            Hash
+	StartTime        time.Time
+	Args             []string
+	Environ          []string
+	ParentProcessID  Hash
+	ParentForkOffset int64
+}
+
+type LogHeader struct {
+	Runtime     Runtime
+	Process     Process
+	Segment     uint32
+	Compression Compression
+}
+
+type Record struct {
+	Timestamp    time.Time
+	Function     int
+	Params       []uint64
+	Results      []uint64
+	MemoryAccess []MemoryAccess
+}
+
+var (
+	tl0 = []byte("TL.0")
+	tl1 = []byte("TL.1")
+	tl2 = []byte("TL.2")
+	tl3 = []byte("TL.3")
+)
+
+const (
+	defaultBufferSize = 16 * 1024
+)
+
+type LogReader struct {
+	input   *bufio.Reader
+	header  LogHeader
+	batch   []Record
+	frame   []byte
+	discard int
+	buffer  bytes.Buffer
+}
+
+func NewLogReader(input io.Reader) *LogReader {
+	return NewLogReaderSize(input, defaultBufferSize)
+}
+
+func NewLogReaderSize(input io.Reader, bufferSize int) *LogReader {
+	return &LogReader{
+		input: bufio.NewReaderSize(input, bufferSize),
+	}
+}
+
+func (r *LogReader) Reset(input io.Reader) {
+	r.input.Reset(input)
+	r.header = LogHeader{}
+	r.batch = nil
+	r.buffer.Reset()
+}
+
+func (r *LogReader) ReadLogHeader() (*LogHeader, error) {
+	b, err := r.readFrame()
+	if err != nil {
+		return nil, err
+	}
+
+	_ = b
+
+	// header := logsegment.GetSizePrefixedRootAsLogHeader(b, 0)
+
+	// runtime := logsegment.Runtime{}
+	// header.Runtime(&runtime)
+
+	// process := logsegment.Process{}
+	// header.Process(&process)
+
+	return nil, io.EOF
+}
+
+func (r *LogReader) ReadRecordBatch() ([]Record, error) {
+	return nil, io.EOF
+}
+
+func (r *LogReader) readFrame() ([]byte, error) {
+	if r.discard > 0 {
+		n, err := r.input.Discard(r.discard)
+		r.discard -= n
+		if err != nil {
+			return nil, err
+		}
+	}
+	b, err := r.input.Peek(4)
+	if err != nil {
+		return nil, err
+	}
+	n := 4 + int(binary.LittleEndian.Uint32(b))
+	b, err = r.input.Peek(n)
+	if err == nil {
+		r.discard = n
+		return b, nil
+	}
+	if !errors.Is(err, bufio.ErrBufferFull) {
+		return nil, err
+	}
+	if n <= cap(r.frame) {
+		r.frame = r.frame[:n]
+	} else {
+		r.frame = make([]byte, n)
+	}
+	_, err = io.ReadFull(r.input, r.frame)
+	return r.frame, err
+}
+
 type LogWriter struct {
-	output    io.Writer
-	builder   *flatbuffers.Builder
-	buffer    *bytes.Buffer
-	startTime time.Time
-	records   []flatbuffers.UOffsetT
-	offsets   []flatbuffers.UOffsetT
+	output     io.Writer
+	builder    *flatbuffers.Builder
+	buffer     *bytes.Buffer
+	startTime  time.Time
+	nextOffset int64
+	// Those fields are local buffers retained as an optimization to avoid
+	// reallocation of temporary arrays when serializing log records.
+	records []flatbuffers.UOffsetT
+	offsets []flatbuffers.UOffsetT
 }
 
 func NewLogWriter(output io.Writer) *LogWriter {
@@ -32,6 +190,7 @@ func (w *LogWriter) Reset(output io.Writer) {
 	w.builder.Reset()
 	w.buffer.Reset()
 	w.startTime = time.Time{}
+	w.nextOffset = 0
 	w.records = w.records[:0]
 }
 
@@ -153,8 +312,11 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) error {
 
 	records := w.prependOffsetVector(w.records)
 	compressedSize := uint32(w.buffer.Len())
+	firstOffset := w.nextOffset
+	w.nextOffset += int64(len(batch))
 
 	logsegment.RecordBatchStart(w.builder)
+	logsegment.RecordBatchAddFirstOffset(w.builder, firstOffset)
 	logsegment.RecordBatchAddCompressedSize(w.builder, compressedSize)
 	logsegment.RecordBatchAddUncompressedSize(w.builder, uncompressedSize)
 	logsegment.RecordBatchAddChecksum(w.builder, 0)

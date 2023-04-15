@@ -47,6 +47,8 @@ table LogHeader {
 // list is embedded in the record batch, followed by the concatenated memory
 // snapshots of the records.
 table RecordBatch {
+ // Logical offset of the first record in this batch.
+ first_offset:long;
  // Size of the memory snapshots following the record batch (in bytes).
  compressed_size:uint;
  // Uncompressed size of the memory snapshots (in bytes).
