@@ -193,10 +193,16 @@ type LogWriter struct {
 // NewLogWriter constructs a new log writer which produces output to the given
 // io.Writer.
 func NewLogWriter(output io.Writer) *LogWriter {
+	return NewLogWriterSize(output, defaultBufferSize)
+}
+
+// NewLogWriterSize is like NewLogWriter but it lets the application configure
+// the initial buffer size.
+func NewLogWriterSize(output io.Writer, bufferSize int) *LogWriter {
 	return &LogWriter{
 		output:  output,
-		builder: flatbuffers.NewBuilder(4096),
-		buffer:  bytes.NewBuffer(make([]byte, 0, 4096)),
+		builder: flatbuffers.NewBuilder(bufferSize),
+		buffer:  bytes.NewBuffer(make([]byte, 0, bufferSize)),
 	}
 }
 
