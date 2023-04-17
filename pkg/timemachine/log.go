@@ -5,11 +5,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"time"
 
+	capnp "capnproto.org/go/capnp/v3"
 	flatbuffers "github.com/google/flatbuffers/go"
+	"github.com/stealthrocket/timecraft/pkg/format"
 	"github.com/stealthrocket/timecraft/pkg/format/logsegment"
 	"github.com/stealthrocket/timecraft/pkg/format/types"
 )
@@ -25,12 +26,16 @@ func makeHash(h *types.Hash) Hash {
 	}
 }
 
-type Compression = types.Compression
+// type Compression = types.Compression
+type Compression = format.Compression
 
 const (
-	Uncompressed Compression = types.CompressionUncompressed
-	Snappy       Compression = types.CompressionSnappy
-	Zstd         Compression = types.CompressionZstd
+	//Uncompressed Compression = types.CompressionUncompressed
+	//Snappy       Compression = types.CompressionSnappy
+	//Zstd         Compression = types.CompressionZstd
+	Uncompressed Compression = format.Compression_uncompressed
+	Snappy       Compression = format.Compression_snappy
+	Zstd         Compression = format.Compression_zstd
 )
 
 type MemoryAccessType = logsegment.MemoryAccessType
@@ -107,6 +112,7 @@ const (
 // returned to scan through the log.
 type LogReader struct {
 	input       *bufio.Reader
+	decoder     *capnp.Decoder
 	frame       []byte
 	startTime   time.Time
 	compression Compression
@@ -122,7 +128,8 @@ func NewLogReader(input io.Reader) *LogReader {
 // the read buffer size.
 func NewLogReaderSize(input io.Reader, bufferSize int) *LogReader {
 	return &LogReader{
-		input: bufio.NewReaderSize(input, bufferSize),
+		input:   bufio.NewReaderSize(input, bufferSize),
+		decoder: capnp.NewDecoder(input),
 	}
 }
 
@@ -130,6 +137,7 @@ func NewLogReaderSize(input io.Reader, bufferSize int) *LogReader {
 // io.Reader.
 func (r *LogReader) Reset(input io.Reader) {
 	r.input.Reset(input)
+	r.decoder = capnp.NewDecoder(input)
 	r.startTime = time.Time{}
 	r.compression = Uncompressed
 }
@@ -138,69 +146,104 @@ func (r *LogReader) Reset(input io.Reader) {
 //
 // This method must be called once when the reader is positioned at the
 // beginning of the log.
-func (r *LogReader) ReadLogHeader() (*LogHeader, error) {
-	b, err := r.readFrame()
-	if err != nil {
-		return nil, err
-	}
+func (r *LogReader) ReadLogHeader() (h *LogHeader, err error) {
+	defer func() { err = handle(recover()) }()
+	h = new(LogHeader)
 
-	var h LogHeader
-	var header = logsegment.GetRootAsLogHeader(b, 0)
-	var runtime logsegment.Runtime
-	if header.Runtime(&runtime) == nil {
-		return nil, errMissingRuntime
-	}
-	h.Runtime.Runtime = string(runtime.Runtime())
-	h.Runtime.Version = string(runtime.Version())
-	h.Runtime.Functions = make([]Function, runtime.FunctionsLength())
+	//b := must(r.readFrame())
+	//m := must(capnp.Unmarshal(b))
+	m := must(r.decoder.Decode())
+
+	header := must(format.ReadRootLogHeader(m))
+	runtime := must(header.Runtime())
+
+	h.Runtime.Runtime = must(runtime.Runtime())
+	h.Runtime.Version = must(runtime.Version())
+
+	functions := must(runtime.Functions())
+	h.Runtime.Functions = make([]Function, functions.Len())
 
 	for i := range h.Runtime.Functions {
-		f := logsegment.Function{}
-		if !runtime.Functions(&f, i) {
-			return nil, fmt.Errorf("missing runtime function in log header: expected %d but could not load function at index %d", len(h.Runtime.Functions), i)
-		}
+		f := functions.At(i)
 		h.Runtime.Functions[i] = Function{
-			Module: string(f.Module()),
-			Name:   string(f.Name()),
+			Module: must(f.Module()),
+			Name:   must(f.Name()),
 		}
 	}
 
-	var hash types.Hash
-	var process logsegment.Process
-	if header.Process(&process) == nil {
-		return nil, errMissingProcess
-	}
-	if process.Id(&hash) == nil {
-		return nil, errMissingProcessID
-	}
-	h.Process.ID = makeHash(&hash)
-	if process.Image(&hash) == nil {
-		return nil, errMissingProcessImage
-	}
-	h.Process.Image = makeHash(&hash)
-	if unixStartTime := process.UnixStartTime(); unixStartTime == 0 {
-		return nil, errMissingProcessStartTime
-	} else {
-		h.Process.StartTime = time.Unix(0, unixStartTime)
-	}
-	h.Process.Args = make([]string, process.ArgumentsLength())
-	for i := range h.Process.Args {
-		h.Process.Args[i] = string(process.Arguments(i))
-	}
-	h.Process.Environ = make([]string, process.EnvironmentLength())
-	for i := range h.Process.Environ {
-		h.Process.Environ[i] = string(process.Environment(i))
-	}
-	if process.ParentProcessId(&hash) != nil {
-		h.Process.ParentProcessID = makeHash(&hash)
+	process := must(header.Process())
+	h.Process.ID = readHash(must(process.Id()))
+	h.Process.Image = readHash(must(process.Image()))
+	h.Process.StartTime = time.Unix(0, process.UnixStartTime())
+	h.Process.Args = readStringArray(must(process.Arguments()))
+	h.Process.Environ = readStringArray(must(process.Environment()))
+
+	if process.HasParentProcessId() {
+		h.Process.ParentProcessID = readHash(must(process.ParentProcessId()))
 		h.Process.ParentForkOffset = process.ParentForkOffset()
 	}
-	h.Segment = header.Segment()
-	h.Compression = header.Compression()
 
-	r.startTime = h.Process.StartTime
-	r.compression = h.Compression
-	return &h, nil
+	h.Segment = header.SegmentNumber()
+	h.Compression = header.Compression()
+	return h, nil
+
+	// var h LogHeader
+	// var header = logsegment.GetRootAsLogHeader(b, 0)
+	// var runtime logsegment.Runtime
+	// if header.Runtime(&runtime) == nil {
+	// 	return nil, errMissingRuntime
+	// }
+	// h.Runtime.Runtime = string(runtime.Runtime())
+	// h.Runtime.Version = string(runtime.Version())
+	// h.Runtime.Functions = make([]Function, runtime.FunctionsLength())
+
+	// for i := range h.Runtime.Functions {
+	// 	f := logsegment.Function{}
+	// 	if !runtime.Functions(&f, i) {
+	// 		return nil, fmt.Errorf("missing runtime function in log header: expected %d but could not load function at index %d", len(h.Runtime.Functions), i)
+	// 	}
+	// 	h.Runtime.Functions[i] = Function{
+	// 		Module: string(f.Module()),
+	// 		Name:   string(f.Name()),
+	// 	}
+	// }
+
+	// var hash types.Hash
+	// var process logsegment.Process
+	// if header.Process(&process) == nil {
+	// 	return nil, errMissingProcess
+	// }
+	// if process.Id(&hash) == nil {
+	// 	return nil, errMissingProcessID
+	// }
+	// h.Process.ID = makeHash(&hash)
+	// if process.Image(&hash) == nil {
+	// 	return nil, errMissingProcessImage
+	// }
+	// h.Process.Image = makeHash(&hash)
+	// if unixStartTime := process.UnixStartTime(); unixStartTime == 0 {
+	// 	return nil, errMissingProcessStartTime
+	// } else {
+	// 	h.Process.StartTime = time.Unix(0, unixStartTime)
+	// }
+	// h.Process.Args = make([]string, process.ArgumentsLength())
+	// for i := range h.Process.Args {
+	// 	h.Process.Args[i] = string(process.Arguments(i))
+	// }
+	// h.Process.Environ = make([]string, process.EnvironmentLength())
+	// for i := range h.Process.Environ {
+	// 	h.Process.Environ[i] = string(process.Environment(i))
+	// }
+	// if process.ParentProcessId(&hash) != nil {
+	// 	h.Process.ParentProcessID = makeHash(&hash)
+	// 	h.Process.ParentForkOffset = process.ParentForkOffset()
+	// }
+	// h.Segment = header.Segment()
+	// h.Compression = header.Compression()
+
+	// r.startTime = h.Process.StartTime
+	// r.compression = h.Compression
+	// return &h, nil
 }
 
 type RecordBatch struct {
@@ -243,6 +286,7 @@ func (r *LogReader) readFrame() ([]byte, error) {
 // be written to the log after that.
 type LogWriter struct {
 	output  io.Writer
+	encoder *capnp.Encoder
 	builder *flatbuffers.Builder
 	buffer  *bytes.Buffer
 	// The start time is captured when writing the log header to compute
@@ -271,6 +315,7 @@ func NewLogWriter(output io.Writer) *LogWriter {
 func NewLogWriterSize(output io.Writer, bufferSize int) *LogWriter {
 	return &LogWriter{
 		output:  output,
+		encoder: capnp.NewEncoder(output),
 		builder: flatbuffers.NewBuilder(bufferSize),
 		buffer:  bytes.NewBuffer(make([]byte, 0, bufferSize)),
 	}
@@ -282,6 +327,7 @@ func NewLogWriterSize(output io.Writer, bufferSize int) *LogWriter {
 // WriteLogHeader should be called again after resetting the writer.
 func (w *LogWriter) Reset(output io.Writer) {
 	w.output = output
+	w.encoder = capnp.NewEncoder(output)
 	w.builder.Reset()
 	w.buffer.Reset()
 	w.startTime = time.Time{}
@@ -291,86 +337,157 @@ func (w *LogWriter) Reset(output io.Writer) {
 	w.offsets = w.offsets[:0]
 }
 
-// WriteLogHeader writes the log header. The method must be called before any
-// records are written to the log via calls to WriteRecordBatch.
-func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
-	if w.stickyErr != nil {
-		return w.stickyErr
-	}
-	w.builder.Reset()
-
-	processID := w.prependHash(header.Process.ID)
-	processImage := w.prependHash(header.Process.Image)
-	processArguments := w.prependStringVector(header.Process.Args)
-	processEnvironment := w.prependStringVector(header.Process.Environ)
-
-	var parentProcessID flatbuffers.UOffsetT
-	if header.Process.ParentProcessID.Digest != "" {
-		parentProcessID = w.prependHash(header.Process.ParentProcessID)
-	}
-
-	logsegment.ProcessStart(w.builder)
-	logsegment.ProcessAddId(w.builder, processID)
-	logsegment.ProcessAddImage(w.builder, processImage)
-	logsegment.ProcessAddUnixStartTime(w.builder, header.Process.StartTime.UnixNano())
-	logsegment.ProcessAddArguments(w.builder, processArguments)
-	logsegment.ProcessAddEnvironment(w.builder, processEnvironment)
-	if parentProcessID != 0 {
-		logsegment.ProcessAddParentProcessId(w.builder, parentProcessID)
-		logsegment.ProcessAddParentForkOffset(w.builder, header.Process.ParentForkOffset)
-	}
-	processOffset := logsegment.ProcessEnd(w.builder)
-
-	type function struct {
-		module, name flatbuffers.UOffsetT
-	}
-
-	functionOffsets := make([]function, 0, 64)
-	if len(header.Runtime.Functions) <= cap(functionOffsets) {
-		functionOffsets = functionOffsets[:len(header.Runtime.Functions)]
-	} else {
-		functionOffsets = make([]function, len(header.Runtime.Functions))
-	}
-
-	for i, fn := range header.Runtime.Functions {
-		functionOffsets[i] = function{
-			module: w.builder.CreateSharedString(fn.Module),
-			name:   w.builder.CreateString(fn.Name),
-		}
-	}
-
-	functions := w.prependObjectVector(len(functionOffsets),
-		func(i int) flatbuffers.UOffsetT {
-			logsegment.FunctionStart(w.builder)
-			logsegment.FunctionAddModule(w.builder, functionOffsets[i].module)
-			logsegment.FunctionAddName(w.builder, functionOffsets[i].name)
-			return logsegment.FunctionEnd(w.builder)
-		},
-	)
-
-	runtime := w.builder.CreateString(header.Runtime.Runtime)
-	version := w.builder.CreateString(header.Runtime.Version)
-	logsegment.RuntimeStart(w.builder)
-	logsegment.RuntimeAddRuntime(w.builder, runtime)
-	logsegment.RuntimeAddVersion(w.builder, version)
-	logsegment.RuntimeAddFunctions(w.builder, functions)
-	runtimeOffset := logsegment.RuntimeEnd(w.builder)
-
-	logsegment.LogHeaderStart(w.builder)
-	logsegment.LogHeaderAddRuntime(w.builder, runtimeOffset)
-	logsegment.LogHeaderAddProcess(w.builder, processOffset)
-	logsegment.LogHeaderAddSegment(w.builder, header.Segment)
-	logsegment.LogHeaderAddCompression(w.builder, header.Compression)
-	logHeader := logsegment.LogHeaderEnd(w.builder)
-
-	w.builder.FinishSizePrefixedWithFileIdentifier(logHeader, tl0)
-
-	if _, err := w.output.Write(w.builder.FinishedBytes()); err != nil {
+func (w *LogWriter) writeFrame(b []byte) error {
+	n := make([]byte, 4)
+	binary.LittleEndian.PutUint32(n, uint32(len(b)))
+	if _, err := w.output.Write(n); err != nil {
 		w.stickyErr = err
 		return err
 	}
-	w.startTime = header.Process.StartTime
+	if _, err := w.output.Write(b); err != nil {
+		w.stickyErr = err
+		return err
+	}
 	return nil
+}
+
+// WriteLogHeader writes the log header. The method must be called before any
+// records are written to the log via calls to WriteRecordBatch.
+func (w *LogWriter) WriteLogHeader(h *LogHeader) (err error) {
+	defer func() { err = handle(recover()) }()
+
+	arena := capnp.SingleSegment(nil)
+	defer arena.Release()
+
+	msg, seg, err := capnp.NewMessage(arena)
+	check(err)
+
+	header, err := format.NewRootLogHeader(seg)
+	check(err)
+	header.SetSegmentNumber(uint32(h.Segment))
+	header.SetCompression(h.Compression)
+
+	runtime, err := header.NewRuntime()
+	check(err)
+	check(runtime.SetRuntime(h.Runtime.Runtime))
+	check(runtime.SetVersion(h.Runtime.Version))
+
+	functions, err := runtime.NewFunctions(int32(len(h.Runtime.Functions)))
+	check(err)
+	for i, fn := range h.Runtime.Functions {
+		f := functions.At(i)
+		check(f.SetModule(fn.Module))
+		check(f.SetName(fn.Name))
+	}
+
+	process, err := header.NewProcess()
+	check(err)
+	process.SetUnixStartTime(h.Process.StartTime.UnixNano())
+
+	processID, err := process.NewId()
+	check(err)
+	check(setHash(processID, h.Process.ID))
+
+	processImage, err := process.NewImage()
+	check(err)
+	check(setHash(processImage, h.Process.Image))
+
+	arguments, err := process.NewArguments(int32(len(h.Process.Args)))
+	check(err)
+	check(setTextList(arguments, h.Process.Args))
+
+	environment, err := process.NewEnvironment(int32(len(h.Process.Environ)))
+	check(err)
+	check(setTextList(environment, h.Process.Environ))
+
+	if h.Process.ParentProcessID.Digest != "" {
+		parentProcessID, err := process.NewParentProcessId()
+		check(err)
+		check(setHash(parentProcessID, h.Process.ParentProcessID))
+		process.SetParentForkOffset(h.Process.ParentForkOffset)
+	}
+
+	check(w.encoder.Encode(msg))
+	w.startTime = h.Process.StartTime
+	return nil
+
+	// if w.stickyErr != nil {
+	// 	return w.stickyErr
+	// }
+	// w.builder.Reset()
+
+	// processID := w.prependHash(header.Process.ID)
+	// processImage := w.prependHash(header.Process.Image)
+	// processArguments := w.prependStringVector(header.Process.Args)
+	// processEnvironment := w.prependStringVector(header.Process.Environ)
+
+	// var parentProcessID flatbuffers.UOffsetT
+	// if header.Process.ParentProcessID.Digest != "" {
+	// 	parentProcessID = w.prependHash(header.Process.ParentProcessID)
+	// }
+
+	// logsegment.ProcessStart(w.builder)
+	// logsegment.ProcessAddId(w.builder, processID)
+	// logsegment.ProcessAddImage(w.builder, processImage)
+	// logsegment.ProcessAddUnixStartTime(w.builder, header.Process.StartTime.UnixNano())
+	// logsegment.ProcessAddArguments(w.builder, processArguments)
+	// logsegment.ProcessAddEnvironment(w.builder, processEnvironment)
+	// if parentProcessID != 0 {
+	// 	logsegment.ProcessAddParentProcessId(w.builder, parentProcessID)
+	// 	logsegment.ProcessAddParentForkOffset(w.builder, header.Process.ParentForkOffset)
+	// }
+	// processOffset := logsegment.ProcessEnd(w.builder)
+
+	// type function struct {
+	// 	module, name flatbuffers.UOffsetT
+	// }
+
+	// functionOffsets := make([]function, 0, 64)
+	// if len(header.Runtime.Functions) <= cap(functionOffsets) {
+	// 	functionOffsets = functionOffsets[:len(header.Runtime.Functions)]
+	// } else {
+	// 	functionOffsets = make([]function, len(header.Runtime.Functions))
+	// }
+
+	// for i, fn := range header.Runtime.Functions {
+	// 	functionOffsets[i] = function{
+	// 		module: w.builder.CreateSharedString(fn.Module),
+	// 		name:   w.builder.CreateString(fn.Name),
+	// 	}
+	// }
+
+	// functions := w.prependObjectVector(len(functionOffsets),
+	// 	func(i int) flatbuffers.UOffsetT {
+	// 		logsegment.FunctionStart(w.builder)
+	// 		logsegment.FunctionAddModule(w.builder, functionOffsets[i].module)
+	// 		logsegment.FunctionAddName(w.builder, functionOffsets[i].name)
+	// 		return logsegment.FunctionEnd(w.builder)
+	// 	},
+	// )
+
+	// runtime := w.builder.CreateString(header.Runtime.Runtime)
+	// version := w.builder.CreateString(header.Runtime.Version)
+	// logsegment.RuntimeStart(w.builder)
+	// logsegment.RuntimeAddRuntime(w.builder, runtime)
+	// logsegment.RuntimeAddVersion(w.builder, version)
+	// logsegment.RuntimeAddFunctions(w.builder, functions)
+	// runtimeOffset := logsegment.RuntimeEnd(w.builder)
+
+	// logsegment.LogHeaderStart(w.builder)
+	// logsegment.LogHeaderAddRuntime(w.builder, runtimeOffset)
+	// logsegment.LogHeaderAddProcess(w.builder, processOffset)
+	// logsegment.LogHeaderAddSegment(w.builder, header.Segment)
+	// logsegment.LogHeaderAddCompression(w.builder, header.Compression)
+	// logHeader := logsegment.LogHeaderEnd(w.builder)
+
+	// w.builder.FinishSizePrefixedWithFileIdentifier(logHeader, tl0)
+
+	// if _, err := w.output.Write(w.builder.FinishedBytes()); err != nil {
+	// 	w.stickyErr = err
+	// 	return err
+	// }
+	// w.startTime = header.Process.StartTime
+	// return nil
 }
 
 // WriteRecordBatch writes a record batch to the log. The method returns the
@@ -510,4 +627,66 @@ func (w *LogWriter) prependMemoryAccess(offset uint32, access *MemoryAccess) fla
 	w.builder.PlaceUint32(offset)
 	w.builder.PlaceUint32(access.Offset)
 	return w.builder.Offset()
+}
+
+func readHash(h format.Hash) Hash {
+	return Hash{
+		Algorithm: must(h.Algorithm()),
+		Digest:    must(h.Digest()),
+	}
+}
+
+func readStringArray(list capnp.TextList) []string {
+	values := make([]string, list.Len())
+	for i := range values {
+		values[i] = must(list.At(i))
+	}
+	return values
+}
+
+func setHash(dst format.Hash, src Hash) error {
+	if err := dst.SetAlgorithm(src.Algorithm); err != nil {
+		return err
+	}
+	if err := dst.SetDigest(src.Digest); err != nil {
+		return err
+	}
+	return nil
+}
+
+func setTextList(dst capnp.TextList, src []string) error {
+	for i, v := range src {
+		if err := dst.Set(i, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Methods of capnp types produce a lot of errors, which makes the code verbose
+// with error checks and negatively impacts readability. Error handling is done
+// via local panics in those functions to help reduce the amount of error checks
+// that have to be written.
+type capnpError struct{ err error }
+
+func handle(x any) error {
+	switch v := x.(type) {
+	case nil:
+		return nil
+	case error:
+		return v
+	default:
+		panic(v)
+	}
+}
+
+func check(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+func must[T any](ret T, err error) T {
+	check(err)
+	return ret
 }

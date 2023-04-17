@@ -50,7 +50,7 @@ func TestReadLogHeader(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if diff := cmp.Diff(h, header); diff != "" {
+		if diff := cmp.Diff(header, h); diff != "" {
 			t.Fatal(diff)
 		}
 		r0.Reset(b.Bytes())

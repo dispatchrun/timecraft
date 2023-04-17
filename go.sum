@@ -1,3 +1,5 @@
+capnproto.org/go/capnp/v3 v3.0.0-alpha.27 h1:DxFjKAyTGgGI2gG1ITM9ajp7DYqgeb9B1mcZ4wNvWlM=
+capnproto.org/go/capnp/v3 v3.0.0-alpha.27/go.mod h1:wvLs5WEA1WVb/uQyL/HNXUp81kBPjjKbx68N7TtkorQ=
 github.com/cpuguy83/go-md2man/v2 v2.0.2/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/google/flatbuffers v23.3.3+incompatible h1:5PJI/WbJkaMTvpGxsHVKG/LurN/KnWXNyGpwSCDgen0=
 github.com/google/flatbuffers v23.3.3+incompatible/go.mod h1:1AeVuKshWv4vARoZatz6mlQ0JxURH0Kv5+zNeJKJCa8=
@@ -14,5 +16,9 @@ github.com/stealthrocket/wazergo v0.11.0 h1:uei6jlnTQxjpuhzW31QgSkHi4eVKUaQmOf7W
 github.com/stealthrocket/wazergo v0.11.0/go.mod h1:ONoLQpwgBDX9VGB+CCAbzTNDmJJi5kcnFLL+pWIGF5M=
 github.com/tetratelabs/wazero v1.0.2-0.20230407031439-f167939c8874 h1:13uCWZQoYYwnZUS1CeYPvq2Gh0trMDI0/gXVvpI4EiA=
 github.com/tetratelabs/wazero v1.0.2-0.20230407031439-f167939c8874/go.mod h1:wYx2gNRg8/WihJfSDxA1TIL8H+GkfLYm+bIfbblu9VQ=
+golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9 h1:SQFwaSi55rU7vdNs9Yr0Z324VNlrF+0wMqRXT4St8ck=
+golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+zenhack.net/go/util v0.0.0-20230327231740-da8cb323921c h1:L+T38E+u91e956ykUrYKHZaZef9hKMJsnGmTbMVb2cE=
+zenhack.net/go/util v0.0.0-20230327231740-da8cb323921c/go.mod h1:0lafdGg7tDb7RcXASgmJmRbLFLkAxu328+KGIs7icDE=

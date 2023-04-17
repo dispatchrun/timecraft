@@ -1,4 +1,4 @@
-.PHONY: clean flatbuffers generate test testdata
+.PHONY: capnp clean flatbuffers generate test testdata
 .PRECIOUS: %.wasm
 
 pkg.src.go = \
@@ -8,6 +8,11 @@ format.src.fbs = \
 	$(wildcard pkg/format/*/*.fbs)
 format.src.go = \
 	$(format.src.fbs:.fbs=_generated.go)
+
+format.src.capnp = \
+	$(wildcard pkg/format/*.capnp)
+format.src.capnp.go = \
+	$(format.src.capnp:.capnp=.capnp.go)
 
 timecraft.src.go = \
 	$(format.src.go) \
@@ -23,10 +28,12 @@ timecraft.testdata.wasm = \
 timecraft: go.mod $(timecraft.src.go)
 	go build -o timecraft
 
-clean:
-	rm -f timecraft $(timecraft.testdata.wasm) $(format.src.go)
+capnp: $(format.src.capnp.go)
 
-generate: flatbuffers
+clean:
+	rm -f timecraft $(timecraft.testdata.wasm) $(format.src.go) $(format.src.capnp.go)
+
+generate: capnp flatbuffers
 
 flatbuffers: go.mod $(format.src.go)
 	go build ./pkg/format/...
@@ -44,3 +51,6 @@ testdata: $(timecraft.testdata.wasm)
 %_generated.go: %.fbs
 	flatc --go --gen-onefile --go-namespace $(basename $(notdir $<)) --go-module-name github.com/stealthrocket/timecraft/pkg/format -o $(dir $@) $<
 	goimports -w $@
+
+%.capnp.go: %.capnp
+	capnp compile -I$(GOPATH)/src/capnproto.org/go/capnp/std --output go $<
