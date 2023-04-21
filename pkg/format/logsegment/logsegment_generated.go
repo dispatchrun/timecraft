@@ -3,36 +3,10 @@
 package logsegment
 
 import (
-	"strconv"
-
 	flatbuffers "github.com/google/flatbuffers/go"
 
 	types "github.com/stealthrocket/timecraft/pkg/format/types"
 )
-
-type MemoryAccessType uint32
-
-const (
-	MemoryAccessTypeMemoryRead  MemoryAccessType = 0
-	MemoryAccessTypeMemoryWrite MemoryAccessType = 1
-)
-
-var EnumNamesMemoryAccessType = map[MemoryAccessType]string{
-	MemoryAccessTypeMemoryRead:  "MemoryRead",
-	MemoryAccessTypeMemoryWrite: "MemoryWrite",
-}
-
-var EnumValuesMemoryAccessType = map[string]MemoryAccessType{
-	"MemoryRead":  MemoryAccessTypeMemoryRead,
-	"MemoryWrite": MemoryAccessTypeMemoryWrite,
-}
-
-func (v MemoryAccessType) String() string {
-	if s, ok := EnumNamesMemoryAccessType[v]; ok {
-		return s
-	}
-	return "MemoryAccessType(" + strconv.FormatInt(int64(v), 10) + ")"
-}
 
 type Runtime struct {
 	_tab flatbuffers.Table
@@ -677,7 +651,7 @@ func (rcv *Record) MemoryAccess(obj *MemoryAccess, j int) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(16))
 	if o != 0 {
 		x := rcv._tab.Vector(o)
-		x += flatbuffers.UOffsetT(j) * 16
+		x += flatbuffers.UOffsetT(j) * 12
 		obj.Init(rcv._tab.Bytes, x)
 		return true
 	}
@@ -723,7 +697,7 @@ func RecordAddMemoryAccess(builder *flatbuffers.Builder, memoryAccess flatbuffer
 	builder.PrependUOffsetTSlot(6, flatbuffers.UOffsetT(memoryAccess), 0)
 }
 func RecordStartMemoryAccessVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(16, numElems, 4)
+	return builder.StartVector(12, numElems, 4)
 }
 func RecordEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
@@ -763,16 +737,8 @@ func (rcv *MemoryAccess) MutateLength(n uint32) bool {
 	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(8), n)
 }
 
-func (rcv *MemoryAccess) Access() MemoryAccessType {
-	return MemoryAccessType(rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(12)))
-}
-func (rcv *MemoryAccess) MutateAccess(n MemoryAccessType) bool {
-	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(12), uint32(n))
-}
-
-func CreateMemoryAccess(builder *flatbuffers.Builder, memoryOffset uint32, recordOffset uint32, length uint32, access MemoryAccessType) flatbuffers.UOffsetT {
-	builder.Prep(4, 16)
-	builder.PrependUint32(uint32(access))
+func CreateMemoryAccess(builder *flatbuffers.Builder, memoryOffset uint32, recordOffset uint32, length uint32) flatbuffers.UOffsetT {
+	builder.Prep(4, 12)
 	builder.PrependUint32(length)
 	builder.PrependUint32(recordOffset)
 	builder.PrependUint32(memoryOffset)

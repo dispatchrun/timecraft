@@ -46,15 +46,13 @@ func TestReadLogHeader(t *testing.T) {
 	r1 := timemachine.NewLogReader(r0)
 
 	for i := 0; i < 10; i++ {
-		h, err := r1.ReadLogHeader()
+		h, _, err := r1.ReadLogHeader()
 		if err != nil {
 			t.Fatal(err)
 		}
 		if diff := cmp.Diff(h, header); diff != "" {
 			t.Fatal(diff)
 		}
-		r0.Reset(b.Bytes())
-		r1.Reset(r0)
 	}
 }
 
@@ -94,12 +92,10 @@ func BenchmarkLogReader(b *testing.B) {
 		r1 := timemachine.NewLogReader(r0)
 
 		for i := 0; i < b.N; i++ {
-			_, err := r1.ReadLogHeader()
+			_, _, err := r1.ReadLogHeader()
 			if err != nil {
 				b.Fatal(i, err)
 			}
-			r0.Reset(buffer.Bytes())
-			r1.Reset(r0)
 		}
 	})
 }
@@ -185,7 +181,7 @@ func BenchmarkLogWriter(b *testing.B) {
 						Params:    []uint64{1},
 						Results:   []uint64{42},
 						MemoryAccess: []timemachine.MemoryAccess{
-							{Memory: []byte("hello world!"), Offset: 1234, Access: timemachine.MemoryRead},
+							{Memory: []byte("hello world!"), Offset: 1234},
 						},
 					},
 				},
@@ -200,7 +196,7 @@ func BenchmarkLogWriter(b *testing.B) {
 						Params:    []uint64{1},
 						Results:   []uint64{42},
 						MemoryAccess: []timemachine.MemoryAccess{
-							{Memory: []byte("hello world!"), Offset: 1234, Access: timemachine.MemoryRead},
+							{Memory: []byte("hello world!"), Offset: 1234},
 						},
 					},
 					{
@@ -219,10 +215,10 @@ func BenchmarkLogWriter(b *testing.B) {
 						Timestamp: header.Process.StartTime.Add(4 * time.Millisecond),
 						Function:  3,
 						MemoryAccess: []timemachine.MemoryAccess{
-							{Memory: []byte("A"), Offset: 1, Access: timemachine.MemoryRead},
-							{Memory: []byte("B"), Offset: 2, Access: timemachine.MemoryRead},
-							{Memory: []byte("C"), Offset: 3, Access: timemachine.MemoryRead},
-							{Memory: []byte("D"), Offset: 4, Access: timemachine.MemoryRead},
+							{Memory: []byte("A"), Offset: 1},
+							{Memory: []byte("B"), Offset: 2},
+							{Memory: []byte("C"), Offset: 3},
+							{Memory: []byte("D"), Offset: 4},
 						},
 					},
 					{
@@ -231,8 +227,8 @@ func BenchmarkLogWriter(b *testing.B) {
 						Params:    []uint64{1},
 						Results:   []uint64{42},
 						MemoryAccess: []timemachine.MemoryAccess{
-							{Memory: []byte("hello world!"), Offset: 1234, Access: timemachine.MemoryRead},
-							{Memory: make([]byte, 10e3), Offset: 1234567, Access: timemachine.MemoryWrite},
+							{Memory: []byte("hello world!"), Offset: 1234},
+							{Memory: make([]byte, 10e3), Offset: 1234567},
 						},
 					},
 				},

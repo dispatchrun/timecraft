@@ -81,10 +81,6 @@ table Record {
  memory_access:[MemoryAccess];
 }
 
-enum MemoryAccessType:uint {
-  MemoryRead, MemoryWrite
-}
-
 // MemoryAccess represents the capture of a section of memory that was either
 // read or written during a host function call.
 struct MemoryAccess {
@@ -95,8 +91,6 @@ struct MemoryAccess {
  record_offset:uint;
  // Size of the memory access (in bytes).
  length:uint;
- // Type of the recorded memory access (read or write).
- access:MemoryAccessType;
 }
 
 root_type LogHeader;
