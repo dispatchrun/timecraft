@@ -86,9 +86,7 @@ table Record {
 struct MemoryAccess {
  // Byte offset in the WebAssembly module's linear memory where the memory
  // access starts.
- memory_offset:uint;
- // Byte offset in the Record data section where the memory capture is written.
- record_offset:uint;
+ offset:uint;
  // Size of the memory access (in bytes).
  length:uint;
 }

@@ -124,6 +124,7 @@ type RecordBatch struct {
 // Close must be called by the application when the batch isn't needed anymore
 // to allow the resources held internally to be reused by the application.
 func (r *RecordBatch) Close() error {
+	r.once.Do(func() {})
 	releaseBuffer(&r.frame, &framePool)
 	releaseBuffer(&r.memory, &memoryPool)
 	r.batch = logsegment.RecordBatch{}
@@ -289,58 +290,58 @@ func (r *RecordReader) NumMemoryAccess() int {
 	return int(r.record.MemoryAccessLength())
 }
 
-// MemoryAccessAt returns a reader for the memory access recorded at index i.
-func (r *RecordReader) MemoryAccessAt(i int) MemoryAccessReader {
-	m := MemoryAccessReader{batch: r.batch}
-	r.record.MemoryAccess(&m.access, i)
-	return m
+// ReadMemoryAccess reads memory access for r int the slice passed as argument.
+//
+// Byte slices written to the slice elements' Memory field remain valid until
+// the parent record batch is closed.
+func (r *RecordReader) ReadMemoryAccess(memoryAccess []MemoryAccess) error {
+	memory, err := r.Memory()
+	if err != nil {
+		return err
+	}
+	offset := uint32(0)
+	for i := range memoryAccess {
+		m := logsegment.MemoryAccess{}
+		r.record.MemoryAccess(&m, i)
+		n := m.Length()
+		i := offset
+		j := offset + n
+		offset += n
+		memoryAccess[i] = MemoryAccess{
+			Memory: memory[i:j:j],
+			Offset: m.Offset(),
+		}
+	}
+	return nil
 }
 
 // MemoryAccess reads and returns the memory access recorded by r.
 func (r *RecordReader) MemoryAccess() ([]MemoryAccess, error) {
 	memoryAccess := make([]MemoryAccess, r.NumMemoryAccess())
-	for i := range memoryAccess {
-		m := r.MemoryAccessAt(i)
-		b, err := m.Data()
-		if err != nil {
-			return nil, err
-		}
-		memoryAccess[i] = MemoryAccess{
-			Memory: b,
-			Offset: m.Offset(),
-		}
+	if err := r.ReadMemoryAccess(memoryAccess); err != nil {
+		return nil, err
+	}
+	for i, m := range memoryAccess {
+		memoryAccess[i].Memory = append([]byte{}, m.Memory...)
 	}
 	return memoryAccess, nil
 }
 
-// MemoryAccessReader is a type used to read a single memory access.
-type MemoryAccessReader struct {
-	batch  *RecordBatch
-	access logsegment.MemoryAccess
-}
-
-// Offset returns the position in the linear memory (a byte offset).
-func (r *MemoryAccessReader) Offset() uint32 {
-	return r.access.MemoryOffset()
-}
-
-// Length returns the size of the memory region (in bytes).
-func (r *MemoryAccessReader) Length() uint32 {
-	return r.access.Length()
-}
-
-// Data returns a byte slice to an internal buffer where the memory access was
-// loaded.
+// Memory returns a byte slice to the memory buffer containing data from the
+// memory regions recorded in r.
 //
-// The returned slice will be the same across calls to this method. The slice
-// remains valid until the record batch that r originated from is closed.
-func (r *MemoryAccessReader) Data() ([]byte, error) {
+// Multiple calls to this method will return the same byte slice.
+//
+// The returned byte slice remains valid until the originating record batch is
+// closed.
+func (r *RecordReader) Memory() ([]byte, error) {
 	b, err := r.batch.loadMemory()
 	if err != nil {
 		return nil, err
 	}
-	i := r.access.RecordOffset()
-	j := i + r.access.Length()
+	n := r.record.Length()
+	i := r.record.Offset()
+	j := i + n
 	return b[i:j:j], nil
 }
 
@@ -716,12 +717,9 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 		}
 
 		logsegment.RecordStartMemoryAccessVector(w.builder, len(record.MemoryAccess))
-		recordOffset := uncompressedSize
 
 		for i := len(record.MemoryAccess) - 1; i >= 0; i-- {
-			access := &record.MemoryAccess[i]
-			recordOffset -= uint32(len(access.Memory))
-			w.prependMemoryAccess(recordOffset, access)
+			w.prependMemoryAccess(&record.MemoryAccess[i])
 		}
 
 		memory := w.builder.EndVector(len(record.MemoryAccess))
@@ -809,16 +807,14 @@ func (w *LogWriter) prependOffsetVector(offsets []flatbuffers.UOffsetT) flatbuff
 	return w.builder.EndVector(len(offsets))
 }
 
-func (w *LogWriter) prependMemoryAccess(offset uint32, access *MemoryAccess) flatbuffers.UOffsetT {
+func (w *LogWriter) prependMemoryAccess(access *MemoryAccess) flatbuffers.UOffsetT {
 	// return logsegment.CreateMemoryAccess(
 	// 	w.builder,
 	// 	access.Offset,
-	// 	offset,
 	// 	uint32(len(access.Memory)),
 	// )
 	w.builder.Prep(4, 16)
 	w.builder.PlaceUint32(uint32(len(access.Memory)))
-	w.builder.PlaceUint32(offset)
 	w.builder.PlaceUint32(access.Offset)
 	return w.builder.Offset()
 }
