@@ -1,7 +1,6 @@
 package timemachine
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -10,6 +9,8 @@ import (
 	"time"
 
 	flatbuffers "github.com/google/flatbuffers/go"
+	"github.com/klauspost/compress/snappy"
+	"github.com/klauspost/compress/zstd"
 	"github.com/stealthrocket/timecraft/pkg/format/logsegment"
 	"github.com/stealthrocket/timecraft/pkg/format/types"
 )
@@ -125,8 +126,12 @@ type RecordBatch struct {
 // to allow the resources held internally to be reused by the application.
 func (r *RecordBatch) Close() error {
 	r.once.Do(func() {})
-	releaseBuffer(&r.frame, &framePool)
-	releaseBuffer(&r.memory, &memoryPool)
+	memoryBufferPool := &compressedBufferPool
+	if r.header.Compression == Uncompressed {
+		memoryBufferPool = &uncompressedBufferPool
+	}
+	releaseBuffer(&r.memory, memoryBufferPool)
+	releaseBuffer(&r.frame, &frameBufferPool)
 	r.batch = logsegment.RecordBatch{}
 	return nil
 }
@@ -207,22 +212,39 @@ func (r *RecordBatch) loadMemory() ([]byte, error) {
 }
 
 func (r *RecordBatch) readMemory() (*buffer, error) {
-	compressedMemory := memoryPool.get(int(r.CompressedSize()))
-	defer func() {
-		if compressedMemory != nil {
-			memoryPool.put(compressedMemory)
-		}
-	}()
-	if _, err := r.input.ReadAt(compressedMemory.data, r.byteOffset+r.byteLength); err != nil {
+	compression := r.header.Compression
+	compressedSize := int(r.CompressedSize())
+	uncompressedSize := int(r.UncompressedSize())
+
+	var memoryBufferPool *bufferPool
+	var memoryBufferSize int
+	if compression == Uncompressed {
+		memoryBufferPool = &uncompressedBufferPool
+		memoryBufferSize = uncompressedSize
+	} else {
+		memoryBufferPool = &compressedBufferPool
+		memoryBufferSize = compressedSize
+	}
+
+	memoryBuffer := memoryBufferPool.get(memoryBufferSize)
+
+	_, err := r.input.ReadAt(memoryBuffer.data, r.byteOffset+r.byteLength)
+	if err != nil {
+		memoryBufferPool.put(memoryBuffer)
 		return nil, err
 	}
-	uncompressedMemory := compressedMemory
-	if r.header.Compression == Uncompressed {
-		compressedMemory = nil
-	} else {
-		// TODO: compression
+
+	if compression == Uncompressed {
+		return memoryBuffer, nil
 	}
-	return uncompressedMemory, nil
+	defer memoryBufferPool.put(memoryBuffer)
+
+	uncompressedMemoryBuffer := uncompressedBufferPool.get(uncompressedSize)
+	src := memoryBuffer.data
+	dst := uncompressedMemoryBuffer.data
+	dst, err = decompress(dst, src, compression)
+	uncompressedMemoryBuffer.data = dst
+	return uncompressedMemoryBuffer, nil
 }
 
 // RecordReader values are returned by calling RecordReaderAt on a RecordBatch,
@@ -408,7 +430,7 @@ func (r *LogReader) ReadLogHeader() (*LogHeader, int64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	defer framePool.put(f)
+	defer frameBufferPool.put(f)
 
 	var h LogHeader
 	var header = logsegment.GetRootAsLogHeader(f.data[4:], 0)
@@ -484,7 +506,7 @@ func (r *LogReader) ReadRecordBatch(header *LogHeader, byteOffset int64) (*Recor
 }
 
 func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
-	f := framePool.get(int(r.bufferSize))
+	f := frameBufferPool.get(int(r.bufferSize))
 
 	n, err := r.input.ReadAt(f.data, byteOffset)
 	if n < 4 {
@@ -494,13 +516,13 @@ func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
 			}
 			err = io.ErrUnexpectedEOF
 		}
-		framePool.put(f)
+		frameBufferPool.put(f)
 		return nil, fmt.Errorf("reading log segment frame at offset %d: %w", byteOffset, err)
 	}
 
 	frameSize := binary.LittleEndian.Uint32(f.data[:4])
 	if frameSize > maxFrameSize {
-		framePool.put(f)
+		frameBufferPool.put(f)
 		return nil, fmt.Errorf("log segment frame at offset %d is too large (%d>%d)", byteOffset, frameSize, maxFrameSize)
 	}
 
@@ -513,7 +535,7 @@ func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
 	if cap(f.data) >= byteLength {
 		f.data = f.data[:byteLength]
 	} else {
-		defer framePool.put(f)
+		defer frameBufferPool.put(f)
 		newFrame := newBuffer(byteLength)
 		copy(newFrame.data, f.data)
 		f = newFrame
@@ -523,7 +545,7 @@ func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
 		if err == io.EOF {
 			err = io.ErrUnexpectedEOF
 		}
-		framePool.put(f)
+		frameBufferPool.put(f)
 		return nil, fmt.Errorf("reading %dB log segment frame at offset %d: %w", byteLength, byteOffset, err)
 	}
 	return f, nil
@@ -553,8 +575,9 @@ func (p *bufferPool) put(b *buffer) {
 }
 
 var (
-	framePool  bufferPool
-	memoryPool bufferPool
+	frameBufferPool        bufferPool
+	compressedBufferPool   bufferPool
+	uncompressedBufferPool bufferPool
 )
 
 func newBuffer(size int) *buffer {
@@ -572,6 +595,66 @@ func align(size int) int {
 	return ((size + (defaultBufferSize - 1)) / defaultBufferSize) * defaultBufferSize
 }
 
+type objectPool[T any] struct {
+	pool sync.Pool
+}
+
+func (p *objectPool[T]) get(newObject func() T) T {
+	v, ok := p.pool.Get().(T)
+	if ok {
+		return v
+	}
+	return newObject()
+}
+
+func (p *objectPool[T]) put(obj T) {
+	p.pool.Put(obj)
+}
+
+var (
+	zstdEncoderPool objectPool[*zstd.Encoder]
+	zstdDecoderPool objectPool[*zstd.Decoder]
+)
+
+func compress(dst, src []byte, compression Compression) []byte {
+	switch compression {
+	case Snappy:
+		return snappy.Encode(dst, src)
+	case Zstd:
+		enc := zstdEncoderPool.get(func() *zstd.Encoder {
+			e, _ := zstd.NewWriter(nil,
+				zstd.WithEncoderCRC(false),
+				zstd.WithEncoderConcurrency(1),
+				zstd.WithEncoderLevel(zstd.SpeedFastest),
+			)
+			return e
+		})
+		defer zstdEncoderPool.put(enc)
+		return enc.EncodeAll(src, dst[:0])
+	default:
+		return append(dst[:0], src...)
+	}
+}
+
+func decompress(dst, src []byte, compression Compression) ([]byte, error) {
+	switch compression {
+	case Snappy:
+		return snappy.Decode(dst, src)
+	case Zstd:
+		dec := zstdDecoderPool.get(func() *zstd.Decoder {
+			d, _ := zstd.NewReader(nil,
+				zstd.IgnoreChecksum(true),
+				zstd.WithDecoderConcurrency(1),
+			)
+			return d
+		})
+		defer zstdDecoderPool.put(dec)
+		return dec.DecodeAll(src, dst[:0])
+	default:
+		return dst, fmt.Errorf("unknown compression format: %d", compression)
+	}
+}
+
 // LogWriter supports writing log segments to an io.Writer.
 //
 // The type has two main methods, WriteLogHeader and WriteRecordBatch.
@@ -579,9 +662,13 @@ func align(size int) int {
 // initialize the state of the writer, zero or more record batches may then
 // be written to the log after that.
 type LogWriter struct {
-	output  io.Writer
-	builder *flatbuffers.Builder
-	buffer  *bytes.Buffer
+	output       io.Writer
+	builder      *flatbuffers.Builder
+	uncompressed []byte
+	compressed   []byte
+	// The compression format declared in the log header first written to the
+	// log segment.
+	compression Compression
 	// The start time is captured when writing the log header to compute
 	// monontonic timestamps for the records written to the log.
 	startTime time.Time
@@ -607,9 +694,9 @@ func NewLogWriter(output io.Writer) *LogWriter {
 // the initial buffer size.
 func NewLogWriterSize(output io.Writer, bufferSize int) *LogWriter {
 	return &LogWriter{
-		output:  output,
-		builder: flatbuffers.NewBuilder(bufferSize),
-		buffer:  bytes.NewBuffer(make([]byte, 0, bufferSize)),
+		output:       output,
+		builder:      flatbuffers.NewBuilder(bufferSize),
+		uncompressed: make([]byte, 0, bufferSize),
 	}
 }
 
@@ -620,7 +707,9 @@ func NewLogWriterSize(output io.Writer, bufferSize int) *LogWriter {
 func (w *LogWriter) Reset(output io.Writer) {
 	w.output = output
 	w.builder.Reset()
-	w.buffer.Reset()
+	w.uncompressed = w.uncompressed[:0]
+	w.compressed = w.compressed[:0]
+	w.compression = Uncompressed
 	w.startTime = time.Time{}
 	w.nextOffset = 0
 	w.stickyErr = nil
@@ -707,6 +796,7 @@ func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
 		return err
 	}
 	w.startTime = header.Process.StartTime
+	w.compression = header.Compression
 	return nil
 }
 
@@ -721,22 +811,17 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 		return w.nextOffset, w.stickyErr
 	}
 	w.builder.Reset()
-	w.buffer.Reset()
+	w.uncompressed = w.uncompressed[:0]
+	w.compressed = w.compressed[:0]
 	w.records = w.records[:0]
 
-	uncompressedSize := uint32(0)
-
 	for _, record := range batch {
-		offset := uncompressedSize
+		offset := uint32(len(w.uncompressed))
 		length := uint32(0)
 
 		for _, access := range record.MemoryAccess {
-			uncompressedSize += uint32(len(access.Memory))
 			length += uint32(len(access.Memory))
-
-			if _, err := w.buffer.Write(access.Memory); err != nil {
-				return w.nextOffset, err
-			}
+			w.uncompressed = append(w.uncompressed, access.Memory...)
 		}
 
 		logsegment.RecordStartMemoryAccessVector(w.builder, len(record.MemoryAccess))
@@ -766,12 +851,16 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 	w.nextOffset += int64(len(batch))
 
 	records := w.prependOffsetVector(w.records)
-	compressedSize := uint32(w.buffer.Len())
+	memory := w.uncompressed
+	if w.compression != Uncompressed {
+		w.compressed = compress(w.compressed[:cap(w.compressed)], memory, w.compression)
+		memory = w.compressed
+	}
 
 	logsegment.RecordBatchStart(w.builder)
 	logsegment.RecordBatchAddFirstOffset(w.builder, firstOffset)
-	logsegment.RecordBatchAddCompressedSize(w.builder, compressedSize)
-	logsegment.RecordBatchAddUncompressedSize(w.builder, uncompressedSize)
+	logsegment.RecordBatchAddCompressedSize(w.builder, uint32(len(memory)))
+	logsegment.RecordBatchAddUncompressedSize(w.builder, uint32(len(w.uncompressed)))
 	logsegment.RecordBatchAddChecksum(w.builder, 0)
 	logsegment.RecordBatchAddRecords(w.builder, records)
 	w.builder.FinishSizePrefixed(logsegment.RecordBatchEnd(w.builder))
@@ -780,7 +869,7 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 		w.stickyErr = err
 		return firstOffset, err
 	}
-	if _, err := w.output.Write(w.buffer.Bytes()); err != nil {
+	if _, err := w.output.Write(memory); err != nil {
 		w.stickyErr = err
 		return firstOffset, err
 	}
