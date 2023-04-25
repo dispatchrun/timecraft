@@ -159,6 +159,30 @@ func (r *RecordBatch) NumRecords() int {
 	return int(r.batch.RecordsLength())
 }
 
+// Records is a helper function which reads all records of a batch in memory.
+//
+// The method is useful in contexts with relaxed performance constraints, as the
+// returned values are heap allocated and hold copies of the underlying memory
+// buffers.
+func (r *RecordBatch) Records() ([]Record, error) {
+	records := make([]Record, r.NumRecords())
+	for i := range records {
+		rr := r.RecordReaderAt(i)
+		memoryAccess, err := rr.MemoryAccess()
+		if err != nil {
+			return nil, err
+		}
+		records[i] = Record{
+			Timestamp:    rr.Timestamp(),
+			Function:     rr.Function(),
+			Params:       rr.Params(),
+			Results:      rr.Results(),
+			MemoryAccess: memoryAccess,
+		}
+	}
+	return records, nil
+}
+
 // ReadRecordAt returns a reader positioned on the record at the given index
 // in the batch.
 //
@@ -201,26 +225,6 @@ func (r *RecordBatch) readMemory() (*buffer, error) {
 	return uncompressedMemory, nil
 }
 
-// Records is a helper function which reads all records of a batch in memory.
-func (r *RecordBatch) Records() ([]Record, error) {
-	records := make([]Record, r.NumRecords())
-	for i := range records {
-		rr := r.RecordReaderAt(i)
-		memoryAccess, err := rr.MemoryAccess()
-		if err != nil {
-			return nil, err
-		}
-		records[i] = Record{
-			Timestamp:    rr.Timestamp(),
-			Function:     rr.Function(),
-			Params:       rr.Params(),
-			Results:      rr.Results(),
-			MemoryAccess: memoryAccess,
-		}
-	}
-	return records, nil
-}
-
 // RecordReader values are returned by calling RecordReaderAt on a RecordBatch,
 // which lets the program read a single record from a batch.
 type RecordReader struct {
@@ -261,7 +265,11 @@ func (r *RecordReader) ReadParams(params []uint64) {
 
 // Params returns the function parameters as a newly allocated slice.
 func (r *RecordReader) Params() []uint64 {
-	stack := make([]uint64, r.NumParams())
+	numParams := r.NumParams()
+	if numParams == 0 {
+		return nil
+	}
+	stack := make([]uint64, numParams)
 	r.ReadParams(stack)
 	return stack
 }
@@ -280,7 +288,11 @@ func (r *RecordReader) ReadResults(results []uint64) {
 
 // Results returns the function results as a newly allocated slice.
 func (r *RecordReader) Results() []uint64 {
-	stack := make([]uint64, r.NumResults())
+	numResults := r.NumResults()
+	if numResults == 0 {
+		return nil
+	}
+	stack := make([]uint64, numResults)
 	r.ReadResults(stack)
 	return stack
 }
@@ -303,12 +315,11 @@ func (r *RecordReader) ReadMemoryAccess(memoryAccess []MemoryAccess) error {
 	for i := range memoryAccess {
 		m := logsegment.MemoryAccess{}
 		r.record.MemoryAccess(&m, i)
-		n := m.Length()
-		i := offset
-		j := offset + n
-		offset += n
+		length := m.Length()
+		startOffset, endOffset := offset, offset+length
+		offset += length
 		memoryAccess[i] = MemoryAccess{
-			Memory: memory[i:j:j],
+			Memory: memory[startOffset:endOffset:endOffset],
 			Offset: m.Offset(),
 		}
 	}
@@ -317,7 +328,11 @@ func (r *RecordReader) ReadMemoryAccess(memoryAccess []MemoryAccess) error {
 
 // MemoryAccess reads and returns the memory access recorded by r.
 func (r *RecordReader) MemoryAccess() ([]MemoryAccess, error) {
-	memoryAccess := make([]MemoryAccess, r.NumMemoryAccess())
+	numMemoryAccess := r.NumMemoryAccess()
+	if numMemoryAccess == 0 {
+		return nil, nil
+	}
+	memoryAccess := make([]MemoryAccess, numMemoryAccess)
 	if err := r.ReadMemoryAccess(memoryAccess); err != nil {
 		return nil, err
 	}
@@ -456,8 +471,16 @@ func (r *LogReader) ReadRecordBatch(header *LogHeader, byteOffset int64) (*Recor
 	if err != nil {
 		return nil, 0, err
 	}
-	_ = f
-	return nil, 0, io.EOF
+	b := logsegment.GetRootAsRecordBatch(f.data[4:], 0)
+	batch := &RecordBatch{
+		input:      r.input,
+		byteOffset: byteOffset,
+		byteLength: int64(len(f.data)),
+		header:     header,
+		batch:      *b,
+		frame:      f,
+	}
+	return batch, int64(len(f.data)) + int64(b.CompressedSize()), nil
 }
 
 func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
