@@ -15,17 +15,6 @@ import (
 	"github.com/stealthrocket/timecraft/pkg/format/types"
 )
 
-type Hash struct {
-	Algorithm, Digest string
-}
-
-func makeHash(h *types.Hash) Hash {
-	return Hash{
-		Algorithm: string(h.Algorithm()),
-		Digest:    string(h.Digest()),
-	}
-}
-
 type Compression = types.Compression
 
 const (
@@ -877,12 +866,7 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 }
 
 func (w *LogWriter) prependHash(hash Hash) flatbuffers.UOffsetT {
-	algorithm := w.builder.CreateSharedString(hash.Algorithm)
-	digest := w.builder.CreateString(hash.Digest)
-	types.HashStart(w.builder)
-	types.HashAddAlgorithm(w.builder, algorithm)
-	types.HashAddDigest(w.builder, digest)
-	return types.HashEnd(w.builder)
+	return hash.prepend(w.builder)
 }
 
 func (w *LogWriter) prependStringVector(values []string) flatbuffers.UOffsetT {
@@ -892,11 +876,7 @@ func (w *LogWriter) prependStringVector(values []string) flatbuffers.UOffsetT {
 }
 
 func (w *LogWriter) prependUint64Vector(values []uint64) flatbuffers.UOffsetT {
-	w.builder.StartVector(8, len(values), 8)
-	for i := len(values) - 1; i >= 0; i-- {
-		w.builder.PrependUint64(values[i])
-	}
-	return w.builder.EndVector(len(values))
+	return prependUint64Vector(w.builder, values)
 }
 
 func (w *LogWriter) prependObjectVector(numElems int, create func(int) flatbuffers.UOffsetT) flatbuffers.UOffsetT {

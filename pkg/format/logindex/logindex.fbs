@@ -9,12 +9,7 @@ table RecordIndex {
  // Log segment that this index file was generated for.
  segment:uint;
  // The actual index mapping keys to file locations as absolute byte offsets.
- index:[Entry];
-}
-
-struct Entry {
- key:ulong;
- value:ulong;
+ keys:[ulong]; values:[ulong];
 }
 
 root_type RecordIndex;
