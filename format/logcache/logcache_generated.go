@@ -5,8 +5,8 @@ package logcache
 import (
 	flatbuffers "github.com/google/flatbuffers/go"
 
-	logsegment "github.com/stealthrocket/timecraft/pkg/format/logsegment"
-	types "github.com/stealthrocket/timecraft/pkg/format/types"
+	logsegment "github.com/stealthrocket/timecraft/format/logsegment"
+	types "github.com/stealthrocket/timecraft/format/types"
 )
 
 type RecordSet struct {

@@ -5,7 +5,7 @@ package logindex
 import (
 	flatbuffers "github.com/google/flatbuffers/go"
 
-	types "github.com/stealthrocket/timecraft/pkg/format/types"
+	types "github.com/stealthrocket/timecraft/format/types"
 )
 
 type RecordIndex struct {

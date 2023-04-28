@@ -1,19 +1,16 @@
 .PHONY: clean flatbuffers generate test testdata
 .PRECIOUS: %.wasm
 
-pkg.src.go = \
-	$(wildcard pkg/*/*.go)
-
 format.src.fbs = \
-	$(wildcard pkg/format/*/*.fbs)
+	$(wildcard format/*/*.fbs)
 format.src.go = \
 	$(format.src.fbs:.fbs=_generated.go)
 
 timecraft.src.go = \
 	$(format.src.go) \
-	$(pkg.src.go) \
 	$(wildcard *.go) \
-	$(wildcard cmd/*.go)
+	$(wildcard cmd/*.go) \
+	$(wildcard internal/*/*.go)
 
 timecraft.testdata.go = \
 	$(wildcard pkg/timecraft/testdata/*_test.go)
@@ -29,7 +26,7 @@ clean:
 generate: flatbuffers
 
 flatbuffers: go.mod $(format.src.go)
-	go build ./pkg/format/...
+	go build ./format/...
 
 test: flatbuffers testdata
 	go test -v ./...
@@ -42,5 +39,5 @@ testdata: $(timecraft.testdata.wasm)
 # We run goimports because the flatc compiler sometimes adds an unused import of
 # strconv.
 %_generated.go: %.fbs
-	flatc --go --gen-onefile --go-namespace $(basename $(notdir $<)) --go-module-name github.com/stealthrocket/timecraft/pkg/format -o $(dir $@) $<
+	flatc --go --gen-onefile --go-namespace $(basename $(notdir $<)) --go-module-name github.com/stealthrocket/timecraft/format -o $(dir $@) $<
 	goimports -w $@

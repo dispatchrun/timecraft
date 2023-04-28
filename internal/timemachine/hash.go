@@ -2,7 +2,7 @@ package timemachine
 
 import (
 	flatbuffers "github.com/google/flatbuffers/go"
-	"github.com/stealthrocket/timecraft/pkg/format/types"
+	"github.com/stealthrocket/timecraft/format/types"
 )
 
 type Hash struct {

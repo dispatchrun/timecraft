@@ -5,7 +5,7 @@ import (
 	"sort"
 
 	flatbuffers "github.com/google/flatbuffers/go"
-	"github.com/stealthrocket/timecraft/pkg/format/logindex"
+	"github.com/stealthrocket/timecraft/format/logindex"
 )
 
 type RecordIndex struct {

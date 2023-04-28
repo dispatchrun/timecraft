@@ -11,8 +11,8 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/klauspost/compress/snappy"
 	"github.com/klauspost/compress/zstd"
-	"github.com/stealthrocket/timecraft/pkg/format/logsegment"
-	"github.com/stealthrocket/timecraft/pkg/format/types"
+	"github.com/stealthrocket/timecraft/format/logsegment"
+	"github.com/stealthrocket/timecraft/format/types"
 )
 
 type Compression = types.Compression
