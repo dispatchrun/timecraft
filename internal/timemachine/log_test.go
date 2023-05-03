@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/stealthrocket/timecraft/timemachine"
+	"github.com/stealthrocket/timecraft/internal/timemachine"
 )
 
 func TestReadLogHeader(t *testing.T) {
