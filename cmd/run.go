@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/stealthrocket/wasi"
-	"github.com/stealthrocket/wasi/imports/wasi_snapshot_preview1"
-	"github.com/stealthrocket/wasi/wasiunix"
+	"github.com/stealthrocket/wasi-go"
+	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
+	"github.com/stealthrocket/wasi-go/systems/unix"
 	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/sys"
@@ -47,7 +47,7 @@ func run(ctx context.Context, args []string) error {
 		environ = append(environ, "PWD="+wd)
 	}
 
-	provider := &wasiunix.Provider{
+	provider := &unix.System{
 		Args:               append([]string{wasmName}, args[1:]...),
 		Environ:            environ,
 		Realtime:           realtime,

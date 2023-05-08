@@ -1,0 +1,38 @@
+run:
+  deadline: 7m
+  timeout: 5m
+  go: '1.20'
+
+linters:
+  enable:
+    - depguard
+    - godot
+    - gofumpt
+    - goimports
+    - revive
+    - whitespace
+
+issues:
+  exclude-rules:
+    - path: _test.go
+      linters:
+        - errcheck
+
+linters-settings:
+  depguard:
+    list-type: blacklist
+    include-go-root: true
+    packages-with-error-message: []
+  errcheck:
+  goimports:
+    local-prefixes: github.com/stealthrocket/wzprof
+  gofumpt:
+    extra-rules: true
+  misspell:
+    locale: US
+  revive:
+    rules:
+      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unexported-return
+      - name: unexported-return
+        severity: warning
+        disabled: true
