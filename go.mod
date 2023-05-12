@@ -7,7 +7,7 @@ require (
 	github.com/google/go-cmp v0.5.9
 	github.com/klauspost/compress v1.16.5
 	github.com/spf13/cobra v1.7.0
-	github.com/stealthrocket/wasi-go v0.0.0-20230512011118-4af7e8880a5a
+	github.com/stealthrocket/wasi-go v0.0.0-20230512014009-0b932f09275d
 	github.com/stealthrocket/wazergo v0.17.1
 	github.com/tetratelabs/wazero v1.1.0
 )
