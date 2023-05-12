@@ -2,18 +2,12 @@ package cmd
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/stealthrocket/wasi"
-	"github.com/stealthrocket/wasi/imports/wasi_snapshot_preview1"
-	"github.com/stealthrocket/wasi/wasiunix"
-	"github.com/stealthrocket/wazergo"
+	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/sys"
 )
@@ -47,69 +41,22 @@ func run(ctx context.Context, args []string) error {
 		environ = append(environ, "PWD="+wd)
 	}
 
-	provider := &wasiunix.Provider{
-		Args:               append([]string{wasmName}, args[1:]...),
-		Environ:            environ,
-		Realtime:           realtime,
-		RealtimePrecision:  time.Microsecond,
-		Monotonic:          monotonic,
-		MonotonicPrecision: time.Nanosecond,
-		Rand:               rand.Reader,
-		Exit: func(ctx context.Context, exitCode int) error {
-			panic(sys.NewExitError(uint32(exitCode)))
-		},
-	}
-
-	stdin, err := dup(0)
-	if err != nil {
-		return fmt.Errorf("opening stdin: %w", err)
-	}
-
-	stdout, err := dup(1)
-	if err != nil {
-		return fmt.Errorf("opening stdout: %w", err)
-	}
-
-	stderr, err := dup(2)
-	if err != nil {
-		return fmt.Errorf("opening stderr: %w", err)
-	}
-
-	root, err := syscall.Open("/", syscall.O_DIRECTORY, 0)
-	if err != nil {
-		return fmt.Errorf("opening root directory: %w", err)
-	}
-
-	provider.Preopen(stdin, "/dev/stdin", wasi.FDStat{
-		FileType:   wasi.CharacterDeviceType,
-		RightsBase: wasi.AllRights,
-	})
-
-	provider.Preopen(stdout, "/dev/stdout", wasi.FDStat{
-		FileType:   wasi.CharacterDeviceType,
-		RightsBase: wasi.AllRights,
-	})
-
-	provider.Preopen(stderr, "/dev/stderr", wasi.FDStat{
-		FileType:   wasi.CharacterDeviceType,
-		RightsBase: wasi.AllRights,
-	})
-
-	provider.Preopen(root, "/", wasi.FDStat{
-		FileType:         wasi.DirectoryType,
-		RightsBase:       wasi.AllRights,
-		RightsInheriting: wasi.AllRights,
-	})
-
 	runtime := wazero.NewRuntime(ctx)
 	defer runtime.Close(ctx)
 
-	ctx = wazergo.WithModuleInstance(ctx,
-		wazergo.MustInstantiate(ctx, runtime,
-			wasi_snapshot_preview1.HostModule,
-			wasi_snapshot_preview1.WithWASI(provider),
-		),
-	)
+	builder := imports.NewBuilder().
+		WithName(wasmName).
+		WithArgs(args[1:]...).
+		WithEnv(environ...).
+		WithDirs("/").
+		WithExit(func(ctx context.Context, exitCode int) error {
+			panic(sys.NewExitError(uint32(exitCode)))
+		})
+
+	ctx, err = builder.Instantiate(ctx, runtime)
+	if err != nil {
+		return err
+	}
 
 	instance, err := runtime.Instantiate(ctx, wasmCode)
 	if err != nil {
@@ -123,23 +70,4 @@ func run(ctx context.Context, args []string) error {
 		}
 	}
 	return instance.Close(ctx)
-}
-
-var epoch = time.Now()
-
-func monotonic(context.Context) (uint64, error) {
-	return uint64(time.Since(epoch)), nil
-}
-
-func realtime(context.Context) (uint64, error) {
-	return uint64(time.Now().UnixNano()), nil
-}
-
-func dup(fd int) (int, error) {
-	newfd, err := syscall.Dup(fd)
-	if err != nil {
-		return -1, err
-	}
-	syscall.CloseOnExec(newfd)
-	return newfd, nil
 }
