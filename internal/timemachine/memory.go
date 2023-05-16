@@ -129,7 +129,8 @@ func (m *MemoryInterceptor) capture(offset, length uint32, mode int) {
 func (m *MemoryInterceptor) compact() {
 	// Scan the Read slices. Check the same slice in memory to see if
 	// mutations occurred. If they did, we must create a new mutation
-	// at the *end* of the slice in case there are aliased writes later.
+	// at the *end* of the slice in case there are other aliased writes
+	// after the read.
 	for _, i := range m.reads {
 		mut := &m.mutations[i]
 		offset, length := mut.Offset, uint32(len(mut.Memory))

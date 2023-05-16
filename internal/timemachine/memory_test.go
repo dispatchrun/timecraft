@@ -61,8 +61,6 @@ func TestMemoryInterceptor(t *testing.T) {
 		{
 			name: "read + write",
 			fn: func(t *testing.T, memory api.Memory) {
-				// The interceptor can't know the order of reads/writes here,
-				// so must generate a mutation for each read at the end of the slice.
 				b2, _ := memory.Read(0, 1)
 				b1, _ := memory.Read(0, 3)
 				copy(b1, "fox")
@@ -79,23 +77,35 @@ func TestMemoryInterceptor(t *testing.T) {
 			b, _ := memory.Read(0, length)
 			copy(b, test.before)
 
-			i := &MemoryInterceptor{Memory: memory}
-			test.fn(t, i)
+			mi := &MemoryInterceptor{Memory: memory}
+
+			test.fn(t, mi)
+
 			actual, _ := memory.Read(0, length)
 			if !reflect.DeepEqual(actual, test.after) {
-				t.Error("unexpected memory after running functino")
+				t.Error("unexpected memory after running function")
 				t.Logf("expect: %v", test.after)
 				t.Logf("actual: %v", actual)
 			}
 
-			expect := make([]byte, int(length))
-			copy(expect, test.before)
-			for _, m := range i.Mutations() {
-				copy(expect[m.Offset:], m.Memory)
+			mutations := mi.Mutations()
+
+			// Clear the memory to make sure that the mutations below
+			// refer to copies.
+			for i := range actual {
+				actual[i] = 0
 			}
-			if !reflect.DeepEqual(actual, expect) {
-				t.Error("unexpected memory after applying mutations")
-				t.Logf("expect: %v", expect)
+
+			// Check mutations can be applied to input memory to reach the
+			// same output state.
+			actual = make([]byte, int(length))
+			copy(actual, test.before)
+			for _, m := range mutations {
+				copy(actual[m.Offset:], m.Memory)
+			}
+			if !reflect.DeepEqual(actual, test.after) {
+				t.Error("unexpected memory after applying mutations to initial memory")
+				t.Logf("expect: %v", test.after)
 				t.Logf("actual: %v", actual)
 			}
 		})
