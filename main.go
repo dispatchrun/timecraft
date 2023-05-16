@@ -99,10 +99,10 @@ OPTIONS:
 
    --compression <TYPE>
       Compression to use when writing the log, either {snappy, zstd,
-      none}. Default is snappy.
+      none}. Default is snappy
 
    --batch-size <NUM>
-      Number of records to accumulate in a batch before writing to the log.
+      Number of records to accumulate in a batch before writing to the log
 
    --dir <DIR>
       Grant access to the specified host directory
@@ -118,7 +118,7 @@ OPTIONS:
 
    --sockets <NAME>
       Enable a sockets extension, either {none, auto, path_open,
-      wasmedgev1, wasmedgev2}. Default is auto.
+      wasmedgev1, wasmedgev2}. Default is auto
 
    --pprof-addr <ADDR>
       Start a pprof server listening on the specified address
