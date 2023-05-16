@@ -913,3 +913,46 @@ func (w *LogWriter) prependMemoryAccess(access *MemoryAccess) flatbuffers.UOffse
 	w.builder.PlaceUint32(access.Offset)
 	return w.builder.Offset()
 }
+
+// BufferedLogWriter wraps a LogWriter to help with write batching.
+//
+// A single WriteRecord method is provided for writing records. When the number
+// of buffered records reaches the configured batch size, the batch is passed
+// to the LogWriter's WriteRecordBatch method.
+type BufferedLogWriter struct {
+	*LogWriter
+
+	batchSize int
+	batch     []Record
+}
+
+// NewBufferedLogWriter creates a BufferedLogWriter.
+func NewBufferedLogWriter(w *LogWriter, batchSize int) *BufferedLogWriter {
+	return &BufferedLogWriter{
+		LogWriter: w,
+		batchSize: batchSize,
+		batch:     make([]Record, 0, batchSize),
+	}
+}
+
+// WriteRecord buffers a Record and then writes it once the internal
+// record batch is full.
+func (w *BufferedLogWriter) WriteRecord(record Record) (err error) {
+	if len(w.batch) < w.batchSize {
+		w.batch = append(w.batch, record)
+		return
+	}
+	return w.Flush()
+}
+
+// Flush flushes any pending records.
+func (w *BufferedLogWriter) Flush() error {
+	if len(w.batch) == 0 {
+		return nil
+	}
+	if _, err := w.WriteRecordBatch(w.batch); err != nil {
+		return err
+	}
+	w.batch = w.batch[:0]
+	return nil
+}

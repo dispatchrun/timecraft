@@ -101,6 +101,9 @@ OPTIONS:
       Compression to use when writing the log, either {snappy, zstd,
       none}. Default is snappy.
 
+   --batch-size <NUM>
+      Number of records to accumulate in a batch before writing to the log.
+
    --dir <DIR>
       Grant access to the specified host directory
 
@@ -145,6 +148,7 @@ func run(args []string) error {
 	record := flagSet.String("record", "", "")
 	pprofAddr := flagSet.String("pprof-addr", "", "")
 	compression := flagSet.String("compression", "snappy", "")
+	batchSize := flagSet.Int("batch-size", 1, "")
 
 	flagSet.Parse(args)
 
@@ -198,6 +202,9 @@ func run(args []string) error {
 
 		logWriter := timemachine.NewLogWriter(logFile)
 
+		bufferedLogWriter := timemachine.NewBufferedLogWriter(logWriter, *batchSize)
+		defer bufferedLogWriter.Flush()
+
 		var functions timemachine.FunctionIndex
 		importedFunctions := wasmModule.ImportedFunctions()
 		for _, f := range importedFunctions {
@@ -238,9 +245,8 @@ func run(args []string) error {
 			return fmt.Errorf("failed to write log header: %w", err)
 		}
 
-		// TODO: support write batching
 		builder = builder.WithDecorators(timemachine.Capture[*wasi_snapshot_preview1.Module](functions, func(record timemachine.Record) {
-			if _, err := logWriter.WriteRecordBatch([]timemachine.Record{record}); err != nil {
+			if err := bufferedLogWriter.WriteRecord(record); err != nil {
 				panic(err)
 			}
 		}))
