@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -110,6 +112,9 @@ OPTIONS:
       Enable a sockets extension, either {none, auto, path_open,
       wasmedgev1, wasmedgev2}
 
+   --pprof-addr <ADDR>
+      Start a pprof server listening on the specified address
+
    --trace
       Enable logging of system calls (like strace)
 
@@ -133,6 +138,7 @@ func run(args []string) error {
 	sockets := flagSet.String("sockets", "auto", "")
 	trace := flagSet.Bool("trace", false, "")
 	record := flagSet.String("record", "", "")
+	pprofAddr := flagSet.String("pprof-addr", "", "")
 
 	flagSet.Parse(args)
 
@@ -140,6 +146,10 @@ func run(args []string) error {
 	if len(args) == 0 {
 		runUsage()
 		os.Exit(1)
+	}
+
+	if *pprofAddr != "" {
+		go http.ListenAndServe(*pprofAddr, nil)
 	}
 
 	wasmFile := args[0]
@@ -212,6 +222,7 @@ func run(args []string) error {
 			return fmt.Errorf("failed to write log header: %w", err)
 		}
 
+		// TODO: support write batching
 		builder = builder.WithDecorators(timemachine.Capture[*wasi_snapshot_preview1.Module](functions, func(record timemachine.Record) {
 			if _, err := logWriter.WriteRecordBatch([]timemachine.Record{record}); err != nil {
 				panic(err)
