@@ -49,15 +49,6 @@ func Capture[T wazergo.Module](functions FunctionIndex, capture func(Record)) wa
 	})
 }
 
-type memoryCaptureModule struct {
-	api.Module
-	mem *MemoryInterceptor
-}
-
-func (m *memoryCaptureModule) Memory() api.Memory {
-	return m.mem
-}
-
 // FunctionIndex is a set of functions.
 type FunctionIndex struct {
 	lookup    map[Function]int
