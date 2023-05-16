@@ -45,7 +45,7 @@ func (m *MemoryInterceptor) Read(offset, length uint32) (b []byte, ok bool) {
 
 // WriteByte writes a byte to memory.
 func (m *MemoryInterceptor) WriteByte(offset uint32, v byte) (ok bool) {
-	if ok = m.WriteByte(offset, v); ok {
+	if ok = m.Memory.WriteByte(offset, v); ok {
 		m.capture(offset, 1, 'w')
 	}
 	return
@@ -53,7 +53,7 @@ func (m *MemoryInterceptor) WriteByte(offset uint32, v byte) (ok bool) {
 
 // WriteUint16Le writes a uint16 to memory in little endian byte order.
 func (m *MemoryInterceptor) WriteUint16Le(offset uint32, v uint16) (ok bool) {
-	if ok = m.WriteUint16Le(offset, v); ok {
+	if ok = m.Memory.WriteUint16Le(offset, v); ok {
 		m.capture(offset, 2, 'w')
 	}
 	return
@@ -61,7 +61,7 @@ func (m *MemoryInterceptor) WriteUint16Le(offset uint32, v uint16) (ok bool) {
 
 // WriteUint32Le writes a uint32 to memory in little endian byte order.
 func (m *MemoryInterceptor) WriteUint32Le(offset uint32, v uint32) (ok bool) {
-	if ok = m.WriteUint32Le(offset, v); ok {
+	if ok = m.Memory.WriteUint32Le(offset, v); ok {
 		m.capture(offset, 4, 'w')
 	}
 	return
@@ -69,7 +69,7 @@ func (m *MemoryInterceptor) WriteUint32Le(offset uint32, v uint32) (ok bool) {
 
 // WriteFloat32Le writes a float32 to memory in little endian byte order.
 func (m *MemoryInterceptor) WriteFloat32Le(offset uint32, v float32) (ok bool) {
-	if ok = m.WriteFloat32Le(offset, v); ok {
+	if ok = m.Memory.WriteFloat32Le(offset, v); ok {
 		m.capture(offset, 4, 'w')
 	}
 	return
@@ -77,7 +77,7 @@ func (m *MemoryInterceptor) WriteFloat32Le(offset uint32, v float32) (ok bool) {
 
 // WriteUint64Le writes a uint64 to memory in little endian byte order.
 func (m *MemoryInterceptor) WriteUint64Le(offset uint32, v uint64) (ok bool) {
-	if ok = m.WriteUint64Le(offset, v); ok {
+	if ok = m.Memory.WriteUint64Le(offset, v); ok {
 		m.capture(offset, 8, 'w')
 	}
 	return
@@ -85,7 +85,7 @@ func (m *MemoryInterceptor) WriteUint64Le(offset uint32, v uint64) (ok bool) {
 
 // WriteFloat64Le writes a float64 to memory in little endian byte order.
 func (m *MemoryInterceptor) WriteFloat64Le(offset uint32, v float64) (ok bool) {
-	if ok = m.WriteFloat64Le(offset, v); ok {
+	if ok = m.Memory.WriteFloat64Le(offset, v); ok {
 		m.capture(offset, 8, 'w')
 	}
 	return
@@ -93,7 +93,7 @@ func (m *MemoryInterceptor) WriteFloat64Le(offset uint32, v float64) (ok bool) {
 
 // Write writes bytes to memory.
 func (m *MemoryInterceptor) Write(offset uint32, v []byte) (ok bool) {
-	if ok = m.Write(offset, v); ok {
+	if ok = m.Memory.Write(offset, v); ok {
 		m.capture(offset, uint32(len(v)), 'w')
 	}
 	return
@@ -101,7 +101,7 @@ func (m *MemoryInterceptor) Write(offset uint32, v []byte) (ok bool) {
 
 // WriteString writes a string to memory.
 func (m *MemoryInterceptor) WriteString(offset uint32, v string) (ok bool) {
-	if ok = m.WriteString(offset, v); ok {
+	if ok = m.Memory.WriteString(offset, v); ok {
 		m.capture(offset, uint32(len(v)), 'w')
 	}
 	return
