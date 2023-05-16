@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/timemachine"
@@ -96,6 +97,10 @@ OPTIONS:
    --record <LOG>
       Record a trace of execution to a log at the specified path
 
+   --compression <TYPE>
+      Compression to use when writing the log, either {snappy, zstd,
+      none}. Default is snappy.
+
    --dir <DIR>
       Grant access to the specified host directory
 
@@ -110,7 +115,7 @@ OPTIONS:
 
    --sockets <NAME>
       Enable a sockets extension, either {none, auto, path_open,
-      wasmedgev1, wasmedgev2}
+      wasmedgev1, wasmedgev2}. Default is auto.
 
    --pprof-addr <ADDR>
       Start a pprof server listening on the specified address
@@ -139,6 +144,7 @@ func run(args []string) error {
 	trace := flagSet.Bool("trace", false, "")
 	record := flagSet.String("record", "", "")
 	pprofAddr := flagSet.String("pprof-addr", "", "")
+	compression := flagSet.String("compression", "snappy", "")
 
 	flagSet.Parse(args)
 
@@ -215,7 +221,17 @@ func run(args []string) error {
 				Args:      args,
 				Environ:   envs,
 			},
-			Compression: timemachine.Snappy, // TODO: make this configurable
+		}
+
+		switch strings.ToLower(*compression) {
+		case "snappy":
+			header.Compression = timemachine.Snappy
+		case "zstd":
+			header.Compression = timemachine.Zstd
+		case "none", "":
+			header.Compression = timemachine.Uncompressed
+		default:
+			return fmt.Errorf("invalid compression type %q", *compression)
 		}
 
 		if err := logWriter.WriteLogHeader(header); err != nil {
