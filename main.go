@@ -7,11 +7,22 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"time"
 
+	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
+	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero"
 )
+
+var version = "devel"
+
+func init() {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+}
 
 func main() {
 	if err := root(os.Args[1:]); err != nil {
@@ -42,17 +53,13 @@ func root(args []string) (err error) {
 	flagSet := flag.NewFlagSet("timecraft", flag.ExitOnError)
 	flagSet.Usage = rootUsage
 
-	version := flagSet.Bool("version", false, "")
-	flagSet.BoolVar(version, "v", false, "")
+	v := flagSet.Bool("version", false, "")
+	flagSet.BoolVar(v, "v", false, "")
 
 	flagSet.Parse(args)
 
-	if *version {
-		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "(devel)" {
-			fmt.Println("timecraft", info.Main.Version)
-		} else {
-			fmt.Println("timecraft", "devel")
-		}
+	if *v {
+		fmt.Println("timecraft", version)
 		os.Exit(0)
 	}
 
@@ -84,6 +91,9 @@ ARGS:
       Arguments to pass to the module
 
 OPTIONS:
+   --record <LOG>
+      Record a trace of execution to a log at the specified path
+
    --dir <DIR>
       Grant access to the specified host directory
 
@@ -122,6 +132,7 @@ func run(args []string) error {
 	flagSet.Var(&dials, "dial", "")
 	sockets := flagSet.String("sockets", "auto", "")
 	trace := flagSet.Bool("trace", false, "")
+	record := flagSet.String("record", "", "")
 
 	flagSet.Parse(args)
 
@@ -161,6 +172,52 @@ func run(args []string) error {
 		WithDials(dials...).
 		WithSocketsExtension(*sockets, wasmModule).
 		WithTracer(*trace, os.Stderr)
+
+	if *record != "" {
+		logFile, err := os.OpenFile(*record, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to open log file %q: %w", *record, err)
+		}
+		defer logFile.Close()
+
+		logWriter := timemachine.NewLogWriter(logFile)
+
+		var functions timemachine.FunctionIndex
+		importedFunctions := wasmModule.ImportedFunctions()
+		for _, f := range importedFunctions {
+			moduleName, functionName, isImport := f.Import()
+			if !isImport {
+				continue
+			}
+			functions.Add(moduleName, functionName)
+		}
+
+		header := &timemachine.LogHeader{
+			Runtime: timemachine.Runtime{
+				Runtime:   "timecraft",
+				Version:   version,
+				Functions: functions.Functions(),
+			},
+			Process: timemachine.Process{
+				ID:        timemachine.Hash{}, // TODO
+				Image:     timemachine.SHA256(wasmCode),
+				StartTime: time.Now(),
+				Args:      args,
+				Environ:   envs,
+			},
+			Compression: timemachine.Snappy, // TODO: make this configurable
+		}
+
+		if err := logWriter.WriteLogHeader(header); err != nil {
+			return fmt.Errorf("failed to write log header: %w", err)
+		}
+
+		builder = builder.WithDecorators(timemachine.Capture[*wasi_snapshot_preview1.Module](functions, func(record timemachine.Record) {
+			if _, err := logWriter.WriteRecordBatch([]timemachine.Record{record}); err != nil {
+				panic(err)
+			}
+		}))
+	}
 
 	var system wasi.System
 	ctx, system, err = builder.Instantiate(ctx, runtime)

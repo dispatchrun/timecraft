@@ -1,12 +1,20 @@
 package timemachine
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/types"
 )
 
 type Hash struct {
 	Algorithm, Digest string
+}
+
+func SHA256(b []byte) Hash {
+	digest := sha256.Sum256(b)
+	return Hash{Algorithm: "sha256", Digest: hex.EncodeToString(digest[:])}
 }
 
 func makeHash(h *types.Hash) Hash {
