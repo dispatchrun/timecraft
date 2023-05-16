@@ -236,7 +236,7 @@ func (r *RecordBatch) readMemory() (*buffer, error) {
 	dst := uncompressedMemoryBuffer.data
 	dst, err = decompress(dst, src, compression)
 	uncompressedMemoryBuffer.data = dst
-	return uncompressedMemoryBuffer, nil
+	return uncompressedMemoryBuffer, err
 }
 
 // RecordReader values are returned by calling RecordReaderAt on a RecordBatch,
