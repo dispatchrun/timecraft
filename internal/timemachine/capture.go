@@ -2,7 +2,9 @@ package timemachine
 
 import (
 	"context"
+	"fmt"
 	"time"
+	"unsafe"
 
 	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero/api"
@@ -20,25 +22,26 @@ func Capture[T wazergo.Module](functions FunctionIndex, capture func(Record)) wa
 			Params:  f.Params,
 			Results: f.Results,
 			Func: func(module T, ctx context.Context, mod api.Module, stack []uint64) {
-				stackCopy := make([]uint64, len(f.Params)+len(f.Results))
-				params, results := stackCopy[:len(f.Params)], stackCopy[len(f.Params):]
-				copy(params, stack[:len(f.Params)])
-
 				record := Record{
 					Timestamp: time.Now(),
 					Function:  functionID,
-					Params:    params,
-					Results:   results,
 				}
 
-				mem := MemoryInterceptor{Memory: mod.Memory()}
-				mod = &memoryCaptureModule{Module: mod, mem: &mem}
+				if bufferSize := int(unsafe.Sizeof(record.Stack) / unsafe.Sizeof(record.Stack[0])); bufferSize < len(f.Params)+len(f.Results) {
+					panic(fmt.Sprintf("record.Stack (%d) is not large enough to hold params (%d) and results (%d) for %s.%s", bufferSize, len(f.Params), len(f.Results), moduleName, f.Name))
+				}
+				record.Params = record.Stack[:len(f.Params)]
+				record.Results = record.Stack[len(f.Params) : len(f.Params)+len(f.Results)]
+				copy(record.Params, stack[:len(f.Params)])
 
-				f.Func(module, ctx, mod, stack)
+				memoryInterceptorModule := GetMemoryInterceptorModule(mod)
+				defer PutMemoryInterceptorModule(memoryInterceptorModule)
 
-				record.MemoryAccess = mem.Mutations()
+				f.Func(module, ctx, memoryInterceptorModule, stack)
 
-				copy(results, stack[:len(f.Results)])
+				record.MemoryAccess = memoryInterceptorModule.Memory().(*MemoryInterceptor).Mutations()
+
+				copy(record.Results, stack[:len(f.Results)])
 
 				capture(record)
 			},

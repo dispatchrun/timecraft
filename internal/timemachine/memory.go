@@ -2,6 +2,7 @@ package timemachine
 
 import (
 	"bytes"
+	"sync"
 
 	"github.com/tetratelabs/wazero/api"
 )
@@ -15,6 +16,7 @@ type MemoryInterceptor struct {
 	api.Memory
 	mutations []MemoryAccess
 	reads     []int
+	buffer    []byte
 }
 
 // Mutations returns an ordered set of memory mutations.
@@ -31,6 +33,7 @@ func (m *MemoryInterceptor) Reset(memory api.Memory) {
 	m.Memory = memory
 	m.mutations = m.mutations[:0]
 	m.reads = m.reads[:0]
+	m.buffer = m.buffer[:0]
 }
 
 // Read reads bytes from memory.
@@ -116,8 +119,9 @@ func (m *MemoryInterceptor) capture(offset, length uint32, mode int) {
 		// later.
 		m.reads = append(m.reads, len(m.mutations))
 	}
+	m.buffer = append(m.buffer, b...)
 	m.mutations = append(m.mutations, MemoryAccess{
-		Memory: append(make([]byte, 0, len(b)), b...),
+		Memory: m.buffer[len(m.buffer)-len(b):],
 		Offset: offset,
 	})
 }
@@ -128,16 +132,10 @@ func (m *MemoryInterceptor) compact() {
 	// at the *end* of the slice in case there are aliased writes later.
 	for _, i := range m.reads {
 		mut := &m.mutations[i]
-
-		b, _ := m.Memory.Read(mut.Offset, uint32(len(mut.Memory)))
-
-		if !bytes.Equal(b, mut.Memory) {
-			m.mutations = append(m.mutations, MemoryAccess{
-				Memory: b,
-				Offset: mut.Offset,
-			})
+		offset, length := mut.Offset, uint32(len(mut.Memory))
+		if b, _ := m.Memory.Read(offset, length); !bytes.Equal(b, mut.Memory) {
+			m.capture(offset, length, 'w')
 		}
-
 		mut.Memory = nil // delete below
 	}
 
@@ -149,4 +147,39 @@ func (m *MemoryInterceptor) compact() {
 		}
 	}
 	m.mutations = m.mutations[:j]
+}
+
+// MemoryInterceptorModule is an api.Module wrapper for a MemoryInterceptor
+// implementation of api.Memory.
+type MemoryInterceptorModule struct {
+	api.Module
+	mem *MemoryInterceptor
+}
+
+func (m *MemoryInterceptorModule) Memory() api.Memory {
+	return m.mem
+}
+
+var memoryInterceptorModulePool sync.Pool // *MemoryInterceptorModule
+
+// GetMemoryInterceptorModule gets a memory interceptor module from the pool.
+func GetMemoryInterceptorModule(module api.Module) *MemoryInterceptorModule {
+	if p := memoryInterceptorModulePool.Get(); p != nil {
+		m := p.(*MemoryInterceptorModule)
+		m.Module = module
+		m.mem.Reset(module.Memory())
+		return m
+	}
+	return &MemoryInterceptorModule{
+		Module: module,
+		mem: &MemoryInterceptor{
+			Memory: module.Memory(),
+		},
+	}
+}
+
+// PutMemoryInterceptorModule returns a memory interceptor module to the pool.
+func PutMemoryInterceptorModule(m *MemoryInterceptorModule) {
+	m.mem.Reset(nil)
+	memoryInterceptorModulePool.Put(m)
 }
