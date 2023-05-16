@@ -20,8 +20,8 @@ func Capture[T wazergo.Module](functions FunctionIndex, capture func(Record)) wa
 			Params:  f.Params,
 			Results: f.Results,
 			Func: func(module T, ctx context.Context, mod api.Module, stack []uint64) {
-				stackCopy := make([]uint64, 0, len(f.Params)+len(f.Results))
-				params, results := stackCopy[:len(f.Params)], stackCopy[len(f.Params):len(f.Params)+len(f.Results)]
+				stackCopy := make([]uint64, len(f.Params)+len(f.Results))
+				params, results := stackCopy[:len(f.Params)], stackCopy[len(f.Params):]
 				copy(params, stack[:len(f.Params)])
 
 				record := Record{
@@ -31,7 +31,12 @@ func Capture[T wazergo.Module](functions FunctionIndex, capture func(Record)) wa
 					Results:   results,
 				}
 
+				mem := MemoryInterceptor{Memory: mod.Memory()}
+				mod = &memoryCaptureModule{Module: mod, mem: &mem}
+
 				f.Func(module, ctx, mod, stack)
+
+				record.MemoryAccess = mem.Mutations()
 
 				copy(results, stack[:len(f.Results)])
 
@@ -43,28 +48,12 @@ func Capture[T wazergo.Module](functions FunctionIndex, capture func(Record)) wa
 
 type memoryCaptureModule struct {
 	api.Module
-	mem memoryCapture
+	mem *MemoryInterceptor
 }
 
 func (m *memoryCaptureModule) Memory() api.Memory {
 	return m.mem
 }
-
-type memoryCapture struct {
-	api.Memory
-}
-
-/* TODO: capture memory mutations
-Read(offset, byteCount uint32) ([]byte, bool)
-WriteByte(offset uint32, v byte) bool
-WriteUint16Le(offset uint32, v uint16) bool
-WriteUint32Le(offset, v uint32) bool
-WriteFloat32Le(offset uint32, v float32) bool
-WriteUint64Le(offset uint32, v uint64) bool
-WriteFloat64Le(offset uint32, v float64) bool
-Write(offset uint32, v []byte) bool
-WriteString(offset uint32, v string) bool
-*/
 
 // FunctionIndex is a set of functions.
 type FunctionIndex struct {
