@@ -6,7 +6,7 @@ require (
 	github.com/google/flatbuffers v23.3.3+incompatible
 	github.com/google/go-cmp v0.5.9
 	github.com/klauspost/compress v1.16.5
-	github.com/stealthrocket/wasi-go v0.1.0
+	github.com/stealthrocket/wasi-go v0.1.1-0.20230516020218-5537a1ac3338
 	github.com/tetratelabs/wazero v1.1.0
 )
 
