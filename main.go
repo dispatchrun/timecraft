@@ -185,6 +185,7 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	defer wasmModule.Close(ctx)
 
 	builder := imports.NewBuilder().
 		WithName(wasmName).
@@ -336,6 +337,7 @@ func replay(args []string) error {
 	if err != nil {
 		return err
 	}
+	defer wasmModule.Close(ctx)
 
 	wasmName, args := logHeader.Process.Args[0], logHeader.Process.Args[1:]
 	envs := logHeader.Process.Environ
@@ -368,6 +370,7 @@ func replay(args []string) error {
 	}
 
 	records := timemachine.NewLogRecordIterator(logReader)
+	defer records.Close()
 
 	builder = builder.WithDecorators(timemachine.Replay[*wasi_snapshot_preview1.Module](functions, records))
 
