@@ -404,18 +404,20 @@ func replay(args []string) error {
 				if len(f.Results) != record.NumResults() {
 					panic(fmt.Sprintf("function result count mismatch: got %d, expect %d", len(f.Results), record.NumResults()))
 				}
-				mutations := make([]timemachine.MemoryAccess, record.NumMemoryAccess())
-				if err := record.ReadMemoryAccess(mutations); err != nil {
-					panic(err)
-				}
+
 				memory := mod.Memory()
-				for _, m := range mutations {
+				err := record.ScanMemoryAccess(func(m timemachine.MemoryAccess) bool {
 					b, ok := memory.Read(m.Offset, uint32(len(m.Memory)))
 					if !ok {
 						panic(fmt.Sprintf("unable to write %d bytes of memory to offset %d", len(m.Memory), m.Offset))
 					}
 					copy(b, m.Memory)
+					return true
+				})
+				if err != nil {
+					panic(err)
 				}
+
 				for i := 0; i < record.NumResults(); i++ {
 					stack[i] = record.ResultAt(i)
 				}

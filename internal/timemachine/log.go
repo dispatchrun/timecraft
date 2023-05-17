@@ -350,6 +350,32 @@ func (r *RecordReader) ReadMemoryAccess(memoryAccess []MemoryAccess) error {
 	return nil
 }
 
+// ScanMemoryAccess scans memory accesses.
+//
+// Byte slices in the Memory field remain valid until the parent record
+// batch is closed.
+func (r *RecordReader) ScanMemoryAccess(fn func(MemoryAccess) bool) error {
+	memory, err := r.Memory()
+	if err != nil {
+		return err
+	}
+	offset := uint32(0)
+	for i := 0; i < r.NumMemoryAccess(); i++ {
+		m := logsegment.MemoryAccess{}
+		r.record.MemoryAccess(&m, i)
+		length := m.Length()
+		startOffset, endOffset := offset, offset+length
+		offset += length
+		if !fn(MemoryAccess{
+			Memory: memory[startOffset:endOffset:endOffset],
+			Offset: m.Offset(),
+		}) {
+			return nil
+		}
+	}
+	return nil
+}
+
 // MemoryAccess reads and returns the memory access recorded by r.
 func (r *RecordReader) MemoryAccess() ([]MemoryAccess, error) {
 	numMemoryAccess := r.NumMemoryAccess()
