@@ -934,6 +934,9 @@ type BufferedLogWriter struct {
 
 	batchSize int
 	batch     []Record
+
+	memoryAccesses []MemoryAccess
+	buffer         []byte
 }
 
 // NewBufferedLogWriter creates a BufferedLogWriter.
@@ -942,12 +945,25 @@ func NewBufferedLogWriter(w *LogWriter, batchSize int) *BufferedLogWriter {
 		LogWriter: w,
 		batchSize: batchSize,
 		batch:     make([]Record, 0, batchSize),
+		buffer:    make([]byte, 0, 4096),
 	}
 }
 
 // WriteRecord buffers a Record and then writes it once the internal
 // record batch is full.
+//
+// The writer will make a copy of the memory accesses.
 func (w *BufferedLogWriter) WriteRecord(record Record) error {
+	for i := range record.MemoryAccess {
+		m := &record.MemoryAccess[i]
+		w.buffer = append(w.buffer, m.Memory...)
+		w.memoryAccesses = append(w.memoryAccesses, MemoryAccess{
+			Offset: m.Offset,
+			Memory: w.buffer[len(w.buffer)-len(m.Memory):],
+		})
+	}
+	record.MemoryAccess = w.memoryAccesses[len(w.memoryAccesses)-len(record.MemoryAccess):]
+
 	w.batch = append(w.batch, record)
 	if len(w.batch) < w.batchSize {
 		return nil
@@ -964,6 +980,8 @@ func (w *BufferedLogWriter) Flush() error {
 		return err
 	}
 	w.batch = w.batch[:0]
+	w.buffer = w.buffer[:0]
+	w.memoryAccesses = w.memoryAccesses[:0]
 	return nil
 }
 
