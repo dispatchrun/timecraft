@@ -277,6 +277,11 @@ func (r *RecordReader) ReadParams(params []uint64) {
 	}
 }
 
+// ParamAt returns the param at the specified index.
+func (r *RecordReader) ParamAt(i int) uint64 {
+	return r.record.Params(i)
+}
+
 // Params returns the function parameters as a newly allocated slice.
 func (r *RecordReader) Params() []uint64 {
 	numParams := r.NumParams()
@@ -298,6 +303,11 @@ func (r *RecordReader) ReadResults(results []uint64) {
 	for i := range results {
 		results[i] = r.record.Results(i)
 	}
+}
+
+// ResultAt returns the param at the specified index.
+func (r *RecordReader) ResultAt(i int) uint64 {
+	return r.record.Results(i)
 }
 
 // Results returns the function results as a newly allocated slice.
@@ -937,10 +947,10 @@ func NewBufferedLogWriter(w *LogWriter, batchSize int) *BufferedLogWriter {
 
 // WriteRecord buffers a Record and then writes it once the internal
 // record batch is full.
-func (w *BufferedLogWriter) WriteRecord(record Record) (err error) {
+func (w *BufferedLogWriter) WriteRecord(record Record) error {
+	w.batch = append(w.batch, record)
 	if len(w.batch) < w.batchSize {
-		w.batch = append(w.batch, record)
-		return
+		return nil
 	}
 	return w.Flush()
 }
@@ -955,4 +965,68 @@ func (w *BufferedLogWriter) Flush() error {
 	}
 	w.batch = w.batch[:0]
 	return nil
+}
+
+// LogRecordIterator is a helper for iterating records in a log.
+type LogRecordIterator struct {
+	reader       *LogReader
+	header       *LogHeader
+	batch        *RecordBatch
+	record       RecordReader
+	batchIndex   int
+	readerOffset int64
+	err          error
+}
+
+// NewLogRecordIterator creates a log record iterator.
+func NewLogRecordIterator(r *LogReader) *LogRecordIterator {
+	return &LogRecordIterator{reader: r}
+}
+
+// Next is true if there is another Record available.
+func (i *LogRecordIterator) Next() bool {
+	if i.header == nil {
+		i.header, i.readerOffset, i.err = i.reader.ReadLogHeader()
+		if i.err != nil {
+			return false
+		}
+	}
+	if i.batch == nil || i.batchIndex == i.batch.NumRecords() {
+		if i.batch != nil {
+			i.batch.Close()
+		}
+		i.batchIndex = 0
+		var batchLength int64
+		i.batch, batchLength, i.err = i.reader.ReadRecordBatch(i.header, i.readerOffset)
+		if i.err != nil {
+			return false
+		}
+		i.readerOffset += batchLength
+		if i.batch.NumRecords() == 0 {
+			return false
+		}
+	}
+	i.record = i.batch.RecordReaderAt(i.batchIndex)
+	i.batchIndex++
+	return true
+}
+
+// Error returns any errors during reads or the preparation of records.
+func (i *LogRecordIterator) Error() error {
+	return i.err
+}
+
+// Record returns the next record as a RecordReader.
+//
+// The return value is only valid when Next returns true.
+func (i *LogRecordIterator) Record() RecordReader {
+	return i.record
+}
+
+func (i *LogRecordIterator) Close() error {
+	if i.batch != nil {
+		i.batch.Close()
+		i.batch = nil
+	}
+	return i.err
 }

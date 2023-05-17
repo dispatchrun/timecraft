@@ -2,7 +2,6 @@ package timemachine_test
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -162,7 +161,6 @@ func TestReadRecordBatch(t *testing.T) {
 			}
 			t.Fatal(err)
 		}
-		fmt.Println("read batch")
 		records, err := batch.Records()
 		if err != nil {
 			t.Fatal(err)

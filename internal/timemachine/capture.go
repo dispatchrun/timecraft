@@ -37,13 +37,15 @@ func Capture[T wazergo.Module](functions FunctionIndex, capture func(Record)) wa
 				memoryInterceptorModule := GetMemoryInterceptorModule(mod)
 				defer PutMemoryInterceptorModule(memoryInterceptorModule)
 
+				defer func() {
+					record.MemoryAccess = memoryInterceptorModule.Memory().(*MemoryInterceptor).Mutations()
+
+					copy(record.Results, stack[:len(f.Results)])
+
+					capture(record)
+				}()
+
 				f.Func(module, ctx, memoryInterceptorModule, stack)
-
-				record.MemoryAccess = memoryInterceptorModule.Memory().(*MemoryInterceptor).Mutations()
-
-				copy(record.Results, stack[:len(f.Results)])
-
-				capture(record)
 			},
 		}
 	})
