@@ -197,10 +197,7 @@ func run(args []string) error {
 		WithListens(listens...).
 		WithDials(dials...).
 		WithSocketsExtension(*sockets, wasmModule).
-		WithTracer(*trace, os.Stderr).
-		WithExit(func(ctx context.Context, exitCode int) error {
-			panic(sys.NewExitError(uint32(exitCode)))
-		})
+		WithTracer(*trace, os.Stderr)
 
 	if *logPath != "" {
 		logFile, err := os.Create(*logPath)
