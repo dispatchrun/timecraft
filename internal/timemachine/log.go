@@ -62,6 +62,9 @@ type Record struct {
 	Params       []uint64
 	Results      []uint64
 	MemoryAccess []MemoryAccess
+
+	// Stack is buffer space for params/results.
+	Stack [10]uint64
 }
 
 var (
@@ -233,7 +236,7 @@ func (r *RecordBatch) readMemory() (*buffer, error) {
 	dst := uncompressedMemoryBuffer.data
 	dst, err = decompress(dst, src, compression)
 	uncompressedMemoryBuffer.data = dst
-	return uncompressedMemoryBuffer, nil
+	return uncompressedMemoryBuffer, err
 }
 
 // RecordReader values are returned by calling RecordReaderAt on a RecordBatch,
@@ -274,6 +277,11 @@ func (r *RecordReader) ReadParams(params []uint64) {
 	}
 }
 
+// ParamAt returns the param at the specified index.
+func (r *RecordReader) ParamAt(i int) uint64 {
+	return r.record.Params(i)
+}
+
 // Params returns the function parameters as a newly allocated slice.
 func (r *RecordReader) Params() []uint64 {
 	numParams := r.NumParams()
@@ -295,6 +303,11 @@ func (r *RecordReader) ReadResults(results []uint64) {
 	for i := range results {
 		results[i] = r.record.Results(i)
 	}
+}
+
+// ResultAt returns the param at the specified index.
+func (r *RecordReader) ResultAt(i int) uint64 {
+	return r.record.Results(i)
 }
 
 // Results returns the function results as a newly allocated slice.
@@ -332,6 +345,32 @@ func (r *RecordReader) ReadMemoryAccess(memoryAccess []MemoryAccess) error {
 		memoryAccess[i] = MemoryAccess{
 			Memory: memory[startOffset:endOffset:endOffset],
 			Offset: m.Offset(),
+		}
+	}
+	return nil
+}
+
+// ScanMemoryAccess scans memory accesses.
+//
+// Byte slices in the Memory field remain valid until the parent record
+// batch is closed.
+func (r *RecordReader) ScanMemoryAccess(fn func(MemoryAccess) bool) error {
+	memory, err := r.Memory()
+	if err != nil {
+		return err
+	}
+	offset := uint32(0)
+	for i := 0; i < r.NumMemoryAccess(); i++ {
+		m := logsegment.MemoryAccess{}
+		r.record.MemoryAccess(&m, i)
+		length := m.Length()
+		startOffset, endOffset := offset, offset+length
+		offset += length
+		if !fn(MemoryAccess{
+			Memory: memory[startOffset:endOffset:endOffset],
+			Offset: m.Offset(),
+		}) {
+			return nil
 		}
 	}
 	return nil
@@ -909,4 +948,129 @@ func (w *LogWriter) prependMemoryAccess(access *MemoryAccess) flatbuffers.UOffse
 	w.builder.PlaceUint32(uint32(len(access.Memory)))
 	w.builder.PlaceUint32(access.Offset)
 	return w.builder.Offset()
+}
+
+// BufferedLogWriter wraps a LogWriter to help with write batching.
+//
+// A single WriteRecord method is provided for writing records. When the number
+// of buffered records reaches the configured batch size, the batch is passed
+// to the LogWriter's WriteRecordBatch method.
+type BufferedLogWriter struct {
+	*LogWriter
+
+	batchSize int
+	batch     []Record
+
+	memoryAccesses []MemoryAccess
+	buffer         []byte
+}
+
+// NewBufferedLogWriter creates a BufferedLogWriter.
+func NewBufferedLogWriter(w *LogWriter, batchSize int) *BufferedLogWriter {
+	return &BufferedLogWriter{
+		LogWriter: w,
+		batchSize: batchSize,
+		batch:     make([]Record, 0, batchSize),
+		buffer:    make([]byte, 0, 4096),
+	}
+}
+
+// WriteRecord buffers a Record and then writes it once the internal
+// record batch is full.
+//
+// The writer will make a copy of the memory accesses.
+func (w *BufferedLogWriter) WriteRecord(record Record) error {
+	for i := range record.MemoryAccess {
+		m := &record.MemoryAccess[i]
+		w.buffer = append(w.buffer, m.Memory...)
+		w.memoryAccesses = append(w.memoryAccesses, MemoryAccess{
+			Offset: m.Offset,
+			Memory: w.buffer[len(w.buffer)-len(m.Memory):],
+		})
+	}
+	record.MemoryAccess = w.memoryAccesses[len(w.memoryAccesses)-len(record.MemoryAccess):]
+
+	w.batch = append(w.batch, record)
+	if len(w.batch) < w.batchSize {
+		return nil
+	}
+	return w.Flush()
+}
+
+// Flush flushes any pending records.
+func (w *BufferedLogWriter) Flush() error {
+	if len(w.batch) == 0 {
+		return nil
+	}
+	if _, err := w.WriteRecordBatch(w.batch); err != nil {
+		return err
+	}
+	w.batch = w.batch[:0]
+	w.buffer = w.buffer[:0]
+	w.memoryAccesses = w.memoryAccesses[:0]
+	return nil
+}
+
+// LogRecordIterator is a helper for iterating records in a log.
+type LogRecordIterator struct {
+	reader       *LogReader
+	header       *LogHeader
+	batch        *RecordBatch
+	record       RecordReader
+	batchIndex   int
+	readerOffset int64
+	err          error
+}
+
+// NewLogRecordIterator creates a log record iterator.
+func NewLogRecordIterator(r *LogReader) *LogRecordIterator {
+	return &LogRecordIterator{reader: r}
+}
+
+// Next is true if there is another Record available.
+func (i *LogRecordIterator) Next() bool {
+	if i.header == nil {
+		i.header, i.readerOffset, i.err = i.reader.ReadLogHeader()
+		if i.err != nil {
+			return false
+		}
+	}
+	if i.batch == nil || i.batchIndex == i.batch.NumRecords() {
+		if i.batch != nil {
+			i.batch.Close()
+		}
+		i.batchIndex = 0
+		var batchLength int64
+		i.batch, batchLength, i.err = i.reader.ReadRecordBatch(i.header, i.readerOffset)
+		if i.err != nil {
+			return false
+		}
+		i.readerOffset += batchLength
+		if i.batch.NumRecords() == 0 {
+			return false
+		}
+	}
+	i.record = i.batch.RecordReaderAt(i.batchIndex)
+	i.batchIndex++
+	return true
+}
+
+// Error returns any errors during reads or the preparation of records.
+func (i *LogRecordIterator) Error() error {
+	return i.err
+}
+
+// Record returns the next record as a RecordReader.
+//
+// The return value is only valid when Next returns true.
+func (i *LogRecordIterator) Record() RecordReader {
+	return i.record
+}
+
+func (i *LogRecordIterator) Close() error {
+	if i.batch != nil {
+		i.batch.Close()
+		i.batch = nil
+	}
+	return i.err
 }
