@@ -7,6 +7,14 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 )
 
+func prependUint32Vector(b *flatbuffers.Builder, values []uint32) flatbuffers.UOffsetT {
+	b.StartVector(4, len(values), 4)
+	for i := len(values) - 1; i >= 0; i-- {
+		b.PrependUint32(values[i])
+	}
+	return b.EndVector(len(values))
+}
+
 func prependUint64Vector(b *flatbuffers.Builder, values []uint64) flatbuffers.UOffsetT {
 	b.StartVector(8, len(values), 8)
 	for i := len(values) - 1; i >= 0; i-- {

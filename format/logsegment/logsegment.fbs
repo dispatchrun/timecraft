@@ -43,25 +43,23 @@ table LogHeader {
  compression:types.Compression;
 }
 
-// The RecordBatch table represents a group of records. Metadata bout the record
-// list is embedded in the record batch, followed by the concatenated memory
-// snapshots of the records.
+// The RecordBatch table represents a group of records. Metadata about the records
+// is embedded in the record batch, and the records themselves are concatenated in
+// compressed form.
 table RecordBatch {
  // Logical offset of the first record in this batch.
  first_offset:long;
  // Monotonic timestamp of the first record in this batch, relative to the process start
  // time of the function invocation time (expressed in nanoseconds).
  first_timestamp:long;
- // Number of records in the batch.
- record_count:uint;
- // Size of the memory snapshots following the record batch (in bytes).
+ // Size of the compressed records following the record batch (in bytes).
  compressed_size:uint;
- // Uncompressed size of the memory snapshots (in bytes).
+ // Uncompressed size of the records (in bytes).
  uncompressed_size:uint;
  // CRC32 checksum of the memory snapshots (Castagnoli).
  checksum:uint;
- // List of records that are part of the batch.
- records:[Record];
+ // Offsets of records that are part of the batch.
+ records:[uint];
 }
 
 // The Record table holds metdata about the recording of a single host function

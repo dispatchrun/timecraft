@@ -98,57 +98,62 @@ type RecordBatch struct {
 
 	// The record batch keeps ownership of the frame that it was read from;
 	// the frame is released to the global pool when the batch is closed.
-	frame  *buffer
-	memory *buffer
-	// Loading of the memory buffer is synchronized on this once value so it may
+	frame   *buffer
+	records *buffer
+	// Loading of the records buffer is synchronized on this once value so it may
 	// happen when records are read concurrently.
 	//
 	// If an error occurs while reading, it is captured in `err` and all reads of
-	// the memory regions will observe the error.
+	// the records will observe the error.
 	once sync.Once
 	err  error
 }
 
 // Close must be called by the application when the batch isn't needed anymore
 // to allow the resources held internally to be reused by the application.
-func (r *RecordBatch) Close() error {
-	r.once.Do(func() {})
-	memoryBufferPool := &compressedBufferPool
-	if r.header.Compression == Uncompressed {
-		memoryBufferPool = &uncompressedBufferPool
+func (b *RecordBatch) Close() error {
+	b.once.Do(func() {})
+	recordsBufferPool := &compressedBufferPool
+	if b.header.Compression == Uncompressed {
+		recordsBufferPool = &uncompressedBufferPool
 	}
-	releaseBuffer(&r.memory, memoryBufferPool)
-	releaseBuffer(&r.frame, &frameBufferPool)
-	r.batch = logsegment.RecordBatch{}
+	releaseBuffer(&b.records, recordsBufferPool)
+	releaseBuffer(&b.frame, &frameBufferPool)
+	b.batch = logsegment.RecordBatch{}
 	return nil
 }
 
 // Compression returns the compression algorithm used to encode the record
 // batch data section.
-func (r *RecordBatch) Compression() Compression {
-	return r.header.Compression
+func (b *RecordBatch) Compression() Compression {
+	return b.header.Compression
 }
 
 // FirstOffset returns the logical offset of the first record in the batch.
-func (r *RecordBatch) FirstOffset() int64 {
-	return r.batch.FirstOffset()
+func (b *RecordBatch) FirstOffset() int64 {
+	return b.batch.FirstOffset()
+}
+
+// FirstTimestamp returns the time at which the first record was produced.
+func (b *RecordBatch) FirstTimestamp() time.Time {
+	return b.header.Process.StartTime.Add(time.Duration(b.batch.FirstTimestamp()))
 }
 
 // CompressedSize returns the size of the record batch data section in the log
 // segment.
-func (r *RecordBatch) CompressedSize() int64 {
-	return int64(r.batch.CompressedSize())
+func (b *RecordBatch) CompressedSize() int64 {
+	return int64(b.batch.CompressedSize())
 }
 
 // UncompressedSize returns the size of the record batch data section after
 // being uncompressed.
-func (r *RecordBatch) UncompressedSize() int64 {
-	return int64(r.batch.UncompressedSize())
+func (b *RecordBatch) UncompressedSize() int64 {
+	return int64(b.batch.UncompressedSize())
 }
 
 // NumRecords returns the number of records in the batch.
-func (r *RecordBatch) NumRecords() int {
-	return int(r.batch.RecordsLength())
+func (b *RecordBatch) NumRecords() int {
+	return b.batch.RecordsLength()
 }
 
 // Records is a helper function which reads all records of a batch in memory.
@@ -156,10 +161,13 @@ func (r *RecordBatch) NumRecords() int {
 // The method is useful in contexts with relaxed performance constraints, as the
 // returned values are heap allocated and hold copies of the underlying memory
 // buffers.
-func (r *RecordBatch) Records() []Record {
-	records := make([]Record, r.NumRecords())
+func (b *RecordBatch) Records() ([]Record, error) {
+	records := make([]Record, b.NumRecords())
 	for i := range records {
-		rr := r.RecordReaderAt(i)
+		rr, err := b.RecordReaderAt(i)
+		if err != nil {
+			return nil, err
+		}
 		records[i] = Record{
 			Timestamp:    rr.Timestamp(),
 			Function:     rr.Function(),
@@ -168,7 +176,7 @@ func (r *RecordBatch) Records() []Record {
 			MemoryAccess: rr.MemoryAccess(),
 		}
 	}
-	return records
+	return records, nil
 }
 
 // RecordReaderAt returns a reader positioned on the record at the given index
@@ -177,53 +185,67 @@ func (r *RecordBatch) Records() []Record {
 // The index is local to the batch, to translate a logical record offset into
 // an index, subtract the value of the first record offset of the batch.
 //
-// The returned record reader remaims valid to use until the batch is closed.
-func (r *RecordBatch) RecordReaderAt(i int) RecordReader {
-	rr := RecordReader{batch: r}
-	r.batch.Records(&rr.record, i)
-	return rr
-}
-
-func (r *RecordBatch) loadMemory() ([]byte, error) {
-	r.once.Do(func() {
-		r.memory, r.err = r.readMemory()
-	})
-	if r.err != nil {
-		return nil, r.err
-	}
-	return r.memory.data, nil
-}
-
-func (r *RecordBatch) readMemory() (*buffer, error) {
-	compression := r.header.Compression
-	compressedSize := int(r.CompressedSize())
-	uncompressedSize := int(r.UncompressedSize())
-
-	var memoryBufferPool *bufferPool
-	var memoryBufferSize int
-	if compression == Uncompressed {
-		memoryBufferPool = &uncompressedBufferPool
-		memoryBufferSize = uncompressedSize
-	} else {
-		memoryBufferPool = &compressedBufferPool
-		memoryBufferSize = compressedSize
-	}
-
-	memoryBuffer := memoryBufferPool.get(memoryBufferSize)
-
-	_, err := r.input.ReadAt(memoryBuffer.data, r.byteOffset+r.byteLength)
+// The returned record reader remains valid to use until the batch is closed.
+func (b *RecordBatch) RecordReaderAt(i int) (RecordReader, error) {
+	records, err := b.loadRecords()
 	if err != nil {
-		memoryBufferPool.put(memoryBuffer)
+		return RecordReader{}, err
+	}
+	offset := b.batch.Records(i)
+	if offset+4 < offset || offset+4 > uint32(len(records)) {
+		return RecordReader{}, fmt.Errorf("cannot read record at offset %d as records buffer is length %d", offset, len(records))
+	}
+	size := binary.LittleEndian.Uint32(records[offset:])
+	if offset+size < offset || offset+size > uint32(len(records)) {
+		return RecordReader{}, fmt.Errorf("cannot read record at [%d:%d+%d] as records buffer is length %d", offset, offset, size, len(records))
+	}
+
+	record := logsegment.GetRootAsRecord(records[offset+4:], 0)
+
+	rr := RecordReader{batch: b, record: *record}
+	return rr, nil
+}
+
+func (b *RecordBatch) loadRecords() ([]byte, error) {
+	b.once.Do(func() {
+		b.records, b.err = b.readRecords()
+	})
+	if b.err != nil {
+		return nil, b.err
+	}
+	return b.records.data, nil
+}
+
+func (b *RecordBatch) readRecords() (*buffer, error) {
+	compression := b.header.Compression
+	compressedSize := int(b.CompressedSize())
+	uncompressedSize := int(b.UncompressedSize())
+
+	var recordsBufferPool *bufferPool
+	var recordsBufferSize int
+	if compression == Uncompressed {
+		recordsBufferPool = &uncompressedBufferPool
+		recordsBufferSize = uncompressedSize
+	} else {
+		recordsBufferPool = &compressedBufferPool
+		recordsBufferSize = compressedSize
+	}
+
+	recordsBuffer := recordsBufferPool.get(recordsBufferSize)
+
+	_, err := b.input.ReadAt(recordsBuffer.data, b.byteOffset+b.byteLength)
+	if err != nil {
+		recordsBufferPool.put(recordsBuffer)
 		return nil, err
 	}
 
 	if compression == Uncompressed {
-		return memoryBuffer, nil
+		return recordsBuffer, nil
 	}
-	defer memoryBufferPool.put(memoryBuffer)
+	defer recordsBufferPool.put(recordsBuffer)
 
 	uncompressedMemoryBuffer := uncompressedBufferPool.get(uncompressedSize)
-	src := memoryBuffer.data
+	src := recordsBuffer.data
 	dst := uncompressedMemoryBuffer.data
 	dst, err = decompress(dst, src, compression)
 	uncompressedMemoryBuffer.data = dst
@@ -648,8 +670,8 @@ type LogWriter struct {
 	// Those fields are local buffers retained as an optimization to avoid
 	// reallocation of temporary arrays when serializing log records.
 	memory  []flatbuffers.UOffsetT
-	records []flatbuffers.UOffsetT
 	offsets []flatbuffers.UOffsetT
+	records []uint32
 }
 
 // NewLogWriter constructs a new log writer which produces output to the given
@@ -777,12 +799,12 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 	if w.stickyErr != nil {
 		return w.nextOffset, w.stickyErr
 	}
-	w.builder.Reset()
 	w.uncompressed = w.uncompressed[:0]
 	w.compressed = w.compressed[:0]
 	w.records = w.records[:0]
 
 	for _, record := range batch {
+		w.builder.Reset()
 		w.memory = w.memory[:0]
 		for _, m := range record.MemoryAccess {
 			memoryBytesOffset := w.builder.CreateByteVector(m.Memory)
@@ -804,8 +826,10 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 		logsegment.RecordAddParams(w.builder, params)
 		logsegment.RecordAddResults(w.builder, results)
 		logsegment.RecordAddMemoryAccess(w.builder, memory)
+		logsegment.FinishSizePrefixedRecordBuffer(w.builder, logsegment.RecordEnd(w.builder))
 
-		w.records = append(w.records, logsegment.RecordEnd(w.builder))
+		w.records = append(w.records, uint32(len(w.uncompressed)))
+		w.uncompressed = append(w.uncompressed, w.builder.FinishedBytes()...)
 	}
 
 	firstOffset := w.nextOffset
@@ -816,28 +840,28 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 		firstTimestamp = int64(batch[0].Timestamp.Sub(w.startTime))
 	}
 
-	records := w.prependOffsetVector(w.records)
-	memory := w.uncompressed
 	if w.compression != Uncompressed {
-		w.compressed = compress(w.compressed[:cap(w.compressed)], memory, w.compression)
-		memory = w.compressed
+		w.compressed = compress(w.compressed[:cap(w.compressed)], w.uncompressed, w.compression)
 	}
+
+	w.builder.Reset()
+
+	records := w.prependUint32Vector(w.records)
 
 	logsegment.RecordBatchStart(w.builder)
 	logsegment.RecordBatchAddFirstOffset(w.builder, firstOffset)
 	logsegment.RecordBatchAddFirstTimestamp(w.builder, firstTimestamp)
-	logsegment.RecordBatchAddRecordCount(w.builder, uint32(len(batch)))
-	logsegment.RecordBatchAddCompressedSize(w.builder, uint32(len(memory)))
+	logsegment.RecordBatchAddCompressedSize(w.builder, uint32(len(w.compressed)))
 	logsegment.RecordBatchAddUncompressedSize(w.builder, uint32(len(w.uncompressed)))
 	logsegment.RecordBatchAddChecksum(w.builder, 0)
 	logsegment.RecordBatchAddRecords(w.builder, records)
-	w.builder.FinishSizePrefixed(logsegment.RecordBatchEnd(w.builder))
+	logsegment.FinishSizePrefixedRecordBatchBuffer(w.builder, logsegment.RecordBatchEnd(w.builder))
 
 	if _, err := w.output.Write(w.builder.FinishedBytes()); err != nil {
 		w.stickyErr = err
 		return firstOffset, err
 	}
-	if _, err := w.output.Write(memory); err != nil {
+	if _, err := w.output.Write(w.compressed); err != nil {
 		w.stickyErr = err
 		return firstOffset, err
 	}
@@ -852,6 +876,10 @@ func (w *LogWriter) prependStringVector(values []string) flatbuffers.UOffsetT {
 	return w.prependObjectVector(len(values), func(i int) flatbuffers.UOffsetT {
 		return w.builder.CreateString(values[i])
 	})
+}
+
+func (w *LogWriter) prependUint32Vector(values []uint32) flatbuffers.UOffsetT {
+	return prependUint32Vector(w.builder, values)
 }
 
 func (w *LogWriter) prependUint64Vector(values []uint64) flatbuffers.UOffsetT {
@@ -978,7 +1006,10 @@ func (i *LogRecordIterator) Next() bool {
 			return false
 		}
 	}
-	i.record = i.batch.RecordReaderAt(i.batchIndex)
+	i.record, i.err = i.batch.RecordReaderAt(i.batchIndex)
+	if i.err != nil {
+		return false
+	}
 	i.batchIndex++
 	return true
 }
