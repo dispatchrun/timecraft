@@ -845,20 +845,8 @@ func (rcv *MemoryAccess) MutateOffset(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(6, n)
 }
 
-func (rcv *MemoryAccess) Length() uint32 {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
-	if o != 0 {
-		return rcv._tab.GetUint32(o + rcv._tab.Pos)
-	}
-	return 0
-}
-
-func (rcv *MemoryAccess) MutateLength(n uint32) bool {
-	return rcv._tab.MutateUint32Slot(8, n)
-}
-
 func MemoryAccessStart(builder *flatbuffers.Builder) {
-	builder.StartObject(3)
+	builder.StartObject(2)
 }
 func MemoryAccessAddMemory(builder *flatbuffers.Builder, memory flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(memory), 0)
@@ -868,9 +856,6 @@ func MemoryAccessStartMemoryVector(builder *flatbuffers.Builder, numElems int) f
 }
 func MemoryAccessAddOffset(builder *flatbuffers.Builder, offset uint32) {
 	builder.PrependUint32Slot(1, offset, 0)
-}
-func MemoryAccessAddLength(builder *flatbuffers.Builder, length uint32) {
-	builder.PrependUint32Slot(2, length, 0)
 }
 func MemoryAccessEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

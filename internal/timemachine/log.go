@@ -814,7 +814,6 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 			memoryBytesOffset := w.builder.CreateByteVector(m.Memory)
 			logsegment.MemoryAccessStart(w.builder)
 			logsegment.MemoryAccessAddMemory(w.builder, memoryBytesOffset)
-			logsegment.MemoryAccessAddLength(w.builder, uint32(len(m.Memory)))
 			logsegment.MemoryAccessAddOffset(w.builder, m.Offset)
 			w.memory = append(w.memory, logsegment.MemoryAccessEnd(w.builder))
 		}

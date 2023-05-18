@@ -89,8 +89,6 @@ table MemoryAccess {
  // Byte offset in the WebAssembly module's linear memory where the memory
  // access starts.
  offset:uint;
- // Size of the memory access (in bytes).
- length:uint;
 }
 
 root_type LogHeader;
