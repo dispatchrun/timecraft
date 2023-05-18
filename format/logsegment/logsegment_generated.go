@@ -699,8 +699,20 @@ func (rcv *FunctionCall) Table() flatbuffers.Table {
 	return rcv._tab
 }
 
-func (rcv *FunctionCall) Params(j int) uint64 {
+func (rcv *FunctionCall) ParamCount() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
+	if o != 0 {
+		return rcv._tab.GetUint32(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *FunctionCall) MutateParamCount(n uint32) bool {
+	return rcv._tab.MutateUint32Slot(4, n)
+}
+
+func (rcv *FunctionCall) Stack(j int) uint64 {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
 	if o != 0 {
 		a := rcv._tab.Vector(o)
 		return rcv._tab.GetUint64(a + flatbuffers.UOffsetT(j*8))
@@ -708,16 +720,16 @@ func (rcv *FunctionCall) Params(j int) uint64 {
 	return 0
 }
 
-func (rcv *FunctionCall) ParamsLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
+func (rcv *FunctionCall) StackLength() int {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
 	if o != 0 {
 		return rcv._tab.VectorLen(o)
 	}
 	return 0
 }
 
-func (rcv *FunctionCall) MutateParams(j int, n uint64) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
+func (rcv *FunctionCall) MutateStack(j int, n uint64) bool {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
 	if o != 0 {
 		a := rcv._tab.Vector(o)
 		return rcv._tab.MutateUint64(a+flatbuffers.UOffsetT(j*8), n)
@@ -725,38 +737,45 @@ func (rcv *FunctionCall) MutateParams(j int, n uint64) bool {
 	return false
 }
 
-func (rcv *FunctionCall) Results(j int) uint64 {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
+func (rcv *FunctionCall) Memory(j int) byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
 		a := rcv._tab.Vector(o)
-		return rcv._tab.GetUint64(a + flatbuffers.UOffsetT(j*8))
+		return rcv._tab.GetByte(a + flatbuffers.UOffsetT(j*1))
 	}
 	return 0
 }
 
-func (rcv *FunctionCall) ResultsLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
+func (rcv *FunctionCall) MemoryLength() int {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
 		return rcv._tab.VectorLen(o)
 	}
 	return 0
 }
 
-func (rcv *FunctionCall) MutateResults(j int, n uint64) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
+func (rcv *FunctionCall) MemoryBytes() []byte {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
+	if o != 0 {
+		return rcv._tab.ByteVector(o + rcv._tab.Pos)
+	}
+	return nil
+}
+
+func (rcv *FunctionCall) MutateMemory(j int, n byte) bool {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
 		a := rcv._tab.Vector(o)
-		return rcv._tab.MutateUint64(a+flatbuffers.UOffsetT(j*8), n)
+		return rcv._tab.MutateByte(a+flatbuffers.UOffsetT(j*1), n)
 	}
 	return false
 }
 
 func (rcv *FunctionCall) MemoryAccess(obj *MemoryAccess, j int) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
 	if o != 0 {
 		x := rcv._tab.Vector(o)
-		x += flatbuffers.UOffsetT(j) * 4
-		x = rcv._tab.Indirect(x)
+		x += flatbuffers.UOffsetT(j) * 12
 		obj.Init(rcv._tab.Bytes, x)
 		return true
 	}
@@ -764,7 +783,7 @@ func (rcv *FunctionCall) MemoryAccess(obj *MemoryAccess, j int) bool {
 }
 
 func (rcv *FunctionCall) MemoryAccessLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
 	if o != 0 {
 		return rcv._tab.VectorLen(o)
 	}
@@ -772,54 +791,35 @@ func (rcv *FunctionCall) MemoryAccessLength() int {
 }
 
 func FunctionCallStart(builder *flatbuffers.Builder) {
-	builder.StartObject(3)
+	builder.StartObject(4)
 }
-func FunctionCallAddParams(builder *flatbuffers.Builder, params flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(params), 0)
+func FunctionCallAddParamCount(builder *flatbuffers.Builder, paramCount uint32) {
+	builder.PrependUint32Slot(0, paramCount, 0)
 }
-func FunctionCallStartParamsVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
+func FunctionCallAddStack(builder *flatbuffers.Builder, stack flatbuffers.UOffsetT) {
+	builder.PrependUOffsetTSlot(1, flatbuffers.UOffsetT(stack), 0)
+}
+func FunctionCallStartStackVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
 	return builder.StartVector(8, numElems, 8)
 }
-func FunctionCallAddResults(builder *flatbuffers.Builder, results flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(1, flatbuffers.UOffsetT(results), 0)
+func FunctionCallAddMemory(builder *flatbuffers.Builder, memory flatbuffers.UOffsetT) {
+	builder.PrependUOffsetTSlot(2, flatbuffers.UOffsetT(memory), 0)
 }
-func FunctionCallStartResultsVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(8, numElems, 8)
+func FunctionCallStartMemoryVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
+	return builder.StartVector(1, numElems, 1)
 }
 func FunctionCallAddMemoryAccess(builder *flatbuffers.Builder, memoryAccess flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(2, flatbuffers.UOffsetT(memoryAccess), 0)
+	builder.PrependUOffsetTSlot(3, flatbuffers.UOffsetT(memoryAccess), 0)
 }
 func FunctionCallStartMemoryAccessVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(4, numElems, 4)
+	return builder.StartVector(12, numElems, 4)
 }
 func FunctionCallEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
 }
 
 type MemoryAccess struct {
-	_tab flatbuffers.Table
-}
-
-func GetRootAsMemoryAccess(buf []byte, offset flatbuffers.UOffsetT) *MemoryAccess {
-	n := flatbuffers.GetUOffsetT(buf[offset:])
-	x := &MemoryAccess{}
-	x.Init(buf, n+offset)
-	return x
-}
-
-func FinishMemoryAccessBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
-	builder.Finish(offset)
-}
-
-func GetSizePrefixedRootAsMemoryAccess(buf []byte, offset flatbuffers.UOffsetT) *MemoryAccess {
-	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
-	x := &MemoryAccess{}
-	x.Init(buf, n+offset+flatbuffers.SizeUint32)
-	return x
-}
-
-func FinishSizePrefixedMemoryAccessBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
-	builder.FinishSizePrefixed(offset)
+	_tab flatbuffers.Struct
 }
 
 func (rcv *MemoryAccess) Init(buf []byte, i flatbuffers.UOffsetT) {
@@ -828,67 +828,34 @@ func (rcv *MemoryAccess) Init(buf []byte, i flatbuffers.UOffsetT) {
 }
 
 func (rcv *MemoryAccess) Table() flatbuffers.Table {
-	return rcv._tab
+	return rcv._tab.Table
 }
 
-func (rcv *MemoryAccess) Memory(j int) byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.GetByte(a + flatbuffers.UOffsetT(j*1))
-	}
-	return 0
+func (rcv *MemoryAccess) Length() uint32 {
+	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(0))
 }
-
-func (rcv *MemoryAccess) MemoryLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *MemoryAccess) MemoryBytes() []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		return rcv._tab.ByteVector(o + rcv._tab.Pos)
-	}
-	return nil
-}
-
-func (rcv *MemoryAccess) MutateMemory(j int, n byte) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.MutateByte(a+flatbuffers.UOffsetT(j*1), n)
-	}
-	return false
+func (rcv *MemoryAccess) MutateLength(n uint32) bool {
+	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(0), n)
 }
 
 func (rcv *MemoryAccess) Offset() uint32 {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		return rcv._tab.GetUint32(o + rcv._tab.Pos)
-	}
-	return 0
+	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(4))
 }
-
 func (rcv *MemoryAccess) MutateOffset(n uint32) bool {
-	return rcv._tab.MutateUint32Slot(6, n)
+	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(4), n)
 }
 
-func MemoryAccessStart(builder *flatbuffers.Builder) {
-	builder.StartObject(2)
+func (rcv *MemoryAccess) IndexOffset() uint32 {
+	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(8))
 }
-func MemoryAccessAddMemory(builder *flatbuffers.Builder, memory flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(memory), 0)
+func (rcv *MemoryAccess) MutateIndexOffset(n uint32) bool {
+	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(8), n)
 }
-func MemoryAccessStartMemoryVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(1, numElems, 1)
-}
-func MemoryAccessAddOffset(builder *flatbuffers.Builder, offset uint32) {
-	builder.PrependUint32Slot(1, offset, 0)
-}
-func MemoryAccessEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
-	return builder.EndObject()
+
+func CreateMemoryAccess(builder *flatbuffers.Builder, length uint32, offset uint32, indexOffset uint32) flatbuffers.UOffsetT {
+	builder.Prep(4, 12)
+	builder.PrependUint32(indexOffset)
+	builder.PrependUint32(offset)
+	builder.PrependUint32(length)
+	return builder.Offset()
 }

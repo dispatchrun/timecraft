@@ -75,21 +75,28 @@ table Record {
 }
 
 table FunctionCall {
- // State of the WebAssembly stack when the function was called.
- params:[ulong];
- // State of the WebAssembly stack when the function returned.
- results:[ulong];
+ // Number of function parameters.
+ param_count: uint;
+ // State of the WebAssembly stack before and after the function was called.
+ // The first {param_count} values are the input parameters, and the remaining
+ // values are the return values.
+ stack:[ulong];
+ // Captured sections of the WebAssembly module's linear memory, stored
+ // contiguously and indexed by {memory_access}.
+ memory:[uint8];
  // Ordered collection of memory reads and writes made by the function.
  memory_access:[MemoryAccess];
 }
 
 // MemoryAccess represents the capture of a section of memory.
-table MemoryAccess {
- // Bytes of captured memory.
- memory:[ubyte];
+struct MemoryAccess {
+ // Byte length of captured memory.
+ length:uint;
  // Byte offset in the WebAssembly module's linear memory where the memory
  // access starts.
  offset:uint;
+ // Byte offset into {FunctionCall.memory}.
+ index_offset:uint;
 }
 
 root_type LogHeader;

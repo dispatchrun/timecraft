@@ -304,19 +304,12 @@ func (r *RecordReader) LookupFunction() (Function, bool) {
 
 // NumParams returns the number of parameters that were passed to the function.
 func (r *RecordReader) NumParams() int {
-	return int(r.functionCall.ParamsLength())
-}
-
-// ReadParams reads the function parameters into the slice passed as argument.
-func (r *RecordReader) ReadParams(params []uint64) {
-	for i := range params {
-		params[i] = r.functionCall.Params(i)
-	}
+	return int(r.functionCall.ParamCount())
 }
 
 // ParamAt returns the param at the specified index.
 func (r *RecordReader) ParamAt(i int) uint64 {
-	return r.functionCall.Params(i)
+	return r.functionCall.Stack(i)
 }
 
 // Params returns the function parameters as a newly allocated slice.
@@ -325,26 +318,26 @@ func (r *RecordReader) Params() []uint64 {
 	if numParams == 0 {
 		return nil
 	}
-	stack := make([]uint64, numParams)
-	r.ReadParams(stack)
-	return stack
+	params := make([]uint64, numParams)
+	for i := range params {
+		params[i] = r.ParamAt(i)
+	}
+	return params
 }
 
 // NumResults returns the number of results that were returned by the function.
 func (r *RecordReader) NumResults() int {
-	return int(r.functionCall.ResultsLength())
+	return r.functionCall.StackLength() - r.NumParams()
 }
 
 // ReadResults reads the function results into the slice passed as argument.
 func (r *RecordReader) ReadResults(results []uint64) {
-	for i := range results {
-		results[i] = r.functionCall.Results(i)
-	}
 }
 
 // ResultAt returns the param at the specified index.
 func (r *RecordReader) ResultAt(i int) uint64 {
-	return r.functionCall.Results(i)
+	paramCount := r.NumParams()
+	return r.functionCall.Stack(paramCount + i)
 }
 
 // Results returns the function results as a newly allocated slice.
@@ -353,9 +346,11 @@ func (r *RecordReader) Results() []uint64 {
 	if numResults == 0 {
 		return nil
 	}
-	stack := make([]uint64, numResults)
-	r.ReadResults(stack)
-	return stack
+	results := make([]uint64, numResults)
+	for i := range results {
+		results[i] = r.ResultAt(i)
+	}
+	return results
 }
 
 // NumMemoryAccess returns the number of memory access recorded in r.
@@ -378,8 +373,10 @@ func (r *RecordReader) ReadMemoryAccess(memoryAccess []MemoryAccess) {
 func (r *RecordReader) MemoryAccessAt(i int) MemoryAccess {
 	m := logsegment.MemoryAccess{}
 	r.functionCall.MemoryAccess(&m, i)
+	b := r.functionCall.MemoryBytes()
+	offset, length := m.IndexOffset(), m.Length()
 	return MemoryAccess{
-		Memory: m.MemoryBytes(),
+		Memory: b[offset : offset+length : offset+length],
 		Offset: m.Offset(),
 	}
 }
@@ -693,7 +690,7 @@ type LogWriter struct {
 	stickyErr error
 	// Those fields are local buffers retained as an optimization to avoid
 	// reallocation of temporary arrays when serializing log records.
-	memory  []flatbuffers.UOffsetT
+	memory  []byte
 	offsets []flatbuffers.UOffsetT
 }
 
@@ -827,24 +824,35 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 	for _, record := range batch {
 		w.builder.Reset()
 		w.memory = w.memory[:0]
-		for _, m := range record.MemoryAccess {
-			memoryBytesOffset := w.builder.CreateByteVector(m.Memory)
-			logsegment.MemoryAccessStart(w.builder)
-			logsegment.MemoryAccessAddMemory(w.builder, memoryBytesOffset)
-			logsegment.MemoryAccessAddOffset(w.builder, m.Offset)
-			w.memory = append(w.memory, logsegment.MemoryAccessEnd(w.builder))
+		logsegment.FunctionCallStartMemoryAccessVector(w.builder, len(record.MemoryAccess))
+		w.builder.Prep(12*len(record.MemoryAccess), 0)
+		for i := len(record.MemoryAccess) - 1; i >= 0; i-- {
+			m := &record.MemoryAccess[i]
+			w.builder.PlaceUint32(uint32(len(w.memory))) // offset into the index
+			w.builder.PlaceUint32(m.Offset)              // offset into guest memory
+			w.builder.PlaceUint32(uint32(len(m.Memory))) // length of captured memory
+			w.memory = append(w.memory, m.Memory...)
 		}
-		memory := w.prependOffsetVector(w.memory)
+		memoryAccess := w.builder.EndVector(len(record.MemoryAccess))
+		memory := w.builder.CreateByteVector(w.memory)
 
-		params := w.prependUint64Vector(record.Params)
-		results := w.prependUint64Vector(record.Results)
+		w.builder.StartVector(flatbuffers.SizeUint64, len(record.Params)+len(record.Results), flatbuffers.SizeUint64)
+		for i := len(record.Results) - 1; i >= 0; i-- {
+			w.builder.PrependUint64(record.Results[i])
+		}
+		for i := len(record.Params) - 1; i >= 0; i-- {
+			w.builder.PrependUint64(record.Params[i])
+		}
+		stack := w.builder.EndVector(len(record.Params) + len(record.Results))
+
 		timestamp := int64(record.Timestamp.Sub(w.startTime))
 		function := uint32(record.Function)
 
 		logsegment.FunctionCallStart(w.builder)
-		logsegment.FunctionCallAddParams(w.builder, params)
-		logsegment.FunctionCallAddResults(w.builder, results)
-		logsegment.FunctionCallAddMemoryAccess(w.builder, memory)
+		logsegment.FunctionCallAddStack(w.builder, stack)
+		logsegment.FunctionCallAddParamCount(w.builder, uint32(len(record.Params)))
+		logsegment.FunctionCallAddMemoryAccess(w.builder, memoryAccess)
+		logsegment.FunctionCallAddMemory(w.builder, memory)
 		functionCall := logsegment.FunctionCallEnd(w.builder)
 
 		logsegment.RecordStart(w.builder)
