@@ -56,10 +56,10 @@ table RecordBatch {
  compressed_size:uint;
  // Uncompressed size of the records (in bytes).
  uncompressed_size:uint;
+ // Number of records in the batch.
+ num_records:uint;
  // CRC32 checksum of the memory snapshots (Castagnoli).
  checksum:uint;
- // Offsets of records that are part of the batch.
- records:[uint];
 }
 
 // The Record table holds metdata about the recording of a single host function

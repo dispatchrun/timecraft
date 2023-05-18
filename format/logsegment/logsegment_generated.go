@@ -527,7 +527,7 @@ func (rcv *RecordBatch) MutateUncompressedSize(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(10, n)
 }
 
-func (rcv *RecordBatch) Checksum() uint32 {
+func (rcv *RecordBatch) NumRecords() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
 	if o != 0 {
 		return rcv._tab.GetUint32(o + rcv._tab.Pos)
@@ -535,34 +535,20 @@ func (rcv *RecordBatch) Checksum() uint32 {
 	return 0
 }
 
-func (rcv *RecordBatch) MutateChecksum(n uint32) bool {
+func (rcv *RecordBatch) MutateNumRecords(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(12, n)
 }
 
-func (rcv *RecordBatch) Records(j int) uint32 {
+func (rcv *RecordBatch) Checksum() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
 	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.GetUint32(a + flatbuffers.UOffsetT(j*4))
+		return rcv._tab.GetUint32(o + rcv._tab.Pos)
 	}
 	return 0
 }
 
-func (rcv *RecordBatch) RecordsLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *RecordBatch) MutateRecords(j int, n uint32) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.MutateUint32(a+flatbuffers.UOffsetT(j*4), n)
-	}
-	return false
+func (rcv *RecordBatch) MutateChecksum(n uint32) bool {
+	return rcv._tab.MutateUint32Slot(14, n)
 }
 
 func RecordBatchStart(builder *flatbuffers.Builder) {
@@ -580,14 +566,11 @@ func RecordBatchAddCompressedSize(builder *flatbuffers.Builder, compressedSize u
 func RecordBatchAddUncompressedSize(builder *flatbuffers.Builder, uncompressedSize uint32) {
 	builder.PrependUint32Slot(3, uncompressedSize, 0)
 }
+func RecordBatchAddNumRecords(builder *flatbuffers.Builder, numRecords uint32) {
+	builder.PrependUint32Slot(4, numRecords, 0)
+}
 func RecordBatchAddChecksum(builder *flatbuffers.Builder, checksum uint32) {
-	builder.PrependUint32Slot(4, checksum, 0)
-}
-func RecordBatchAddRecords(builder *flatbuffers.Builder, records flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(5, flatbuffers.UOffsetT(records), 0)
-}
-func RecordBatchStartRecordsVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(4, numElems, 4)
+	builder.PrependUint32Slot(5, checksum, 0)
 }
 func RecordBatchEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
