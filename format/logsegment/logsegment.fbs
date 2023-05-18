@@ -58,7 +58,7 @@ table RecordBatch {
  uncompressed_size:uint;
  // Number of records in the batch.
  num_records:uint;
- // CRC32 checksum of the memory snapshots (Castagnoli).
+ // CRC32 (Castagnoli) checksum of the compressed records following the record batch.
  checksum:uint;
 }
 
