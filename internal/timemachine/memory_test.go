@@ -88,23 +88,23 @@ func TestMemoryInterceptor(t *testing.T) {
 				t.Logf("actual: %v", actual)
 			}
 
-			mutations := mi.Mutations()
+			memoryAccess := mi.MemoryAccess()
 
-			// Clear the memory to make sure that the mutations below
+			// Clear the memory to make sure that the changes below
 			// refer to copies.
 			for i := range actual {
 				actual[i] = 0
 			}
 
-			// Check mutations can be applied to input memory to reach the
+			// Check changes can be applied to input memory to reach the
 			// same output state.
 			actual = make([]byte, int(length))
 			copy(actual, test.before)
-			for _, m := range mutations {
+			for _, m := range memoryAccess {
 				copy(actual[m.Offset:], m.Memory)
 			}
 			if !reflect.DeepEqual(actual, test.after) {
-				t.Error("unexpected memory after applying mutations to initial memory")
+				t.Error("unexpected memory after applying access to initial memory")
 				t.Logf("expect: %v", test.after)
 				t.Logf("actual: %v", actual)
 			}
