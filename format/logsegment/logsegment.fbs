@@ -70,20 +70,22 @@ table Record {
  timestamp:long;
  // Index in the Runtime function table.
  function:uint;
- // State of the WebAssembly stack when the function was called and when it
- // returned.
+ // Details about the function call.
+ function_call:FunctionCall;
+}
+
+table FunctionCall {
+ // State of the WebAssembly stack when the function was called.
  params:[ulong];
+ // State of the WebAssembly stack when the function returned.
  results:[ulong];
- // Sections of the record containing snapshots of each memory access done by
- // the function. The record_offset is relative to the beginning of the record
- // data (at offset in the uncompressed record batch).
+ // Ordered collection of memory reads and writes made by the function.
  memory_access:[MemoryAccess];
 }
 
-// MemoryAccess represents the capture of a section of memory that was either
-// read or written during a host function call.
+// MemoryAccess represents the capture of a section of memory.
 table MemoryAccess {
- // Memory is the captured memory.
+ // Bytes of captured memory.
  memory:[ubyte];
  // Byte offset in the WebAssembly module's linear memory where the memory
  // access starts.

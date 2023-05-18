@@ -210,6 +210,7 @@ func (b *RecordBatch) Next() bool {
 		batch:  b,
 		record: *record,
 	}
+	record.FunctionCall(&b.record.functionCall)
 	b.offset += size + 4
 	return true
 }
@@ -277,8 +278,9 @@ func (b *RecordBatch) readRecords() (*buffer, error) {
 // RecordReader values are returned by calling RecordReaderAt on a RecordBatch,
 // which lets the program read a single record from a batch.
 type RecordReader struct {
-	batch  *RecordBatch
-	record logsegment.Record
+	batch        *RecordBatch
+	record       logsegment.Record
+	functionCall logsegment.FunctionCall
 }
 
 // Timestamp returns the time at which the record was produced.
@@ -302,19 +304,19 @@ func (r *RecordReader) LookupFunction() (Function, bool) {
 
 // NumParams returns the number of parameters that were passed to the function.
 func (r *RecordReader) NumParams() int {
-	return int(r.record.ParamsLength())
+	return int(r.functionCall.ParamsLength())
 }
 
 // ReadParams reads the function parameters into the slice passed as argument.
 func (r *RecordReader) ReadParams(params []uint64) {
 	for i := range params {
-		params[i] = r.record.Params(i)
+		params[i] = r.functionCall.Params(i)
 	}
 }
 
 // ParamAt returns the param at the specified index.
 func (r *RecordReader) ParamAt(i int) uint64 {
-	return r.record.Params(i)
+	return r.functionCall.Params(i)
 }
 
 // Params returns the function parameters as a newly allocated slice.
@@ -330,19 +332,19 @@ func (r *RecordReader) Params() []uint64 {
 
 // NumResults returns the number of results that were returned by the function.
 func (r *RecordReader) NumResults() int {
-	return int(r.record.ResultsLength())
+	return int(r.functionCall.ResultsLength())
 }
 
 // ReadResults reads the function results into the slice passed as argument.
 func (r *RecordReader) ReadResults(results []uint64) {
 	for i := range results {
-		results[i] = r.record.Results(i)
+		results[i] = r.functionCall.Results(i)
 	}
 }
 
 // ResultAt returns the param at the specified index.
 func (r *RecordReader) ResultAt(i int) uint64 {
-	return r.record.Results(i)
+	return r.functionCall.Results(i)
 }
 
 // Results returns the function results as a newly allocated slice.
@@ -358,7 +360,7 @@ func (r *RecordReader) Results() []uint64 {
 
 // NumMemoryAccess returns the number of memory access recorded in r.
 func (r *RecordReader) NumMemoryAccess() int {
-	return int(r.record.MemoryAccessLength())
+	return int(r.functionCall.MemoryAccessLength())
 }
 
 // ReadMemoryAccess reads memory access for r int the slice passed as argument.
@@ -375,7 +377,7 @@ func (r *RecordReader) ReadMemoryAccess(memoryAccess []MemoryAccess) {
 // MemoryAccessAt returns the memory access at the specified index.
 func (r *RecordReader) MemoryAccessAt(i int) MemoryAccess {
 	m := logsegment.MemoryAccess{}
-	r.record.MemoryAccess(&m, i)
+	r.functionCall.MemoryAccess(&m, i)
 	return MemoryAccess{
 		Memory: m.MemoryBytes(),
 		Offset: m.Offset(),
@@ -839,12 +841,16 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 		timestamp := int64(record.Timestamp.Sub(w.startTime))
 		function := uint32(record.Function)
 
+		logsegment.FunctionCallStart(w.builder)
+		logsegment.FunctionCallAddParams(w.builder, params)
+		logsegment.FunctionCallAddResults(w.builder, results)
+		logsegment.FunctionCallAddMemoryAccess(w.builder, memory)
+		functionCall := logsegment.FunctionCallEnd(w.builder)
+
 		logsegment.RecordStart(w.builder)
 		logsegment.RecordAddTimestamp(w.builder, timestamp)
 		logsegment.RecordAddFunction(w.builder, function)
-		logsegment.RecordAddParams(w.builder, params)
-		logsegment.RecordAddResults(w.builder, results)
-		logsegment.RecordAddMemoryAccess(w.builder, memory)
+		logsegment.RecordAddFunctionCall(w.builder, functionCall)
 		logsegment.FinishSizePrefixedRecordBuffer(w.builder, logsegment.RecordEnd(w.builder))
 
 		w.uncompressed = append(w.uncompressed, w.builder.FinishedBytes()...)
