@@ -623,7 +623,7 @@ func (rcv *Record) MutateTimestamp(n int64) bool {
 	return rcv._tab.MutateInt64Slot(4, n)
 }
 
-func (rcv *Record) Function() uint32 {
+func (rcv *Record) FunctionId() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
 	if o != 0 {
 		return rcv._tab.GetUint32(o + rcv._tab.Pos)
@@ -631,7 +631,7 @@ func (rcv *Record) Function() uint32 {
 	return 0
 }
 
-func (rcv *Record) MutateFunction(n uint32) bool {
+func (rcv *Record) MutateFunctionId(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(6, n)
 }
 
@@ -654,8 +654,8 @@ func RecordStart(builder *flatbuffers.Builder) {
 func RecordAddTimestamp(builder *flatbuffers.Builder, timestamp int64) {
 	builder.PrependInt64Slot(0, timestamp, 0)
 }
-func RecordAddFunction(builder *flatbuffers.Builder, function uint32) {
-	builder.PrependUint32Slot(1, function, 0)
+func RecordAddFunctionId(builder *flatbuffers.Builder, functionId uint32) {
+	builder.PrependUint32Slot(1, functionId, 0)
 }
 func RecordAddFunctionCall(builder *flatbuffers.Builder, functionCall flatbuffers.UOffsetT) {
 	builder.PrependUOffsetTSlot(2, flatbuffers.UOffsetT(functionCall), 0)

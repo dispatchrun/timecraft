@@ -177,7 +177,7 @@ func (b *RecordBatch) Records() ([]Record, error) {
 		}
 		records = append(records, Record{
 			Timestamp:    rr.Timestamp(),
-			Function:     rr.Function(),
+			Function:     rr.FunctionId(),
 			Params:       rr.Params(),
 			Results:      rr.Results(),
 			MemoryAccess: rr.MemoryAccess(),
@@ -288,15 +288,15 @@ func (r *RecordReader) Timestamp() time.Time {
 	return r.batch.header.Process.StartTime.Add(time.Duration(r.record.Timestamp()))
 }
 
-// Function returns the index of the function that produced the record.
-func (r *RecordReader) Function() int {
-	return int(r.record.Function())
+// FunctionId returns the ID of the function that produced the record.
+func (r *RecordReader) FunctionId() int {
+	return int(r.record.FunctionId())
 }
 
 // LookupFunction returns a Function object representing the function that
 // produced the record.
 func (r *RecordReader) LookupFunction() (Function, bool) {
-	if i := r.Function(); i >= 0 && i < len(r.batch.header.Runtime.Functions) {
+	if i := r.FunctionId(); i >= 0 && i < len(r.batch.header.Runtime.Functions) {
 		return r.batch.header.Runtime.Functions[i], true
 	}
 	return Function{}, false
@@ -849,7 +849,7 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 
 		logsegment.RecordStart(w.builder)
 		logsegment.RecordAddTimestamp(w.builder, timestamp)
-		logsegment.RecordAddFunction(w.builder, function)
+		logsegment.RecordAddFunctionId(w.builder, function)
 		logsegment.RecordAddFunctionCall(w.builder, functionCall)
 		logsegment.FinishSizePrefixedRecordBuffer(w.builder, logsegment.RecordEnd(w.builder))
 

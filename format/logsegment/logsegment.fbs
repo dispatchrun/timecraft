@@ -68,8 +68,8 @@ table Record {
  // Monotonic timestamp relative to the process start time of the function
  // invocation time (expressed in nanoseconds).
  timestamp:long;
- // Index in the Runtime function table.
- function:uint;
+ // ID of the function, which is the index into the Runtime function table.
+ function_id:uint;
  // Details about the function call.
  function_call:FunctionCall;
 }

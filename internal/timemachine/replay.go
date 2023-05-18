@@ -29,7 +29,7 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 					panic("EOF")
 				}
 				record := records.Record()
-				if recordFunctionID := record.Function(); recordFunctionID != functionID {
+				if recordFunctionID := record.FunctionId(); recordFunctionID != functionID {
 					panic(fmt.Sprintf("function ID mismatch: got %d, expect %d", functionID, recordFunctionID))
 				}
 				if len(f.Params) != record.NumParams() {
