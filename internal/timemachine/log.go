@@ -68,11 +68,6 @@ type Record struct {
 }
 
 var (
-	tl0 = []byte("TL.0")
-	tl1 = []byte("TL.1")
-	tl2 = []byte("TL.2")
-	tl3 = []byte("TL.3")
-
 	errMissingRuntime          = errors.New("missing runtime in log header")
 	errMissingProcess          = errors.New("missing process in log header")
 	errMissingProcessID        = errors.New("missing process id in log header")
@@ -815,9 +810,7 @@ func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
 	logsegment.LogHeaderAddProcess(w.builder, processOffset)
 	logsegment.LogHeaderAddSegment(w.builder, header.Segment)
 	logsegment.LogHeaderAddCompression(w.builder, header.Compression)
-	logHeader := logsegment.LogHeaderEnd(w.builder)
-
-	w.builder.FinishSizePrefixedWithFileIdentifier(logHeader, tl0)
+	logsegment.FinishSizePrefixedLogHeaderBuffer(w.builder, logsegment.LogHeaderEnd(w.builder))
 
 	if _, err := w.output.Write(w.builder.FinishedBytes()); err != nil {
 		w.stickyErr = err

@@ -102,9 +102,7 @@ func (w *RecordIndexWriter) WriteRecordIndex(header *LogHeader, index *RecordInd
 	logindex.RecordIndexAddSegment(w.builder, header.Segment)
 	logindex.RecordIndexAddKeys(w.builder, keys)
 	logindex.RecordIndexAddValues(w.builder, values)
-	indexOffset := logindex.RecordIndexEnd(w.builder)
-
-	w.builder.FinishWithFileIdentifier(indexOffset, tl2)
+	logindex.FinishRecordIndexBuffer(w.builder, logindex.RecordIndexEnd(w.builder))
 
 	_, err := w.output.Write(w.builder.FinishedBytes())
 	return err

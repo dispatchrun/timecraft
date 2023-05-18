@@ -12,6 +12,8 @@ type RecordIndex struct {
 	_tab flatbuffers.Table
 }
 
+const RecordIndexIdentifier = "TL.2"
+
 func GetRootAsRecordIndex(buf []byte, offset flatbuffers.UOffsetT) *RecordIndex {
 	n := flatbuffers.GetUOffsetT(buf[offset:])
 	x := &RecordIndex{}
@@ -19,11 +21,29 @@ func GetRootAsRecordIndex(buf []byte, offset flatbuffers.UOffsetT) *RecordIndex 
 	return x
 }
 
+func FinishRecordIndexBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	identifierBytes := []byte(RecordIndexIdentifier)
+	builder.FinishWithFileIdentifier(offset, identifierBytes)
+}
+
+func RecordIndexBufferHasIdentifier(buf []byte) bool {
+	return flatbuffers.BufferHasIdentifier(buf, RecordIndexIdentifier)
+}
+
 func GetSizePrefixedRootAsRecordIndex(buf []byte, offset flatbuffers.UOffsetT) *RecordIndex {
 	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
 	x := &RecordIndex{}
 	x.Init(buf, n+offset+flatbuffers.SizeUint32)
 	return x
+}
+
+func FinishSizePrefixedRecordIndexBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	identifierBytes := []byte(RecordIndexIdentifier)
+	builder.FinishSizePrefixedWithFileIdentifier(offset, identifierBytes)
+}
+
+func SizePrefixedRecordIndexBufferHasIdentifier(buf []byte) bool {
+	return flatbuffers.SizePrefixedBufferHasIdentifier(buf, RecordIndexIdentifier)
 }
 
 func (rcv *RecordIndex) Init(buf []byte, i flatbuffers.UOffsetT) {

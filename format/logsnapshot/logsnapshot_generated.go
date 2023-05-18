@@ -12,6 +12,8 @@ type RecordRange struct {
 	_tab flatbuffers.Table
 }
 
+const RecordRangeIdentifier = "TL.1"
+
 func GetRootAsRecordRange(buf []byte, offset flatbuffers.UOffsetT) *RecordRange {
 	n := flatbuffers.GetUOffsetT(buf[offset:])
 	x := &RecordRange{}
@@ -19,11 +21,29 @@ func GetRootAsRecordRange(buf []byte, offset flatbuffers.UOffsetT) *RecordRange 
 	return x
 }
 
+func FinishRecordRangeBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	identifierBytes := []byte(RecordRangeIdentifier)
+	builder.FinishWithFileIdentifier(offset, identifierBytes)
+}
+
+func RecordRangeBufferHasIdentifier(buf []byte) bool {
+	return flatbuffers.BufferHasIdentifier(buf, RecordRangeIdentifier)
+}
+
 func GetSizePrefixedRootAsRecordRange(buf []byte, offset flatbuffers.UOffsetT) *RecordRange {
 	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
 	x := &RecordRange{}
 	x.Init(buf, n+offset+flatbuffers.SizeUint32)
 	return x
+}
+
+func FinishSizePrefixedRecordRangeBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	identifierBytes := []byte(RecordRangeIdentifier)
+	builder.FinishSizePrefixedWithFileIdentifier(offset, identifierBytes)
+}
+
+func SizePrefixedRecordRangeBufferHasIdentifier(buf []byte) bool {
+	return flatbuffers.SizePrefixedBufferHasIdentifier(buf, RecordRangeIdentifier)
 }
 
 func (rcv *RecordRange) Init(buf []byte, i flatbuffers.UOffsetT) {
@@ -297,11 +317,19 @@ func GetRootAsOpenFile(buf []byte, offset flatbuffers.UOffsetT) *OpenFile {
 	return x
 }
 
+func FinishOpenFileBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	builder.Finish(offset)
+}
+
 func GetSizePrefixedRootAsOpenFile(buf []byte, offset flatbuffers.UOffsetT) *OpenFile {
 	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
 	x := &OpenFile{}
 	x.Init(buf, n+offset+flatbuffers.SizeUint32)
 	return x
+}
+
+func FinishSizePrefixedOpenFileBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	builder.FinishSizePrefixed(offset)
 }
 
 func (rcv *OpenFile) Init(buf []byte, i flatbuffers.UOffsetT) {
@@ -372,11 +400,19 @@ func GetRootAsOpenHandle(buf []byte, offset flatbuffers.UOffsetT) *OpenHandle {
 	return x
 }
 
+func FinishOpenHandleBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	builder.Finish(offset)
+}
+
 func GetSizePrefixedRootAsOpenHandle(buf []byte, offset flatbuffers.UOffsetT) *OpenHandle {
 	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
 	x := &OpenHandle{}
 	x.Init(buf, n+offset+flatbuffers.SizeUint32)
 	return x
+}
+
+func FinishSizePrefixedOpenHandleBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	builder.FinishSizePrefixed(offset)
 }
 
 func (rcv *OpenHandle) Init(buf []byte, i flatbuffers.UOffsetT) {

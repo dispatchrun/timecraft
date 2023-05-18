@@ -13,6 +13,8 @@ type RecordSet struct {
 	_tab flatbuffers.Table
 }
 
+const RecordSetIdentifier = "TL.3"
+
 func GetRootAsRecordSet(buf []byte, offset flatbuffers.UOffsetT) *RecordSet {
 	n := flatbuffers.GetUOffsetT(buf[offset:])
 	x := &RecordSet{}
@@ -20,11 +22,29 @@ func GetRootAsRecordSet(buf []byte, offset flatbuffers.UOffsetT) *RecordSet {
 	return x
 }
 
+func FinishRecordSetBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	identifierBytes := []byte(RecordSetIdentifier)
+	builder.FinishWithFileIdentifier(offset, identifierBytes)
+}
+
+func RecordSetBufferHasIdentifier(buf []byte) bool {
+	return flatbuffers.BufferHasIdentifier(buf, RecordSetIdentifier)
+}
+
 func GetSizePrefixedRootAsRecordSet(buf []byte, offset flatbuffers.UOffsetT) *RecordSet {
 	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
 	x := &RecordSet{}
 	x.Init(buf, n+offset+flatbuffers.SizeUint32)
 	return x
+}
+
+func FinishSizePrefixedRecordSetBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	identifierBytes := []byte(RecordSetIdentifier)
+	builder.FinishSizePrefixedWithFileIdentifier(offset, identifierBytes)
+}
+
+func SizePrefixedRecordSetBufferHasIdentifier(buf []byte) bool {
+	return flatbuffers.SizePrefixedBufferHasIdentifier(buf, RecordSetIdentifier)
 }
 
 func (rcv *RecordSet) Init(buf []byte, i flatbuffers.UOffsetT) {
