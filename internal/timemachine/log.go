@@ -257,6 +257,10 @@ func (b *RecordBatch) readRecords() (*buffer, error) {
 		return nil, err
 	}
 
+	if c := checksum(recordsBuffer.data); c != b.batch.Checksum() {
+		return nil, fmt.Errorf("bad record data: expect checksum %#x, got %#x", b.batch.Checksum(), c)
+	}
+
 	if compression == Uncompressed {
 		return recordsBuffer, nil
 	}
@@ -865,7 +869,7 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 	logsegment.RecordBatchAddFirstTimestamp(w.builder, firstTimestamp)
 	logsegment.RecordBatchAddCompressedSize(w.builder, uint32(len(w.compressed)))
 	logsegment.RecordBatchAddUncompressedSize(w.builder, uint32(len(w.uncompressed)))
-	logsegment.RecordBatchAddChecksum(w.builder, 0)
+	logsegment.RecordBatchAddChecksum(w.builder, checksum(w.compressed))
 	logsegment.RecordBatchAddNumRecords(w.builder, uint32(len(batch)))
 	logsegment.FinishSizePrefixedRecordBatchBuffer(w.builder, logsegment.RecordBatchEnd(w.builder))
 
