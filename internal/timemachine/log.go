@@ -703,6 +703,7 @@ type LogWriter struct {
 	stickyErr error
 	// Those fields are local buffers retained as an optimization to avoid
 	// reallocation of temporary arrays when serializing log records.
+	memory  []flatbuffers.UOffsetT
 	records []flatbuffers.UOffsetT
 	offsets []flatbuffers.UOffsetT
 }
@@ -736,6 +737,7 @@ func (w *LogWriter) Reset(output io.Writer) {
 	w.startTime = time.Time{}
 	w.nextOffset = 0
 	w.stickyErr = nil
+	w.memory = w.memory[:0]
 	w.records = w.records[:0]
 	w.offsets = w.offsets[:0]
 }
@@ -845,13 +847,15 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 			w.uncompressed = append(w.uncompressed, access.Memory...)
 		}
 
-		logsegment.RecordStartMemoryAccessVector(w.builder, len(record.MemoryAccess))
-
-		for i := len(record.MemoryAccess) - 1; i >= 0; i-- {
-			w.prependMemoryAccess(&record.MemoryAccess[i])
+		w.memory = w.memory[:0]
+		for _, m := range record.MemoryAccess {
+			logsegment.MemoryAccessStart(w.builder)
+			logsegment.MemoryAccessAddLength(w.builder, uint32(len(m.Memory)))
+			logsegment.MemoryAccessAddOffset(w.builder, m.Offset)
+			w.memory = append(w.memory, logsegment.MemoryAccessEnd(w.builder))
 		}
+		memory := w.prependOffsetVector(w.memory)
 
-		memory := w.builder.EndVector(len(record.MemoryAccess))
 		params := w.prependUint64Vector(record.Params)
 		results := w.prependUint64Vector(record.Results)
 		timestamp := int64(record.Timestamp.Sub(w.startTime))
@@ -865,6 +869,7 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 		logsegment.RecordAddOffset(w.builder, offset)
 		logsegment.RecordAddLength(w.builder, length)
 		logsegment.RecordAddMemoryAccess(w.builder, memory)
+
 		w.records = append(w.records, logsegment.RecordEnd(w.builder))
 	}
 
@@ -924,23 +929,11 @@ func (w *LogWriter) prependObjectVector(numElems int, create func(int) flatbuffe
 }
 
 func (w *LogWriter) prependOffsetVector(offsets []flatbuffers.UOffsetT) flatbuffers.UOffsetT {
-	w.builder.StartVector(4, len(offsets), 4)
+	w.builder.StartVector(flatbuffers.SizeUOffsetT, len(offsets), flatbuffers.SizeUOffsetT)
 	for i := len(offsets) - 1; i >= 0; i-- {
 		w.builder.PrependUOffsetT(offsets[i])
 	}
 	return w.builder.EndVector(len(offsets))
-}
-
-func (w *LogWriter) prependMemoryAccess(access *MemoryAccess) flatbuffers.UOffsetT {
-	// return logsegment.CreateMemoryAccess(
-	// 	w.builder,
-	// 	access.Offset,
-	// 	uint32(len(access.Memory)),
-	// )
-	w.builder.Prep(4, 16)
-	w.builder.PlaceUint32(uint32(len(access.Memory)))
-	w.builder.PlaceUint32(access.Offset)
-	return w.builder.Offset()
 }
 
 // BufferedLogWriter wraps a LogWriter to help with write batching.
