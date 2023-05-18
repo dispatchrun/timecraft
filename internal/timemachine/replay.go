@@ -45,16 +45,13 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 				}
 
 				memory := mod.Memory()
-				err := record.ScanMemoryAccess(func(m MemoryAccess) bool {
+				for i := 0; i < record.NumMemoryAccess(); i++ {
+					m := record.MemoryAccessAt(i)
 					b, ok := memory.Read(m.Offset, uint32(len(m.Memory)))
 					if !ok {
 						panic(fmt.Sprintf("unable to write %d bytes of memory to offset %d", len(m.Memory), m.Offset))
 					}
 					copy(b, m.Memory)
-					return true
-				})
-				if err != nil {
-					panic(err)
 				}
 
 				for i := 0; i < record.NumResults(); i++ {

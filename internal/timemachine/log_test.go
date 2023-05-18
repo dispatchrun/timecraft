@@ -161,11 +161,7 @@ func TestReadRecordBatch(t *testing.T) {
 			}
 			t.Fatal(err)
 		}
-		records, err := batch.Records()
-		if err != nil {
-			t.Fatal(err)
-		}
-		batchesRead = append(batchesRead, records)
+		batchesRead = append(batchesRead, batch.Records())
 		offset += length
 	}
 	if diff := cmp.Diff(batches, batchesRead); diff != "" {

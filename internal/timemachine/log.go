@@ -156,26 +156,22 @@ func (r *RecordBatch) NumRecords() int {
 // The method is useful in contexts with relaxed performance constraints, as the
 // returned values are heap allocated and hold copies of the underlying memory
 // buffers.
-func (r *RecordBatch) Records() ([]Record, error) {
+func (r *RecordBatch) Records() []Record {
 	records := make([]Record, r.NumRecords())
 	for i := range records {
 		rr := r.RecordReaderAt(i)
-		memoryAccess, err := rr.MemoryAccess()
-		if err != nil {
-			return nil, err
-		}
 		records[i] = Record{
 			Timestamp:    rr.Timestamp(),
 			Function:     rr.Function(),
 			Params:       rr.Params(),
 			Results:      rr.Results(),
-			MemoryAccess: memoryAccess,
+			MemoryAccess: rr.MemoryAccess(),
 		}
 	}
-	return records, nil
+	return records
 }
 
-// ReadRecordAt returns a reader positioned on the record at the given index
+// RecordReaderAt returns a reader positioned on the record at the given index
 // in the batch.
 //
 // The index is local to the batch, to translate a logical record offset into
@@ -325,66 +321,32 @@ func (r *RecordReader) NumMemoryAccess() int {
 //
 // Byte slices written to the slice elements' Memory field remain valid until
 // the parent record batch is closed.
-func (r *RecordReader) ReadMemoryAccess(memoryAccess []MemoryAccess) error {
-	memory, err := r.Memory()
-	if err != nil {
-		return err
-	}
-	offset := uint32(0)
+func (r *RecordReader) ReadMemoryAccess(memoryAccess []MemoryAccess) {
 	for i := range memoryAccess {
-		m := logsegment.MemoryAccess{}
-		r.record.MemoryAccess(&m, i)
-		length := m.Length()
-		startOffset, endOffset := offset, offset+length
-		offset += length
-		memoryAccess[i] = MemoryAccess{
-			Memory: memory[startOffset:endOffset:endOffset],
-			Offset: m.Offset(),
-		}
+		memoryAccess[i] = r.MemoryAccessAt(i)
 	}
-	return nil
+	return
 }
 
-// ScanMemoryAccess scans memory accesses.
-//
-// Byte slices in the Memory field remain valid until the parent record
-// batch is closed.
-func (r *RecordReader) ScanMemoryAccess(fn func(MemoryAccess) bool) error {
-	memory, err := r.Memory()
-	if err != nil {
-		return err
+// MemoryAccessAt returns the memory access at the specified index.
+func (r *RecordReader) MemoryAccessAt(i int) MemoryAccess {
+	m := logsegment.MemoryAccess{}
+	r.record.MemoryAccess(&m, i)
+	return MemoryAccess{
+		Memory: m.MemoryBytes(),
+		Offset: m.Offset(),
 	}
-	offset := uint32(0)
-	for i := 0; i < r.NumMemoryAccess(); i++ {
-		m := logsegment.MemoryAccess{}
-		r.record.MemoryAccess(&m, i)
-		length := m.Length()
-		startOffset, endOffset := offset, offset+length
-		offset += length
-		if !fn(MemoryAccess{
-			Memory: memory[startOffset:endOffset:endOffset],
-			Offset: m.Offset(),
-		}) {
-			return nil
-		}
-	}
-	return nil
 }
 
 // MemoryAccess reads and returns the memory access recorded by r.
-func (r *RecordReader) MemoryAccess() ([]MemoryAccess, error) {
+func (r *RecordReader) MemoryAccess() []MemoryAccess {
 	numMemoryAccess := r.NumMemoryAccess()
 	if numMemoryAccess == 0 {
-		return nil, nil
+		return nil
 	}
 	memoryAccess := make([]MemoryAccess, numMemoryAccess)
-	if err := r.ReadMemoryAccess(memoryAccess); err != nil {
-		return nil, err
-	}
-	for i, m := range memoryAccess {
-		memoryAccess[i].Memory = append([]byte{}, m.Memory...)
-	}
-	return memoryAccess, nil
+	r.ReadMemoryAccess(memoryAccess)
+	return memoryAccess
 }
 
 // Memory returns a byte slice to the memory buffer containing data from the
@@ -849,7 +811,9 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 
 		w.memory = w.memory[:0]
 		for _, m := range record.MemoryAccess {
+			memoryBytesOffset := w.builder.CreateByteVector(m.Memory)
 			logsegment.MemoryAccessStart(w.builder)
+			logsegment.MemoryAccessAddMemory(w.builder, memoryBytesOffset)
 			logsegment.MemoryAccessAddLength(w.builder, uint32(len(m.Memory)))
 			logsegment.MemoryAccessAddOffset(w.builder, m.Offset)
 			w.memory = append(w.memory, logsegment.MemoryAccessEnd(w.builder))

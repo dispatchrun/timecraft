@@ -84,6 +84,8 @@ table Record {
 // MemoryAccess represents the capture of a section of memory that was either
 // read or written during a host function call.
 table MemoryAccess {
+ // Memory is the captured memory.
+ memory:[ubyte];
  // Byte offset in the WebAssembly module's linear memory where the memory
  // access starts.
  offset:uint;
