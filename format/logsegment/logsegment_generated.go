@@ -683,32 +683,8 @@ func (rcv *Record) MutateResults(j int, n uint64) bool {
 	return false
 }
 
-func (rcv *Record) Offset() uint32 {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
-	if o != 0 {
-		return rcv._tab.GetUint32(o + rcv._tab.Pos)
-	}
-	return 0
-}
-
-func (rcv *Record) MutateOffset(n uint32) bool {
-	return rcv._tab.MutateUint32Slot(12, n)
-}
-
-func (rcv *Record) Length() uint32 {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
-	if o != 0 {
-		return rcv._tab.GetUint32(o + rcv._tab.Pos)
-	}
-	return 0
-}
-
-func (rcv *Record) MutateLength(n uint32) bool {
-	return rcv._tab.MutateUint32Slot(14, n)
-}
-
 func (rcv *Record) MemoryAccess(obj *MemoryAccess, j int) bool {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(16))
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
 	if o != 0 {
 		x := rcv._tab.Vector(o)
 		x += flatbuffers.UOffsetT(j) * 4
@@ -720,7 +696,7 @@ func (rcv *Record) MemoryAccess(obj *MemoryAccess, j int) bool {
 }
 
 func (rcv *Record) MemoryAccessLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(16))
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
 	if o != 0 {
 		return rcv._tab.VectorLen(o)
 	}
@@ -728,7 +704,7 @@ func (rcv *Record) MemoryAccessLength() int {
 }
 
 func RecordStart(builder *flatbuffers.Builder) {
-	builder.StartObject(7)
+	builder.StartObject(5)
 }
 func RecordAddTimestamp(builder *flatbuffers.Builder, timestamp int64) {
 	builder.PrependInt64Slot(0, timestamp, 0)
@@ -748,14 +724,8 @@ func RecordAddResults(builder *flatbuffers.Builder, results flatbuffers.UOffsetT
 func RecordStartResultsVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
 	return builder.StartVector(8, numElems, 8)
 }
-func RecordAddOffset(builder *flatbuffers.Builder, offset uint32) {
-	builder.PrependUint32Slot(4, offset, 0)
-}
-func RecordAddLength(builder *flatbuffers.Builder, length uint32) {
-	builder.PrependUint32Slot(5, length, 0)
-}
 func RecordAddMemoryAccess(builder *flatbuffers.Builder, memoryAccess flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(6, flatbuffers.UOffsetT(memoryAccess), 0)
+	builder.PrependUOffsetTSlot(4, flatbuffers.UOffsetT(memoryAccess), 0)
 }
 func RecordStartMemoryAccessVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
 	return builder.StartVector(4, numElems, 4)

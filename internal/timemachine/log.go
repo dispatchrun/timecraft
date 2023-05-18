@@ -349,24 +349,6 @@ func (r *RecordReader) MemoryAccess() []MemoryAccess {
 	return memoryAccess
 }
 
-// Memory returns a byte slice to the memory buffer containing data from the
-// memory regions recorded in r.
-//
-// Multiple calls to this method will return the same byte slice.
-//
-// The returned byte slice remains valid until the originating record batch is
-// closed.
-func (r *RecordReader) Memory() ([]byte, error) {
-	b, err := r.batch.loadMemory()
-	if err != nil {
-		return nil, err
-	}
-	n := r.record.Length()
-	i := r.record.Offset()
-	j := i + n
-	return b[i:j:j], nil
-}
-
 // LogReader instances allow programs to read the content of a record log.
 //
 // The LogReader type has two main methods, ReadLogHeader and ReadRecordBatch.
@@ -801,14 +783,6 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 	w.records = w.records[:0]
 
 	for _, record := range batch {
-		offset := uint32(len(w.uncompressed))
-		length := uint32(0)
-
-		for _, access := range record.MemoryAccess {
-			length += uint32(len(access.Memory))
-			w.uncompressed = append(w.uncompressed, access.Memory...)
-		}
-
 		w.memory = w.memory[:0]
 		for _, m := range record.MemoryAccess {
 			memoryBytesOffset := w.builder.CreateByteVector(m.Memory)
@@ -829,8 +803,6 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 		logsegment.RecordAddFunction(w.builder, function)
 		logsegment.RecordAddParams(w.builder, params)
 		logsegment.RecordAddResults(w.builder, results)
-		logsegment.RecordAddOffset(w.builder, offset)
-		logsegment.RecordAddLength(w.builder, length)
 		logsegment.RecordAddMemoryAccess(w.builder, memory)
 
 		w.records = append(w.records, logsegment.RecordEnd(w.builder))
