@@ -43,20 +43,23 @@ table LogHeader {
  compression:types.Compression;
 }
 
-// The RecordBatch table represents a group of records. Metadata bout the record
-// list is embedded in the record batch, followed by the concatenated memory
-// snapshots of the records.
+// The RecordBatch table represents a group of records. Metadata about the records
+// is embedded in the record batch, and the records themselves are concatenated in
+// compressed form.
 table RecordBatch {
  // Logical offset of the first record in this batch.
  first_offset:long;
- // Size of the memory snapshots following the record batch (in bytes).
+ // Monotonic timestamp of the first record in this batch, relative to the process start
+ // time of the function invocation time (expressed in nanoseconds).
+ first_timestamp:long;
+ // Size of the compressed records following the record batch (in bytes).
  compressed_size:uint;
- // Uncompressed size of the memory snapshots (in bytes).
+ // Uncompressed size of the records (in bytes).
  uncompressed_size:uint;
+ // Number of records in the batch.
+ num_records:uint;
  // CRC32 checksum of the memory snapshots (Castagnoli).
  checksum:uint;
- // List of records that are part of the batch.
- records:[Record];
 }
 
 // The Record table holds metdata about the recording of a single host function
@@ -69,12 +72,8 @@ table Record {
  function:uint;
  // State of the WebAssembly stack when the function was called and when it
  // returned.
- params:[ulong]; results:[ulong];
- // Offset and length of the record in the uncompressed record data following
- // the record batch. This contains all the memory access performed by the
- // function call.
- offset:uint;
- length:uint;
+ params:[ulong];
+ results:[ulong];
  // Sections of the record containing snapshots of each memory access done by
  // the function. The record_offset is relative to the beginning of the record
  // data (at offset in the uncompressed record batch).
@@ -83,12 +82,12 @@ table Record {
 
 // MemoryAccess represents the capture of a section of memory that was either
 // read or written during a host function call.
-struct MemoryAccess {
+table MemoryAccess {
+ // Memory is the captured memory.
+ memory:[ubyte];
  // Byte offset in the WebAssembly module's linear memory where the memory
  // access starts.
  offset:uint;
- // Size of the memory access (in bytes).
- length:uint;
 }
 
 root_type LogHeader;
