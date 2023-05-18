@@ -49,6 +49,11 @@ table LogHeader {
 table RecordBatch {
  // Logical offset of the first record in this batch.
  first_offset:long;
+ // Monotonic timestamp of the first record in this batch, relative to the process start
+ // time of the function invocation time (expressed in nanoseconds).
+ first_timestamp:long;
+ // Number of records in the batch.
+ record_count:uint;
  // Size of the memory snapshots following the record batch (in bytes).
  compressed_size:uint;
  // Uncompressed size of the memory snapshots (in bytes).

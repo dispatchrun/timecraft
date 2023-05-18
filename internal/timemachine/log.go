@@ -811,6 +811,11 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 	firstOffset := w.nextOffset
 	w.nextOffset += int64(len(batch))
 
+	var firstTimestamp int64
+	if len(batch) > 0 {
+		firstTimestamp = int64(batch[0].Timestamp.Sub(w.startTime))
+	}
+
 	records := w.prependOffsetVector(w.records)
 	memory := w.uncompressed
 	if w.compression != Uncompressed {
@@ -820,6 +825,8 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 
 	logsegment.RecordBatchStart(w.builder)
 	logsegment.RecordBatchAddFirstOffset(w.builder, firstOffset)
+	logsegment.RecordBatchAddFirstTimestamp(w.builder, firstTimestamp)
+	logsegment.RecordBatchAddRecordCount(w.builder, uint32(len(batch)))
 	logsegment.RecordBatchAddCompressedSize(w.builder, uint32(len(memory)))
 	logsegment.RecordBatchAddUncompressedSize(w.builder, uint32(len(w.uncompressed)))
 	logsegment.RecordBatchAddChecksum(w.builder, 0)
