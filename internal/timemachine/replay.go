@@ -15,8 +15,8 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 		function := Function{
 			Module:      moduleName,
 			Name:        original.Name,
-			ParamCount:  original.StackParamCount(),
-			ResultCount: original.StackResultCount(),
+			ParamCount:  original.NumParams(),
+			ResultCount: original.NumResults(),
 		}
 		functionID, ok := functions.LookupFunction(function)
 		if !ok {

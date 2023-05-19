@@ -18,8 +18,8 @@ func Capture[T wazergo.Module](startTime time.Time, functions FunctionIndex, cap
 		function := Function{
 			Module:      moduleName,
 			Name:        original.Name,
-			ParamCount:  original.StackParamCount(),
-			ResultCount: original.StackResultCount(),
+			ParamCount:  original.NumParams(),
+			ResultCount: original.NumResults(),
 		}
 		functionID, ok := functions.LookupFunction(function)
 		if !ok {
