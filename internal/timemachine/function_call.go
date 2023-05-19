@@ -96,6 +96,7 @@ func (b *FunctionCallBuilder) Reset(function *Function) {
 	b.finished = false
 }
 
+// SetParams sets the parameters from the stack.
 func (b *FunctionCallBuilder) SetParams(params []uint64) {
 	if b.finished || b.function == nil {
 		panic("builder must be reset before params can be set")
@@ -106,6 +107,7 @@ func (b *FunctionCallBuilder) SetParams(params []uint64) {
 	copy(b.stack, params)
 }
 
+// SetParams sets the return values for the stack.
 func (b *FunctionCallBuilder) SetResults(results []uint64) {
 	if b.finished || b.function == nil {
 		panic("builder must be reset before results can be set")
@@ -116,6 +118,10 @@ func (b *FunctionCallBuilder) SetResults(results []uint64) {
 	copy(b.stack[b.function.ParamCount:], results)
 }
 
+// AddMemoryAccess adds a memory access.
+//
+// It's not possible to add memory accesses like this when using the
+// bundled memory interceptor.
 func (b *FunctionCallBuilder) AddMemoryAccess(memoryAccess MemoryAccess) {
 	if b.finished || b.function == nil {
 		panic("builder must be reset before memory can be added")
@@ -127,6 +133,8 @@ func (b *FunctionCallBuilder) AddMemoryAccess(memoryAccess MemoryAccess) {
 }
 
 // MemoryInterceptor returns a helper to intercept memory.
+//
+// It's not possible to use AddMemoryAccess when using the memory interceptor.
 func (b *FunctionCallBuilder) MemoryInterceptor(mem api.Memory) *MemoryInterceptor {
 	if b.finished || b.function == nil {
 		panic("builder must be reset before memory interceptor can be used")

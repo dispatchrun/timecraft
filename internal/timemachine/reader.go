@@ -2,21 +2,10 @@ package timemachine
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/stealthrocket/timecraft/format/logsegment"
-	"github.com/stealthrocket/timecraft/format/types"
-)
-
-var (
-	errMissingRuntime          = errors.New("missing runtime in log header")
-	errMissingProcess          = errors.New("missing process in log header")
-	errMissingProcessID        = errors.New("missing process id in log header")
-	errMissingProcessImage     = errors.New("missing process image in log header")
-	errMissingProcessStartTime = errors.New("missing process start time in log header")
 )
 
 const maxFrameSize = (1 * 1024 * 1024) - 4
@@ -71,62 +60,11 @@ func (r *LogReader) ReadLogHeader() (*Header, int64, error) {
 	}
 	defer frameBufferPool.put(f)
 
-	var h Header
-	var header = logsegment.GetRootAsLogHeader(f.data[4:], 0)
-	var runtime logsegment.Runtime
-	if header.Runtime(&runtime) == nil {
-		return nil, 0, errMissingRuntime
+	header, err := NewHeader(f.data)
+	if err != nil {
+		return nil, 0, err
 	}
-	h.Runtime.Runtime = string(runtime.Runtime())
-	h.Runtime.Version = string(runtime.Version())
-	h.Runtime.Functions = make([]Function, runtime.FunctionsLength())
-
-	for i := range h.Runtime.Functions {
-		f := logsegment.Function{}
-		if !runtime.Functions(&f, i) {
-			return nil, 0, fmt.Errorf("missing runtime function in log header: expected %d but could not load function at index %d", len(h.Runtime.Functions), i)
-		}
-		h.Runtime.Functions[i] = Function{
-			Module:      string(f.Module()),
-			Name:        string(f.Name()),
-			ParamCount:  int(f.ParamCount()),
-			ResultCount: int(f.ResultCount()),
-		}
-	}
-
-	var hash types.Hash
-	var process logsegment.Process
-	if header.Process(&process) == nil {
-		return nil, 0, errMissingProcess
-	}
-	if process.Id(&hash) == nil {
-		return nil, 0, errMissingProcessID
-	}
-	h.Process.ID = makeHash(&hash)
-	if process.Image(&hash) == nil {
-		return nil, 0, errMissingProcessImage
-	}
-	h.Process.Image = makeHash(&hash)
-	if unixStartTime := process.UnixStartTime(); unixStartTime == 0 {
-		return nil, 0, errMissingProcessStartTime
-	} else {
-		h.Process.StartTime = time.Unix(0, unixStartTime)
-	}
-	h.Process.Args = make([]string, process.ArgumentsLength())
-	for i := range h.Process.Args {
-		h.Process.Args[i] = string(process.Arguments(i))
-	}
-	h.Process.Environ = make([]string, process.EnvironmentLength())
-	for i := range h.Process.Environ {
-		h.Process.Environ[i] = string(process.Environment(i))
-	}
-	if process.ParentProcessId(&hash) != nil {
-		h.Process.ParentProcessID = makeHash(&hash)
-		h.Process.ParentForkOffset = process.ParentForkOffset()
-	}
-	h.Segment = header.Segment()
-	h.Compression = header.Compression()
-	return &h, int64(len(f.data)), nil
+	return header, int64(len(f.data)), nil
 }
 
 func (r *LogReader) ReadRecordBatch(header *Header, byteOffset int64) (*RecordBatch, int64, error) {
@@ -241,6 +179,7 @@ func (i *LogRecordIterator) Record() (Record, error) {
 	return i.record, i.err
 }
 
+// Close closes the iterator.
 func (i *LogRecordIterator) Close() error {
 	if i.batch != nil {
 		i.batch.Close()

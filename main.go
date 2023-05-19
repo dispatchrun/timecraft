@@ -221,49 +221,47 @@ func run(args []string) error {
 			})
 		}
 
-		header := &timemachine.Header{
-			Runtime: timemachine.Runtime{
-				Runtime:   "timecraft",
-				Version:   version,
-				Functions: functions.Functions(),
-			},
-			Process: timemachine.Process{
-				ID:        timemachine.Hash{}, // TODO
-				Image:     timemachine.SHA256(wasmCode),
-				StartTime: time.Now(),
-				Args:      append([]string{wasmName}, args...),
-				Environ:   envs,
-			},
-		}
+		var header timemachine.HeaderBuilder
+		header.SetRuntime(timemachine.Runtime{
+			Runtime:   "timecraft",
+			Version:   version,
+			Functions: functions.Functions(),
+		})
+		startTime := time.Now()
+		header.SetProcess(timemachine.Process{
+			ID:        timemachine.Hash{}, // TODO
+			Image:     timemachine.SHA256(wasmCode),
+			StartTime: startTime,
+			Args:      append([]string{wasmName}, args...),
+			Environ:   envs,
+		})
 
+		var c timemachine.Compression
 		switch strings.ToLower(*compression) {
 		case "snappy":
-			header.Compression = timemachine.Snappy
+			c = timemachine.Snappy
 		case "zstd":
-			header.Compression = timemachine.Zstd
+			c = timemachine.Zstd
 		case "none", "":
-			header.Compression = timemachine.Uncompressed
+			c = timemachine.Uncompressed
 		default:
 			return fmt.Errorf("invalid compression type %q", *compression)
 		}
+		header.SetCompression(c)
 
 		if err := logWriter.WriteLogHeader(header); err != nil {
 			return fmt.Errorf("failed to write log header: %w", err)
 		}
 
-		recordWriter := timemachine.NewLogRecordWriter(logWriter, *batchSize, header.Compression)
+		recordWriter := timemachine.NewLogRecordWriter(logWriter, *batchSize, c)
 		defer recordWriter.Flush()
 
 		builder = builder.WithDecorators(
-			timemachine.Capture[*wasi_snapshot_preview1.Module](
-				header.Process.StartTime,
-				functions,
-				func(record timemachine.RecordBuilder) {
-					if err := recordWriter.WriteRecord(record); err != nil {
-						panic(err) // TODO: better error handling
-					}
-				},
-			),
+			timemachine.Capture[*wasi_snapshot_preview1.Module](startTime, functions, func(record timemachine.RecordBuilder) {
+				if err := recordWriter.WriteRecord(record); err != nil {
+					panic(err) // TODO: better error handling
+				}
+			}),
 		)
 	}
 

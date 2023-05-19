@@ -38,7 +38,13 @@ func TestReadHeader(t *testing.T) {
 		Compression: timemachine.Zstd,
 	}
 
-	if err := w.WriteLogHeader(header); err != nil {
+	var headerBuilder timemachine.HeaderBuilder
+	headerBuilder.SetProcess(header.Process)
+	headerBuilder.SetRuntime(header.Runtime)
+	headerBuilder.SetCompression(header.Compression)
+	headerBuilder.SetSegment(header.Segment)
+
+	if err := w.WriteLogHeader(headerBuilder); err != nil {
 		t.Fatal(err)
 	}
 
@@ -133,7 +139,13 @@ func TestReadRecordBatch(t *testing.T) {
 	buffer := new(bytes.Buffer)
 	writer := timemachine.NewLogWriter(buffer)
 
-	if err := writer.WriteLogHeader(header); err != nil {
+	var headerBuilder timemachine.HeaderBuilder
+	headerBuilder.SetProcess(header.Process)
+	headerBuilder.SetRuntime(header.Runtime)
+	headerBuilder.SetCompression(header.Compression)
+	headerBuilder.SetSegment(header.Segment)
+
+	if err := writer.WriteLogHeader(headerBuilder); err != nil {
 		t.Fatal(err)
 	}
 	var functionCallBuilder timemachine.FunctionCallBuilder
@@ -270,7 +282,13 @@ func BenchmarkLogReader(b *testing.B) {
 		Compression: timemachine.Zstd,
 	}
 
-	if err := writer.WriteLogHeader(header); err != nil {
+	var headerBuilder timemachine.HeaderBuilder
+	headerBuilder.SetProcess(header.Process)
+	headerBuilder.SetRuntime(header.Runtime)
+	headerBuilder.SetCompression(header.Compression)
+	headerBuilder.SetSegment(header.Segment)
+
+	if err := writer.WriteLogHeader(headerBuilder); err != nil {
 		b.Fatal(err)
 	}
 
@@ -433,11 +451,22 @@ func BenchmarkLogWriter(b *testing.B) {
 func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timemachine.Header) {
 	w := timemachine.NewLogWriter(io.Discard)
 
+	var headerBuilder timemachine.HeaderBuilder
+	headerBuilder.SetProcess(header.Process)
+	headerBuilder.SetRuntime(header.Runtime)
+	headerBuilder.SetCompression(header.Compression)
+	headerBuilder.SetSegment(header.Segment)
+
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if err := w.WriteLogHeader(header); err != nil {
+		headerBuilder.Reset()
+		headerBuilder.SetProcess(header.Process)
+		headerBuilder.SetRuntime(header.Runtime)
+		headerBuilder.SetCompression(header.Compression)
+		headerBuilder.SetSegment(header.Segment)
+		if err := w.WriteLogHeader(headerBuilder); err != nil {
 			b.Fatal(err)
 		}
 		w.Reset(io.Discard)
@@ -446,7 +475,14 @@ func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timemachine.Header) 
 
 func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.Header, batch []record) {
 	w := timemachine.NewLogWriter(io.Discard)
-	w.WriteLogHeader(header)
+	var headerBuilder timemachine.HeaderBuilder
+	headerBuilder.SetProcess(header.Process)
+	headerBuilder.SetRuntime(header.Runtime)
+	headerBuilder.SetCompression(header.Compression)
+	headerBuilder.SetSegment(header.Segment)
+	if err := w.WriteLogHeader(headerBuilder); err != nil {
+		b.Fatal(err)
+	}
 
 	var functionCallBuilder timemachine.FunctionCallBuilder
 	var recordBuilder timemachine.RecordBuilder
