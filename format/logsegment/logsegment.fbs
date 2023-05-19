@@ -13,6 +13,8 @@ table Runtime {
 table Function {
  module:string (required);
  name:string (required);
+ param_count: uint;
+ result_count: uint;
 }
 
 // Process contains information about the process that the log was recorded for.
@@ -75,8 +77,6 @@ table Record {
 }
 
 table FunctionCall {
- // Number of function parameters.
- param_count: uint;
  // State of the WebAssembly stack before and after the function was called.
  // The first {param_count} values are the input parameters, and the remaining
  // values are the return values.

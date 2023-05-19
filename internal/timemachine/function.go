@@ -7,11 +7,10 @@ type FunctionIndex struct {
 }
 
 // Add adds a function to the set.
-func (i *FunctionIndex) Add(moduleName, functionName string) bool {
+func (i *FunctionIndex) Add(fn Function) bool {
 	if i.lookup == nil {
 		i.lookup = map[Function]int{}
 	}
-	fn := Function{moduleName, functionName}
 	if _, exists := i.lookup[fn]; exists {
 		return false
 	}
@@ -21,8 +20,7 @@ func (i *FunctionIndex) Add(moduleName, functionName string) bool {
 }
 
 // Lookup returns the ID associated with a function.
-func (i *FunctionIndex) Lookup(moduleName, functionName string) (int, bool) {
-	fn := Function{Module: moduleName, Name: functionName}
+func (i *FunctionIndex) Lookup(fn Function) (int, bool) {
 	id, ok := i.lookup[fn]
 	return id, ok
 }

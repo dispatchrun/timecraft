@@ -12,7 +12,20 @@ import (
 
 func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterator) wazergo.Decorator[T] {
 	return wazergo.DecoratorFunc[T](func(moduleName string, f wazergo.Function[T]) wazergo.Function[T] {
-		functionID, ok := functions.Lookup(moduleName, f.Name)
+		var paramCount int
+		for _, v := range f.Params {
+			paramCount += len(v.ValueTypes())
+		}
+		var resultCount int
+		for _, v := range f.Results {
+			resultCount += len(v.ValueTypes())
+		}
+		functionID, ok := functions.Lookup(Function{
+			Module:      moduleName,
+			Name:        f.Name,
+			ParamCount:  paramCount,
+			ResultCount: resultCount,
+		})
 		if !ok {
 			return f
 		}
@@ -32,15 +45,17 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 				if recordFunctionID := record.FunctionId(); recordFunctionID != functionID {
 					panic(fmt.Sprintf("function ID mismatch: got %d, expect %d", functionID, recordFunctionID))
 				}
-				if len(f.Params) != record.NumParams() {
+				if paramCount != record.NumParams() {
+					fmt.Println(f.Name, len(f.Params), functionID)
+
 					panic(fmt.Sprintf("function param count mismatch: got %d, expect %d", len(f.Params), record.NumParams()))
 				}
-				for i := 0; i < record.NumParams(); i++ {
+				for i := 0; i < paramCount; i++ {
 					if recordParam := record.ParamAt(i); recordParam != stack[i] {
 						panic(fmt.Sprintf("function param %d mismatch: got %d, expect %d", i, stack[i], recordParam))
 					}
 				}
-				if len(f.Results) != record.NumResults() {
+				if resultCount != record.NumResults() {
 					panic(fmt.Sprintf("function result count mismatch: got %d, expect %d", len(f.Results), record.NumResults()))
 				}
 
@@ -54,7 +69,7 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 					copy(b, m.Memory)
 				}
 
-				for i := 0; i < record.NumResults(); i++ {
+				for i := 0; i < resultCount; i++ {
 					stack[i] = record.ResultAt(i)
 				}
 

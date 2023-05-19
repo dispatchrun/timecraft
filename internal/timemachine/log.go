@@ -35,8 +35,10 @@ type Runtime struct {
 }
 
 type Function struct {
-	Module string
-	Name   string
+	Module      string
+	Name        string
+	ParamCount  int
+	ResultCount int
 }
 
 type Process struct {
@@ -304,7 +306,11 @@ func (r *RecordReader) LookupFunction() (Function, bool) {
 
 // NumParams returns the number of parameters that were passed to the function.
 func (r *RecordReader) NumParams() int {
-	return int(r.functionCall.ParamCount())
+	fn, ok := r.LookupFunction()
+	if !ok {
+		panic("LookupFunction")
+	}
+	return fn.ParamCount
 }
 
 // ParamAt returns the param at the specified index.
@@ -458,8 +464,10 @@ func (r *LogReader) ReadLogHeader() (*LogHeader, int64, error) {
 			return nil, 0, fmt.Errorf("missing runtime function in log header: expected %d but could not load function at index %d", len(h.Runtime.Functions), i)
 		}
 		h.Runtime.Functions[i] = Function{
-			Module: string(f.Module()),
-			Name:   string(f.Name()),
+			Module:      string(f.Module()),
+			Name:        string(f.Name()),
+			ParamCount:  int(f.ParamCount()),
+			ResultCount: int(f.ResultCount()),
 		}
 	}
 
@@ -758,20 +766,17 @@ func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
 	processOffset := logsegment.ProcessEnd(w.builder)
 
 	type function struct {
-		module, name flatbuffers.UOffsetT
+		module, name            flatbuffers.UOffsetT
+		paramCount, resultCount uint32
 	}
 
-	functionOffsets := make([]function, 0, 64)
-	if len(header.Runtime.Functions) <= cap(functionOffsets) {
-		functionOffsets = functionOffsets[:len(header.Runtime.Functions)]
-	} else {
-		functionOffsets = make([]function, len(header.Runtime.Functions))
-	}
-
+	functionOffsets := make([]function, len(header.Runtime.Functions))
 	for i, fn := range header.Runtime.Functions {
 		functionOffsets[i] = function{
-			module: w.builder.CreateSharedString(fn.Module),
-			name:   w.builder.CreateString(fn.Name),
+			module:      w.builder.CreateSharedString(fn.Module),
+			name:        w.builder.CreateString(fn.Name),
+			paramCount:  uint32(fn.ParamCount),
+			resultCount: uint32(fn.ResultCount),
 		}
 	}
 
@@ -780,6 +785,8 @@ func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
 			logsegment.FunctionStart(w.builder)
 			logsegment.FunctionAddModule(w.builder, functionOffsets[i].module)
 			logsegment.FunctionAddName(w.builder, functionOffsets[i].name)
+			logsegment.FunctionAddParamCount(w.builder, functionOffsets[i].paramCount)
+			logsegment.FunctionAddResultCount(w.builder, functionOffsets[i].resultCount)
 			return logsegment.FunctionEnd(w.builder)
 		},
 	)
@@ -850,7 +857,6 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 
 		logsegment.FunctionCallStart(w.builder)
 		logsegment.FunctionCallAddStack(w.builder, stack)
-		logsegment.FunctionCallAddParamCount(w.builder, uint32(len(record.Params)))
 		logsegment.FunctionCallAddMemoryAccess(w.builder, memoryAccess)
 		logsegment.FunctionCallAddMemory(w.builder, memory)
 		functionCall := logsegment.FunctionCallEnd(w.builder)

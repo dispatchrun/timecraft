@@ -62,11 +62,11 @@ func TestReadRecordBatch(t *testing.T) {
 			Runtime: "test",
 			Version: "dev",
 			Functions: []timemachine.Function{
-				{Module: "env", Name: "f0"},
-				{Module: "env", Name: "f1"},
-				{Module: "env", Name: "f2"},
-				{Module: "env", Name: "f3"},
-				{Module: "env", Name: "f4"},
+				{Module: "env", Name: "f0", ParamCount: 1, ResultCount: 1},
+				{Module: "env", Name: "f1", ParamCount: 2, ResultCount: 1},
+				{Module: "env", Name: "f2", ParamCount: 3, ResultCount: 1},
+				{Module: "env", Name: "f3", ParamCount: 0, ResultCount: 0},
+				{Module: "env", Name: "f4", ParamCount: 1, ResultCount: 1},
 			},
 		},
 		Process: timemachine.Process{

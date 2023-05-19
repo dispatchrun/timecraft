@@ -216,7 +216,12 @@ func run(args []string) error {
 			if !isImport {
 				continue
 			}
-			functions.Add(moduleName, functionName)
+			functions.Add(timemachine.Function{
+				Module:      moduleName,
+				Name:        functionName,
+				ParamCount:  len(f.ParamTypes()),
+				ResultCount: len(f.ResultTypes()),
+			})
 		}
 
 		header := &timemachine.LogHeader{
@@ -346,10 +351,6 @@ func replay(args []string) error {
 		WithName(wasmName).
 		WithArgs(args...).
 		WithEnv(envs...)
-	// TODO? WithDirs(dirs...).
-	// TODO? WithListens(listens...).
-	// TODO? WithDials(dials...).
-	// TODO? WithSocketsExtension(*sockets, wasmModule).
 
 	var functions timemachine.FunctionIndex
 	importedFunctions := wasmModule.ImportedFunctions()
@@ -358,7 +359,12 @@ func replay(args []string) error {
 		if !isImport {
 			continue
 		}
-		functions.Add(moduleName, functionName)
+		functions.Add(timemachine.Function{
+			Module:      moduleName,
+			Name:        functionName,
+			ParamCount:  len(f.ParamTypes()),
+			ResultCount: len(f.ResultTypes()),
+		})
 	}
 	if len(logHeader.Runtime.Functions) != len(functions.Functions()) {
 		return fmt.Errorf("imported functions mismatch")
