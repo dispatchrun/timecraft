@@ -921,10 +921,6 @@ func (w *LogWriter) prependStringVector(values []string) flatbuffers.UOffsetT {
 	})
 }
 
-func (w *LogWriter) prependUint64Vector(values []uint64) flatbuffers.UOffsetT {
-	return prependUint64Vector(w.builder, values)
-}
-
 func (w *LogWriter) prependObjectVector(numElems int, create func(int) flatbuffers.UOffsetT) flatbuffers.UOffsetT {
 	if numElems <= cap(w.offsets) {
 		w.offsets = w.offsets[:numElems]
