@@ -180,6 +180,10 @@ func (m *MemoryInterceptor) capture(offset, length uint32, mode int) {
 		// later.
 		m.readWrites = append(m.readWrites, len(m.access))
 	}
+	m.add(offset, b)
+}
+
+func (m *MemoryInterceptor) add(offset uint32, b []byte) {
 	m.buffer = append(m.buffer, b...)
 	m.access = append(m.access, memorySlice{
 		offset: offset,

@@ -116,10 +116,23 @@ func (b *FunctionCallBuilder) SetResults(results []uint64) {
 	copy(b.stack[b.function.ParamCount:], results)
 }
 
+func (b *FunctionCallBuilder) AddMemoryAccess(memoryAccess MemoryAccess) {
+	if b.finished || b.function == nil {
+		panic("builder must be reset before memory can be added")
+	}
+	if b.memory.Memory != nil {
+		panic("builder has already been configured to intercept memory elsewhere")
+	}
+	b.memory.add(memoryAccess.Offset, memoryAccess.Memory)
+}
+
 // MemoryInterceptor returns a helper to intercept memory.
 func (b *FunctionCallBuilder) MemoryInterceptor(mem api.Memory) *MemoryInterceptor {
 	if b.finished || b.function == nil {
 		panic("builder must be reset before memory interceptor can be used")
+	}
+	if len(b.memory.buffer) != 0 {
+		panic("builder has already had memory added")
 	}
 	b.memory.Reset(mem)
 	return &b.memory
