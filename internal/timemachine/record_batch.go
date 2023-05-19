@@ -3,7 +3,6 @@ package timemachine
 import (
 	"fmt"
 	"io"
-	"sync"
 	"time"
 
 	flatbuffers "github.com/google/flatbuffers/go"
@@ -27,13 +26,9 @@ type RecordBatch struct {
 	frame   *buffer
 	records *buffer
 
-	// Loading of the records buffer is synchronized on this once value so it may
-	// happen when records are read concurrently.
-	//
 	// If an error occurs while reading, it is captured in `err` and all reads of
 	// the records will observe the error.
-	once sync.Once
-	err  error
+	err error
 
 	// When using the batch as a record iterator, this holds the current offset
 	// into the records.
@@ -44,7 +39,6 @@ type RecordBatch struct {
 // Close must be called by the application when the batch isn't needed anymore
 // to allow the resources held internally to be reused by the application.
 func (b *RecordBatch) Close() error {
-	b.once.Do(func() {})
 	recordsBufferPool := &compressedBufferPool
 	if b.header.Compression == Uncompressed {
 		recordsBufferPool = &uncompressedBufferPool
@@ -108,7 +102,10 @@ func (b *RecordBatch) Records() ([]Record, error) {
 
 // Next is true if the batch contains another record.
 func (b *RecordBatch) Next() bool {
-	records, err := b.loadRecords()
+	if b.err != nil {
+		return true // the error is returned on the Record() call
+	}
+	records, err := b.readRecords()
 	if err != nil {
 		return true // the error is returned on the Record() call
 	}
@@ -139,17 +136,11 @@ func (b *RecordBatch) Record() (Record, error) {
 	return b.record, b.err
 }
 
-func (b *RecordBatch) loadRecords() ([]byte, error) {
-	b.once.Do(func() {
-		b.records, b.err = b.readRecords()
-	})
-	if b.err != nil {
-		return nil, b.err
+func (b *RecordBatch) readRecords() ([]byte, error) {
+	if b.records != nil {
+		return b.records.data, nil
 	}
-	return b.records.data, nil
-}
 
-func (b *RecordBatch) readRecords() (*buffer, error) {
 	compression := b.header.Compression
 	compressedSize := int(b.CompressedSize())
 	uncompressedSize := int(b.UncompressedSize())
@@ -177,16 +168,13 @@ func (b *RecordBatch) readRecords() (*buffer, error) {
 	}
 
 	if compression == Uncompressed {
-		return recordsBuffer, nil
+		b.records = recordsBuffer
+		return recordsBuffer.data, nil
 	}
 	defer recordsBufferPool.put(recordsBuffer)
 
-	uncompressedMemoryBuffer := uncompressedBufferPool.get(uncompressedSize)
-	src := recordsBuffer.data
-	dst := uncompressedMemoryBuffer.data
-	dst, err = decompress(dst, src, compression)
-	uncompressedMemoryBuffer.data = dst
-	return uncompressedMemoryBuffer, err
+	b.records = uncompressedBufferPool.get(uncompressedSize)
+	return decompress(b.records.data, recordsBuffer.data, compression)
 }
 
 // RecordBatchBuilder is a builder for record batches.
