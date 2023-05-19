@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/stealthrocket/timecraft/format/logsegment"
 )
@@ -74,17 +75,13 @@ func (r *LogReader) ReadRecordBatch(header *Header, byteOffset int64) (*RecordBa
 	}
 	b := logsegment.GetRootAsRecordBatch(f.data[4:], 0)
 	recordBatchSize := int64(len(f.data))
-	recordsSize := int64(b.UncompressedSize())
-	if header.Compression != Uncompressed {
-		recordsSize = int64(b.CompressedSize())
-	}
 	batch := &RecordBatch{
-		recordsReader: io.NewSectionReader(r.input, byteOffset+recordBatchSize, recordsSize),
+		recordsReader: io.NewSectionReader(r.input, byteOffset+recordBatchSize, math.MaxInt64),
 		header:        header,
 		batch:         *b,
 		frame:         f,
 	}
-	return batch, recordBatchSize + recordsSize, nil
+	return batch, recordBatchSize + int64(batch.RecordsSize()), nil
 }
 
 func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {

@@ -49,6 +49,16 @@ func (b *RecordBatch) Close() error {
 	return nil
 }
 
+// RecordsSize is the size of the adjacent record data.
+func (b *RecordBatch) RecordsSize() (size int) {
+	if b.Compression() == Uncompressed {
+		size = int(b.UncompressedSize())
+	} else {
+		size = int(b.CompressedSize())
+	}
+	return
+}
+
 // Compression returns the compression algorithm used to encode the record
 // batch data section.
 func (b *RecordBatch) Compression() Compression {
@@ -141,21 +151,11 @@ func (b *RecordBatch) readRecords() ([]byte, error) {
 		return b.records.data, nil
 	}
 
-	compression := b.header.Compression
-	compressedSize := int(b.CompressedSize())
-	uncompressedSize := int(b.UncompressedSize())
-
-	var recordsBufferPool *bufferPool
-	var recordsBufferSize int
-	if compression == Uncompressed {
+	recordsBufferPool := &compressedBufferPool
+	if b.header.Compression == Uncompressed {
 		recordsBufferPool = &uncompressedBufferPool
-		recordsBufferSize = uncompressedSize
-	} else {
-		recordsBufferPool = &compressedBufferPool
-		recordsBufferSize = compressedSize
 	}
-
-	recordsBuffer := recordsBufferPool.get(recordsBufferSize)
+	recordsBuffer := recordsBufferPool.get(b.RecordsSize())
 
 	_, err := io.ReadFull(b.recordsReader, recordsBuffer.data)
 	if err != nil {
@@ -167,14 +167,14 @@ func (b *RecordBatch) readRecords() ([]byte, error) {
 		return nil, fmt.Errorf("bad record data: expect checksum %#x, got %#x", b.batch.Checksum(), c)
 	}
 
-	if compression == Uncompressed {
+	if b.header.Compression == Uncompressed {
 		b.records = recordsBuffer
 		return recordsBuffer.data, nil
 	}
 	defer recordsBufferPool.put(recordsBuffer)
 
-	b.records = uncompressedBufferPool.get(uncompressedSize)
-	return decompress(b.records.data, recordsBuffer.data, compression)
+	b.records = uncompressedBufferPool.get(int(b.UncompressedSize()))
+	return decompress(b.records.data, recordsBuffer.data, b.header.Compression)
 }
 
 // RecordBatchBuilder is a builder for record batches.
