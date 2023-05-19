@@ -254,7 +254,7 @@ func run(args []string) error {
 			return fmt.Errorf("failed to write log header: %w", err)
 		}
 
-		builder = builder.WithDecorators(timemachine.Capture[*wasi_snapshot_preview1.Module](functions, func(record timemachine.Record) {
+		builder = builder.WithDecorators(timemachine.Capture[*wasi_snapshot_preview1.Module](functions, func(record timemachine.RecordFIXME) {
 			if err := bufferedLogWriter.WriteRecord(record); err != nil {
 				panic(err) // TODO: better error handling
 			}

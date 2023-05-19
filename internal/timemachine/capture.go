@@ -11,7 +11,7 @@ import (
 )
 
 // Capture is a decorator that captures details about host function calls.
-func Capture[T wazergo.Module](functions FunctionIndex, capture func(Record)) wazergo.Decorator[T] {
+func Capture[T wazergo.Module](functions FunctionIndex, capture func(RecordFIXME)) wazergo.Decorator[T] {
 	return wazergo.DecoratorFunc[T](func(moduleName string, f wazergo.Function[T]) wazergo.Function[T] {
 		var paramCount int
 		for _, v := range f.Params {
@@ -21,7 +21,7 @@ func Capture[T wazergo.Module](functions FunctionIndex, capture func(Record)) wa
 		for _, v := range f.Results {
 			resultCount += len(v.ValueTypes())
 		}
-		functionID, ok := functions.Lookup(Function{
+		functionID, ok := functions.LookupFunction(Function{
 			Module:      moduleName,
 			Name:        f.Name,
 			ParamCount:  paramCount,
@@ -35,7 +35,7 @@ func Capture[T wazergo.Module](functions FunctionIndex, capture func(Record)) wa
 			Params:  f.Params,
 			Results: f.Results,
 			Func: func(module T, ctx context.Context, mod api.Module, stack []uint64) {
-				record := Record{
+				record := RecordFIXME{
 					Timestamp: time.Now(),
 					Function:  functionID,
 				}

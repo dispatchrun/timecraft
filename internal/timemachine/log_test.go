@@ -80,8 +80,8 @@ func TestReadRecordBatch(t *testing.T) {
 		Compression: timemachine.Zstd,
 	}
 
-	batches := [][]timemachine.Record{
-		[]timemachine.Record{
+	batches := [][]timemachine.RecordFIXME{
+		[]timemachine.RecordFIXME{
 			{
 				Timestamp: header.Process.StartTime.Add(1 * time.Millisecond),
 				Function:  0,
@@ -92,7 +92,7 @@ func TestReadRecordBatch(t *testing.T) {
 				},
 			},
 		},
-		[]timemachine.Record{
+		[]timemachine.RecordFIXME{
 			{
 				Timestamp: header.Process.StartTime.Add(2 * time.Millisecond),
 				Function:  1,
@@ -106,7 +106,7 @@ func TestReadRecordBatch(t *testing.T) {
 				Results:   []uint64{42},
 			},
 		},
-		[]timemachine.Record{
+		[]timemachine.RecordFIXME{
 			{
 				Timestamp: header.Process.StartTime.Add(4 * time.Millisecond),
 				Function:  3,
@@ -283,7 +283,7 @@ func BenchmarkLogWriter(b *testing.B) {
 
 		tests := []struct {
 			scenario string
-			batch    []timemachine.Record
+			batch    []timemachine.RecordFIXME
 		}{
 			{
 				scenario: "zero records",
@@ -291,7 +291,7 @@ func BenchmarkLogWriter(b *testing.B) {
 
 			{
 				scenario: "one record",
-				batch: []timemachine.Record{
+				batch: []timemachine.RecordFIXME{
 					{
 						Timestamp: header.Process.StartTime.Add(1 * time.Millisecond),
 						Function:  0,
@@ -306,7 +306,7 @@ func BenchmarkLogWriter(b *testing.B) {
 
 			{
 				scenario: "five records",
-				batch: []timemachine.Record{
+				batch: []timemachine.RecordFIXME{
 					{
 						Timestamp: header.Process.StartTime.Add(1 * time.Millisecond),
 						Function:  0,
@@ -371,7 +371,7 @@ func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timemachine.LogHeade
 	}
 }
 
-func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.LogHeader, batch []timemachine.Record) {
+func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.LogHeader, batch []timemachine.RecordFIXME) {
 	w := timemachine.NewLogWriter(io.Discard)
 	w.WriteLogHeader(header)
 

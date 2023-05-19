@@ -34,13 +34,6 @@ type Runtime struct {
 	Functions []Function
 }
 
-type Function struct {
-	Module      string
-	Name        string
-	ParamCount  int
-	ResultCount int
-}
-
 type Process struct {
 	ID               Hash
 	Image            Hash
@@ -58,7 +51,7 @@ type LogHeader struct {
 	Compression Compression
 }
 
-type Record struct {
+type RecordFIXME struct {
 	Timestamp    time.Time
 	Function     int
 	Params       []uint64
@@ -114,7 +107,7 @@ type RecordBatch struct {
 	// When using the batch as a record iterator, this holds the current offset
 	// into the records.
 	offset uint32
-	record RecordReader
+	record Record
 }
 
 // Close must be called by the application when the batch isn't needed anymore
@@ -173,17 +166,11 @@ func (b *RecordBatch) Records() ([]Record, error) {
 	records := make([]Record, 0, b.NumRecords())
 	b.Rewind()
 	for b.Next() {
-		rr, err := b.Record()
+		record, err := b.Record()
 		if err != nil {
 			return nil, err
 		}
-		records = append(records, Record{
-			Timestamp:    rr.Timestamp(),
-			Function:     rr.FunctionId(),
-			Params:       rr.Params(),
-			Results:      rr.Results(),
-			MemoryAccess: rr.MemoryAccess(),
-		})
+		records = append(records, record)
 	}
 	return records, nil
 }
@@ -209,10 +196,18 @@ func (b *RecordBatch) Next() bool {
 	}
 	record := logsegment.GetRootAsRecord(records[offset+4:], 0)
 	functionCall := logsegment.GetRootAsFunctionCall(record.FunctionCallBytes(), 0)
-	b.record = RecordReader{
-		batch:        b,
-		record:       *record,
-		functionCall: *functionCall,
+
+	if i := record.FunctionId(); i >= uint32(len(b.header.Runtime.Functions)) {
+		b.err = fmt.Errorf("record points to invalid function %d", i)
+		return true
+	}
+	b.record = Record{
+		header: b.header,
+		record: *record,
+		FunctionCall: FunctionCall{
+			function: &b.header.Runtime.Functions[record.FunctionId()],
+			call:     *functionCall,
+		},
 	}
 	b.offset += size + 4
 	return true
@@ -224,7 +219,7 @@ func (b *RecordBatch) Rewind() {
 }
 
 // Record returns the next record in the batch.
-func (b *RecordBatch) Record() (RecordReader, error) {
+func (b *RecordBatch) Record() (Record, error) {
 	return b.record, b.err
 }
 
@@ -276,127 +271,6 @@ func (b *RecordBatch) readRecords() (*buffer, error) {
 	dst, err = decompress(dst, src, compression)
 	uncompressedMemoryBuffer.data = dst
 	return uncompressedMemoryBuffer, err
-}
-
-// RecordReader values are returned by calling RecordReaderAt on a RecordBatch,
-// which lets the program read a single record from a batch.
-type RecordReader struct {
-	batch        *RecordBatch
-	record       logsegment.Record
-	functionCall logsegment.FunctionCall
-}
-
-// Timestamp returns the time at which the record was produced.
-func (r *RecordReader) Timestamp() time.Time {
-	return r.batch.header.Process.StartTime.Add(time.Duration(r.record.Timestamp()))
-}
-
-// FunctionId returns the ID of the function that produced the record.
-func (r *RecordReader) FunctionId() int {
-	return int(r.record.FunctionId())
-}
-
-// LookupFunction returns a Function object representing the function that
-// produced the record.
-func (r *RecordReader) LookupFunction() (Function, bool) {
-	if i := r.FunctionId(); i >= 0 && i < len(r.batch.header.Runtime.Functions) {
-		return r.batch.header.Runtime.Functions[i], true
-	}
-	return Function{}, false
-}
-
-// NumParams returns the number of parameters that were passed to the function.
-func (r *RecordReader) NumParams() int {
-	fn, ok := r.LookupFunction()
-	if !ok {
-		panic("LookupFunction")
-	}
-	return fn.ParamCount
-}
-
-// ParamAt returns the param at the specified index.
-func (r *RecordReader) ParamAt(i int) uint64 {
-	return r.functionCall.Stack(i)
-}
-
-// Params returns the function parameters as a newly allocated slice.
-func (r *RecordReader) Params() []uint64 {
-	numParams := r.NumParams()
-	if numParams == 0 {
-		return nil
-	}
-	params := make([]uint64, numParams)
-	for i := range params {
-		params[i] = r.ParamAt(i)
-	}
-	return params
-}
-
-// NumResults returns the number of results that were returned by the function.
-func (r *RecordReader) NumResults() int {
-	return r.functionCall.StackLength() - r.NumParams()
-}
-
-// ReadResults reads the function results into the slice passed as argument.
-func (r *RecordReader) ReadResults(results []uint64) {
-}
-
-// ResultAt returns the param at the specified index.
-func (r *RecordReader) ResultAt(i int) uint64 {
-	paramCount := r.NumParams()
-	return r.functionCall.Stack(paramCount + i)
-}
-
-// Results returns the function results as a newly allocated slice.
-func (r *RecordReader) Results() []uint64 {
-	numResults := r.NumResults()
-	if numResults == 0 {
-		return nil
-	}
-	results := make([]uint64, numResults)
-	for i := range results {
-		results[i] = r.ResultAt(i)
-	}
-	return results
-}
-
-// NumMemoryAccess returns the number of memory access recorded in r.
-func (r *RecordReader) NumMemoryAccess() int {
-	return int(r.functionCall.MemoryAccessLength())
-}
-
-// ReadMemoryAccess reads memory access for r int the slice passed as argument.
-//
-// Byte slices written to the slice elements' Memory field remain valid until
-// the parent record batch is closed.
-func (r *RecordReader) ReadMemoryAccess(memoryAccess []MemoryAccess) {
-	for i := range memoryAccess {
-		memoryAccess[i] = r.MemoryAccessAt(i)
-	}
-	return
-}
-
-// MemoryAccessAt returns the memory access at the specified index.
-func (r *RecordReader) MemoryAccessAt(i int) MemoryAccess {
-	m := logsegment.MemoryAccess{}
-	r.functionCall.MemoryAccess(&m, i)
-	b := r.functionCall.MemoryBytes()
-	offset, length := m.IndexOffset(), m.Length()
-	return MemoryAccess{
-		Memory: b[offset : offset+length : offset+length],
-		Offset: m.Offset(),
-	}
-}
-
-// MemoryAccess reads and returns the memory access recorded by r.
-func (r *RecordReader) MemoryAccess() []MemoryAccess {
-	numMemoryAccess := r.NumMemoryAccess()
-	if numMemoryAccess == 0 {
-		return nil
-	}
-	memoryAccess := make([]MemoryAccess, numMemoryAccess)
-	r.ReadMemoryAccess(memoryAccess)
-	return memoryAccess
 }
 
 // LogReader instances allow programs to read the content of a record log.
@@ -825,7 +699,7 @@ func (w *LogWriter) WriteLogHeader(header *LogHeader) error {
 // If the error occurred while writing to the underlying io.Writer, the writer
 // is broken and will always error on future calls to WriteRecordBatch until
 // the program calls Reset.
-func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
+func (w *LogWriter) WriteRecordBatch(batch []RecordFIXME) (int64, error) {
 	if w.stickyErr != nil {
 		return w.nextOffset, w.stickyErr
 	}
@@ -950,7 +824,7 @@ type BufferedLogWriter struct {
 	*LogWriter
 
 	batchSize int
-	batch     []Record
+	batch     []RecordFIXME
 
 	memoryAccesses []MemoryAccess
 	buffer         []byte
@@ -961,7 +835,7 @@ func NewBufferedLogWriter(w *LogWriter, batchSize int) *BufferedLogWriter {
 	return &BufferedLogWriter{
 		LogWriter: w,
 		batchSize: batchSize,
-		batch:     make([]Record, 0, batchSize),
+		batch:     make([]RecordFIXME, 0, batchSize),
 		buffer:    make([]byte, 0, 4096),
 	}
 }
@@ -970,7 +844,7 @@ func NewBufferedLogWriter(w *LogWriter, batchSize int) *BufferedLogWriter {
 // record batch is full.
 //
 // The writer will make a copy of the memory accesses.
-func (w *BufferedLogWriter) WriteRecord(record Record) error {
+func (w *BufferedLogWriter) WriteRecord(record RecordFIXME) error {
 	for i := range record.MemoryAccess {
 		m := &record.MemoryAccess[i]
 		w.buffer = append(w.buffer, m.Memory...)
@@ -1007,7 +881,7 @@ type LogRecordIterator struct {
 	reader       *LogReader
 	header       *LogHeader
 	batch        *RecordBatch
-	record       RecordReader
+	record       Record
 	batchIndex   int
 	readerOffset int64
 	err          error
@@ -1023,7 +897,7 @@ func (i *LogRecordIterator) Next() bool {
 	if i.header == nil {
 		i.header, i.readerOffset, i.err = i.reader.ReadLogHeader()
 		if i.err != nil {
-			return false
+			return true // i.err is returned on call to Record()
 		}
 	}
 	for i.batch == nil || !i.batch.Next() {
@@ -1033,24 +907,19 @@ func (i *LogRecordIterator) Next() bool {
 		var batchLength int64
 		i.batch, batchLength, i.err = i.reader.ReadRecordBatch(i.header, i.readerOffset)
 		if i.err != nil {
-			return false
+			return true
 		}
 		i.readerOffset += batchLength
 	}
 	i.record, i.err = i.batch.Record()
-	return i.err == nil
-}
-
-// Error returns any errors during reads or the preparation of records.
-func (i *LogRecordIterator) Error() error {
-	return i.err
+	return true
 }
 
 // Record returns the next record as a RecordReader.
 //
 // The return value is only valid when Next returns true.
-func (i *LogRecordIterator) Record() RecordReader {
-	return i.record
+func (i *LogRecordIterator) Record() (Record, error) {
+	return i.record, i.err
 }
 
 func (i *LogRecordIterator) Close() error {
