@@ -12,6 +12,14 @@ import (
 
 func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterator) wazergo.Decorator[T] {
 	return wazergo.DecoratorFunc[T](func(moduleName string, f wazergo.Function[T]) wazergo.Function[T] {
+		var paramCount int
+		for _, v := range f.Params {
+			paramCount += len(v.ValueTypes())
+		}
+		var resultCount int
+		for _, v := range f.Results {
+			resultCount += len(v.ValueTypes())
+		}
 		functionID, ok := functions.Lookup(moduleName, f.Name)
 		if !ok {
 			return f
@@ -32,16 +40,13 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 				if recordFunctionID := record.Function(); recordFunctionID != functionID {
 					panic(fmt.Sprintf("function ID mismatch: got %d, expect %d", functionID, recordFunctionID))
 				}
-				if len(f.Params) != record.NumParams() {
-					panic(fmt.Sprintf("function param count mismatch: got %d, expect %d", len(f.Params), record.NumParams()))
+				if paramCount != record.NumParams() {
+					panic(fmt.Sprintf("function param count mismatch: got %d, expect %d", paramCount, record.NumParams()))
 				}
 				for i := 0; i < record.NumParams(); i++ {
-					if recordParam := record.ParamAt(i); recordParam != stack[i] {
-						panic(fmt.Sprintf("function param %d mismatch: got %d, expect %d", i, stack[i], recordParam))
+					if param := record.ParamAt(i); param != stack[i] {
+						panic(fmt.Sprintf("function param %d mismatch: got %d, expect %d", i, stack[i], param))
 					}
-				}
-				if len(f.Results) != record.NumResults() {
-					panic(fmt.Sprintf("function result count mismatch: got %d, expect %d", len(f.Results), record.NumResults()))
 				}
 
 				memory := mod.Memory()
@@ -54,14 +59,17 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 					copy(b, m.Memory)
 				}
 
-				for i := 0; i < record.NumResults(); i++ {
-					stack[i] = record.ResultAt(i)
-				}
-
 				// TODO: the record doesn't capture the fact that a host function
 				//  didn't return. Hard-code this case for now.
 				if moduleName == wasi_snapshot_preview1.HostModuleName && f.Name == "proc_exit" {
 					panic(sys.NewExitError(uint32(stack[0])))
+				}
+
+				if resultCount != record.NumResults() {
+					panic(fmt.Sprintf("function result count mismatch: got %d, expect %d", resultCount, record.NumResults()))
+				}
+				for i := 0; i < record.NumResults(); i++ {
+					stack[i] = record.ResultAt(i)
 				}
 			},
 		}
