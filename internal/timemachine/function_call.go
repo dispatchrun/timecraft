@@ -12,13 +12,18 @@ type FunctionCall struct {
 	call     logsegment.FunctionCall
 }
 
-// MakeFunctionCall makes a function call.
-func MakeFunctionCall(function *Function, b []byte) FunctionCall {
-	call := logsegment.GetRootAsFunctionCall(b, 0)
-	return FunctionCall{
-		function: function,
-		call:     *call,
-	}
+// MakeFunctionCall creates a function call from the specified buffer.
+//
+// The buffer must live as long as the function call.
+func MakeFunctionCall(function *Function, buffer []byte) (f FunctionCall) {
+	f.Reset(function, buffer)
+	return
+}
+
+// Reset resets the function call.
+func (f *FunctionCall) Reset(function *Function, buffer []byte) {
+	f.function = function
+	f.call = *logsegment.GetRootAsFunctionCall(buffer, 0)
 }
 
 // MemoryAccess is memory captured from the WebAssembly module.

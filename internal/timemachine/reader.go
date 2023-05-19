@@ -13,12 +13,8 @@ const maxFrameSize = (1 * 1024 * 1024) - 4
 //
 // The LogReader type has two main methods, ReadLogHeader and ReadRecordBatch.
 // ReadLogHeader should be called first to load the header needed to read
-// log records. ReadRecrdBatch may be called multiple times until io.EOF is
+// log records. ReadRecordBatch may be called multiple times until io.EOF is
 // returned to scan through the log.
-//
-// Because the log reader is based on a io.ReaderAt, and positioning is done
-// by the application by passing the byte offset where the record batch should
-// be read from, it is safe to perform concurrent reads from the log.
 type LogReader struct {
 	input      io.ReaderAt
 	bufferSize int
@@ -42,17 +38,10 @@ func NewLogReaderSize(input io.ReaderAt, bufferSize int) *LogReader {
 	}
 }
 
-// Reset clears the reader state and sets it to consume input from the given
-// io.Reader.
-func (r *LogReader) Reset(input io.ReaderAt) {
-	releaseBuffer(&r.batchFrame, &frameBufferPool)
-	r.batch.Reset(nil, nil, nil)
-	r.input = input
-}
-
 // Close closes the log reader.
 func (r *LogReader) Close() error {
-	r.Reset(nil)
+	releaseBuffer(&r.batchFrame, &frameBufferPool)
+	r.batch.Reset(nil, nil, nil)
 	return nil
 }
 
@@ -77,6 +66,9 @@ func (r *LogReader) ReadLogHeader() (*Header, int64, error) {
 	return header, int64(len(f.data)), nil
 }
 
+// ReadRecordBatch reads a batch at the specified offset.
+//
+// The RecordBatch is only valid until the next call to ReadRecordBatch.
 func (r *LogReader) ReadRecordBatch(header *Header, byteOffset int64) (*RecordBatch, int64, error) {
 	releaseBuffer(&r.batchFrame, &frameBufferPool)
 	var err error
@@ -136,7 +128,7 @@ func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
 	return f, nil
 }
 
-// LogRecordIterator is a helper for iterating records in a log.
+// LogRecordIterator is a higher level helper for iterating records in a log.
 type LogRecordIterator struct {
 	reader       *LogReader
 	header       *Header

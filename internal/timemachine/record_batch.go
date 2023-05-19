@@ -10,9 +10,14 @@ import (
 )
 
 // RecordBatch is a read-only batch of records read from a log segment.
+//
+// The records themselves are compressed and stored separately. To support
+// use cases where the user may want to read batch metadata in order to skip
+// the processing of records, the record batch is structured such that records
+// are read and decompressed lazily.
 type RecordBatch struct {
 	// Reader for the records data section adjacent to the record batch. When
-	// the records are accessed, they're read into the records buffer.
+	// the records are accessed, they're lazily read into the records buffer.
 	recordsReader io.Reader
 	records       *buffer
 
@@ -33,13 +38,15 @@ type RecordBatch struct {
 }
 
 // MakeRecordBatch creates a record batch from the specified buffer.
-func MakeRecordBatch(header *Header, buf []byte, reader io.Reader) (rb RecordBatch) {
-	rb.Reset(header, buf, reader)
+//
+// The buffer must live as long as the record batch.
+func MakeRecordBatch(header *Header, buffer []byte, reader io.Reader) (rb RecordBatch) {
+	rb.Reset(header, buffer, reader)
 	return
 }
 
 // Reset resets the record batch.
-func (b *RecordBatch) Reset(header *Header, buf []byte, reader io.Reader) {
+func (b *RecordBatch) Reset(header *Header, buffer []byte, reader io.Reader) {
 	if b.records != nil {
 		recordsBufferPool := &compressedBufferPool
 		if b.header.Compression == Uncompressed {
@@ -50,8 +57,8 @@ func (b *RecordBatch) Reset(header *Header, buf []byte, reader io.Reader) {
 	b.recordsReader = reader
 	b.records = nil
 	b.header = header
-	if len(buf) > 0 {
-		b.batch = *logsegment.GetSizePrefixedRootAsRecordBatch(buf, 0)
+	if len(buffer) > 0 {
+		b.batch = *logsegment.GetSizePrefixedRootAsRecordBatch(buffer, 0)
 	} else {
 		b.batch = logsegment.RecordBatch{}
 	}

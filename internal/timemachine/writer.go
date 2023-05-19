@@ -1,8 +1,6 @@
 package timemachine
 
-import (
-	"io"
-)
+import "io"
 
 // LogWriter supports writing log segments to an io.Writer.
 //

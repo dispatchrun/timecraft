@@ -15,14 +15,19 @@ type Record struct {
 	record    logsegment.Record
 }
 
-// MakeRecord makes a record.
-func MakeRecord(startTime time.Time, functions []Function, b []byte) Record {
-	record := logsegment.GetSizePrefixedRootAsRecord(b, 0)
-	return Record{
-		startTime: startTime,
-		functions: functions,
-		record:    *record,
-	}
+// MakeRecord creates a record from a buffer.
+//
+// The buffer must live as long as the record.
+func MakeRecord(startTime time.Time, functions []Function, buffer []byte) (r Record) {
+	r.Reset(startTime, functions, buffer)
+	return
+}
+
+// Reset resets a record.
+func (r *Record) Reset(startTime time.Time, functions []Function, buffer []byte) {
+	r.startTime = startTime
+	r.functions = functions
+	r.record = *logsegment.GetSizePrefixedRootAsRecord(buffer, 0)
 }
 
 // Timestamp is the record timestamp.
