@@ -12,12 +12,8 @@ import (
 
 // RecordBatch is a read-only batch of records read from a log segment.
 type RecordBatch struct {
-	// Original input and location of the record batch in it. The byte offset
-	// is where the record batch started, the byte length is its size until the
-	// beginning of the data section.
-	input      io.ReaderAt
-	byteOffset int64
-	byteLength int64
+	// Reader for the records data section adjacent to the record batch.
+	recordsReader io.Reader
 
 	// Flatbuffers pointer into the record batch frame used to load the records.
 	batch logsegment.RecordBatch
@@ -170,7 +166,7 @@ func (b *RecordBatch) readRecords() (*buffer, error) {
 
 	recordsBuffer := recordsBufferPool.get(recordsBufferSize)
 
-	_, err := b.input.ReadAt(recordsBuffer.data, b.byteOffset+b.byteLength)
+	_, err := io.ReadFull(b.recordsReader, recordsBuffer.data)
 	if err != nil {
 		recordsBufferPool.put(recordsBuffer)
 		return nil, err
