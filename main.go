@@ -110,10 +110,11 @@ OPTIONS:
 
    --compression <TYPE>
       Compression to use when writing the log, either {snappy, zstd,
-      none}. Default is snappy
+      none}. Default is zstd
 
    --batch-size <NUM>
-      Number of records to accumulate in a batch before writing to the log
+      Number of records to accumulate in a batch before writing to
+      the log. Default is 1024
 
    --dir <DIR>
       Grant access to the specified host directory
@@ -154,8 +155,8 @@ func run(args []string) error {
 	sockets := flagSet.String("sockets", "auto", "")
 	trace := flagSet.Bool("trace", false, "")
 	logPath := flagSet.String("record", "", "")
-	compression := flagSet.String("compression", "snappy", "")
-	batchSize := flagSet.Int("batch-size", 1, "")
+	compression := flagSet.String("compression", "zstd", "")
+	batchSize := flagSet.Int("batch-size", 1024, "")
 
 	flagSet.Parse(args)
 
