@@ -15,48 +15,35 @@ func Capture[T wazergo.Module](startTime time.Time, functions FunctionIndex, cap
 	var recordBuilder RecordBuilder
 
 	return wazergo.DecoratorFunc[T](func(moduleName string, f wazergo.Function[T]) wazergo.Function[T] {
-		var paramCount int
-		for _, v := range f.Params {
-			paramCount += len(v.ValueTypes())
-		}
-		var resultCount int
-		for _, v := range f.Results {
-			resultCount += len(v.ValueTypes())
-		}
 		function := Function{
 			Module:      moduleName,
 			Name:        f.Name,
-			ParamCount:  paramCount,
-			ResultCount: resultCount,
+			ParamCount:  f.StackParamCount(),
+			ResultCount: f.StackResultCount(),
 		}
 		functionID, ok := functions.LookupFunction(function)
 		if !ok {
 			return f
 		}
-		return wazergo.Function[T]{
-			Name:    f.Name,
-			Params:  f.Params,
-			Results: f.Results,
-			Func: func(module T, ctx context.Context, mod api.Module, stack []uint64) {
-				now := time.Now()
+		return wazergo.Decorated(f, func(module T, ctx context.Context, mod api.Module, stack []uint64) {
+			now := time.Now()
 
-				functionCallBuilder.Reset(&function)
-				interceptor.Reset(mod, functionCallBuilder.MemoryInterceptor(mod.Memory()))
-				functionCallBuilder.SetParams(stack[:paramCount])
+			functionCallBuilder.Reset(&function)
+			interceptor.Reset(mod, functionCallBuilder.MemoryInterceptor(mod.Memory()))
+			functionCallBuilder.SetParams(stack[:function.ParamCount])
 
-				defer func() {
-					functionCallBuilder.SetResults(stack[:resultCount])
+			defer func() {
+				functionCallBuilder.SetResults(stack[:function.ResultCount])
 
-					recordBuilder.Reset(startTime)
-					recordBuilder.SetTimestamp(now)
-					recordBuilder.SetFunctionID(functionID)
-					recordBuilder.SetFunctionCall(functionCallBuilder.Bytes())
+				recordBuilder.Reset(startTime)
+				recordBuilder.SetTimestamp(now)
+				recordBuilder.SetFunctionID(functionID)
+				recordBuilder.SetFunctionCall(functionCallBuilder.Bytes())
 
-					capture(recordBuilder)
-				}()
+				capture(recordBuilder)
+			}()
 
-				f.Func(module, ctx, &interceptor, stack)
-			},
-		}
+			f.Func(module, ctx, &interceptor, stack)
+		})
 	})
 }
