@@ -229,7 +229,7 @@ func (i *LogRecordIterator) Next() bool {
 		var batchLength int64
 		i.batch, batchLength, i.err = i.reader.ReadRecordBatch(i.header, i.readerOffset)
 		if i.err != nil {
-			return true
+			return i.err != io.EOF
 		}
 		i.readerOffset += batchLength
 	}
