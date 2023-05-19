@@ -72,10 +72,15 @@ table Record {
  timestamp:long;
  // ID of the function, which is the index into the Runtime function table.
  function_id:uint;
- // Details about the function call.
- function_call:FunctionCall;
+ // Details about the function call. A FunctionCall table is provided for
+ // capturing the information required to reproduce the function call
+ // (stack + memory), however users are allowed to store arbitrary bytes
+ // here and may choose to use more efficient representations for some
+ // functions.
+ function_call:[ubyte];
 }
 
+// Details about a function call.
 table FunctionCall {
  // State of the WebAssembly stack before and after the function was called.
  // The first {param_count} values are the input parameters, and the remaining

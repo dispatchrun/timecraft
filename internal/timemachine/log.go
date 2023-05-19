@@ -208,11 +208,12 @@ func (b *RecordBatch) Next() bool {
 		return true
 	}
 	record := logsegment.GetRootAsRecord(records[offset+4:], 0)
+	functionCall := logsegment.GetRootAsFunctionCall(record.FunctionCallBytes(), 0)
 	b.record = RecordReader{
-		batch:  b,
-		record: *record,
+		batch:        b,
+		record:       *record,
+		functionCall: *functionCall,
 	}
-	record.FunctionCall(&b.record.functionCall)
 	b.offset += size + 4
 	return true
 }
@@ -680,10 +681,11 @@ func decompress(dst, src []byte, compression Compression) ([]byte, error) {
 // initialize the state of the writer, zero or more record batches may then
 // be written to the log after that.
 type LogWriter struct {
-	output       io.Writer
-	builder      *flatbuffers.Builder
-	uncompressed []byte
-	compressed   []byte
+	output              io.Writer
+	builder             *flatbuffers.Builder
+	functionCallBuilder *flatbuffers.Builder
+	uncompressed        []byte
+	compressed          []byte
 	// The compression format declared in the log header first written to the
 	// log segment.
 	compression Compression
@@ -712,9 +714,10 @@ func NewLogWriter(output io.Writer) *LogWriter {
 // the initial buffer size.
 func NewLogWriterSize(output io.Writer, bufferSize int) *LogWriter {
 	return &LogWriter{
-		output:       output,
-		builder:      flatbuffers.NewBuilder(bufferSize),
-		uncompressed: make([]byte, 0, bufferSize),
+		output:              output,
+		builder:             flatbuffers.NewBuilder(bufferSize),
+		functionCallBuilder: flatbuffers.NewBuilder(bufferSize),
+		uncompressed:        make([]byte, 0, bufferSize),
 	}
 }
 
@@ -725,6 +728,7 @@ func NewLogWriterSize(output io.Writer, bufferSize int) *LogWriter {
 func (w *LogWriter) Reset(output io.Writer) {
 	w.output = output
 	w.builder.Reset()
+	w.functionCallBuilder.Reset()
 	w.uncompressed = w.uncompressed[:0]
 	w.compressed = w.compressed[:0]
 	w.compression = Uncompressed
@@ -829,37 +833,40 @@ func (w *LogWriter) WriteRecordBatch(batch []Record) (int64, error) {
 	w.compressed = w.compressed[:0]
 
 	for _, record := range batch {
-		w.builder.Reset()
+		w.functionCallBuilder.Reset()
 		w.memory = w.memory[:0]
-		logsegment.FunctionCallStartMemoryAccessVector(w.builder, len(record.MemoryAccess))
-		w.builder.Prep(12*len(record.MemoryAccess), 0)
+		logsegment.FunctionCallStartMemoryAccessVector(w.functionCallBuilder, len(record.MemoryAccess))
+		w.functionCallBuilder.Prep(12*len(record.MemoryAccess), 0)
 		for i := len(record.MemoryAccess) - 1; i >= 0; i-- {
 			m := &record.MemoryAccess[i]
-			w.builder.PlaceUint32(uint32(len(w.memory))) // offset into the index
-			w.builder.PlaceUint32(m.Offset)              // offset into guest memory
-			w.builder.PlaceUint32(uint32(len(m.Memory))) // length of captured memory
+			w.functionCallBuilder.PlaceUint32(uint32(len(w.memory))) // offset into the index
+			w.functionCallBuilder.PlaceUint32(m.Offset)              // offset into guest memory
+			w.functionCallBuilder.PlaceUint32(uint32(len(m.Memory))) // length of captured memory
 			w.memory = append(w.memory, m.Memory...)
 		}
-		memoryAccess := w.builder.EndVector(len(record.MemoryAccess))
-		memory := w.builder.CreateByteVector(w.memory)
+		memoryAccess := w.functionCallBuilder.EndVector(len(record.MemoryAccess))
+		memory := w.functionCallBuilder.CreateByteVector(w.memory)
 
-		w.builder.StartVector(flatbuffers.SizeUint64, len(record.Params)+len(record.Results), flatbuffers.SizeUint64)
+		w.functionCallBuilder.StartVector(flatbuffers.SizeUint64, len(record.Params)+len(record.Results), flatbuffers.SizeUint64)
 		for i := len(record.Results) - 1; i >= 0; i-- {
-			w.builder.PrependUint64(record.Results[i])
+			w.functionCallBuilder.PrependUint64(record.Results[i])
 		}
 		for i := len(record.Params) - 1; i >= 0; i-- {
-			w.builder.PrependUint64(record.Params[i])
+			w.functionCallBuilder.PrependUint64(record.Params[i])
 		}
-		stack := w.builder.EndVector(len(record.Params) + len(record.Results))
+		stack := w.functionCallBuilder.EndVector(len(record.Params) + len(record.Results))
 
 		timestamp := int64(record.Timestamp.Sub(w.startTime))
 		function := uint32(record.Function)
 
-		logsegment.FunctionCallStart(w.builder)
-		logsegment.FunctionCallAddStack(w.builder, stack)
-		logsegment.FunctionCallAddMemoryAccess(w.builder, memoryAccess)
-		logsegment.FunctionCallAddMemory(w.builder, memory)
-		functionCall := logsegment.FunctionCallEnd(w.builder)
+		logsegment.FunctionCallStart(w.functionCallBuilder)
+		logsegment.FunctionCallAddStack(w.functionCallBuilder, stack)
+		logsegment.FunctionCallAddMemoryAccess(w.functionCallBuilder, memoryAccess)
+		logsegment.FunctionCallAddMemory(w.functionCallBuilder, memory)
+		logsegment.FinishFunctionCallBuffer(w.functionCallBuilder, logsegment.FunctionCallEnd(w.functionCallBuilder))
+
+		w.builder.Reset()
+		functionCall := w.builder.CreateByteVector(w.functionCallBuilder.FinishedBytes())
 
 		logsegment.RecordStart(w.builder)
 		logsegment.RecordAddTimestamp(w.builder, timestamp)
