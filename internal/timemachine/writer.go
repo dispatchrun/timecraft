@@ -136,11 +136,8 @@ func (w *LogWriter) WriteRecordBatch(batch RecordBatchBuilder) error {
 	if w.stickyErr != nil {
 		return w.stickyErr
 	}
-	if _, err := w.output.Write(batch.Bytes()); err != nil {
-		w.stickyErr = err
-		return err
-	}
-	return nil
+	_, err := batch.Write(w.output)
+	return err
 }
 
 func (w *LogWriter) prependHash(hash Hash) flatbuffers.UOffsetT {
@@ -173,12 +170,11 @@ func (w *LogWriter) prependOffsetVector(offsets []flatbuffers.UOffsetT) flatbuff
 	return w.builder.EndVector(len(offsets))
 }
 
-// BufferedLogWriter wraps a LogWriter to help with write batching.
+// LogRecordWriter wraps a LogWriter to help with write batching.
 //
-// A single WriteRecord method is provided for writing records. When the number
-// of buffered records reaches the configured batch size, the batch is passed
-// to the LogWriter's WriteRecordBatch method.
-type BufferedLogWriter struct {
+// A WriteRecord method is added that buffers records in a batch up to a
+// configurable size before flushing the batch to the log.
+type LogRecordWriter struct {
 	*LogWriter
 
 	batchSize   int
@@ -188,9 +184,9 @@ type BufferedLogWriter struct {
 	count       int
 }
 
-// NewBufferedLogWriter creates a BufferedLogWriter.
-func NewBufferedLogWriter(w *LogWriter, batchSize int, compression Compression) *BufferedLogWriter {
-	bw := &BufferedLogWriter{
+// NewLogRecordWriter creates a LogRecordWriter.
+func NewLogRecordWriter(w *LogWriter, batchSize int, compression Compression) *LogRecordWriter {
+	bw := &LogRecordWriter{
 		LogWriter:   w,
 		compression: compression,
 		batchSize:   batchSize,
@@ -199,11 +195,9 @@ func NewBufferedLogWriter(w *LogWriter, batchSize int, compression Compression) 
 	return bw
 }
 
-// WriteRecord buffers a Record and then writes it once the internal
-// record batch is full.
-//
-// The writer will make a copy of the memory accesses.
-func (w *BufferedLogWriter) WriteRecord(record RecordBuilder) error {
+// WriteRecord buffers a Record in a batch and then flushes the batch once
+// it reaches the configured maximum size.
+func (w *LogRecordWriter) WriteRecord(record RecordBuilder) error {
 	w.batch.AddRecord(record)
 	w.count++
 	if w.count >= w.batchSize {
@@ -212,8 +206,8 @@ func (w *BufferedLogWriter) WriteRecord(record RecordBuilder) error {
 	return nil
 }
 
-// Flush flushes any pending records.
-func (w *BufferedLogWriter) Flush() error {
+// Flush flushes the pending batch.
+func (w *LogRecordWriter) Flush() error {
 	if w.count == 0 {
 		return nil
 	}

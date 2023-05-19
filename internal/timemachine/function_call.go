@@ -12,6 +12,15 @@ type FunctionCall struct {
 	call     logsegment.FunctionCall
 }
 
+// MakeFunctionCall makes a function call.
+func MakeFunctionCall(function *Function, b []byte) FunctionCall {
+	call := logsegment.GetRootAsFunctionCall(b, 0)
+	return FunctionCall{
+		function: function,
+		call:     *call,
+	}
+}
+
 // MemoryAccess is memory captured from the WebAssembly module.
 type MemoryAccess struct {
 	Memory []byte

@@ -1,7 +1,6 @@
 package timemachine
 
 import (
-	"encoding/binary"
 	"fmt"
 	"io"
 	"sync"
@@ -120,31 +119,16 @@ func (b *RecordBatch) Next() bool {
 	if b.offset >= uint32(len(records)) {
 		return false
 	}
-	offset := b.offset
-	if offset+4 < offset || offset+4 > uint32(len(records)) {
-		b.err = fmt.Errorf("cannot read record at offset %d as records buffer is length %d", offset, len(records))
+	if b.offset+4 < b.offset || b.offset+4 > uint32(len(records)) {
+		b.err = fmt.Errorf("cannot read record at offset %d as records buffer is length %d", b.offset, len(records))
 		return true
 	}
-	size := binary.LittleEndian.Uint32(records[offset:])
-	if offset+size < offset || offset+size > uint32(len(records)) {
-		b.err = fmt.Errorf("cannot read record at [%d:%d+%d] as records buffer is length %d", offset, offset, size, len(records))
+	size := flatbuffers.GetSizePrefix(records, flatbuffers.UOffsetT(b.offset))
+	if b.offset+size < b.offset || b.offset+size > uint32(len(records)) {
+		b.err = fmt.Errorf("cannot read record at [%d:%d+%d] as records buffer is length %d", b.offset, b.offset, size, len(records))
 		return true
 	}
-	record := logsegment.GetRootAsRecord(records[offset+4:], 0)
-	functionCall := logsegment.GetRootAsFunctionCall(record.FunctionCallBytes(), 0)
-
-	if i := record.FunctionId(); i >= uint32(len(b.header.Runtime.Functions)) {
-		b.err = fmt.Errorf("record points to invalid function %d", i)
-		return true
-	}
-	b.record = Record{
-		header: b.header,
-		record: *record,
-		FunctionCall: FunctionCall{
-			function: &b.header.Runtime.Functions[record.FunctionId()],
-			call:     *functionCall,
-		},
-	}
+	b.record = MakeRecord(b.header.Process.StartTime, b.header.Runtime.Functions, records[b.offset:b.offset+4+size])
 	b.offset += size + 4
 	return true
 }
@@ -209,7 +193,7 @@ func (b *RecordBatch) readRecords() (*buffer, error) {
 	return uncompressedMemoryBuffer, err
 }
 
-// RecordBuilder is a builder for record batches.
+// RecordBatchBuilder is a builder for record batches.
 type RecordBatchBuilder struct {
 	builder        *flatbuffers.Builder
 	compression    Compression
@@ -218,8 +202,10 @@ type RecordBatchBuilder struct {
 	recordCount    uint32
 	uncompressed   []byte
 	compressed     []byte
+	records        []byte
 	result         []byte
 	finished       bool
+	concatenated   bool
 }
 
 // Reset resets the builder.
@@ -233,9 +219,11 @@ func (b *RecordBatchBuilder) Reset(compression Compression, firstOffset int64) {
 	b.uncompressed = b.uncompressed[:0]
 	b.compressed = b.compressed[:0]
 	b.result = b.result[:0]
+	b.records = nil
 	b.firstOffset = firstOffset
 	b.firstTimestamp = 0
 	b.finished = false
+	b.concatenated = false
 	b.recordCount = 0
 }
 
@@ -257,7 +245,27 @@ func (b *RecordBatchBuilder) Bytes() []byte {
 		b.build()
 		b.finished = true
 	}
+	if !b.concatenated {
+		b.result = append(b.result, b.builder.FinishedBytes()...)
+		b.result = append(b.result, b.records...)
+		b.concatenated = true
+	}
 	return b.result
+}
+
+// Write writes the serialized representation of the record batch
+// to the specified writer.
+func (b *RecordBatchBuilder) Write(w io.Writer) (int, error) {
+	if !b.finished {
+		b.build()
+		b.finished = true
+	}
+	n1, err := w.Write(b.builder.FinishedBytes())
+	if err != nil {
+		return n1, err
+	}
+	n2, err := w.Write(b.records)
+	return n1 + n2, err
 }
 
 func (b *RecordBatchBuilder) build() {
@@ -265,10 +273,10 @@ func (b *RecordBatchBuilder) build() {
 		panic("builder is not initialized")
 	}
 
-	records := b.uncompressed
+	b.records = b.uncompressed
 	if b.compression != Uncompressed {
 		b.compressed = compress(b.compressed[:cap(b.compressed)], b.uncompressed, b.compression)
-		records = b.compressed
+		b.records = b.compressed
 	}
 
 	logsegment.RecordBatchStart(b.builder)
@@ -276,10 +284,7 @@ func (b *RecordBatchBuilder) build() {
 	logsegment.RecordBatchAddFirstTimestamp(b.builder, b.firstTimestamp)
 	logsegment.RecordBatchAddCompressedSize(b.builder, uint32(len(b.compressed)))
 	logsegment.RecordBatchAddUncompressedSize(b.builder, uint32(len(b.uncompressed)))
-	logsegment.RecordBatchAddChecksum(b.builder, checksum(records))
+	logsegment.RecordBatchAddChecksum(b.builder, checksum(b.records))
 	logsegment.RecordBatchAddNumRecords(b.builder, b.recordCount)
 	logsegment.FinishSizePrefixedRecordBatchBuffer(b.builder, logsegment.RecordBatchEnd(b.builder))
-
-	b.result = append(b.result, b.builder.FinishedBytes()...)
-	b.result = append(b.result, records...)
 }

@@ -251,15 +251,15 @@ func run(args []string) error {
 			return fmt.Errorf("failed to write log header: %w", err)
 		}
 
-		bufferedLogWriter := timemachine.NewBufferedLogWriter(logWriter, *batchSize, header.Compression)
-		defer bufferedLogWriter.Flush()
+		recordWriter := timemachine.NewLogRecordWriter(logWriter, *batchSize, header.Compression)
+		defer recordWriter.Flush()
 
 		builder = builder.WithDecorators(
 			timemachine.Capture[*wasi_snapshot_preview1.Module](
 				header.Process.StartTime,
 				functions,
 				func(record timemachine.RecordBuilder) {
-					if err := bufferedLogWriter.WriteRecord(record); err != nil {
+					if err := recordWriter.WriteRecord(record); err != nil {
 						panic(err) // TODO: better error handling
 					}
 				},

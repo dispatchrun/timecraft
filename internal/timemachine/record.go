@@ -1,6 +1,7 @@
 package timemachine
 
 import (
+	"fmt"
 	"time"
 
 	flatbuffers "github.com/google/flatbuffers/go"
@@ -9,19 +10,38 @@ import (
 
 // Record is a read-only record from the log.
 type Record struct {
-	header       *Header
-	record       logsegment.Record
-	FunctionCall FunctionCall
+	startTime time.Time
+	functions []Function
+	record    logsegment.Record
+}
+
+// MakeRecord makes a record.
+func MakeRecord(startTime time.Time, functions []Function, b []byte) Record {
+	record := logsegment.GetSizePrefixedRootAsRecord(b, 0)
+	return Record{
+		startTime: startTime,
+		functions: functions,
+		record:    *record,
+	}
 }
 
 // Timestamp is the record timestamp.
 func (r *Record) Timestamp() time.Time {
-	return r.header.Process.StartTime.Add(time.Duration(r.record.Timestamp()))
+	return r.startTime.Add(time.Duration(r.record.Timestamp()))
 }
 
 // FunctionID is the record's associated function ID.
 func (r *Record) FunctionID() int {
 	return int(r.record.FunctionId())
+}
+
+// FunctionCall returns the function call details.
+func (r *Record) FunctionCall() (FunctionCall, error) {
+	id := r.FunctionID()
+	if id >= len(r.functions) {
+		return FunctionCall{}, fmt.Errorf("invalid function %d", id)
+	}
+	return MakeFunctionCall(&r.functions[id], r.record.FunctionCallBytes()), nil
 }
 
 // RecordBuilder is a builder for records.

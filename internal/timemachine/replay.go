@@ -45,8 +45,10 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 				if recordFunctionID := record.FunctionID(); recordFunctionID != functionID {
 					panic(fmt.Sprintf("function ID mismatch: got %d, expect %d", functionID, recordFunctionID))
 				}
-
-				functionCall := record.FunctionCall
+				functionCall, err := record.FunctionCall()
+				if err != nil {
+					panic(err)
+				}
 				if paramCount != functionCall.NumParams() {
 					panic(fmt.Sprintf("function param count mismatch: got %d, expect %d", len(f.Params), functionCall.NumParams()))
 				}
