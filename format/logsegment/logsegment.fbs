@@ -95,12 +95,14 @@ table FunctionCall {
 
 // MemoryAccess represents the capture of a section of memory.
 struct MemoryAccess {
- // Byte length of captured memory.
- length:uint;
  // Byte offset in the WebAssembly module's linear memory where the memory
  // access starts.
  offset:uint;
- // Byte offset into {FunctionCall.memory}.
+ // Byte offset into {FunctionCall.memory}. The length of the captured memory
+ // can be derived by comparing the {index_offset} with that of the next
+ // {FunctionCall.memory_access}. The length of the final memory region can
+ // be derived by comparing the {index_offset} with the length of
+ // {FunctionCall.memory}.
  index_offset:uint;
 }
 

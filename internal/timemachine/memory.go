@@ -20,7 +20,6 @@ type MemoryInterceptor struct {
 
 type memorySlice struct {
 	offset uint32
-	length uint32
 	index  uint32
 }
 
@@ -32,8 +31,8 @@ func (m *MemoryInterceptor) MemoryAccess() []MemoryAccess {
 	m.observeWrites()
 	ma := make([]MemoryAccess, len(m.access))
 	for i, a := range m.access {
-		ma[i].Memory = m.buffer[a.index : a.index+a.length]
 		ma[i].Offset = a.offset
+		ma[i].Memory = m.slice(i)
 	}
 	return ma
 }
@@ -187,7 +186,6 @@ func (m *MemoryInterceptor) add(offset uint32, b []byte) {
 	m.buffer = append(m.buffer, b...)
 	m.access = append(m.access, memorySlice{
 		offset: offset,
-		length: uint32(len(b)),
 		index:  uint32(len(m.buffer) - len(b)),
 	})
 }
@@ -197,14 +195,28 @@ func (m *MemoryInterceptor) observeWrites() {
 	// access occurred. If they did, we must create a new mutation
 	// at the *end* of the slice in case there are other aliased writes
 	// after the read.
-	for _, i := range m.readWrites {
-		a := &m.access[i]
-		prev := m.buffer[a.index : a.index+a.length]
-		if curr, _ := m.Memory.Read(a.offset, a.length); !bytes.Equal(curr, prev) {
-			m.capture(a.offset, a.length, 'w')
+	for _, readIdx := range m.readWrites {
+		a := &m.access[readIdx]
+		prev := m.slice(readIdx)
+		length := uint32(len(prev))
+		if curr, _ := m.Memory.Read(a.offset, length); !bytes.Equal(curr, prev) {
+			m.capture(a.offset, length, 'w')
 		}
 	}
 	m.readWrites = m.readWrites[:0]
+}
+
+func (m *MemoryInterceptor) slice(i int) []byte {
+	if i < 0 || i >= len(m.access) {
+		panic("slice oob")
+	}
+	a := m.access[i]
+	head := a.index
+	tail := uint32(len(m.buffer))
+	if i < len(m.access)-1 {
+		tail = m.access[i+1].index
+	}
+	return m.buffer[head:tail]
 }
 
 // MemoryInterceptorModule is an api.Module wrapper for a MemoryInterceptor

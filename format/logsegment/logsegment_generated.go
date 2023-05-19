@@ -817,7 +817,7 @@ func (rcv *FunctionCall) MemoryAccess(obj *MemoryAccess, j int) bool {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
 		x := rcv._tab.Vector(o)
-		x += flatbuffers.UOffsetT(j) * 12
+		x += flatbuffers.UOffsetT(j) * 8
 		obj.Init(rcv._tab.Bytes, x)
 		return true
 	}
@@ -851,7 +851,7 @@ func FunctionCallAddMemoryAccess(builder *flatbuffers.Builder, memoryAccess flat
 	builder.PrependUOffsetTSlot(2, flatbuffers.UOffsetT(memoryAccess), 0)
 }
 func FunctionCallStartMemoryAccessVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(12, numElems, 4)
+	return builder.StartVector(8, numElems, 4)
 }
 func FunctionCallEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()
@@ -870,31 +870,23 @@ func (rcv *MemoryAccess) Table() flatbuffers.Table {
 	return rcv._tab.Table
 }
 
-func (rcv *MemoryAccess) Length() uint32 {
+func (rcv *MemoryAccess) Offset() uint32 {
 	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(0))
 }
-func (rcv *MemoryAccess) MutateLength(n uint32) bool {
+func (rcv *MemoryAccess) MutateOffset(n uint32) bool {
 	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(0), n)
 }
 
-func (rcv *MemoryAccess) Offset() uint32 {
+func (rcv *MemoryAccess) IndexOffset() uint32 {
 	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(4))
 }
-func (rcv *MemoryAccess) MutateOffset(n uint32) bool {
+func (rcv *MemoryAccess) MutateIndexOffset(n uint32) bool {
 	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(4), n)
 }
 
-func (rcv *MemoryAccess) IndexOffset() uint32 {
-	return rcv._tab.GetUint32(rcv._tab.Pos + flatbuffers.UOffsetT(8))
-}
-func (rcv *MemoryAccess) MutateIndexOffset(n uint32) bool {
-	return rcv._tab.MutateUint32(rcv._tab.Pos+flatbuffers.UOffsetT(8), n)
-}
-
-func CreateMemoryAccess(builder *flatbuffers.Builder, length uint32, offset uint32, indexOffset uint32) flatbuffers.UOffsetT {
-	builder.Prep(4, 12)
+func CreateMemoryAccess(builder *flatbuffers.Builder, offset uint32, indexOffset uint32) flatbuffers.UOffsetT {
+	builder.Prep(4, 8)
 	builder.PrependUint32(indexOffset)
 	builder.PrependUint32(offset)
-	builder.PrependUint32(length)
 	return builder.Offset()
 }

@@ -60,18 +60,27 @@ func (c *FunctionCall) NumMemoryAccess() int {
 // MemoryAccess returns the memory access at the specified index.
 func (c *FunctionCall) MemoryAccess(i int) MemoryAccess {
 	memory := c.call.MemoryBytes()
-	var ma logsegment.MemoryAccess
+	var access logsegment.MemoryAccess
 
-	if !c.call.MemoryAccess(&ma, i) {
+	if !c.call.MemoryAccess(&access, i) {
 		panic("invalid memory access")
 	}
-	offset, length := ma.IndexOffset(), ma.Length()
-	if offset+length < offset || offset+length > uint32(len(memory)) {
-		panic("invalid memory access")
+	head := access.IndexOffset()
+	tail := uint32(c.call.MemoryLength())
+	if i < c.call.MemoryAccessLength()-1 {
+		var next logsegment.MemoryAccess
+		if !c.call.MemoryAccess(&next, i+1) {
+			panic("invalid memory access")
+		}
+		nextIndex := next.IndexOffset()
+		if nextIndex < head || nextIndex > tail {
+			panic("oob")
+		}
+		tail = nextIndex
 	}
 	return MemoryAccess{
-		Memory: memory[offset : offset+length : offset+length],
-		Offset: ma.Offset(),
+		Memory: memory[head:tail:tail],
+		Offset: access.Offset(),
 	}
 }
 
@@ -177,12 +186,12 @@ func (b *FunctionCallBuilder) build() {
 
 	logsegment.FunctionCallStartMemoryAccessVector(b.builder, len(memoryAccess))
 
-	b.builder.Prep(12*len(memoryAccess), 0)
+	b.builder.Prep(8*len(memoryAccess), 0)
 	for i := len(memoryAccess) - 1; i >= 0; i-- {
+		// TODO: check invariant: m.index must decrease here
 		m := &memoryAccess[i]
 		b.builder.PlaceUint32(m.index)
 		b.builder.PlaceUint32(m.offset)
-		b.builder.PlaceUint32(m.length)
 	}
 	memoryAccessOffset := b.builder.EndVector(len(memoryAccess))
 
