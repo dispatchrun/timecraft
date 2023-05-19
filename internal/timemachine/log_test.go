@@ -15,7 +15,7 @@ func TestReadLogHeader(t *testing.T) {
 	b := new(bytes.Buffer)
 	w := timemachine.NewLogWriter(b)
 
-	header := &timemachine.LogHeader{
+	header := &timemachine.Header{
 		Runtime: timemachine.Runtime{
 			Runtime: "test",
 			Version: "dev",
@@ -57,7 +57,7 @@ func TestReadLogHeader(t *testing.T) {
 }
 
 func TestReadRecordBatch(t *testing.T) {
-	header := &timemachine.LogHeader{
+	header := &timemachine.Header{
 		Runtime: timemachine.Runtime{
 			Runtime: "test",
 			Version: "dev",
@@ -177,7 +177,7 @@ func BenchmarkLogReader(b *testing.B) {
 	buffer := new(bytes.Buffer)
 	writer := timemachine.NewLogWriter(buffer)
 
-	header := &timemachine.LogHeader{
+	header := &timemachine.Header{
 		Runtime: timemachine.Runtime{
 			Runtime: "test",
 			Version: "dev",
@@ -221,11 +221,11 @@ func BenchmarkLogWriter(b *testing.B) {
 	b.Run("WriteLogHeader", func(b *testing.B) {
 		tests := []struct {
 			scenario string
-			header   *timemachine.LogHeader
+			header   *timemachine.Header
 		}{
 			{
 				scenario: "common log header",
-				header: &timemachine.LogHeader{
+				header: &timemachine.Header{
 					Runtime: timemachine.Runtime{
 						Runtime: "test",
 						Version: "dev",
@@ -258,7 +258,7 @@ func BenchmarkLogWriter(b *testing.B) {
 	})
 
 	b.Run("WriteRecordBatch", func(b *testing.B) {
-		header := &timemachine.LogHeader{
+		header := &timemachine.Header{
 			Runtime: timemachine.Runtime{
 				Runtime: "test",
 				Version: "dev",
@@ -360,7 +360,7 @@ func BenchmarkLogWriter(b *testing.B) {
 	})
 }
 
-func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timemachine.LogHeader) {
+func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timemachine.Header) {
 	w := timemachine.NewLogWriter(io.Discard)
 
 	for i := 0; i < b.N; i++ {
@@ -371,7 +371,7 @@ func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timemachine.LogHeade
 	}
 }
 
-func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.LogHeader, batch []timemachine.RecordFIXME) {
+func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.Header, batch []timemachine.RecordFIXME) {
 	w := timemachine.NewLogWriter(io.Discard)
 	w.WriteLogHeader(header)
 

@@ -91,7 +91,7 @@ func (w *RecordIndexWriter) Reset(output io.Writer) {
 	w.builder.Reset()
 }
 
-func (w *RecordIndexWriter) WriteRecordIndex(header *LogHeader, index *RecordIndex) error {
+func (w *RecordIndexWriter) WriteRecordIndex(header *Header, index *RecordIndex) error {
 	w.builder.Reset()
 
 	processID := header.Process.ID.prepend(w.builder)

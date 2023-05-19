@@ -8,7 +8,7 @@ import (
 
 // Record is a read-only record from the log.
 type Record struct {
-	header       *LogHeader
+	header       *Header
 	record       logsegment.Record
 	FunctionCall FunctionCall
 }

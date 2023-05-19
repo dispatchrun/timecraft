@@ -224,7 +224,7 @@ func run(args []string) error {
 			})
 		}
 
-		header := &timemachine.LogHeader{
+		header := &timemachine.Header{
 			Runtime: timemachine.Runtime{
 				Runtime:   "timecraft",
 				Version:   version,

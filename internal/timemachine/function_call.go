@@ -1,11 +1,20 @@
 package timemachine
 
-import "github.com/stealthrocket/timecraft/format/logsegment"
+import (
+	flatbuffers "github.com/google/flatbuffers/go"
+	"github.com/stealthrocket/timecraft/format/logsegment"
+)
 
 // FunctionCall is read-only details about a host function call.
 type FunctionCall struct {
 	function *Function
 	call     logsegment.FunctionCall
+}
+
+// MemoryAccess is memory captured from the WebAssembly module.
+type MemoryAccess struct {
+	Memory []byte
+	Offset uint32
 }
 
 // NumParams returns the number of function parameters.
@@ -48,4 +57,22 @@ func (c *FunctionCall) MemoryAccess(i int) MemoryAccess {
 		Memory: memory[offset : offset+length : offset+length],
 		Offset: ma.Offset(),
 	}
+}
+
+// FunctionCallBuilder is a builder for function calls.
+type FunctionCallBuilder struct {
+	function *Function
+	builder  *flatbuffers.Builder
+	finished bool
+}
+
+// Reset resets the builder.
+func (f *FunctionCallBuilder) Reset(function *Function) {
+	f.builder.Reset()
+	f.finished = false
+}
+
+// Bytes returns the serialized representation of the function call.
+func (f *FunctionCallBuilder) Bytes() []byte {
+	return f.builder.FinishedBytes()
 }
