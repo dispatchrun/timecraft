@@ -143,7 +143,13 @@ func (r *LogReader) ReadRecordBatch(header *Header, byteOffset int64) (*RecordBa
 		batch:      *b,
 		frame:      f,
 	}
-	return batch, int64(len(f.data)) + int64(b.CompressedSize()), nil
+	size := int64(len(f.data))
+	if header.Compression == Uncompressed {
+		size += int64(b.UncompressedSize())
+	} else {
+		size += int64(b.CompressedSize())
+	}
+	return batch, size, nil
 }
 
 func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
