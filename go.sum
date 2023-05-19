@@ -6,8 +6,8 @@ github.com/klauspost/compress v1.16.5 h1:IFV2oUNUzZaz+XyusxpLzpzS8Pt5rh0Z16For/d
 github.com/klauspost/compress v1.16.5/go.mod h1:ntbaceVETuRiXiv4DpjP66DpAtAGkEQskQzEyD//IeE=
 github.com/stealthrocket/wasi-go v0.0.0-20230517040214-661f6c453ce8 h1:W9MGps18Ms86hhL8tHhAR74AD5DZalhnfdVoR74rUXg=
 github.com/stealthrocket/wasi-go v0.0.0-20230517040214-661f6c453ce8/go.mod h1:LBhZHvAroNNQTejkVTMJZ01ssj3jXF+3Lkbru4cTzGQ=
-github.com/stealthrocket/wazergo v0.18.1-0.20230519094002-da0b28c5570d h1:Z6BtGyjbdVQoWJ/0RePONlcZduZdnqvCX0GwAnQA7L4=
-github.com/stealthrocket/wazergo v0.18.1-0.20230519094002-da0b28c5570d/go.mod h1:riI0hxw4ndZA5e6z7PesHg2BtTftcZaMxRcoiGGipTs=
+github.com/stealthrocket/wazergo v0.18.1-0.20230519220454-822a3563b1e0 h1:tK7b4hJSNe0AKNBFv/GO20vQIKDVrNqvShTKQU3QA9Q=
+github.com/stealthrocket/wazergo v0.18.1-0.20230519220454-822a3563b1e0/go.mod h1:riI0hxw4ndZA5e6z7PesHg2BtTftcZaMxRcoiGGipTs=
 github.com/tetratelabs/wazero v1.1.0 h1:EByoAhC+QcYpwSZJSs/aV0uokxPwBgKxfiokSUwAknQ=
 github.com/tetratelabs/wazero v1.1.0/go.mod h1:wYx2gNRg8/WihJfSDxA1TIL8H+GkfLYm+bIfbblu9VQ=
 golang.org/x/sys v0.8.0 h1:EBmGv8NaZBZTWvrbjNoL6HVt+IVy3QDQpJs7VRIw3tU=

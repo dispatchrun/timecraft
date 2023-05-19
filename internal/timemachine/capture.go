@@ -14,18 +14,18 @@ func Capture[T wazergo.Module](startTime time.Time, functions FunctionIndex, cap
 	var functionCallBuilder FunctionCallBuilder
 	var recordBuilder RecordBuilder
 
-	return wazergo.DecoratorFunc[T](func(moduleName string, f wazergo.Function[T]) wazergo.Function[T] {
+	return wazergo.DecoratorFunc[T](func(moduleName string, original wazergo.Function[T]) wazergo.Function[T] {
 		function := Function{
 			Module:      moduleName,
-			Name:        f.Name,
-			ParamCount:  f.StackParamCount(),
-			ResultCount: f.StackResultCount(),
+			Name:        original.Name,
+			ParamCount:  original.StackParamCount(),
+			ResultCount: original.StackResultCount(),
 		}
 		functionID, ok := functions.LookupFunction(function)
 		if !ok {
-			return f
+			return original
 		}
-		return wazergo.Decorated(f, func(module T, ctx context.Context, mod api.Module, stack []uint64) {
+		return original.WithFunc(func(module T, ctx context.Context, mod api.Module, stack []uint64) {
 			now := time.Now()
 
 			functionCallBuilder.Reset(&function)
@@ -43,7 +43,7 @@ func Capture[T wazergo.Module](startTime time.Time, functions FunctionIndex, cap
 				capture(recordBuilder)
 			}()
 
-			f.Func(module, ctx, &interceptor, stack)
+			original.Func(module, ctx, &interceptor, stack)
 		})
 	})
 }

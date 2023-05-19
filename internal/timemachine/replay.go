@@ -11,18 +11,18 @@ import (
 )
 
 func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterator) wazergo.Decorator[T] {
-	return wazergo.DecoratorFunc[T](func(moduleName string, f wazergo.Function[T]) wazergo.Function[T] {
+	return wazergo.DecoratorFunc[T](func(moduleName string, original wazergo.Function[T]) wazergo.Function[T] {
 		function := Function{
 			Module:      moduleName,
-			Name:        f.Name,
-			ParamCount:  f.StackParamCount(),
-			ResultCount: f.StackResultCount(),
+			Name:        original.Name,
+			ParamCount:  original.StackParamCount(),
+			ResultCount: original.StackResultCount(),
 		}
 		functionID, ok := functions.LookupFunction(function)
 		if !ok {
-			return f
+			return original
 		}
-		return wazergo.Decorated(f, func(module T, ctx context.Context, mod api.Module, stack []uint64) {
+		return original.WithFunc(func(module T, ctx context.Context, mod api.Module, stack []uint64) {
 			// TODO: better error handling
 			if !records.Next() {
 				panic("EOF")
@@ -39,7 +39,7 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 				panic(err)
 			}
 			if function.ParamCount != functionCall.NumParams() {
-				panic(fmt.Sprintf("function param count mismatch: got %d, expect %d", len(f.Params), functionCall.NumParams()))
+				panic(fmt.Sprintf("function param count mismatch: got %d, expect %d", function.ParamCount, functionCall.NumParams()))
 			}
 			for i := 0; i < function.ParamCount; i++ {
 				if param := functionCall.Param(i); param != stack[i] {
@@ -59,12 +59,12 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 
 			// TODO: the record doesn't capture the fact that a host function
 			//  didn't return. Hard-code this case for now.
-			if moduleName == wasi_snapshot_preview1.HostModuleName && f.Name == "proc_exit" {
+			if moduleName == wasi_snapshot_preview1.HostModuleName && function.Name == "proc_exit" {
 				panic(sys.NewExitError(uint32(stack[0])))
 			}
 
 			if function.ResultCount != functionCall.NumResults() {
-				panic(fmt.Sprintf("function result count mismatch: got %d, expect %d", len(f.Results), functionCall.NumResults()))
+				panic(fmt.Sprintf("function result count mismatch: got %d, expect %d", function.ResultCount, functionCall.NumResults()))
 			}
 			for i := 0; i < function.ResultCount; i++ {
 				stack[i] = functionCall.Result(i)
