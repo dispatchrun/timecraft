@@ -407,23 +407,23 @@ func replay(args []string) error {
 
 type replayController[T wazergo.Module] struct{}
 
-func (r *replayController[T]) Step(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record) {
+func (r *replayController[T]) Step(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record) {
 	// noop
 }
 
-func (r *replayController[T]) ReadError(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, err error) {
+func (r *replayController[T]) ReadError(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, err error) {
 	panic(err)
 }
 
-func (r replayController[T]) MismatchError(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record, err error) {
+func (r replayController[T]) MismatchError(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record, err error) {
 	panic(err)
 }
 
-func (r replayController[T]) Exit(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record, exitCode uint32) {
+func (r replayController[T]) Exit(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record, exitCode uint32) {
 	panic(sys.NewExitError(exitCode))
 }
 
-func (r *replayController[T]) EOF(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64) {
+func (r *replayController[T]) EOF(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64) {
 	panic("EOF")
 }
 

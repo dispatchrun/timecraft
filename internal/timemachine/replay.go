@@ -13,22 +13,22 @@ import (
 type ReplayController[T wazergo.Module] interface {
 	// Step is called each time a function is called. If an error occurs,
 	// one of the other hooks will be called instead.
-	Step(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record)
+	Step(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record)
 
 	// ReadError is called when there's an error reading a record from
 	// the log, or error parsing the record.
-	ReadError(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, err error)
+	ReadError(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, err error)
 
 	// MismatchError is called when a function is called that doesn't match
 	// the next record.
-	MismatchError(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record, err error)
+	MismatchError(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record, err error)
 
 	// Exit is called when the guest exits.
-	Exit(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record, exitCode uint32)
+	Exit(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record, exitCode uint32)
 
 	// EOF is called when a function is called and there are no more
 	// logs to replay.
-	EOF(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64)
+	EOF(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64)
 }
 
 // Replay is a decorator that replays host function calls captured in a log.
@@ -46,24 +46,24 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 		}
 		return original.WithFunc(func(module T, ctx context.Context, mod api.Module, stack []uint64) {
 			if !records.Next() {
-				controller.EOF(ctx, original, mod, stack)
+				controller.EOF(ctx, module, original, mod, stack)
 				return
 			}
 
 			record, err := records.Record()
 			if err != nil {
-				controller.ReadError(ctx, original, mod, stack, err)
+				controller.ReadError(ctx, module, original, mod, stack, err)
 				return
 			}
 			functionCall, err := record.FunctionCall()
 			if err != nil {
-				controller.ReadError(ctx, original, mod, stack, err)
+				controller.ReadError(ctx, module, original, mod, stack, err)
 				return
 			}
 
 			memory := mod.Memory()
 			if err := assertEqual(functionID, &function, stack, memory, &record, &functionCall); err != nil {
-				controller.MismatchError(ctx, original, mod, stack, record, err)
+				controller.MismatchError(ctx, module, original, mod, stack, record, err)
 				return
 			}
 
@@ -72,7 +72,7 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 				b, ok := memory.Read(m.Offset, uint32(len(m.Memory)))
 				if !ok {
 					err = fmt.Errorf("out of bounds memory write [%d:%d]", m.Offset, len(m.Memory))
-					controller.MismatchError(ctx, original, mod, stack, record, err)
+					controller.MismatchError(ctx, module, original, mod, stack, record, err)
 					return
 				}
 				// TODO: if we could disambiguate reads/writes, we wouldn't have
@@ -85,7 +85,7 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 			//  didn't return. Hard-code this case for now.
 			if moduleName == wasi_snapshot_preview1.HostModuleName && function.Name == "proc_exit" {
 				exitCode := uint32(stack[0])
-				controller.Exit(ctx, original, mod, stack, record, exitCode)
+				controller.Exit(ctx, module, original, mod, stack, record, exitCode)
 				return
 			}
 
