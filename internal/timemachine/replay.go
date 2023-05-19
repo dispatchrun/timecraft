@@ -7,71 +7,111 @@ import (
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/sys"
 )
 
-func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterator) wazergo.Decorator[T] {
-	return wazergo.DecoratorFunc[T](func(moduleName string, f wazergo.Function[T]) wazergo.Function[T] {
-		var paramCount int
-		for _, v := range f.Params {
-			paramCount += len(v.ValueTypes())
+// ReplayController controls a replay.
+type ReplayController[T wazergo.Module] interface {
+	// Step is called each time a function is called. If an error occurs,
+	// one of the other hooks will be called instead.
+	Step(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record)
+
+	// ReadError is called when there's an error reading a record from
+	// the log, or error parsing the record.
+	ReadError(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, err error)
+
+	// MismatchError is called when a function is called that doesn't match
+	// the next record.
+	MismatchError(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record, err error)
+
+	// Exit is called when the guest exits.
+	Exit(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record, exitCode uint32)
+
+	// EOF is called when a function is called and there are no more
+	// logs to replay.
+	EOF(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64)
+}
+
+// Replay is a decorator that replays host function calls captured in a log.
+func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterator, controller ReplayController[T]) wazergo.Decorator[T] {
+	return wazergo.DecoratorFunc[T](func(moduleName string, original wazergo.Function[T]) wazergo.Function[T] {
+		function := Function{
+			Module:      moduleName,
+			Name:        original.Name,
+			ParamCount:  original.NumParams(),
+			ResultCount: original.NumResults(),
 		}
-		var resultCount int
-		for _, v := range f.Results {
-			resultCount += len(v.ValueTypes())
-		}
-		functionID, ok := functions.Lookup(moduleName, f.Name)
+		functionID, ok := functions.LookupFunction(function)
 		if !ok {
-			return f
+			return original
 		}
-		return wazergo.Function[T]{
-			Name:    f.Name,
-			Params:  f.Params,
-			Results: f.Results,
-			Func: func(module T, ctx context.Context, mod api.Module, stack []uint64) {
-				// TODO: better error handling
-				if !records.Next() {
-					if err := records.Error(); err != nil {
-						panic(err)
-					}
-					panic("EOF")
-				}
-				record := records.Record()
-				if recordFunctionID := record.Function(); recordFunctionID != functionID {
-					panic(fmt.Sprintf("function ID mismatch: got %d, expect %d", functionID, recordFunctionID))
-				}
-				if paramCount != record.NumParams() {
-					panic(fmt.Sprintf("function param count mismatch: got %d, expect %d", paramCount, record.NumParams()))
-				}
-				for i := 0; i < record.NumParams(); i++ {
-					if param := record.ParamAt(i); param != stack[i] {
-						panic(fmt.Sprintf("function param %d mismatch: got %d, expect %d", i, stack[i], param))
-					}
-				}
+		return original.WithFunc(func(module T, ctx context.Context, mod api.Module, stack []uint64) {
+			if !records.Next() {
+				controller.EOF(ctx, original, mod, stack)
+				return
+			}
 
-				memory := mod.Memory()
-				for i := 0; i < record.NumMemoryAccess(); i++ {
-					m := record.MemoryAccessAt(i)
-					b, ok := memory.Read(m.Offset, uint32(len(m.Memory)))
-					if !ok {
-						panic(fmt.Sprintf("unable to write %d bytes of memory to offset %d", len(m.Memory), m.Offset))
-					}
-					copy(b, m.Memory)
-				}
+			record, err := records.Record()
+			if err != nil {
+				controller.ReadError(ctx, original, mod, stack, err)
+				return
+			}
+			functionCall, err := record.FunctionCall()
+			if err != nil {
+				controller.ReadError(ctx, original, mod, stack, err)
+				return
+			}
 
-				// TODO: the record doesn't capture the fact that a host function
-				//  didn't return. Hard-code this case for now.
-				if moduleName == wasi_snapshot_preview1.HostModuleName && f.Name == "proc_exit" {
-					panic(sys.NewExitError(uint32(stack[0])))
-				}
+			memory := mod.Memory()
+			if err := assertEqual(functionID, &function, stack, memory, &record, &functionCall); err != nil {
+				controller.MismatchError(ctx, original, mod, stack, record, err)
+				return
+			}
 
-				if resultCount != record.NumResults() {
-					panic(fmt.Sprintf("function result count mismatch: got %d, expect %d", resultCount, record.NumResults()))
+			for i := 0; i < functionCall.NumMemoryAccess(); i++ {
+				m := functionCall.MemoryAccess(i)
+				b, ok := memory.Read(m.Offset, uint32(len(m.Memory)))
+				if !ok {
+					err = fmt.Errorf("out of bounds memory write [%d:%d]", m.Offset, len(m.Memory))
+					controller.MismatchError(ctx, original, mod, stack, record, err)
+					return
 				}
-				for i := 0; i < record.NumResults(); i++ {
-					stack[i] = record.ResultAt(i)
-				}
-			},
-		}
+				// TODO: if we could disambiguate reads/writes, we wouldn't have
+				//  to unconditionally copy here (and do useless work when it
+				//  was just a read)
+				copy(b, m.Memory)
+			}
+
+			// TODO: the record doesn't capture the fact that a host function
+			//  didn't return. Hard-code this case for now.
+			if moduleName == wasi_snapshot_preview1.HostModuleName && function.Name == "proc_exit" {
+				exitCode := uint32(stack[0])
+				controller.Exit(ctx, original, mod, stack, record, exitCode)
+				return
+			}
+
+			for i := 0; i < function.ResultCount; i++ {
+				stack[i] = functionCall.Result(i)
+			}
+		})
 	})
+}
+
+func assertEqual(functionID int, function *Function, stack []uint64, mem api.Memory, record *Record, functionCall *FunctionCall) error {
+	if recordFunctionID := record.FunctionID(); recordFunctionID != functionID {
+		return fmt.Errorf("function ID mismatch: got %d, expect %d", functionID, recordFunctionID)
+	}
+	if function.ParamCount != functionCall.NumParams() {
+		return fmt.Errorf("function param count mismatch: got %d, expect %d", function.ParamCount, functionCall.NumParams())
+	}
+	if function.ResultCount != functionCall.NumResults() {
+		return fmt.Errorf("function result count mismatch: got %d, expect %d", function.ResultCount, functionCall.NumResults())
+	}
+	for i := 0; i < function.ParamCount; i++ {
+		if param := functionCall.Param(i); param != stack[i] {
+			return fmt.Errorf("function param %d mismatch: got %d, expect %d", i, stack[i], param)
+		}
+	}
+	// TODO: validate that memory is in the same state as captured
+	//  memory reads (but not writes)
+	return nil
 }

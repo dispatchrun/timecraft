@@ -13,6 +13,8 @@ table Runtime {
 table Function {
  module:string (required);
  name:string (required);
+ param_count: uint;
+ result_count: uint;
 }
 
 // Process contains information about the process that the log was recorded for.
@@ -68,26 +70,40 @@ table Record {
  // Monotonic timestamp relative to the process start time of the function
  // invocation time (expressed in nanoseconds).
  timestamp:long;
- // Index in the Runtime function table.
- function:uint;
- // State of the WebAssembly stack when the function was called and when it
- // returned.
- params:[ulong];
- results:[ulong];
- // Sections of the record containing snapshots of each memory access done by
- // the function. The record_offset is relative to the beginning of the record
- // data (at offset in the uncompressed record batch).
+ // ID of the function, which is the index into the Runtime function table.
+ function_id:uint;
+ // Details about the function call. A FunctionCall table is provided for
+ // capturing the information required to reproduce the function call
+ // (stack + memory), however users are allowed to store arbitrary bytes
+ // here and may choose to use more efficient representations for some
+ // functions.
+ function_call:[ubyte];
+}
+
+// Details about a function call.
+table FunctionCall {
+ // State of the WebAssembly stack before and after the function was called.
+ // The first {param_count} values are the input parameters, and the remaining
+ // values are the return values.
+ stack:[ulong];
+ // Captured sections of the WebAssembly module's linear memory, stored
+ // contiguously and indexed by {memory_access}.
+ memory:[uint8];
+ // Ordered collection of memory reads and writes made by the function.
  memory_access:[MemoryAccess];
 }
 
-// MemoryAccess represents the capture of a section of memory that was either
-// read or written during a host function call.
-table MemoryAccess {
- // Memory is the captured memory.
- memory:[ubyte];
+// MemoryAccess represents the capture of a section of memory.
+struct MemoryAccess {
  // Byte offset in the WebAssembly module's linear memory where the memory
  // access starts.
  offset:uint;
+ // Byte offset into {FunctionCall.memory}. The length of the captured memory
+ // can be derived by comparing the {index_offset} with that of the next
+ // {FunctionCall.memory_access}. The length of the final memory region can
+ // be derived by comparing the {index_offset} with the length of
+ // {FunctionCall.memory}.
+ index_offset:uint;
 }
 
 root_type LogHeader;

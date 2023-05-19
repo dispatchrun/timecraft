@@ -1,5 +1,13 @@
 package timemachine
 
+// Function is a host function.
+type Function struct {
+	Module      string
+	Name        string
+	ParamCount  int
+	ResultCount int
+}
+
 // FunctionIndex is a set of functions.
 type FunctionIndex struct {
 	lookup    map[Function]int
@@ -7,11 +15,10 @@ type FunctionIndex struct {
 }
 
 // Add adds a function to the set.
-func (i *FunctionIndex) Add(moduleName, functionName string) bool {
+func (i *FunctionIndex) Add(fn Function) bool {
 	if i.lookup == nil {
 		i.lookup = map[Function]int{}
 	}
-	fn := Function{moduleName, functionName}
 	if _, exists := i.lookup[fn]; exists {
 		return false
 	}
@@ -20,14 +27,21 @@ func (i *FunctionIndex) Add(moduleName, functionName string) bool {
 	return true
 }
 
-// Lookup returns the ID associated with a function.
-func (i *FunctionIndex) Lookup(moduleName, functionName string) (int, bool) {
-	fn := Function{Module: moduleName, Name: functionName}
+// Functions is the set of functions.
+func (i *FunctionIndex) Functions() []Function {
+	return i.functions
+}
+
+// LookupFunction returns the ID associated with a function.
+func (i *FunctionIndex) LookupFunction(fn Function) (int, bool) {
 	id, ok := i.lookup[fn]
 	return id, ok
 }
 
-// Functions is the set of functions.
-func (i *FunctionIndex) Functions() []Function {
-	return i.functions
+// LookupID returns the Function associated with an ID.
+func (i *FunctionIndex) LookupID(id int) (Function, bool) {
+	if id < 0 || id >= len(i.functions) {
+		return Function{}, false
+	}
+	return i.functions[id], true
 }

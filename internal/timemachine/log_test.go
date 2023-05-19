@@ -11,20 +11,20 @@ import (
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 )
 
-func TestReadLogHeader(t *testing.T) {
+func TestReadHeader(t *testing.T) {
 	b := new(bytes.Buffer)
 	w := timemachine.NewLogWriter(b)
 
-	header := &timemachine.LogHeader{
+	header := &timemachine.Header{
 		Runtime: timemachine.Runtime{
 			Runtime: "test",
 			Version: "dev",
 			Functions: []timemachine.Function{
-				{Module: "env", Name: "f0"},
-				{Module: "env", Name: "f1"},
-				{Module: "env", Name: "f2"},
-				{Module: "env", Name: "f3"},
-				{Module: "env", Name: "f4"},
+				{Module: "env", Name: "f0", ParamCount: 1, ResultCount: 1},
+				{Module: "env", Name: "f1", ParamCount: 2, ResultCount: 1},
+				{Module: "env", Name: "f2", ParamCount: 3, ResultCount: 1},
+				{Module: "env", Name: "f3", ParamCount: 0, ResultCount: 0},
+				{Module: "env", Name: "f4", ParamCount: 1, ResultCount: 1},
 			},
 		},
 		Process: timemachine.Process{
@@ -38,7 +38,13 @@ func TestReadLogHeader(t *testing.T) {
 		Compression: timemachine.Zstd,
 	}
 
-	if err := w.WriteLogHeader(header); err != nil {
+	var headerBuilder timemachine.HeaderBuilder
+	headerBuilder.SetProcess(header.Process)
+	headerBuilder.SetRuntime(header.Runtime)
+	headerBuilder.SetCompression(header.Compression)
+	headerBuilder.SetSegment(header.Segment)
+
+	if err := w.WriteLogHeader(headerBuilder); err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,16 +63,16 @@ func TestReadLogHeader(t *testing.T) {
 }
 
 func TestReadRecordBatch(t *testing.T) {
-	header := &timemachine.LogHeader{
+	header := &timemachine.Header{
 		Runtime: timemachine.Runtime{
 			Runtime: "test",
 			Version: "dev",
 			Functions: []timemachine.Function{
-				{Module: "env", Name: "f0"},
-				{Module: "env", Name: "f1"},
-				{Module: "env", Name: "f2"},
-				{Module: "env", Name: "f3"},
-				{Module: "env", Name: "f4"},
+				{Module: "env", Name: "f0", ParamCount: 1, ResultCount: 1},
+				{Module: "env", Name: "f1", ParamCount: 2, ResultCount: 1},
+				{Module: "env", Name: "f2", ParamCount: 3, ResultCount: 1},
+				{Module: "env", Name: "f3", ParamCount: 0, ResultCount: 0},
+				{Module: "env", Name: "f4", ParamCount: 1, ResultCount: 1},
 			},
 		},
 		Process: timemachine.Process{
@@ -80,36 +86,36 @@ func TestReadRecordBatch(t *testing.T) {
 		Compression: timemachine.Zstd,
 	}
 
-	batches := [][]timemachine.Record{
-		[]timemachine.Record{
+	batches := [][]record{
+		{
 			{
-				Timestamp: header.Process.StartTime.Add(1 * time.Millisecond),
-				Function:  0,
-				Params:    []uint64{1},
-				Results:   []uint64{42},
+				Timestamp:  header.Process.StartTime.Add(1 * time.Millisecond),
+				FunctionID: 0,
+				Params:     []uint64{1},
+				Results:    []uint64{42},
 				MemoryAccess: []timemachine.MemoryAccess{
 					{Memory: []byte("hello world!"), Offset: 1234},
 				},
 			},
 		},
-		[]timemachine.Record{
+		{
 			{
-				Timestamp: header.Process.StartTime.Add(2 * time.Millisecond),
-				Function:  1,
-				Params:    []uint64{1, 2},
-				Results:   []uint64{42},
+				Timestamp:  header.Process.StartTime.Add(2 * time.Millisecond),
+				FunctionID: 1,
+				Params:     []uint64{1, 2},
+				Results:    []uint64{42},
 			},
 			{
-				Timestamp: header.Process.StartTime.Add(3 * time.Millisecond),
-				Function:  2,
-				Params:    []uint64{1, 2, 3},
-				Results:   []uint64{42},
+				Timestamp:  header.Process.StartTime.Add(3 * time.Millisecond),
+				FunctionID: 2,
+				Params:     []uint64{1, 2, 3},
+				Results:    []uint64{42},
 			},
 		},
-		[]timemachine.Record{
+		{
 			{
-				Timestamp: header.Process.StartTime.Add(4 * time.Millisecond),
-				Function:  3,
+				Timestamp:  header.Process.StartTime.Add(4 * time.Millisecond),
+				FunctionID: 3,
 				MemoryAccess: []timemachine.MemoryAccess{
 					{Memory: []byte("A"), Offset: 1},
 					{Memory: []byte("B"), Offset: 2},
@@ -118,10 +124,10 @@ func TestReadRecordBatch(t *testing.T) {
 				},
 			},
 			{
-				Timestamp: header.Process.StartTime.Add(5 * time.Millisecond),
-				Function:  4,
-				Params:    []uint64{1},
-				Results:   []uint64{42},
+				Timestamp:  header.Process.StartTime.Add(5 * time.Millisecond),
+				FunctionID: 4,
+				Params:     []uint64{1},
+				Results:    []uint64{42},
 				MemoryAccess: []timemachine.MemoryAccess{
 					{Memory: []byte("hello world!"), Offset: 1234},
 					{Memory: make([]byte, 10e3), Offset: 1234567},
@@ -133,13 +139,38 @@ func TestReadRecordBatch(t *testing.T) {
 	buffer := new(bytes.Buffer)
 	writer := timemachine.NewLogWriter(buffer)
 
-	if err := writer.WriteLogHeader(header); err != nil {
+	var headerBuilder timemachine.HeaderBuilder
+	headerBuilder.SetProcess(header.Process)
+	headerBuilder.SetRuntime(header.Runtime)
+	headerBuilder.SetCompression(header.Compression)
+	headerBuilder.SetSegment(header.Segment)
+
+	if err := writer.WriteLogHeader(headerBuilder); err != nil {
 		t.Fatal(err)
 	}
+	var functionCallBuilder timemachine.FunctionCallBuilder
+	var recordBuilder timemachine.RecordBuilder
+	var recordBatchBuilder timemachine.RecordBatchBuilder
+	var firstOffset int64
 	for _, batch := range batches {
-		if _, err := writer.WriteRecordBatch(batch); err != nil {
+		recordBatchBuilder.Reset(header.Compression, firstOffset)
+		for _, r := range batch {
+			functionCallBuilder.Reset(&header.Runtime.Functions[r.FunctionID])
+			functionCallBuilder.SetParams(r.Params)
+			functionCallBuilder.SetResults(r.Results)
+			for _, m := range r.MemoryAccess {
+				functionCallBuilder.AddMemoryAccess(m)
+			}
+			recordBuilder.Reset(header.Process.StartTime)
+			recordBuilder.SetTimestamp(r.Timestamp)
+			recordBuilder.SetFunctionID(r.FunctionID)
+			recordBuilder.SetFunctionCall(functionCallBuilder.Bytes())
+			recordBatchBuilder.AddRecord(recordBuilder)
+		}
+		if err := writer.WriteRecordBatch(recordBatchBuilder); err != nil {
 			t.Fatal(err)
 		}
+		firstOffset += int64(len(batch))
 	}
 
 	reader := timemachine.NewLogReader(bytes.NewReader(buffer.Bytes()))
@@ -152,7 +183,7 @@ func TestReadRecordBatch(t *testing.T) {
 		t.Fatal(diff)
 	}
 
-	batchesRead := make([][]timemachine.Record, 0, len(batches))
+	batchesRead := make([][]record, 0, len(batches))
 	for {
 		batch, length, err := reader.ReadRecordBatch(headerRead, offset)
 		if err != nil {
@@ -161,9 +192,52 @@ func TestReadRecordBatch(t *testing.T) {
 			}
 			t.Fatal(err)
 		}
-		records, err := batch.Records()
-		if err != nil {
-			t.Fatal(err)
+		records := make([]record, batch.NumRecords())
+		count := 0
+		for batch.Next() {
+			r, err := batch.Record()
+			if err != nil {
+				t.Fatal(err)
+			}
+			f, err := r.FunctionCall()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var params []uint64
+			if f.NumParams() > 0 {
+				params = make([]uint64, f.NumParams())
+				for i := range params {
+					params[i] = f.Param(i)
+				}
+			}
+			var results []uint64
+			if f.NumResults() > 0 {
+				results = make([]uint64, f.NumResults())
+				for i := range results {
+					results[i] = f.Result(i)
+				}
+			}
+			var memoryAccess []timemachine.MemoryAccess
+			if f.NumMemoryAccess() > 0 {
+				memoryAccess = make([]timemachine.MemoryAccess, f.NumMemoryAccess())
+				for i := range memoryAccess {
+					memoryAccess[i] = f.MemoryAccess(i)
+				}
+			}
+			if count >= len(records) {
+				t.Fatal("too many records")
+			}
+			records[count] = record{
+				Timestamp:    r.Timestamp(),
+				FunctionID:   r.FunctionID(),
+				Params:       params,
+				Results:      results,
+				MemoryAccess: memoryAccess,
+			}
+			count++
+		}
+		if count != len(records) {
+			t.Fatal("not enough records")
 		}
 		batchesRead = append(batchesRead, records)
 		offset += length
@@ -173,11 +247,19 @@ func TestReadRecordBatch(t *testing.T) {
 	}
 }
 
+type record struct {
+	Timestamp    time.Time
+	FunctionID   int
+	Params       []uint64
+	Results      []uint64
+	MemoryAccess []timemachine.MemoryAccess
+}
+
 func BenchmarkLogReader(b *testing.B) {
 	buffer := new(bytes.Buffer)
 	writer := timemachine.NewLogWriter(buffer)
 
-	header := &timemachine.LogHeader{
+	header := &timemachine.Header{
 		Runtime: timemachine.Runtime{
 			Runtime: "test",
 			Version: "dev",
@@ -200,7 +282,13 @@ func BenchmarkLogReader(b *testing.B) {
 		Compression: timemachine.Zstd,
 	}
 
-	if err := writer.WriteLogHeader(header); err != nil {
+	var headerBuilder timemachine.HeaderBuilder
+	headerBuilder.SetProcess(header.Process)
+	headerBuilder.SetRuntime(header.Runtime)
+	headerBuilder.SetCompression(header.Compression)
+	headerBuilder.SetSegment(header.Segment)
+
+	if err := writer.WriteLogHeader(headerBuilder); err != nil {
 		b.Fatal(err)
 	}
 
@@ -221,20 +309,20 @@ func BenchmarkLogWriter(b *testing.B) {
 	b.Run("WriteLogHeader", func(b *testing.B) {
 		tests := []struct {
 			scenario string
-			header   *timemachine.LogHeader
+			header   *timemachine.Header
 		}{
 			{
 				scenario: "common log header",
-				header: &timemachine.LogHeader{
+				header: &timemachine.Header{
 					Runtime: timemachine.Runtime{
 						Runtime: "test",
 						Version: "dev",
 						Functions: []timemachine.Function{
-							{Module: "env", Name: "f0"},
-							{Module: "env", Name: "f1"},
-							{Module: "env", Name: "f2"},
-							{Module: "env", Name: "f3"},
-							{Module: "env", Name: "f4"},
+							{Module: "env", Name: "f0", ParamCount: 1, ResultCount: 1},
+							{Module: "env", Name: "f1", ParamCount: 2, ResultCount: 1},
+							{Module: "env", Name: "f2", ParamCount: 3, ResultCount: 1},
+							{Module: "env", Name: "f3", ParamCount: 0, ResultCount: 0},
+							{Module: "env", Name: "f4", ParamCount: 1, ResultCount: 1},
 						},
 					},
 					Process: timemachine.Process{
@@ -258,16 +346,16 @@ func BenchmarkLogWriter(b *testing.B) {
 	})
 
 	b.Run("WriteRecordBatch", func(b *testing.B) {
-		header := &timemachine.LogHeader{
+		header := &timemachine.Header{
 			Runtime: timemachine.Runtime{
 				Runtime: "test",
 				Version: "dev",
 				Functions: []timemachine.Function{
-					{Module: "env", Name: "f0"},
-					{Module: "env", Name: "f1"},
-					{Module: "env", Name: "f2"},
-					{Module: "env", Name: "f3"},
-					{Module: "env", Name: "f4"},
+					{Module: "env", Name: "f0", ParamCount: 1, ResultCount: 1},
+					{Module: "env", Name: "f1", ParamCount: 2, ResultCount: 1},
+					{Module: "env", Name: "f2", ParamCount: 3, ResultCount: 1},
+					{Module: "env", Name: "f3", ParamCount: 0, ResultCount: 0},
+					{Module: "env", Name: "f4", ParamCount: 1, ResultCount: 1},
 				},
 			},
 			Process: timemachine.Process{
@@ -283,7 +371,7 @@ func BenchmarkLogWriter(b *testing.B) {
 
 		tests := []struct {
 			scenario string
-			batch    []timemachine.Record
+			batch    []record
 		}{
 			{
 				scenario: "zero records",
@@ -291,12 +379,12 @@ func BenchmarkLogWriter(b *testing.B) {
 
 			{
 				scenario: "one record",
-				batch: []timemachine.Record{
+				batch: []record{
 					{
-						Timestamp: header.Process.StartTime.Add(1 * time.Millisecond),
-						Function:  0,
-						Params:    []uint64{1},
-						Results:   []uint64{42},
+						Timestamp:  header.Process.StartTime.Add(1 * time.Millisecond),
+						FunctionID: 0,
+						Params:     []uint64{1},
+						Results:    []uint64{42},
 						MemoryAccess: []timemachine.MemoryAccess{
 							{Memory: []byte("hello world!"), Offset: 1234},
 						},
@@ -306,31 +394,31 @@ func BenchmarkLogWriter(b *testing.B) {
 
 			{
 				scenario: "five records",
-				batch: []timemachine.Record{
+				batch: []record{
 					{
-						Timestamp: header.Process.StartTime.Add(1 * time.Millisecond),
-						Function:  0,
-						Params:    []uint64{1},
-						Results:   []uint64{42},
+						Timestamp:  header.Process.StartTime.Add(1 * time.Millisecond),
+						FunctionID: 0,
+						Params:     []uint64{1},
+						Results:    []uint64{42},
 						MemoryAccess: []timemachine.MemoryAccess{
 							{Memory: []byte("hello world!"), Offset: 1234},
 						},
 					},
 					{
-						Timestamp: header.Process.StartTime.Add(2 * time.Millisecond),
-						Function:  1,
-						Params:    []uint64{1, 2},
-						Results:   []uint64{42},
+						Timestamp:  header.Process.StartTime.Add(2 * time.Millisecond),
+						FunctionID: 1,
+						Params:     []uint64{1, 2},
+						Results:    []uint64{42},
 					},
 					{
-						Timestamp: header.Process.StartTime.Add(3 * time.Millisecond),
-						Function:  2,
-						Params:    []uint64{1, 2, 3},
-						Results:   []uint64{42},
+						Timestamp:  header.Process.StartTime.Add(3 * time.Millisecond),
+						FunctionID: 2,
+						Params:     []uint64{1, 2, 3},
+						Results:    []uint64{42},
 					},
 					{
-						Timestamp: header.Process.StartTime.Add(4 * time.Millisecond),
-						Function:  3,
+						Timestamp:  header.Process.StartTime.Add(4 * time.Millisecond),
+						FunctionID: 3,
 						MemoryAccess: []timemachine.MemoryAccess{
 							{Memory: []byte("A"), Offset: 1},
 							{Memory: []byte("B"), Offset: 2},
@@ -339,10 +427,10 @@ func BenchmarkLogWriter(b *testing.B) {
 						},
 					},
 					{
-						Timestamp: header.Process.StartTime.Add(5 * time.Millisecond),
-						Function:  4,
-						Params:    []uint64{1},
-						Results:   []uint64{42},
+						Timestamp:  header.Process.StartTime.Add(5 * time.Millisecond),
+						FunctionID: 4,
+						Params:     []uint64{1},
+						Results:    []uint64{42},
 						MemoryAccess: []timemachine.MemoryAccess{
 							{Memory: []byte("hello world!"), Offset: 1234},
 							{Memory: make([]byte, 10e3), Offset: 1234567},
@@ -360,23 +448,65 @@ func BenchmarkLogWriter(b *testing.B) {
 	})
 }
 
-func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timemachine.LogHeader) {
+func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timemachine.Header) {
 	w := timemachine.NewLogWriter(io.Discard)
 
+	var headerBuilder timemachine.HeaderBuilder
+	headerBuilder.SetProcess(header.Process)
+	headerBuilder.SetRuntime(header.Runtime)
+	headerBuilder.SetCompression(header.Compression)
+	headerBuilder.SetSegment(header.Segment)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
-		if err := w.WriteLogHeader(header); err != nil {
+		headerBuilder.Reset()
+		headerBuilder.SetProcess(header.Process)
+		headerBuilder.SetRuntime(header.Runtime)
+		headerBuilder.SetCompression(header.Compression)
+		headerBuilder.SetSegment(header.Segment)
+		if err := w.WriteLogHeader(headerBuilder); err != nil {
 			b.Fatal(err)
 		}
 		w.Reset(io.Discard)
 	}
 }
 
-func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.LogHeader, batch []timemachine.Record) {
+func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.Header, batch []record) {
 	w := timemachine.NewLogWriter(io.Discard)
-	w.WriteLogHeader(header)
+	var headerBuilder timemachine.HeaderBuilder
+	headerBuilder.SetProcess(header.Process)
+	headerBuilder.SetRuntime(header.Runtime)
+	headerBuilder.SetCompression(header.Compression)
+	headerBuilder.SetSegment(header.Segment)
+	if err := w.WriteLogHeader(headerBuilder); err != nil {
+		b.Fatal(err)
+	}
+
+	var functionCallBuilder timemachine.FunctionCallBuilder
+	var recordBuilder timemachine.RecordBuilder
+	var recordBatchBuilder timemachine.RecordBatchBuilder
+
+	b.ReportAllocs()
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := w.WriteRecordBatch(batch); err != nil {
+		recordBatchBuilder.Reset(header.Compression, 0)
+		for _, r := range batch {
+			functionCallBuilder.Reset(&header.Runtime.Functions[r.FunctionID])
+			functionCallBuilder.SetParams(r.Params)
+			functionCallBuilder.SetResults(r.Results)
+			for _, m := range r.MemoryAccess {
+				functionCallBuilder.AddMemoryAccess(m)
+			}
+			recordBuilder.Reset(header.Process.StartTime)
+			recordBuilder.SetTimestamp(r.Timestamp)
+			recordBuilder.SetFunctionID(r.FunctionID)
+			recordBuilder.SetFunctionCall(functionCallBuilder.Bytes())
+			recordBatchBuilder.AddRecord(recordBuilder)
+		}
+		if err := w.WriteRecordBatch(recordBatchBuilder); err != nil {
 			b.Fatal(err)
 		}
 	}

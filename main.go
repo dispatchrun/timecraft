@@ -16,7 +16,10 @@ import (
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
+	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/sys"
 )
 
 var version = "devel"
@@ -110,10 +113,11 @@ OPTIONS:
 
    --compression <TYPE>
       Compression to use when writing the log, either {snappy, zstd,
-      none}. Default is snappy
+      none}. Default is zstd
 
    --batch-size <NUM>
-      Number of records to accumulate in a batch before writing to the log
+      Number of records to accumulate in a batch before writing to
+      the log. Default is 1024
 
    --dir <DIR>
       Grant access to the specified host directory
@@ -154,8 +158,8 @@ func run(args []string) error {
 	sockets := flagSet.String("sockets", "auto", "")
 	trace := flagSet.Bool("trace", false, "")
 	logPath := flagSet.String("record", "", "")
-	compression := flagSet.String("compression", "snappy", "")
-	batchSize := flagSet.Int("batch-size", 1, "")
+	compression := flagSet.String("compression", "zstd", "")
+	batchSize := flagSet.Int("batch-size", 1024, "")
 
 	flagSet.Parse(args)
 
@@ -206,9 +210,6 @@ func run(args []string) error {
 
 		logWriter := timemachine.NewLogWriter(logFile)
 
-		bufferedLogWriter := timemachine.NewBufferedLogWriter(logWriter, *batchSize)
-		defer bufferedLogWriter.Flush()
-
 		var functions timemachine.FunctionIndex
 		importedFunctions := wasmModule.ImportedFunctions()
 		for _, f := range importedFunctions {
@@ -216,44 +217,56 @@ func run(args []string) error {
 			if !isImport {
 				continue
 			}
-			functions.Add(moduleName, functionName)
+			functions.Add(timemachine.Function{
+				Module:      moduleName,
+				Name:        functionName,
+				ParamCount:  len(f.ParamTypes()),
+				ResultCount: len(f.ResultTypes()),
+			})
 		}
 
-		header := &timemachine.LogHeader{
-			Runtime: timemachine.Runtime{
-				Runtime:   "timecraft",
-				Version:   version,
-				Functions: functions.Functions(),
-			},
-			Process: timemachine.Process{
-				ID:        timemachine.Hash{}, // TODO
-				Image:     timemachine.SHA256(wasmCode),
-				StartTime: time.Now(),
-				Args:      append([]string{wasmName}, args...),
-				Environ:   envs,
-			},
-		}
+		var header timemachine.HeaderBuilder
+		header.SetRuntime(timemachine.Runtime{
+			Runtime:   "timecraft",
+			Version:   version,
+			Functions: functions.Functions(),
+		})
+		startTime := time.Now()
+		header.SetProcess(timemachine.Process{
+			ID:        timemachine.Hash{}, // TODO
+			Image:     timemachine.SHA256(wasmCode),
+			StartTime: startTime,
+			Args:      append([]string{wasmName}, args...),
+			Environ:   envs,
+		})
 
+		var c timemachine.Compression
 		switch strings.ToLower(*compression) {
 		case "snappy":
-			header.Compression = timemachine.Snappy
+			c = timemachine.Snappy
 		case "zstd":
-			header.Compression = timemachine.Zstd
+			c = timemachine.Zstd
 		case "none", "":
-			header.Compression = timemachine.Uncompressed
+			c = timemachine.Uncompressed
 		default:
 			return fmt.Errorf("invalid compression type %q", *compression)
 		}
+		header.SetCompression(c)
 
 		if err := logWriter.WriteLogHeader(header); err != nil {
 			return fmt.Errorf("failed to write log header: %w", err)
 		}
 
-		builder = builder.WithDecorators(timemachine.Capture[*wasi_snapshot_preview1.Module](functions, func(record timemachine.Record) {
-			if err := bufferedLogWriter.WriteRecord(record); err != nil {
-				panic(err) // TODO: better error handling
-			}
-		}))
+		recordWriter := timemachine.NewLogRecordWriter(logWriter, *batchSize, c)
+		defer recordWriter.Flush()
+
+		builder = builder.WithDecorators(
+			timemachine.Capture[*wasi_snapshot_preview1.Module](startTime, functions, func(record timemachine.RecordBuilder) {
+				if err := recordWriter.WriteRecord(record); err != nil {
+					panic(err)
+				}
+			}),
+		)
 	}
 
 	var system wasi.System
@@ -310,6 +323,8 @@ func replay(args []string) error {
 	defer logFile.Close()
 
 	logReader := timemachine.NewLogReader(logFile)
+	defer logReader.Close()
+
 	logHeader, _, err := logReader.ReadLogHeader()
 	if err != nil {
 		return fmt.Errorf("cannot read header from log %q: %w", logPath, err)
@@ -346,10 +361,6 @@ func replay(args []string) error {
 		WithName(wasmName).
 		WithArgs(args...).
 		WithEnv(envs...)
-	// TODO? WithDirs(dirs...).
-	// TODO? WithListens(listens...).
-	// TODO? WithDials(dials...).
-	// TODO? WithSocketsExtension(*sockets, wasmModule).
 
 	var functions timemachine.FunctionIndex
 	importedFunctions := wasmModule.ImportedFunctions()
@@ -358,7 +369,12 @@ func replay(args []string) error {
 		if !isImport {
 			continue
 		}
-		functions.Add(moduleName, functionName)
+		functions.Add(timemachine.Function{
+			Module:      moduleName,
+			Name:        functionName,
+			ParamCount:  len(f.ParamTypes()),
+			ResultCount: len(f.ResultTypes()),
+		})
 	}
 	if len(logHeader.Runtime.Functions) != len(functions.Functions()) {
 		return fmt.Errorf("imported functions mismatch")
@@ -372,7 +388,8 @@ func replay(args []string) error {
 	records := timemachine.NewLogRecordIterator(logReader)
 	defer records.Close()
 
-	builder = builder.WithDecorators(timemachine.Replay[*wasi_snapshot_preview1.Module](functions, records))
+	controller := &replayController[*wasi_snapshot_preview1.Module]{}
+	builder = builder.WithDecorators(timemachine.Replay[*wasi_snapshot_preview1.Module](functions, records, controller))
 
 	var system wasi.System
 	ctx, system, err = builder.Instantiate(ctx, runtime)
@@ -386,6 +403,28 @@ func replay(args []string) error {
 		return err
 	}
 	return instance.Close(ctx)
+}
+
+type replayController[T wazergo.Module] struct{}
+
+func (r *replayController[T]) Step(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record) {
+	// noop
+}
+
+func (r *replayController[T]) ReadError(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, err error) {
+	panic(err)
+}
+
+func (r replayController[T]) MismatchError(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record, err error) {
+	panic(err)
+}
+
+func (r replayController[T]) Exit(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record, exitCode uint32) {
+	panic(sys.NewExitError(exitCode))
+}
+
+func (r *replayController[T]) EOF(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64) {
+	panic("EOF")
 }
 
 type stringList []string
