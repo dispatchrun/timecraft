@@ -2,6 +2,7 @@ package timemachine
 
 import "time"
 
+// Header is a log header.
 type Header struct {
 	Runtime     Runtime
 	Process     Process

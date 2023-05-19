@@ -2,7 +2,6 @@ package timemachine
 
 import (
 	"bytes"
-	"sync"
 
 	"github.com/tetratelabs/wazero/api"
 )
@@ -14,9 +13,15 @@ import (
 // get it in the same state as the output memory.
 type MemoryInterceptor struct {
 	api.Memory
-	access     []MemoryAccess
+	access     []memorySlice
 	readWrites []int
 	buffer     []byte
+}
+
+type memorySlice struct {
+	offset uint32
+	length uint32
+	index  uint32
 }
 
 // MemoryAccess returns an ordered set of memory reads and writes.
@@ -25,7 +30,12 @@ type MemoryInterceptor struct {
 // not be retained.
 func (m *MemoryInterceptor) MemoryAccess() []MemoryAccess {
 	m.observeWrites()
-	return m.access
+	ma := make([]MemoryAccess, len(m.access))
+	for i, a := range m.access {
+		ma[i].Memory = m.buffer[a.index : a.index+a.length]
+		ma[i].Offset = a.offset
+	}
+	return ma
 }
 
 // Reset resets the interceptor.
@@ -159,6 +169,9 @@ func (m *MemoryInterceptor) WriteString(offset uint32, v string) (ok bool) {
 }
 
 func (m *MemoryInterceptor) capture(offset, length uint32, mode int) {
+	if length == 0 {
+		return
+	}
 	b, _ := m.Memory.Read(offset, length)
 	if mode == 'r'+'w' {
 		// Mutations may be applied to the slice returned by Read. We have to
@@ -168,9 +181,10 @@ func (m *MemoryInterceptor) capture(offset, length uint32, mode int) {
 		m.readWrites = append(m.readWrites, len(m.access))
 	}
 	m.buffer = append(m.buffer, b...)
-	m.access = append(m.access, MemoryAccess{
-		Memory: m.buffer[len(m.buffer)-len(b):],
-		Offset: offset,
+	m.access = append(m.access, memorySlice{
+		offset: offset,
+		length: uint32(len(b)),
+		index:  uint32(len(m.buffer) - len(b)),
 	})
 }
 
@@ -181,9 +195,9 @@ func (m *MemoryInterceptor) observeWrites() {
 	// after the read.
 	for _, i := range m.readWrites {
 		a := &m.access[i]
-		offset, length := a.Offset, uint32(len(a.Memory))
-		if b, _ := m.Memory.Read(offset, length); !bytes.Equal(b, a.Memory) {
-			m.capture(offset, length, 'w')
+		prev := m.buffer[a.index : a.index+a.length]
+		if curr, _ := m.Memory.Read(a.offset, a.length); !bytes.Equal(curr, prev) {
+			m.capture(a.offset, a.length, 'w')
 		}
 	}
 	m.readWrites = m.readWrites[:0]
@@ -196,30 +210,11 @@ type MemoryInterceptorModule struct {
 	mem *MemoryInterceptor
 }
 
+func (m *MemoryInterceptorModule) Reset(module api.Module, mem *MemoryInterceptor) {
+	m.Module = module
+	m.mem = mem
+}
+
 func (m *MemoryInterceptorModule) Memory() api.Memory {
 	return m.mem
-}
-
-var memoryInterceptorModulePool sync.Pool // *MemoryInterceptorModule
-
-// GetMemoryInterceptorModule gets a memory interceptor module from the pool.
-func GetMemoryInterceptorModule(module api.Module) *MemoryInterceptorModule {
-	if p := memoryInterceptorModulePool.Get(); p != nil {
-		m := p.(*MemoryInterceptorModule)
-		m.Module = module
-		m.mem.Reset(module.Memory())
-		return m
-	}
-	return &MemoryInterceptorModule{
-		Module: module,
-		mem: &MemoryInterceptor{
-			Memory: module.Memory(),
-		},
-	}
-}
-
-// PutMemoryInterceptorModule returns a memory interceptor module to the pool.
-func PutMemoryInterceptorModule(m *MemoryInterceptorModule) {
-	m.mem.Reset(nil)
-	memoryInterceptorModulePool.Put(m)
 }

@@ -2,7 +2,6 @@ package timemachine
 
 import (
 	"io"
-	"time"
 
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logsegment"
@@ -15,26 +14,12 @@ import (
 // initialize the state of the writer, zero or more record batches may then
 // be written to the log after that.
 type LogWriter struct {
-	output              io.Writer
-	builder             *flatbuffers.Builder
-	functionCallBuilder *flatbuffers.Builder
-	uncompressed        []byte
-	compressed          []byte
-	// The compression format declared in the log header first written to the
-	// log segment.
-	compression Compression
-	// The start time is captured when writing the log header to compute
-	// monontonic timestamps for the records written to the log.
-	startTime time.Time
-	// This field keeps track of the logical offset for the next record
-	// batch that will be written to the log.
-	nextOffset int64
+	output  io.Writer
+	builder *flatbuffers.Builder
 	// When writing to the underlying io.Writer causes an error, we stop
 	// accepting writes and assume the log is corrupted.
 	stickyErr error
-	// Those fields are local buffers retained as an optimization to avoid
-	// reallocation of temporary arrays when serializing log records.
-	memory  []byte
+
 	offsets []flatbuffers.UOffsetT
 }
 
@@ -48,10 +33,8 @@ func NewLogWriter(output io.Writer) *LogWriter {
 // the initial buffer size.
 func NewLogWriterSize(output io.Writer, bufferSize int) *LogWriter {
 	return &LogWriter{
-		output:              output,
-		builder:             flatbuffers.NewBuilder(bufferSize),
-		functionCallBuilder: flatbuffers.NewBuilder(bufferSize),
-		uncompressed:        make([]byte, 0, bufferSize),
+		output:  output,
+		builder: flatbuffers.NewBuilder(bufferSize),
 	}
 }
 
@@ -62,15 +45,7 @@ func NewLogWriterSize(output io.Writer, bufferSize int) *LogWriter {
 func (w *LogWriter) Reset(output io.Writer) {
 	w.output = output
 	w.builder.Reset()
-	w.functionCallBuilder.Reset()
-	w.uncompressed = w.uncompressed[:0]
-	w.compressed = w.compressed[:0]
-	w.compression = Uncompressed
-	w.startTime = time.Time{}
-	w.nextOffset = 0
 	w.stickyErr = nil
-	w.memory = w.memory[:0]
-	w.offsets = w.offsets[:0]
 }
 
 // WriteLogHeader writes the log header. The method must be called before any
@@ -148,98 +123,24 @@ func (w *LogWriter) WriteLogHeader(header *Header) error {
 		w.stickyErr = err
 		return err
 	}
-	w.startTime = header.Process.StartTime
-	w.compression = header.Compression
 	return nil
 }
 
-// WriteRecordBatch writes a record batch to the log. The method returns the
-// logical offset of the first record, or a non-nil error if the write failed.
+// WriteRecordBatch writes a record batch to the log. The method returns
+// a non-nil error if the write failed.
 //
 // If the error occurred while writing to the underlying io.Writer, the writer
 // is broken and will always error on future calls to WriteRecordBatch until
 // the program calls Reset.
-func (w *LogWriter) WriteRecordBatch(batch []RecordFIXME) (int64, error) {
+func (w *LogWriter) WriteRecordBatch(batch RecordBatchBuilder) error {
 	if w.stickyErr != nil {
-		return w.nextOffset, w.stickyErr
+		return w.stickyErr
 	}
-	w.uncompressed = w.uncompressed[:0]
-	w.compressed = w.compressed[:0]
-
-	for _, record := range batch {
-		w.functionCallBuilder.Reset()
-		w.memory = w.memory[:0]
-		logsegment.FunctionCallStartMemoryAccessVector(w.functionCallBuilder, len(record.MemoryAccess))
-		w.functionCallBuilder.Prep(12*len(record.MemoryAccess), 0)
-		for i := len(record.MemoryAccess) - 1; i >= 0; i-- {
-			m := &record.MemoryAccess[i]
-			w.functionCallBuilder.PlaceUint32(uint32(len(w.memory))) // offset into the index
-			w.functionCallBuilder.PlaceUint32(m.Offset)              // offset into guest memory
-			w.functionCallBuilder.PlaceUint32(uint32(len(m.Memory))) // length of captured memory
-			w.memory = append(w.memory, m.Memory...)
-		}
-		memoryAccess := w.functionCallBuilder.EndVector(len(record.MemoryAccess))
-		memory := w.functionCallBuilder.CreateByteVector(w.memory)
-
-		w.functionCallBuilder.StartVector(flatbuffers.SizeUint64, len(record.Params)+len(record.Results), flatbuffers.SizeUint64)
-		for i := len(record.Results) - 1; i >= 0; i-- {
-			w.functionCallBuilder.PrependUint64(record.Results[i])
-		}
-		for i := len(record.Params) - 1; i >= 0; i-- {
-			w.functionCallBuilder.PrependUint64(record.Params[i])
-		}
-		stack := w.functionCallBuilder.EndVector(len(record.Params) + len(record.Results))
-
-		logsegment.FunctionCallStart(w.functionCallBuilder)
-		logsegment.FunctionCallAddStack(w.functionCallBuilder, stack)
-		logsegment.FunctionCallAddMemoryAccess(w.functionCallBuilder, memoryAccess)
-		logsegment.FunctionCallAddMemory(w.functionCallBuilder, memory)
-		logsegment.FinishFunctionCallBuffer(w.functionCallBuilder, logsegment.FunctionCallEnd(w.functionCallBuilder))
-
-		w.builder.Reset()
-		functionCall := w.builder.CreateByteVector(w.functionCallBuilder.FinishedBytes())
-
-		logsegment.RecordStart(w.builder)
-		logsegment.RecordAddTimestamp(w.builder, int64(record.Timestamp.Sub(w.startTime)))
-		logsegment.RecordAddFunctionId(w.builder, uint32(record.Function))
-		logsegment.RecordAddFunctionCall(w.builder, functionCall)
-		logsegment.FinishSizePrefixedRecordBuffer(w.builder, logsegment.RecordEnd(w.builder))
-
-		w.uncompressed = append(w.uncompressed, w.builder.FinishedBytes()...)
-	}
-
-	firstOffset := w.nextOffset
-	w.nextOffset += int64(len(batch))
-
-	var firstTimestamp int64
-	if len(batch) > 0 {
-		firstTimestamp = int64(batch[0].Timestamp.Sub(w.startTime))
-	}
-
-	if w.compression != Uncompressed {
-		w.compressed = compress(w.compressed[:cap(w.compressed)], w.uncompressed, w.compression)
-	}
-
-	w.builder.Reset()
-
-	logsegment.RecordBatchStart(w.builder)
-	logsegment.RecordBatchAddFirstOffset(w.builder, firstOffset)
-	logsegment.RecordBatchAddFirstTimestamp(w.builder, firstTimestamp)
-	logsegment.RecordBatchAddCompressedSize(w.builder, uint32(len(w.compressed)))
-	logsegment.RecordBatchAddUncompressedSize(w.builder, uint32(len(w.uncompressed)))
-	logsegment.RecordBatchAddChecksum(w.builder, checksum(w.compressed))
-	logsegment.RecordBatchAddNumRecords(w.builder, uint32(len(batch)))
-	logsegment.FinishSizePrefixedRecordBatchBuffer(w.builder, logsegment.RecordBatchEnd(w.builder))
-
-	if _, err := w.output.Write(w.builder.FinishedBytes()); err != nil {
+	if _, err := w.output.Write(batch.Bytes()); err != nil {
 		w.stickyErr = err
-		return firstOffset, err
+		return err
 	}
-	if _, err := w.output.Write(w.compressed); err != nil {
-		w.stickyErr = err
-		return firstOffset, err
-	}
-	return firstOffset, nil
+	return nil
 }
 
 func (w *LogWriter) prependHash(hash Hash) flatbuffers.UOffsetT {
@@ -280,55 +181,47 @@ func (w *LogWriter) prependOffsetVector(offsets []flatbuffers.UOffsetT) flatbuff
 type BufferedLogWriter struct {
 	*LogWriter
 
-	batchSize int
-	batch     []RecordFIXME
-
-	memoryAccesses []MemoryAccess
-	buffer         []byte
+	batchSize   int
+	compression Compression
+	firstOffset int64
+	batch       RecordBatchBuilder
+	count       int
 }
 
 // NewBufferedLogWriter creates a BufferedLogWriter.
-func NewBufferedLogWriter(w *LogWriter, batchSize int) *BufferedLogWriter {
-	return &BufferedLogWriter{
-		LogWriter: w,
-		batchSize: batchSize,
-		batch:     make([]RecordFIXME, 0, batchSize),
-		buffer:    make([]byte, 0, 4096),
+func NewBufferedLogWriter(w *LogWriter, batchSize int, compression Compression) *BufferedLogWriter {
+	bw := &BufferedLogWriter{
+		LogWriter:   w,
+		compression: compression,
+		batchSize:   batchSize,
 	}
+	bw.batch.Reset(compression, 0)
+	return bw
 }
 
 // WriteRecord buffers a Record and then writes it once the internal
 // record batch is full.
 //
 // The writer will make a copy of the memory accesses.
-func (w *BufferedLogWriter) WriteRecord(record RecordFIXME) error {
-	for i := range record.MemoryAccess {
-		m := &record.MemoryAccess[i]
-		w.buffer = append(w.buffer, m.Memory...)
-		w.memoryAccesses = append(w.memoryAccesses, MemoryAccess{
-			Offset: m.Offset,
-			Memory: w.buffer[len(w.buffer)-len(m.Memory):],
-		})
+func (w *BufferedLogWriter) WriteRecord(record RecordBuilder) error {
+	w.batch.AddRecord(record)
+	w.count++
+	if w.count >= w.batchSize {
+		return w.Flush()
 	}
-	record.MemoryAccess = w.memoryAccesses[len(w.memoryAccesses)-len(record.MemoryAccess):]
-
-	w.batch = append(w.batch, record)
-	if len(w.batch) < w.batchSize {
-		return nil
-	}
-	return w.Flush()
+	return nil
 }
 
 // Flush flushes any pending records.
 func (w *BufferedLogWriter) Flush() error {
-	if len(w.batch) == 0 {
+	if w.count == 0 {
 		return nil
 	}
-	if _, err := w.WriteRecordBatch(w.batch); err != nil {
+	if err := w.WriteRecordBatch(w.batch); err != nil {
 		return err
 	}
-	w.batch = w.batch[:0]
-	w.buffer = w.buffer[:0]
-	w.memoryAccesses = w.memoryAccesses[:0]
+	w.firstOffset += int64(w.count)
+	w.count = 0
+	w.batch.Reset(w.compression, w.firstOffset)
 	return nil
 }

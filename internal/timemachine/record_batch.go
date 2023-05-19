@@ -7,10 +7,11 @@ import (
 	"sync"
 	"time"
 
+	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logsegment"
 )
 
-// RecordBatch represents a single set of records read from a log segment.
+// RecordBatch is a read-only batch of records read from a log segment.
 type RecordBatch struct {
 	// Original input and location of the record batch in it. The byte offset
 	// is where the record batch started, the byte length is its size until the
@@ -206,4 +207,79 @@ func (b *RecordBatch) readRecords() (*buffer, error) {
 	dst, err = decompress(dst, src, compression)
 	uncompressedMemoryBuffer.data = dst
 	return uncompressedMemoryBuffer, err
+}
+
+// RecordBuilder is a builder for record batches.
+type RecordBatchBuilder struct {
+	builder        *flatbuffers.Builder
+	compression    Compression
+	firstOffset    int64
+	firstTimestamp int64
+	recordCount    uint32
+	uncompressed   []byte
+	compressed     []byte
+	result         []byte
+	finished       bool
+}
+
+// Reset resets the builder.
+func (b *RecordBatchBuilder) Reset(compression Compression, firstOffset int64) {
+	if b.builder == nil {
+		b.builder = flatbuffers.NewBuilder(defaultBufferSize)
+	} else {
+		b.builder.Reset()
+	}
+	b.compression = compression
+	b.uncompressed = b.uncompressed[:0]
+	b.compressed = b.compressed[:0]
+	b.result = b.result[:0]
+	b.firstOffset = firstOffset
+	b.firstTimestamp = 0
+	b.finished = false
+	b.recordCount = 0
+}
+
+// AddRecord adds a record to the batch.
+func (b *RecordBatchBuilder) AddRecord(record RecordBuilder) {
+	if b.finished {
+		panic("builder must be reset before records can be added")
+	}
+	b.uncompressed = append(b.uncompressed, record.Bytes()...)
+	if b.recordCount == 0 {
+		b.firstTimestamp = record.timestamp
+	}
+	b.recordCount++
+}
+
+// Bytes returns the serialized representation of the record batch.
+func (b *RecordBatchBuilder) Bytes() []byte {
+	if !b.finished {
+		b.build()
+		b.finished = true
+	}
+	return b.result
+}
+
+func (b *RecordBatchBuilder) build() {
+	if b.builder == nil {
+		panic("builder is not initialized")
+	}
+
+	records := b.uncompressed
+	if b.compression != Uncompressed {
+		b.compressed = compress(b.compressed[:cap(b.compressed)], b.uncompressed, b.compression)
+		records = b.compressed
+	}
+
+	logsegment.RecordBatchStart(b.builder)
+	logsegment.RecordBatchAddFirstOffset(b.builder, b.firstOffset)
+	logsegment.RecordBatchAddFirstTimestamp(b.builder, b.firstTimestamp)
+	logsegment.RecordBatchAddCompressedSize(b.builder, uint32(len(b.compressed)))
+	logsegment.RecordBatchAddUncompressedSize(b.builder, uint32(len(b.uncompressed)))
+	logsegment.RecordBatchAddChecksum(b.builder, checksum(records))
+	logsegment.RecordBatchAddNumRecords(b.builder, b.recordCount)
+	logsegment.FinishSizePrefixedRecordBatchBuffer(b.builder, logsegment.RecordBatchEnd(b.builder))
+
+	b.result = append(b.result, b.builder.FinishedBytes()...)
+	b.result = append(b.result, records...)
 }

@@ -48,8 +48,6 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 
 				functionCall := record.FunctionCall
 				if paramCount != functionCall.NumParams() {
-					fmt.Println(f.Name, len(f.Params), functionID)
-
 					panic(fmt.Sprintf("function param count mismatch: got %d, expect %d", len(f.Params), functionCall.NumParams()))
 				}
 				for i := 0; i < paramCount; i++ {
