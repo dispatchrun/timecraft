@@ -319,6 +319,8 @@ func replay(args []string) error {
 	defer logFile.Close()
 
 	logReader := timemachine.NewLogReader(logFile)
+	defer logReader.Close()
+
 	logHeader, _, err := logReader.ReadLogHeader()
 	if err != nil {
 		return fmt.Errorf("cannot read header from log %q: %w", logPath, err)

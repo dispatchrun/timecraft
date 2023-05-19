@@ -11,20 +11,16 @@ import (
 
 // RecordBatch is a read-only batch of records read from a log segment.
 type RecordBatch struct {
-	// Reader for the records data section adjacent to the record batch.
+	// Reader for the records data section adjacent to the record batch. When
+	// the records are accessed, they're read into the records buffer.
 	recordsReader io.Reader
+	records       *buffer
 
-	// Flatbuffers pointer into the record batch frame used to load the records.
 	batch logsegment.RecordBatch
 
 	// Capture of the log header for the segment that the record batch was read
 	// from.
 	header *Header
-
-	// The record batch keeps ownership of the frame that it was read from;
-	// the frame is released to the global pool when the batch is closed.
-	frame   *buffer
-	records *buffer
 
 	// If an error occurs while reading, it is captured in `err` and all reads of
 	// the records will observe the error.
@@ -36,17 +32,32 @@ type RecordBatch struct {
 	record Record
 }
 
-// Close must be called by the application when the batch isn't needed anymore
-// to allow the resources held internally to be reused by the application.
-func (b *RecordBatch) Close() error {
-	recordsBufferPool := &compressedBufferPool
-	if b.header.Compression == Uncompressed {
-		recordsBufferPool = &uncompressedBufferPool
+// MakeRecordBatch creates a record batch from the specified buffer.
+func MakeRecordBatch(header *Header, buf []byte, reader io.Reader) (rb RecordBatch) {
+	rb.Reset(header, buf, reader)
+	return
+}
+
+// Reset resets the record batch.
+func (b *RecordBatch) Reset(header *Header, buf []byte, reader io.Reader) {
+	if b.records != nil {
+		recordsBufferPool := &compressedBufferPool
+		if b.header.Compression == Uncompressed {
+			recordsBufferPool = &uncompressedBufferPool
+		}
+		releaseBuffer(&b.records, recordsBufferPool)
 	}
-	releaseBuffer(&b.records, recordsBufferPool)
-	releaseBuffer(&b.frame, &frameBufferPool)
-	b.batch = logsegment.RecordBatch{}
-	return nil
+	b.recordsReader = reader
+	b.records = nil
+	b.header = header
+	if len(buf) > 0 {
+		b.batch = *logsegment.GetSizePrefixedRootAsRecordBatch(buf, 0)
+	} else {
+		b.batch = logsegment.RecordBatch{}
+	}
+	b.err = nil
+	b.offset = 0
+	b.record = Record{}
 }
 
 // RecordsSize is the size of the adjacent record data.

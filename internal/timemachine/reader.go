@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-
-	"github.com/stealthrocket/timecraft/format/logsegment"
 )
 
 const maxFrameSize = (1 * 1024 * 1024) - 4
@@ -24,6 +22,9 @@ const maxFrameSize = (1 * 1024 * 1024) - 4
 type LogReader struct {
 	input      io.ReaderAt
 	bufferSize int
+
+	batch      RecordBatch
+	batchFrame *buffer
 }
 
 // NewLogReader construct a new log reader consuming input from the given
@@ -44,7 +45,15 @@ func NewLogReaderSize(input io.ReaderAt, bufferSize int) *LogReader {
 // Reset clears the reader state and sets it to consume input from the given
 // io.Reader.
 func (r *LogReader) Reset(input io.ReaderAt) {
+	releaseBuffer(&r.batchFrame, &frameBufferPool)
+	r.batch.Reset(nil, nil, nil)
 	r.input = input
+}
+
+// Close closes the log reader.
+func (r *LogReader) Close() error {
+	r.Reset(nil)
+	return nil
 }
 
 // ReadLogHeader reads and returns the log header from r.
@@ -69,19 +78,16 @@ func (r *LogReader) ReadLogHeader() (*Header, int64, error) {
 }
 
 func (r *LogReader) ReadRecordBatch(header *Header, byteOffset int64) (*RecordBatch, int64, error) {
-	f, err := r.readFrameAt(byteOffset)
+	releaseBuffer(&r.batchFrame, &frameBufferPool)
+	var err error
+	r.batchFrame, err = r.readFrameAt(byteOffset)
 	if err != nil {
 		return nil, 0, err
 	}
-	b := logsegment.GetRootAsRecordBatch(f.data[4:], 0)
-	recordBatchSize := int64(len(f.data))
-	batch := &RecordBatch{
-		recordsReader: io.NewSectionReader(r.input, byteOffset+recordBatchSize, math.MaxInt64),
-		header:        header,
-		batch:         *b,
-		frame:         f,
-	}
-	return batch, recordBatchSize + int64(batch.RecordsSize()), nil
+	recordBatchSize := int64(len(r.batchFrame.data))
+	recordsReader := io.NewSectionReader(r.input, byteOffset+recordBatchSize, math.MaxInt64)
+	r.batch.Reset(header, r.batchFrame.data, recordsReader)
+	return &r.batch, recordBatchSize + int64(r.batch.RecordsSize()), nil
 }
 
 func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
@@ -155,9 +161,6 @@ func (i *LogRecordIterator) Next() bool {
 		}
 	}
 	for i.batch == nil || !i.batch.Next() {
-		if i.batch != nil {
-			i.batch.Close()
-		}
 		var batchLength int64
 		i.batch, batchLength, i.err = i.reader.ReadRecordBatch(i.header, i.readerOffset)
 		if i.err != nil {
@@ -178,9 +181,5 @@ func (i *LogRecordIterator) Record() (Record, error) {
 
 // Close closes the iterator.
 func (i *LogRecordIterator) Close() error {
-	if i.batch != nil {
-		i.batch.Close()
-		i.batch = nil
-	}
 	return i.err
 }
