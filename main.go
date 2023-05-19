@@ -16,7 +16,10 @@ import (
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
+	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/sys"
 )
 
 var version = "devel"
@@ -260,7 +263,7 @@ func run(args []string) error {
 		builder = builder.WithDecorators(
 			timemachine.Capture[*wasi_snapshot_preview1.Module](startTime, functions, func(record timemachine.RecordBuilder) {
 				if err := recordWriter.WriteRecord(record); err != nil {
-					panic(err) // TODO: better error handling
+					panic(err)
 				}
 			}),
 		)
@@ -385,7 +388,8 @@ func replay(args []string) error {
 	records := timemachine.NewLogRecordIterator(logReader)
 	defer records.Close()
 
-	builder = builder.WithDecorators(timemachine.Replay[*wasi_snapshot_preview1.Module](functions, records))
+	controller := &replayController[*wasi_snapshot_preview1.Module]{}
+	builder = builder.WithDecorators(timemachine.Replay[*wasi_snapshot_preview1.Module](functions, records, controller))
 
 	var system wasi.System
 	ctx, system, err = builder.Instantiate(ctx, runtime)
@@ -399,6 +403,28 @@ func replay(args []string) error {
 		return err
 	}
 	return instance.Close(ctx)
+}
+
+type replayController[T wazergo.Module] struct{}
+
+func (r *replayController[T]) Step(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record) {
+	// noop
+}
+
+func (r *replayController[T]) ReadError(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, err error) {
+	panic(err)
+}
+
+func (r replayController[T]) MismatchError(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record, err error) {
+	panic(err)
+}
+
+func (r replayController[T]) Exit(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record, exitCode uint32) {
+	panic(sys.NewExitError(exitCode))
+}
+
+func (r *replayController[T]) EOF(ctx context.Context, fn wazergo.Function[T], mod api.Module, stack []uint64) {
+	panic("EOF")
 }
 
 type stringList []string
