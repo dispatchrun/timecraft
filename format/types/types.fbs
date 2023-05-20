@@ -9,6 +9,8 @@ enum Compression:uint {
 // Hash represents a OCI hash which pairs an algorithm name to a digest.
 // The digest length depends on the algorithm in use (e.g. 32 bytes for
 // "sha256").
+// TODO: rename this to Digest, since Hash has a specific meaning and
+//  doesn't include other digests such as checksums and identifiers
 table Hash {
  algorithm:string (required);
  digest:string (required);
