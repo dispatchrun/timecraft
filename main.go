@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"flag"
 	"fmt"
 	"net/http"
@@ -234,7 +235,7 @@ func run(args []string) error {
 		})
 		startTime := time.Now()
 		header.SetProcess(timemachine.Process{
-			ID:        timemachine.Hash{}, // TODO
+			ID:        timemachine.UUIDv4(rand.Reader),
 			Image:     timemachine.SHA256(wasmCode),
 			StartTime: startTime,
 			Args:      append([]string{wasmName}, args...),
