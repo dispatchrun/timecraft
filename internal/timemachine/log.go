@@ -267,6 +267,9 @@ func NewLogRecordWriter(w *LogWriter, batchSize int, compression Compression) *L
 
 // WriteRecord buffers a Record in a batch and then flushes the batch once
 // it reaches the configured maximum size.
+//
+// The record is consumed immediately and can be reused safely when the
+// call returns.
 func (w *LogRecordWriter) WriteRecord(record RecordBuilder) error {
 	w.batch.AddRecord(record)
 	w.count++

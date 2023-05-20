@@ -10,6 +10,9 @@ import (
 )
 
 // Record is a decorator that records details about host function calls.
+//
+// The provided recorder function must consume the record immediately, as it's
+// reused across function calls.
 func Record[T wazergo.Module](startTime time.Time, functions timemachine.FunctionIndex, record func(timemachine.RecordBuilder)) wazergo.Decorator[T] {
 	var interceptor MemoryInterceptorModule
 	var functionCallBuilder FunctionCallBuilder

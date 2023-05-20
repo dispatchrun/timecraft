@@ -236,6 +236,9 @@ func (b *RecordBatchBuilder) Reset(compression Compression, firstOffset int64) {
 }
 
 // AddRecord adds a record to the batch.
+//
+// The record is consumed immediately and can be reused safely when the
+// call returns.
 func (b *RecordBatchBuilder) AddRecord(record RecordBuilder) {
 	if b.finished {
 		panic("builder must be reset before records can be added")
