@@ -33,7 +33,7 @@ type ReplayController[T wazergo.Module] interface {
 }
 
 // Replay is a decorator that replays host function calls recorded to a log.
-func Replay[T wazergo.Module](functions timemachine.FunctionIndex, records *timemachine.LogRecordIterator, controller ReplayController[T]) wazergo.Decorator[T] {
+func Replay[T wazergo.Module](functions timemachine.FunctionIndex, records *timemachine.LogRecordReader, controller ReplayController[T]) wazergo.Decorator[T] {
 	return wazergo.DecoratorFunc[T](func(moduleName string, original wazergo.Function[T]) wazergo.Function[T] {
 		function := timemachine.Function{
 			Module:      moduleName,

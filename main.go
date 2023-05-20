@@ -387,7 +387,7 @@ func replay(args []string) error {
 		}
 	}
 
-	records := timemachine.NewLogRecordIterator(logReader)
+	records := timemachine.NewLogRecordReader(logReader)
 	defer records.Close()
 
 	controller := &replayController[*wasi_snapshot_preview1.Module]{}

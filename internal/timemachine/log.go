@@ -132,8 +132,13 @@ func (r *LogReader) readFrameAt(byteOffset int64) (*buffer.Buffer, error) {
 	return f, nil
 }
 
-// LogRecordIterator is a higher level helper for iterating records in a log.
-type LogRecordIterator struct {
+// LogRecordReader wraps a LogReader to help with reading individual records
+// in order.
+//
+// The reader exposes an iterator like interface. Callers should call Next to
+// determine whether another record is available. If so, it can be retrieved
+// via the Record method.
+type LogRecordReader struct {
 	reader       *LogReader
 	header       *Header
 	batch        *RecordBatch
@@ -143,13 +148,13 @@ type LogRecordIterator struct {
 	err          error
 }
 
-// NewLogRecordIterator creates a log record iterator.
-func NewLogRecordIterator(r *LogReader) *LogRecordIterator {
-	return &LogRecordIterator{reader: r}
+// NewLogRecordReader creates a log record iterator.
+func NewLogRecordReader(r *LogReader) *LogRecordReader {
+	return &LogRecordReader{reader: r}
 }
 
 // Next is true if there is another Record available.
-func (i *LogRecordIterator) Next() bool {
+func (i *LogRecordReader) Next() bool {
 	if i.header == nil {
 		i.header, i.readerOffset, i.err = i.reader.ReadLogHeader()
 		if i.err != nil {
@@ -171,12 +176,12 @@ func (i *LogRecordIterator) Next() bool {
 // Record returns the next record as a RecordReader.
 //
 // The return value is only valid when Next returns true.
-func (i *LogRecordIterator) Record() (Record, error) {
+func (i *LogRecordReader) Record() (Record, error) {
 	return i.record, i.err
 }
 
 // Close closes the iterator.
-func (i *LogRecordIterator) Close() error {
+func (i *LogRecordReader) Close() error {
 	return i.err
 }
 
