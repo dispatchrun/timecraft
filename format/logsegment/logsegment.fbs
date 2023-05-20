@@ -88,7 +88,7 @@ table FunctionCall {
  stack:[ulong];
  // Captured sections of the WebAssembly module's linear memory, stored
  // contiguously and indexed by {memory_access}.
- memory:[uint8];
+ memory:[ubyte];
  // Ordered collection of memory reads and writes made by the function.
  memory_access:[MemoryAccess];
 }
