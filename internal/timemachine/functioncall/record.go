@@ -9,8 +9,8 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-// Capture is a decorator that captures details about host function calls.
-func Capture[T wazergo.Module](startTime time.Time, functions timemachine.FunctionIndex, capture func(timemachine.RecordBuilder)) wazergo.Decorator[T] {
+// Record is a decorator that records details about host function calls.
+func Record[T wazergo.Module](startTime time.Time, functions timemachine.FunctionIndex, record func(timemachine.RecordBuilder)) wazergo.Decorator[T] {
 	var interceptor MemoryInterceptorModule
 	var functionCallBuilder FunctionCallBuilder
 	var recordBuilder timemachine.RecordBuilder
@@ -41,7 +41,7 @@ func Capture[T wazergo.Module](startTime time.Time, functions timemachine.Functi
 				recordBuilder.SetFunctionID(functionID)
 				recordBuilder.SetFunctionCall(functionCallBuilder.Bytes())
 
-				capture(recordBuilder)
+				record(recordBuilder)
 			}()
 
 			original.Func(module, ctx, &interceptor, stack)

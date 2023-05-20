@@ -263,7 +263,7 @@ func run(args []string) error {
 		defer recordWriter.Flush()
 
 		builder = builder.WithDecorators(
-			functioncall.Capture[*wasi_snapshot_preview1.Module](startTime, functions, func(record timemachine.RecordBuilder) {
+			functioncall.Record[*wasi_snapshot_preview1.Module](startTime, functions, func(record timemachine.RecordBuilder) {
 				if err := recordWriter.WriteRecord(record); err != nil {
 					panic(err)
 				}
