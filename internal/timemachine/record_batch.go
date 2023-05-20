@@ -7,6 +7,12 @@ import (
 
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logsegment"
+	"github.com/stealthrocket/timecraft/internal/buffer"
+)
+
+var (
+	compressedBufferPool   buffer.Pool
+	uncompressedBufferPool buffer.Pool
 )
 
 // RecordBatch is a read-only batch of records read from a log segment.
@@ -19,7 +25,7 @@ type RecordBatch struct {
 	// Reader for the records data section adjacent to the record batch. When
 	// the records are accessed, they're lazily read into the records buffer.
 	recordsReader io.Reader
-	records       *buffer
+	records       *buffer.Buffer
 
 	batch logsegment.RecordBatch
 
@@ -46,19 +52,19 @@ func MakeRecordBatch(header *Header, buffer []byte, reader io.Reader) (rb Record
 }
 
 // Reset resets the record batch.
-func (b *RecordBatch) Reset(header *Header, buffer []byte, reader io.Reader) {
+func (b *RecordBatch) Reset(header *Header, buf []byte, reader io.Reader) {
 	if b.records != nil {
 		recordsBufferPool := &compressedBufferPool
 		if b.header.Compression == Uncompressed {
 			recordsBufferPool = &uncompressedBufferPool
 		}
-		releaseBuffer(&b.records, recordsBufferPool)
+		buffer.Release(&b.records, recordsBufferPool)
 	}
 	b.recordsReader = reader
 	b.records = nil
 	b.header = header
-	if len(buffer) > 0 {
-		b.batch = *logsegment.GetSizePrefixedRootAsRecordBatch(buffer, 0)
+	if len(buf) > 0 {
+		b.batch = *logsegment.GetSizePrefixedRootAsRecordBatch(buf, 0)
 	} else {
 		b.batch = logsegment.RecordBatch{}
 	}
@@ -166,33 +172,33 @@ func (b *RecordBatch) Record() (Record, error) {
 
 func (b *RecordBatch) readRecords() ([]byte, error) {
 	if b.records != nil {
-		return b.records.data, nil
+		return b.records.Data, nil
 	}
 
 	recordsBufferPool := &compressedBufferPool
 	if b.header.Compression == Uncompressed {
 		recordsBufferPool = &uncompressedBufferPool
 	}
-	recordsBuffer := recordsBufferPool.get(b.RecordsSize())
+	recordsBuffer := recordsBufferPool.Get(b.RecordsSize())
 
-	_, err := io.ReadFull(b.recordsReader, recordsBuffer.data)
+	_, err := io.ReadFull(b.recordsReader, recordsBuffer.Data)
 	if err != nil {
-		recordsBufferPool.put(recordsBuffer)
+		recordsBufferPool.Put(recordsBuffer)
 		return nil, err
 	}
 
-	if c := checksum(recordsBuffer.data); c != b.batch.Checksum() {
+	if c := checksum(recordsBuffer.Data); c != b.batch.Checksum() {
 		return nil, fmt.Errorf("bad record data: expect checksum %#x, got %#x", b.batch.Checksum(), c)
 	}
 
 	if b.header.Compression == Uncompressed {
 		b.records = recordsBuffer
-		return recordsBuffer.data, nil
+		return recordsBuffer.Data, nil
 	}
-	defer recordsBufferPool.put(recordsBuffer)
+	defer recordsBufferPool.Put(recordsBuffer)
 
-	b.records = uncompressedBufferPool.get(int(b.UncompressedSize()))
-	return decompress(b.records.data, recordsBuffer.data, b.header.Compression)
+	b.records = uncompressedBufferPool.Get(int(b.UncompressedSize()))
+	return decompress(b.records.Data, recordsBuffer.Data, b.header.Compression)
 }
 
 // RecordBatchBuilder is a builder for record batches.
@@ -213,7 +219,7 @@ type RecordBatchBuilder struct {
 // Reset resets the builder.
 func (b *RecordBatchBuilder) Reset(compression Compression, firstOffset int64) {
 	if b.builder == nil {
-		b.builder = flatbuffers.NewBuilder(defaultBufferSize)
+		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
 	} else {
 		b.builder.Reset()
 	}
@@ -234,7 +240,10 @@ func (b *RecordBatchBuilder) AddRecord(record RecordBuilder) {
 	if b.finished {
 		panic("builder must be reset before records can be added")
 	}
-	b.uncompressed = append(b.uncompressed, record.Bytes()...)
+	b.builder.Reset()
+	record.buildWith(b.builder)
+
+	b.uncompressed = append(b.uncompressed, b.builder.FinishedBytes()...)
 	if b.recordCount == 0 {
 		b.firstTimestamp = record.timestamp
 	}
@@ -274,6 +283,7 @@ func (b *RecordBatchBuilder) build() {
 	if b.builder == nil {
 		panic("builder is not initialized")
 	}
+	b.builder.Reset()
 
 	b.records = b.uncompressed
 	if b.compression != Uncompressed {

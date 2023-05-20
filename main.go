@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/stealthrocket/timecraft/internal/timemachine/functioncall"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
@@ -261,7 +262,7 @@ func run(args []string) error {
 		defer recordWriter.Flush()
 
 		builder = builder.WithDecorators(
-			timemachine.Capture[*wasi_snapshot_preview1.Module](startTime, functions, func(record timemachine.RecordBuilder) {
+			functioncall.Capture[*wasi_snapshot_preview1.Module](startTime, functions, func(record timemachine.RecordBuilder) {
 				if err := recordWriter.WriteRecord(record); err != nil {
 					panic(err)
 				}
@@ -389,7 +390,7 @@ func replay(args []string) error {
 	defer records.Close()
 
 	controller := &replayController[*wasi_snapshot_preview1.Module]{}
-	builder = builder.WithDecorators(timemachine.Replay[*wasi_snapshot_preview1.Module](functions, records, controller))
+	builder = builder.WithDecorators(functioncall.Replay[*wasi_snapshot_preview1.Module](functions, records, controller))
 
 	var system wasi.System
 	ctx, system, err = builder.Instantiate(ctx, runtime)

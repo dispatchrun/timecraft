@@ -1,27 +1,29 @@
-package timemachine
+package functioncall
 
 import (
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logsegment"
+	"github.com/stealthrocket/timecraft/internal/buffer"
+	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/tetratelabs/wazero/api"
 )
 
 // FunctionCall is read-only details about a host function call.
 type FunctionCall struct {
-	function *Function
+	function timemachine.Function
 	call     logsegment.FunctionCall
 }
 
 // MakeFunctionCall creates a function call from the specified buffer.
 //
 // The buffer must live as long as the function call.
-func MakeFunctionCall(function *Function, buffer []byte) (f FunctionCall) {
+func MakeFunctionCall(function timemachine.Function, buffer []byte) (f FunctionCall) {
 	f.Reset(function, buffer)
 	return
 }
 
 // Reset resets the function call.
-func (f *FunctionCall) Reset(function *Function, buffer []byte) {
+func (f *FunctionCall) Reset(function timemachine.Function, buffer []byte) {
 	f.function = function
 	f.call = *logsegment.GetRootAsFunctionCall(buffer, 0)
 }
@@ -86,7 +88,7 @@ func (c *FunctionCall) MemoryAccess(i int) MemoryAccess {
 
 // FunctionCallBuilder is a builder for function calls.
 type FunctionCallBuilder struct {
-	function *Function
+	function *timemachine.Function
 	builder  *flatbuffers.Builder
 	memory   MemoryInterceptor
 	stack    []uint64
@@ -94,7 +96,7 @@ type FunctionCallBuilder struct {
 }
 
 // Reset resets the builder.
-func (b *FunctionCallBuilder) Reset(function *Function) {
+func (b *FunctionCallBuilder) Reset(function *timemachine.Function) {
 	b.function = function
 	if cap(b.stack) < function.ParamCount+function.ResultCount {
 		b.stack = make([]uint64, function.ParamCount+function.ResultCount)
@@ -102,7 +104,7 @@ func (b *FunctionCallBuilder) Reset(function *Function) {
 		b.stack = b.stack[:function.ParamCount+function.ResultCount]
 	}
 	if b.builder == nil {
-		b.builder = flatbuffers.NewBuilder(defaultBufferSize)
+		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
 	} else {
 		b.builder.Reset()
 	}
@@ -121,7 +123,7 @@ func (b *FunctionCallBuilder) SetParams(params []uint64) {
 	copy(b.stack, params)
 }
 
-// SetParams sets the return values for the stack.
+// SetResults sets the return values for the stack.
 func (b *FunctionCallBuilder) SetResults(results []uint64) {
 	if b.finished || b.function == nil {
 		panic("builder must be reset before results can be set")

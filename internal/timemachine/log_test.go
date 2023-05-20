@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/stealthrocket/timecraft/internal/timemachine/functioncall"
 )
 
 func TestReadHeader(t *testing.T) {
@@ -93,7 +94,7 @@ func TestReadRecordBatch(t *testing.T) {
 				FunctionID: 0,
 				Params:     []uint64{1},
 				Results:    []uint64{42},
-				MemoryAccess: []timemachine.MemoryAccess{
+				MemoryAccess: []functioncall.MemoryAccess{
 					{Memory: []byte("hello world!"), Offset: 1234},
 				},
 			},
@@ -116,7 +117,7 @@ func TestReadRecordBatch(t *testing.T) {
 			{
 				Timestamp:  header.Process.StartTime.Add(4 * time.Millisecond),
 				FunctionID: 3,
-				MemoryAccess: []timemachine.MemoryAccess{
+				MemoryAccess: []functioncall.MemoryAccess{
 					{Memory: []byte("A"), Offset: 1},
 					{Memory: []byte("B"), Offset: 2},
 					{Memory: []byte("C"), Offset: 3},
@@ -128,7 +129,7 @@ func TestReadRecordBatch(t *testing.T) {
 				FunctionID: 4,
 				Params:     []uint64{1},
 				Results:    []uint64{42},
-				MemoryAccess: []timemachine.MemoryAccess{
+				MemoryAccess: []functioncall.MemoryAccess{
 					{Memory: []byte("hello world!"), Offset: 1234},
 					{Memory: make([]byte, 10e3), Offset: 1234567},
 				},
@@ -148,7 +149,7 @@ func TestReadRecordBatch(t *testing.T) {
 	if err := writer.WriteLogHeader(headerBuilder); err != nil {
 		t.Fatal(err)
 	}
-	var functionCallBuilder timemachine.FunctionCallBuilder
+	var functionCallBuilder functioncall.FunctionCallBuilder
 	var recordBuilder timemachine.RecordBuilder
 	var recordBatchBuilder timemachine.RecordBatchBuilder
 	var firstOffset int64
@@ -199,10 +200,11 @@ func TestReadRecordBatch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			f, err := r.FunctionCall()
+			function, err := r.Function()
 			if err != nil {
 				t.Fatal(err)
 			}
+			f := functioncall.MakeFunctionCall(function, r.FunctionCall())
 			var params []uint64
 			if f.NumParams() > 0 {
 				params = make([]uint64, f.NumParams())
@@ -217,9 +219,9 @@ func TestReadRecordBatch(t *testing.T) {
 					results[i] = f.Result(i)
 				}
 			}
-			var memoryAccess []timemachine.MemoryAccess
+			var memoryAccess []functioncall.MemoryAccess
 			if f.NumMemoryAccess() > 0 {
-				memoryAccess = make([]timemachine.MemoryAccess, f.NumMemoryAccess())
+				memoryAccess = make([]functioncall.MemoryAccess, f.NumMemoryAccess())
 				for i := range memoryAccess {
 					memoryAccess[i] = f.MemoryAccess(i)
 				}
@@ -252,7 +254,7 @@ type record struct {
 	FunctionID   int
 	Params       []uint64
 	Results      []uint64
-	MemoryAccess []timemachine.MemoryAccess
+	MemoryAccess []functioncall.MemoryAccess
 }
 
 func BenchmarkLogReader(b *testing.B) {
@@ -385,7 +387,7 @@ func BenchmarkLogWriter(b *testing.B) {
 						FunctionID: 0,
 						Params:     []uint64{1},
 						Results:    []uint64{42},
-						MemoryAccess: []timemachine.MemoryAccess{
+						MemoryAccess: []functioncall.MemoryAccess{
 							{Memory: []byte("hello world!"), Offset: 1234},
 						},
 					},
@@ -400,7 +402,7 @@ func BenchmarkLogWriter(b *testing.B) {
 						FunctionID: 0,
 						Params:     []uint64{1},
 						Results:    []uint64{42},
-						MemoryAccess: []timemachine.MemoryAccess{
+						MemoryAccess: []functioncall.MemoryAccess{
 							{Memory: []byte("hello world!"), Offset: 1234},
 						},
 					},
@@ -419,7 +421,7 @@ func BenchmarkLogWriter(b *testing.B) {
 					{
 						Timestamp:  header.Process.StartTime.Add(4 * time.Millisecond),
 						FunctionID: 3,
-						MemoryAccess: []timemachine.MemoryAccess{
+						MemoryAccess: []functioncall.MemoryAccess{
 							{Memory: []byte("A"), Offset: 1},
 							{Memory: []byte("B"), Offset: 2},
 							{Memory: []byte("C"), Offset: 3},
@@ -431,7 +433,7 @@ func BenchmarkLogWriter(b *testing.B) {
 						FunctionID: 4,
 						Params:     []uint64{1},
 						Results:    []uint64{42},
-						MemoryAccess: []timemachine.MemoryAccess{
+						MemoryAccess: []functioncall.MemoryAccess{
 							{Memory: []byte("hello world!"), Offset: 1234},
 							{Memory: make([]byte, 10e3), Offset: 1234567},
 						},
@@ -484,7 +486,7 @@ func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.Header
 		b.Fatal(err)
 	}
 
-	var functionCallBuilder timemachine.FunctionCallBuilder
+	var functionCallBuilder functioncall.FunctionCallBuilder
 	var recordBuilder timemachine.RecordBuilder
 	var recordBatchBuilder timemachine.RecordBatchBuilder
 

@@ -6,6 +6,7 @@ import (
 
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logsegment"
+	"github.com/stealthrocket/timecraft/internal/buffer"
 )
 
 // Record is a read-only record from the log.
@@ -40,13 +41,18 @@ func (r *Record) FunctionID() int {
 	return int(r.record.FunctionId())
 }
 
-// FunctionCall returns the function call details.
-func (r *Record) FunctionCall() (FunctionCall, error) {
+// Function is the record's associated function.
+func (r *Record) Function() (Function, error) {
 	id := r.FunctionID()
 	if id >= len(r.functions) {
-		return FunctionCall{}, fmt.Errorf("invalid function %d", id)
+		return Function{}, fmt.Errorf("invalid function %d", id)
 	}
-	return MakeFunctionCall(&r.functions[id], r.record.FunctionCallBytes()), nil
+	return r.functions[id], nil
+}
+
+// FunctionCall returns the function call details.
+func (r *Record) FunctionCall() []byte {
+	return r.record.FunctionCallBytes()
 }
 
 // RecordBuilder is a builder for records.
@@ -63,7 +69,7 @@ type RecordBuilder struct {
 func (b *RecordBuilder) Reset(startTime time.Time) {
 	b.startTime = startTime
 	if b.builder == nil {
-		b.builder = flatbuffers.NewBuilder(defaultBufferSize)
+		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
 	} else {
 		b.builder.Reset()
 	}
@@ -113,10 +119,14 @@ func (b *RecordBuilder) build() {
 	if b.builder == nil {
 		panic("builder is not initialized")
 	}
-	functionCall := b.builder.CreateByteVector(b.functionCall)
-	logsegment.RecordStart(b.builder)
-	logsegment.RecordAddTimestamp(b.builder, b.timestamp)
-	logsegment.RecordAddFunctionId(b.builder, b.functionID)
-	logsegment.RecordAddFunctionCall(b.builder, functionCall)
-	logsegment.FinishSizePrefixedRecordBuffer(b.builder, logsegment.RecordEnd(b.builder))
+	b.buildWith(b.builder)
+}
+
+func (b *RecordBuilder) buildWith(builder *flatbuffers.Builder) {
+	functionCall := builder.CreateByteVector(b.functionCall)
+	logsegment.RecordStart(builder)
+	logsegment.RecordAddTimestamp(builder, b.timestamp)
+	logsegment.RecordAddFunctionId(builder, b.functionID)
+	logsegment.RecordAddFunctionCall(builder, functionCall)
+	logsegment.FinishSizePrefixedRecordBuffer(builder, logsegment.RecordEnd(builder))
 }

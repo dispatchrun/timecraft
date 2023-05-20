@@ -7,6 +7,7 @@ import (
 
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logindex"
+	"github.com/stealthrocket/timecraft/internal/buffer"
 )
 
 type RecordIndex struct {
@@ -76,7 +77,7 @@ type RecordIndexWriter struct {
 }
 
 func NewRecordIndexWriter(output io.Writer) *RecordIndexWriter {
-	return NewRecordIndexWriterSize(output, defaultBufferSize)
+	return NewRecordIndexWriterSize(output, buffer.DefaultSize)
 }
 
 func NewRecordIndexWriterSize(output io.Writer, bufferSize int) *RecordIndexWriter {

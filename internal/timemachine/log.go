@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"io"
 	"math"
+
+	"github.com/stealthrocket/timecraft/internal/buffer"
 )
 
 const maxFrameSize = (1 * 1024 * 1024) - 4
+
+var frameBufferPool buffer.Pool
 
 // LogReader instances allow programs to read the content of a record log.
 //
@@ -20,13 +24,13 @@ type LogReader struct {
 	bufferSize int
 
 	batch      RecordBatch
-	batchFrame *buffer
+	batchFrame *buffer.Buffer
 }
 
 // NewLogReader construct a new log reader consuming input from the given
 // io.Reader.
 func NewLogReader(input io.ReaderAt) *LogReader {
-	return NewLogReaderSize(input, defaultBufferSize)
+	return NewLogReaderSize(input, buffer.DefaultSize)
 }
 
 // NewLogReaderSize is like NewLogReader but it allows the program to configure
@@ -34,13 +38,13 @@ func NewLogReader(input io.ReaderAt) *LogReader {
 func NewLogReaderSize(input io.ReaderAt, bufferSize int) *LogReader {
 	return &LogReader{
 		input:      input,
-		bufferSize: align(bufferSize),
+		bufferSize: buffer.Align(bufferSize, buffer.DefaultSize),
 	}
 }
 
 // Close closes the log reader.
 func (r *LogReader) Close() error {
-	releaseBuffer(&r.batchFrame, &frameBufferPool)
+	buffer.Release(&r.batchFrame, &frameBufferPool)
 	r.batch.Reset(nil, nil, nil)
 	return nil
 }
@@ -57,35 +61,35 @@ func (r *LogReader) ReadLogHeader() (*Header, int64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	defer frameBufferPool.put(f)
+	defer frameBufferPool.Put(f)
 
-	header, err := NewHeader(f.data)
+	header, err := NewHeader(f.Data)
 	if err != nil {
 		return nil, 0, err
 	}
-	return header, int64(len(f.data)), nil
+	return header, int64(len(f.Data)), nil
 }
 
 // ReadRecordBatch reads a batch at the specified offset.
 //
 // The RecordBatch is only valid until the next call to ReadRecordBatch.
 func (r *LogReader) ReadRecordBatch(header *Header, byteOffset int64) (*RecordBatch, int64, error) {
-	releaseBuffer(&r.batchFrame, &frameBufferPool)
+	buffer.Release(&r.batchFrame, &frameBufferPool)
 	var err error
 	r.batchFrame, err = r.readFrameAt(byteOffset)
 	if err != nil {
 		return nil, 0, err
 	}
-	recordBatchSize := int64(len(r.batchFrame.data))
+	recordBatchSize := int64(len(r.batchFrame.Data))
 	recordsReader := io.NewSectionReader(r.input, byteOffset+recordBatchSize, math.MaxInt64)
-	r.batch.Reset(header, r.batchFrame.data, recordsReader)
+	r.batch.Reset(header, r.batchFrame.Data, recordsReader)
 	return &r.batch, recordBatchSize + int64(r.batch.RecordsSize()), nil
 }
 
-func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
-	f := frameBufferPool.get(int(r.bufferSize))
+func (r *LogReader) readFrameAt(byteOffset int64) (*buffer.Buffer, error) {
+	f := frameBufferPool.Get(r.bufferSize)
 
-	n, err := r.input.ReadAt(f.data, byteOffset)
+	n, err := r.input.ReadAt(f.Data, byteOffset)
 	if n < 4 {
 		if err == io.EOF {
 			if n == 0 {
@@ -93,36 +97,36 @@ func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
 			}
 			err = io.ErrUnexpectedEOF
 		}
-		frameBufferPool.put(f)
+		frameBufferPool.Put(f)
 		return nil, fmt.Errorf("reading log segment frame at offset %d: %w", byteOffset, err)
 	}
 
-	frameSize := binary.LittleEndian.Uint32(f.data[:4])
+	frameSize := binary.LittleEndian.Uint32(f.Data[:4])
 	if frameSize > maxFrameSize {
-		frameBufferPool.put(f)
+		frameBufferPool.Put(f)
 		return nil, fmt.Errorf("log segment frame at offset %d is too large (%d>%d)", byteOffset, frameSize, maxFrameSize)
 	}
 
 	byteLength := int(4 + frameSize)
 	if n >= byteLength {
-		f.data = f.data[:byteLength]
+		f.Data = f.Data[:byteLength]
 		return f, nil
 	}
 
-	if cap(f.data) >= byteLength {
-		f.data = f.data[:byteLength]
+	if cap(f.Data) >= byteLength {
+		f.Data = f.Data[:byteLength]
 	} else {
-		defer frameBufferPool.put(f)
-		newFrame := newBuffer(byteLength)
-		copy(newFrame.data, f.data)
+		defer frameBufferPool.Put(f)
+		newFrame := buffer.New(byteLength)
+		copy(newFrame.Data, f.Data)
 		f = newFrame
 	}
 
-	if _, err := r.input.ReadAt(f.data[n:], byteOffset+int64(n)); err != nil {
+	if _, err := r.input.ReadAt(f.Data[n:], byteOffset+int64(n)); err != nil {
 		if err == io.EOF {
 			err = io.ErrUnexpectedEOF
 		}
-		frameBufferPool.put(f)
+		frameBufferPool.Put(f)
 		return nil, fmt.Errorf("reading %dB log segment frame at offset %d: %w", byteLength, byteOffset, err)
 	}
 	return f, nil
