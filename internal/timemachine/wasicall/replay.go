@@ -84,14 +84,14 @@ func (r *Replayer) ArgsGet(ctx context.Context) ([]string, Errno) {
 	}
 	record, err := r.reader.Record()
 	if err != nil {
-		r.handle(ReadError{err})
+		r.handle(&ReadError{err})
 	}
 	if syscall := Syscall(record.FunctionID()); syscall != ArgsGet {
-		r.handle(UnexpectedSyscallError{syscall, ArgsGet})
+		r.handle(&UnexpectedSyscallError{syscall, ArgsGet})
 	}
 	args, errno, err := r.decoder.ArgsGet(record.FunctionCall())
 	if err != nil {
-		r.handle(DecodeError{err})
+		r.handle(&DecodeError{ArgsGet, err})
 	}
 	return args, errno
 }
@@ -102,14 +102,14 @@ func (r *Replayer) EnvironGet(ctx context.Context) ([]string, Errno) {
 	}
 	record, err := r.reader.Record()
 	if err != nil {
-		r.handle(ReadError{err})
+		r.handle(&ReadError{err})
 	}
 	if syscall := Syscall(record.FunctionID()); syscall != EnvironGet {
-		r.handle(UnexpectedSyscallError{syscall, EnvironGet})
+		r.handle(&UnexpectedSyscallError{syscall, EnvironGet})
 	}
 	env, errno, err := r.decoder.EnvironGet(record.FunctionCall())
 	if err != nil {
-		r.handle(DecodeError{err})
+		r.handle(&DecodeError{EnvironGet, err})
 	}
 	return env, errno
 }
@@ -120,18 +120,18 @@ func (r *Replayer) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errn
 	}
 	record, err := r.reader.Record()
 	if err != nil {
-		r.handle(ReadError{err})
+		r.handle(&ReadError{err})
 	}
 	if syscall := Syscall(record.FunctionID()); syscall != ClockResGet {
-		r.handle(UnexpectedSyscallError{syscall, ClockResGet})
+		r.handle(&UnexpectedSyscallError{syscall, ClockResGet})
 	}
 	recordID, timestamp, errno, err := r.decoder.ClockResGet(record.FunctionCall())
 	if err != nil {
-		r.handle(DecodeError{err})
+		r.handle(&DecodeError{ClockResGet, err})
 	}
 	if r.validateParams {
-		if recordID != id {
-			r.handle(UnexpectedSyscallParamError{fmt.Errorf("unexpected ClockResGet.ID, got %v expect %v", id, recordID)})
+		if id != recordID {
+			r.handle(&UnexpectedSyscallParamError{ClockResGet, "id", id, recordID})
 		}
 	}
 	return timestamp, errno
@@ -143,22 +143,22 @@ func (r *Replayer) ClockTimeGet(ctx context.Context, id ClockID, precision Times
 	}
 	record, err := r.reader.Record()
 	if err != nil {
-		r.handle(ReadError{err})
+		r.handle(&ReadError{err})
 	}
 	if syscall := Syscall(record.FunctionID()); syscall != ClockTimeGet {
-		r.handle(UnexpectedSyscallError{syscall, ClockTimeGet})
+		r.handle(&UnexpectedSyscallError{syscall, ClockTimeGet})
 	}
 	recordID, recordPrecision, timestamp, errno, err := r.decoder.ClockTimeGet(record.FunctionCall())
 	if err != nil {
-		r.handle(DecodeError{err})
+		r.handle(&DecodeError{ClockTimeGet, err})
 	}
 	if r.validateParams {
 		var mismatch []error
-		if recordID != id {
-			mismatch = append(mismatch, UnexpectedSyscallParamError{fmt.Errorf("unexpected ClockTimeGet.ID, got %v expect %v", id, recordID)})
+		if id != recordID {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{ClockTimeGet, "id", id, recordID})
 		}
-		if recordPrecision != precision {
-			mismatch = append(mismatch, UnexpectedSyscallParamError{fmt.Errorf("unexpected ClockTimeGet.Precision, got %v expect %v", precision, recordPrecision)})
+		if precision != recordPrecision {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{ClockTimeGet, "precision", precision, recordPrecision})
 		}
 		if len(mismatch) > 0 {
 			r.handle(errors.Join(mismatch...))
@@ -172,13 +172,26 @@ func (r *Replayer) Close(ctx context.Context) error {
 }
 
 type ReadError struct{ error }
-type DecodeError struct{ error }
 
-type UnexpectedSyscallParamError struct{ error }
+type DecodeError struct {
+	Syscall
+	error
+}
+
+type UnexpectedSyscallParamError struct {
+	syscall Syscall
+	name    string
+	actual  interface{}
+	expect  interface{}
+}
+
+func (e *UnexpectedSyscallParamError) Error() string {
+	return fmt.Sprintf("expected %s.%s of %v, got %v", e.syscall, e.name, e.expect, e.actual)
+}
 
 type UnexpectedSyscallError struct{ actual, expect Syscall }
 
-func (e UnexpectedSyscallError) Error() string {
+func (e *UnexpectedSyscallError) Error() string {
 	return fmt.Sprintf("expected syscall %s (%d) but got %s (%d)", e.expect, int(e.expect), e.actual, int(e.actual))
 }
 
