@@ -190,8 +190,10 @@ func (b *FunctionCallBuilder) build() {
 
 	b.builder.Prep(8*len(memoryAccess), 0)
 	for i := len(memoryAccess) - 1; i >= 0; i-- {
-		// TODO: check invariant: m.index must decrease here
 		m := &memoryAccess[i]
+		if i < len(memoryAccess)-1 && m.index > memoryAccess[i+1].index {
+			panic("index invariant does not hold")
+		}
 		b.builder.PlaceUint32(m.index)
 		b.builder.PlaceUint32(m.offset)
 	}
