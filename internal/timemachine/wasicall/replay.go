@@ -25,12 +25,13 @@ import (
 //   - if the ProcExit system call is called, the replayer will call the exit
 //     callback rather than returning from the call
 //
-// The error and exit callbacks must not return normally. Rather, they should
+// The error and exit callbacks must not return normally, since these are
+// called when an unrecoverable state is encountered. Rather, they should
 // call panic(sys.NewExitError(...)) with an error code to halt execution of
 // the WebAssembly module.
 type Replayer struct {
-	reader  *timemachine.LogRecordReader
-	decoder Decoder
+	reader *timemachine.LogRecordReader
+	codec  Codec
 
 	eof   func(Syscall) System
 	error func(error)
@@ -89,9 +90,9 @@ func (r *Replayer) ArgsGet(ctx context.Context) ([]string, Errno) {
 	if syscall := Syscall(record.FunctionID()); syscall != ArgsGet {
 		r.handle(&UnexpectedSyscallError{syscall, ArgsGet})
 	}
-	args, errno, err := r.decoder.ArgsGet(record.FunctionCall())
+	args, errno, err := r.codec.DecodeArgsGet(record.FunctionCall())
 	if err != nil {
-		r.handle(&DecodeError{ArgsGet, err})
+		r.handle(&DecodeError{record, err})
 	}
 	return args, errno
 }
@@ -107,9 +108,9 @@ func (r *Replayer) EnvironGet(ctx context.Context) ([]string, Errno) {
 	if syscall := Syscall(record.FunctionID()); syscall != EnvironGet {
 		r.handle(&UnexpectedSyscallError{syscall, EnvironGet})
 	}
-	env, errno, err := r.decoder.EnvironGet(record.FunctionCall())
+	env, errno, err := r.codec.DecodeEnvironGet(record.FunctionCall())
 	if err != nil {
-		r.handle(&DecodeError{EnvironGet, err})
+		r.handle(&DecodeError{record, err})
 	}
 	return env, errno
 }
@@ -125,9 +126,9 @@ func (r *Replayer) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errn
 	if syscall := Syscall(record.FunctionID()); syscall != ClockResGet {
 		r.handle(&UnexpectedSyscallError{syscall, ClockResGet})
 	}
-	recordID, timestamp, errno, err := r.decoder.ClockResGet(record.FunctionCall())
+	recordID, timestamp, errno, err := r.codec.DecodeClockResGet(record.FunctionCall())
 	if err != nil {
-		r.handle(&DecodeError{ClockResGet, err})
+		r.handle(&DecodeError{record, err})
 	}
 	if r.validateParams {
 		if id != recordID {
@@ -148,9 +149,9 @@ func (r *Replayer) ClockTimeGet(ctx context.Context, id ClockID, precision Times
 	if syscall := Syscall(record.FunctionID()); syscall != ClockTimeGet {
 		r.handle(&UnexpectedSyscallError{syscall, ClockTimeGet})
 	}
-	recordID, recordPrecision, timestamp, errno, err := r.decoder.ClockTimeGet(record.FunctionCall())
+	recordID, recordPrecision, timestamp, errno, err := r.codec.DecodeClockTimeGet(record.FunctionCall())
 	if err != nil {
-		r.handle(&DecodeError{ClockTimeGet, err})
+		r.handle(&DecodeError{record, err})
 	}
 	if r.validateParams {
 		var mismatch []error
@@ -174,25 +175,28 @@ func (r *Replayer) Close(ctx context.Context) error {
 type ReadError struct{ error }
 
 type DecodeError struct {
-	Syscall
+	Record timemachine.Record
 	error
 }
 
 type UnexpectedSyscallParamError struct {
-	syscall Syscall
-	name    string
-	actual  interface{}
-	expect  interface{}
+	Syscall Syscall
+	Name    string
+	Actual  interface{}
+	Expect  interface{}
 }
 
 func (e *UnexpectedSyscallParamError) Error() string {
-	return fmt.Sprintf("expected %s.%s of %v, got %v", e.syscall, e.name, e.expect, e.actual)
+	return fmt.Sprintf("expected %s.%s of %v, got %v", e.Syscall, e.Name, e.Expect, e.Actual)
 }
 
-type UnexpectedSyscallError struct{ actual, expect Syscall }
+type UnexpectedSyscallError struct {
+	Actual Syscall
+	Expect Syscall
+}
 
 func (e *UnexpectedSyscallError) Error() string {
-	return fmt.Sprintf("expected syscall %s (%d) but got %s (%d)", e.expect, int(e.expect), e.actual, int(e.actual))
+	return fmt.Sprintf("expected syscall %s (%d) but got %s (%d)", e.Expect, int(e.Expect), e.Actual, int(e.Actual))
 }
 
 func unreachable() {
