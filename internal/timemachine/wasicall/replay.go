@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	. "github.com/stealthrocket/wasi-go"
@@ -30,8 +31,9 @@ import (
 // call panic(sys.NewExitError(...)) with an error code to halt execution of
 // the WebAssembly module.
 type Replayer struct {
-	reader *timemachine.LogRecordReader
-	codec  Codec
+	reader  timemachine.RecordReader
+	codec   Codec
+	decoder Decoder
 
 	eof   func(Syscall) System
 	error func(error)
@@ -46,7 +48,7 @@ type Replayer struct {
 // var _ SocketsExtension = (*Replayer)(nil)
 
 // NewReplayer creates a Replayer.
-func NewReplayer(reader *timemachine.LogRecordReader, eof func(Syscall) System, error func(error), exit func(ExitCode)) *Replayer {
+func NewReplayer(reader timemachine.RecordReader, eof func(Syscall) System, error func(error), exit func(ExitCode)) *Replayer {
 	return &Replayer{
 		reader:         reader,
 		eof:            eof,
@@ -64,8 +66,8 @@ func (r *Replayer) Register(hostfd int, fdstat FDStat) FD {
 	panic("Replayer cannot Register")
 }
 
-func (r *Replayer) isEOF(s Syscall) (System, bool) {
-	if !r.reader.Next() {
+func (r *Replayer) isEOF(s Syscall, err error) (System, bool) {
+	if err == io.EOF {
 		if r.eofSystem == nil {
 			r.eofSystem = r.eof(s)
 		}
@@ -80,11 +82,11 @@ func (r *Replayer) handle(err error) {
 }
 
 func (r *Replayer) ArgsGet(ctx context.Context) ([]string, Errno) {
-	if s, ok := r.isEOF(ArgsGet); ok {
-		return s.ArgsGet(ctx)
-	}
-	record, err := r.reader.Record()
+	record, err := r.reader.ReadRecord()
 	if err != nil {
+		if s, ok := r.isEOF(ArgsGet, err); ok {
+			return s.ArgsGet(ctx)
+		}
 		r.handle(&ReadError{err})
 	}
 	if syscall := Syscall(record.FunctionID()); syscall != ArgsGet {
@@ -98,11 +100,11 @@ func (r *Replayer) ArgsGet(ctx context.Context) ([]string, Errno) {
 }
 
 func (r *Replayer) EnvironGet(ctx context.Context) ([]string, Errno) {
-	if s, ok := r.isEOF(EnvironGet); ok {
-		return s.EnvironGet(ctx)
-	}
-	record, err := r.reader.Record()
+	record, err := r.reader.ReadRecord()
 	if err != nil {
+		if s, ok := r.isEOF(EnvironGet, err); ok {
+			return s.EnvironGet(ctx)
+		}
 		r.handle(&ReadError{err})
 	}
 	if syscall := Syscall(record.FunctionID()); syscall != EnvironGet {
@@ -116,11 +118,11 @@ func (r *Replayer) EnvironGet(ctx context.Context) ([]string, Errno) {
 }
 
 func (r *Replayer) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errno) {
-	if s, ok := r.isEOF(ClockResGet); ok {
-		return s.ClockResGet(ctx, id)
-	}
-	record, err := r.reader.Record()
+	record, err := r.reader.ReadRecord()
 	if err != nil {
+		if s, ok := r.isEOF(ClockResGet, err); ok {
+			return s.ClockResGet(ctx, id)
+		}
 		r.handle(&ReadError{err})
 	}
 	if syscall := Syscall(record.FunctionID()); syscall != ClockResGet {
@@ -139,11 +141,11 @@ func (r *Replayer) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errn
 }
 
 func (r *Replayer) ClockTimeGet(ctx context.Context, id ClockID, precision Timestamp) (Timestamp, Errno) {
-	if s, ok := r.isEOF(ClockTimeGet); ok {
-		return s.ClockTimeGet(ctx, id, precision)
-	}
-	record, err := r.reader.Record()
+	record, err := r.reader.ReadRecord()
 	if err != nil {
+		if s, ok := r.isEOF(ClockTimeGet, err); ok {
+			return s.ClockTimeGet(ctx, id, precision)
+		}
 		r.handle(&ReadError{err})
 	}
 	if syscall := Syscall(record.FunctionID()); syscall != ClockTimeGet {

@@ -388,7 +388,6 @@ func replay(args []string) error {
 	}
 
 	records := timemachine.NewLogRecordReader(logReader)
-	defer records.Close()
 
 	controller := &replayController[*wasi_snapshot_preview1.Module]{}
 	builder = builder.WithDecorators(functioncall.Replay[*wasi_snapshot_preview1.Module](functions, records, controller))
@@ -409,7 +408,7 @@ func replay(args []string) error {
 
 type replayController[T wazergo.Module] struct{}
 
-func (r *replayController[T]) Step(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record) {
+func (r *replayController[T]) Step(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record *timemachine.Record) {
 	// noop
 }
 
@@ -417,11 +416,11 @@ func (r *replayController[T]) ReadError(ctx context.Context, module T, fn wazerg
 	panic(err)
 }
 
-func (r replayController[T]) MismatchError(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record, err error) {
+func (r replayController[T]) MismatchError(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record *timemachine.Record, err error) {
 	panic(err)
 }
 
-func (r replayController[T]) Exit(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record timemachine.Record, exitCode uint32) {
+func (r replayController[T]) Exit(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record *timemachine.Record, exitCode uint32) {
 	panic(sys.NewExitError(exitCode))
 }
 
