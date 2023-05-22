@@ -31,9 +31,8 @@ import (
 // call panic(sys.NewExitError(...)) with an error code to halt execution of
 // the WebAssembly module.
 type Replayer struct {
-	reader  timemachine.RecordReader
-	codec   Codec
-	decoder Decoder
+	reader timemachine.RecordReader
+	codec  Codec
 
 	eof   func(Syscall) System
 	error func(error)
@@ -177,7 +176,7 @@ func (r *Replayer) Close(ctx context.Context) error {
 type ReadError struct{ error }
 
 type DecodeError struct {
-	Record timemachine.Record
+	Record *timemachine.Record
 	error
 }
 
