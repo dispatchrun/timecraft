@@ -133,3 +133,18 @@ func (b *RecordBuilder) build() {
 	logsegment.RecordAddFunctionCall(b.builder, functionCall)
 	logsegment.FinishSizePrefixedRecordBuffer(b.builder, logsegment.RecordEnd(b.builder))
 }
+
+// RecordReader is an interface implemented by types which supporting reading
+// a sequence of records.
+type RecordReader interface {
+	// Reads the next record.
+	//
+	// Multiple calls to this method may return a pointer to the same Record
+	// value. The returned value remains valid until the next ReadRecord call,
+	// or until the reader is closed through other means; refer to the reader's
+	// documentation for more details.
+	//
+	// After reading the last record, calls to this method return a nil Record
+	// and io.EOF.
+	ReadRecord() (*Record, error)
+}

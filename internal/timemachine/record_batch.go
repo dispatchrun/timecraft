@@ -125,11 +125,10 @@ func (b *RecordBatch) Records() ([]Record, error) {
 	records := make([]Record, 0, b.NumRecords())
 	b.Rewind()
 	for b.Next() {
-		record, err := b.Record()
-		if err != nil {
-			return nil, err
+		if b.err != nil {
+			return nil, b.err
 		}
-		records = append(records, record)
+		records = append(records, b.record)
 	}
 	return records, nil
 }
@@ -166,8 +165,8 @@ func (b *RecordBatch) Rewind() {
 }
 
 // Record returns the next record in the batch.
-func (b *RecordBatch) Record() (Record, error) {
-	return b.record, b.err
+func (b *RecordBatch) Record() (*Record, error) {
+	return &b.record, b.err
 }
 
 func (b *RecordBatch) readRecords() ([]byte, error) {

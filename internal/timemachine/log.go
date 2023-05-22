@@ -145,7 +145,6 @@ type LogRecordReader struct {
 	record       Record
 	batchIndex   int
 	readerOffset int64
-	err          error
 }
 
 // NewLogRecordReader creates a log record iterator.
@@ -153,37 +152,29 @@ func NewLogRecordReader(r *LogReader) *LogRecordReader {
 	return &LogRecordReader{reader: r}
 }
 
-// Next is true if there is another Record available.
-func (i *LogRecordReader) Next() bool {
-	if i.header == nil {
-		i.header, i.readerOffset, i.err = i.reader.ReadLogHeader()
-		if i.err != nil {
-			return true // i.err is returned on call to Record()
+// ReadRecord satisfies the RecordReader interface.
+func (r *LogRecordReader) ReadRecord() (*Record, error) {
+	var err error
+	if r.header == nil {
+		r.header, r.readerOffset, err = r.reader.ReadLogHeader()
+		if err != nil {
+			return nil, err
 		}
 	}
-	for i.batch == nil || !i.batch.Next() {
+	for r.batch == nil || !r.batch.Next() {
 		var batchLength int64
-		i.batch, batchLength, i.err = i.reader.ReadRecordBatch(i.header, i.readerOffset)
-		if i.err != nil {
-			return i.err != io.EOF
+		r.batch, batchLength, err = r.reader.ReadRecordBatch(r.header, r.readerOffset)
+		if err != nil {
+			return nil, err
 		}
-		i.readerOffset += batchLength
+		r.readerOffset += batchLength
 	}
-	i.record, i.err = i.batch.Record()
-	return true
+	return r.batch.Record()
 }
 
-// Record returns the next record as a RecordReader.
-//
-// The return value is only valid when Next returns true.
-func (i *LogRecordReader) Record() (Record, error) {
-	return i.record, i.err
-}
-
-// Close closes the iterator.
-func (i *LogRecordReader) Close() error {
-	return i.err
-}
+var (
+	_ RecordReader = (*LogRecordReader)(nil)
+)
 
 // LogWriter supports writing log segments to an io.Writer.
 //
