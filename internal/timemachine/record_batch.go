@@ -243,10 +243,7 @@ func (b *RecordBatchBuilder) AddRecord(record RecordBuilder) {
 	if b.finished {
 		panic("builder must be reset before records can be added")
 	}
-	b.builder.Reset()
-	record.buildWith(b.builder)
-
-	b.uncompressed = append(b.uncompressed, b.builder.FinishedBytes()...)
+	b.uncompressed = append(b.uncompressed, record.Bytes()...)
 	if b.recordCount == 0 {
 		b.firstTimestamp = record.timestamp
 	}
@@ -254,6 +251,11 @@ func (b *RecordBatchBuilder) AddRecord(record RecordBuilder) {
 }
 
 // Bytes returns the serialized representation of the record batch.
+//
+// Since the batch is made up of two components – the batch metadata
+// and then the compressed records – additional buffering is required
+// here to merge the two together. If efficiency is required, Write
+// should be used instead.
 func (b *RecordBatchBuilder) Bytes() []byte {
 	if !b.finished {
 		b.build()
@@ -284,7 +286,7 @@ func (b *RecordBatchBuilder) Write(w io.Writer) (int, error) {
 
 func (b *RecordBatchBuilder) build() {
 	if b.builder == nil {
-		panic("builder is not initialized")
+		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
 	}
 	b.builder.Reset()
 

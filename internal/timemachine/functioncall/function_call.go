@@ -1,6 +1,8 @@
 package functioncall
 
 import (
+	"io"
+
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logsegment"
 	"github.com/stealthrocket/timecraft/internal/buffer"
@@ -171,9 +173,18 @@ func (b *FunctionCallBuilder) Bytes() []byte {
 	return b.builder.FinishedBytes()
 }
 
+// Write writes the serialized representation of the function call
+// to the specified writer.
+func (b *FunctionCallBuilder) Write(w io.Writer) (int, error) {
+	return w.Write(b.Bytes())
+}
+
 func (b *FunctionCallBuilder) build() {
-	if b.function == nil || b.builder == nil {
+	if b.function == nil {
 		panic("builder is not initialized")
+	}
+	if b.builder == nil {
+		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
 	}
 	b.builder.StartVector(flatbuffers.SizeUint64, len(b.stack), flatbuffers.SizeUint64)
 	for i := len(b.stack) - 1; i >= 0; i-- {

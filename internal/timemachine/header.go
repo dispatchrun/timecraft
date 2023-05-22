@@ -3,6 +3,7 @@ package timemachine
 import (
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	flatbuffers "github.com/google/flatbuffers/go"
@@ -168,6 +169,12 @@ func (b *HeaderBuilder) Bytes() []byte {
 		b.finished = true
 	}
 	return b.builder.FinishedBytes()
+}
+
+// Write writes the serialized representation of the header
+// to the specified writer.
+func (b *HeaderBuilder) Write(w io.Writer) (int, error) {
+	return w.Write(b.Bytes())
 }
 
 func (b *HeaderBuilder) build() {

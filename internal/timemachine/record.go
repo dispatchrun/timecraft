@@ -2,6 +2,7 @@ package timemachine
 
 import (
 	"fmt"
+	"io"
 	"time"
 
 	flatbuffers "github.com/google/flatbuffers/go"
@@ -115,18 +116,20 @@ func (b *RecordBuilder) Bytes() []byte {
 	return b.builder.FinishedBytes()
 }
 
-func (b *RecordBuilder) build() {
-	if b.builder == nil {
-		panic("builder is not initialized")
-	}
-	b.buildWith(b.builder)
+// Write writes the serialized representation of the record
+// to the specified writer.
+func (b *RecordBuilder) Write(w io.Writer) (int, error) {
+	return w.Write(b.Bytes())
 }
 
-func (b *RecordBuilder) buildWith(builder *flatbuffers.Builder) {
-	functionCall := builder.CreateByteVector(b.functionCall)
-	logsegment.RecordStart(builder)
-	logsegment.RecordAddTimestamp(builder, b.timestamp)
-	logsegment.RecordAddFunctionId(builder, b.functionID)
-	logsegment.RecordAddFunctionCall(builder, functionCall)
-	logsegment.FinishSizePrefixedRecordBuffer(builder, logsegment.RecordEnd(builder))
+func (b *RecordBuilder) build() {
+	if b.builder == nil {
+		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
+	}
+	functionCall := b.builder.CreateByteVector(b.functionCall)
+	logsegment.RecordStart(b.builder)
+	logsegment.RecordAddTimestamp(b.builder, b.timestamp)
+	logsegment.RecordAddFunctionId(b.builder, b.functionID)
+	logsegment.RecordAddFunctionCall(b.builder, functionCall)
+	logsegment.FinishSizePrefixedRecordBuffer(b.builder, logsegment.RecordEnd(b.builder))
 }
