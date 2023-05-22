@@ -1,6 +1,7 @@
 package wasicall
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -32,14 +33,21 @@ import (
 // the WebAssembly module.
 type Replayer struct {
 	reader timemachine.RecordReader
-	codec  Codec
 
+	// Codec is used to encode and decode system call inputs and outputs.
+	// It's not configurable at this time.
+	codec Codec
+
+	// Hooks that are called on edge cases.
 	eof   func(Syscall) System
 	error func(error)
 	exit  func(ExitCode)
 
-	validateParams bool
+	// In strict mode, the Replayer will ensure that the system calls are
+	// called with the same params as those stored on the records.
+	strict bool
 
+	// eofSystem is the wasi.System returned by the eof hook.
 	eofSystem System
 }
 
@@ -49,11 +57,11 @@ type Replayer struct {
 // NewReplayer creates a Replayer.
 func NewReplayer(reader timemachine.RecordReader, eof func(Syscall) System, error func(error), exit func(ExitCode)) *Replayer {
 	return &Replayer{
-		reader:         reader,
-		eof:            eof,
-		error:          error,
-		exit:           exit,
-		validateParams: true,
+		reader: reader,
+		eof:    eof,
+		error:  error,
+		exit:   exit,
+		strict: true,
 	}
 }
 
@@ -131,7 +139,7 @@ func (r *Replayer) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errn
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		if id != recordID {
 			r.handle(&UnexpectedSyscallParamError{ClockResGet, "id", id, recordID})
 		}
@@ -154,7 +162,7 @@ func (r *Replayer) ClockTimeGet(ctx context.Context, id ClockID, precision Times
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		var mismatch []error
 		if id != recordID {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{ClockTimeGet, "id", id, recordID})
@@ -184,7 +192,7 @@ func (r *Replayer) FDAdvise(ctx context.Context, fd FD, offset FileSize, length 
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDAdvise, "fd", fd, recordFD})
@@ -220,7 +228,7 @@ func (r *Replayer) FDAllocate(ctx context.Context, fd FD, offset FileSize, lengt
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDAllocate, "fd", fd, recordFD})
@@ -253,7 +261,7 @@ func (r *Replayer) FDClose(ctx context.Context, fd FD) Errno {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		if fd != recordFD {
 			r.handle(&UnexpectedSyscallParamError{FDClose, "fd", fd, recordFD})
 		}
@@ -276,7 +284,7 @@ func (r *Replayer) FDDataSync(ctx context.Context, fd FD) Errno {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		if fd != recordFD {
 			r.handle(&UnexpectedSyscallParamError{FDDataSync, "fd", fd, recordFD})
 		}
@@ -299,7 +307,7 @@ func (r *Replayer) FDStatGet(ctx context.Context, fd FD) (FDStat, Errno) {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		if fd != recordFD {
 			r.handle(&UnexpectedSyscallParamError{FDStatGet, "fd", fd, recordFD})
 		}
@@ -322,7 +330,7 @@ func (r *Replayer) FDStatSetFlags(ctx context.Context, fd FD, flags FDFlags) Err
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDStatSetFlags, "fd", fd, recordFD})
@@ -352,7 +360,7 @@ func (r *Replayer) FDStatSetRights(ctx context.Context, fd FD, rightsBase, right
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDStatSetRights, "fd", fd, recordFD})
@@ -385,7 +393,7 @@ func (r *Replayer) FDFileStatGet(ctx context.Context, fd FD) (FileStat, Errno) {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		if fd != recordFD {
 			r.handle(&UnexpectedSyscallParamError{FDFileStatGet, "fd", fd, recordFD})
 		}
@@ -408,7 +416,7 @@ func (r *Replayer) FDFileStatSetSize(ctx context.Context, fd FD, size FileSize) 
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDFileStatSetSize, "fd", fd, recordFD})
@@ -438,7 +446,7 @@ func (r *Replayer) FDFileStatSetTimes(ctx context.Context, fd FD, accessTime, mo
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.validateParams {
+	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDFileStatSetTimes, "fd", fd, recordFD})
@@ -457,6 +465,323 @@ func (r *Replayer) FDFileStatSetTimes(ctx context.Context, fd FD, accessTime, mo
 		}
 	}
 	return errno
+}
+
+func (r *Replayer) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (Size, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(FDPread, err); ok {
+			return s.FDPread(ctx, fd, iovecs, offset)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != FDPread {
+		r.handle(&UnexpectedSyscallError{syscall, FDPread})
+	}
+	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPread(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPread, "fd", fd, recordFD})
+		}
+		if !equalIovecShape(iovecs, recordIOVecs) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPread, "iovecs", iovecs, recordIOVecs})
+		}
+		if offset != recordOffset {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPread, "offset", offset, recordOffset})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return size, errno
+}
+
+func (r *Replayer) FDPreStatGet(ctx context.Context, fd FD) (PreStat, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(FDPreStatGet, err); ok {
+			return s.FDPreStatGet(ctx, fd)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != FDPreStatGet {
+		r.handle(&UnexpectedSyscallError{syscall, FDPreStatGet})
+	}
+	recordFD, stat, errno, err := r.codec.DecodeFDPreStatGet(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		if fd != recordFD {
+			r.handle(&UnexpectedSyscallParamError{FDPreStatGet, "fd", fd, recordFD})
+		}
+	}
+	return stat, errno
+}
+
+func (r *Replayer) FDPreStatDirName(ctx context.Context, fd FD) (string, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(FDPreStatDirName, err); ok {
+			return s.FDPreStatDirName(ctx, fd)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != FDPreStatDirName {
+		r.handle(&UnexpectedSyscallError{syscall, FDPreStatDirName})
+	}
+	recordFD, name, errno, err := r.codec.DecodeFDPreStatDirName(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		if fd != recordFD {
+			r.handle(&UnexpectedSyscallParamError{FDPreStatDirName, "fd", fd, recordFD})
+		}
+	}
+	return name, errno
+}
+
+func (r *Replayer) FDPwrite(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (Size, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(FDPwrite, err); ok {
+			return s.FDPwrite(ctx, fd, iovecs, offset)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != FDPwrite {
+		r.handle(&UnexpectedSyscallError{syscall, FDPwrite})
+	}
+	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPwrite(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPwrite, "fd", fd, recordFD})
+		}
+		if !equalIovec(iovecs, recordIOVecs) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPwrite, "iovecs", iovecs, recordIOVecs})
+		}
+		if offset != recordOffset {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPwrite, "offset", offset, recordOffset})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return size, errno
+}
+
+func (r *Replayer) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(FDRead, err); ok {
+			return s.FDRead(ctx, fd, iovecs)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != FDRead {
+		r.handle(&UnexpectedSyscallError{syscall, FDRead})
+	}
+	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDRead(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDRead, "fd", fd, recordFD})
+		}
+		if !equalIovecShape(iovecs, recordIOVecs) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDRead, "iovecs", iovecs, recordIOVecs})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return size, errno
+}
+
+func (r *Replayer) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int) (int, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(FDReadDir, err); ok {
+			return s.FDReadDir(ctx, fd, entries, cookie, bufferSizeBytes)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != FDReadDir {
+		r.handle(&UnexpectedSyscallError{syscall, FDReadDir})
+	}
+	recordFD, recordEntries, recordCookie, recordBufferSizeBytes, count, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDReadDir, "fd", fd, recordFD})
+		}
+		if len(entries) != len(recordEntries) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDReadDir, "entries", entries, recordEntries})
+		}
+		if cookie != recordCookie {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDReadDir, "cookie", cookie, recordCookie})
+		}
+		if bufferSizeBytes != recordBufferSizeBytes {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDReadDir, "bufferSizeBytes", bufferSizeBytes, recordBufferSizeBytes})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return count, errno
+}
+
+func (r *Replayer) FDRenumber(ctx context.Context, from, to FD) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(FDRenumber, err); ok {
+			return s.FDRenumber(ctx, from, to)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != FDRenumber {
+		r.handle(&UnexpectedSyscallError{syscall, FDRenumber})
+	}
+	recordFrom, recordTo, errno, err := r.codec.DecodeFDRenumber(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if from != recordFrom {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDRenumber, "from", from, recordFrom})
+		}
+		if to != recordTo {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDRenumber, "to", to, recordTo})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) FDSeek(ctx context.Context, fd FD, offset FileDelta, whence Whence) (FileSize, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(FDSeek, err); ok {
+			return s.FDSeek(ctx, fd, offset, whence)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != FDSeek {
+		r.handle(&UnexpectedSyscallError{syscall, FDSeek})
+	}
+	recordFD, recordOffset, recordWhence, size, errno, err := r.codec.DecodeFDSeek(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDSeek, "fd", fd, recordFD})
+		}
+		if offset != recordOffset {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDSeek, "offset", offset, recordOffset})
+		}
+		if whence != recordWhence {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDSeek, "whence", whence, recordWhence})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return size, errno
+}
+
+func (r *Replayer) FDSync(ctx context.Context, fd FD) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(FDSync, err); ok {
+			return s.FDSync(ctx, fd)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != FDSync {
+		r.handle(&UnexpectedSyscallError{syscall, FDSync})
+	}
+	recordFD, errno, err := r.codec.DecodeFDSync(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		if fd != recordFD {
+			r.handle(&UnexpectedSyscallParamError{FDSync, "fd", fd, recordFD})
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) FDTell(ctx context.Context, fd FD) (FileSize, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(FDTell, err); ok {
+			return s.FDTell(ctx, fd)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != FDTell {
+		r.handle(&UnexpectedSyscallError{syscall, FDTell})
+	}
+	recordFD, size, errno, err := r.codec.DecodeFDTell(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		if fd != recordFD {
+			r.handle(&UnexpectedSyscallParamError{FDTell, "fd", fd, recordFD})
+		}
+	}
+	return size, errno
+}
+
+func (r *Replayer) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(FDWrite, err); ok {
+			return s.FDWrite(ctx, fd, iovecs)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != FDWrite {
+		r.handle(&UnexpectedSyscallError{syscall, FDWrite})
+	}
+	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDWrite(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDWrite, "fd", fd, recordFD})
+		}
+		if !equalIovec(iovecs, recordIOVecs) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDWrite, "iovecs", iovecs, recordIOVecs})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return size, errno
 }
 
 func (r *Replayer) Close(ctx context.Context) error {
@@ -488,6 +813,30 @@ type UnexpectedSyscallError struct {
 
 func (e *UnexpectedSyscallError) Error() string {
 	return fmt.Sprintf("expected syscall %s (%d) but got %s (%d)", e.Expect, int(e.Expect), e.Actual, int(e.Actual))
+}
+
+func equalIovecShape(a, b []IOVec) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if len(a[i]) != len(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func equalIovec(a, b []IOVec) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !bytes.Equal(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func unreachable() {
