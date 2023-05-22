@@ -26,8 +26,7 @@ func UUIDv4(r io.Reader) Hash {
 	}
 	uuid[6] = (uuid[6] & 0x0f) | 0x40 // version 4
 	uuid[8] = (uuid[8] & 0x3f) | 0x80 // variant 1
-	h := hex.EncodeToString(uuid[:])
-	s := fmt.Sprintf("%s-%s-%s-%s-%s", h[:8], h[8:12], h[12:16], h[16:20], h[20:])
+	s := fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", uuid[:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:])
 	return Hash{Algorithm: "uuidv4", Digest: s}
 }
 

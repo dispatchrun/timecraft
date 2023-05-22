@@ -12,7 +12,7 @@ import (
 type Recorder struct {
 	system    System
 	startTime time.Time
-	recorder  func(timemachine.RecordBuilder)
+	write     func(*timemachine.RecordBuilder)
 
 	encoder Encoder
 	builder timemachine.RecordBuilder
@@ -23,13 +23,13 @@ var _ SocketsExtension = (*Recorder)(nil)
 
 // NewRecorder creates a new Recorder.
 //
-// The provided recorder function must consume the record immediately, as it's
+// The provided write function must consume the record immediately, as it's
 // reused across function calls.
-func NewRecorder(system System, startTime time.Time, recorder func(timemachine.RecordBuilder)) *Recorder {
+func NewRecorder(system System, startTime time.Time, write func(*timemachine.RecordBuilder)) *Recorder {
 	return &Recorder{
 		system:    system,
 		startTime: startTime,
-		recorder:  recorder,
+		write:     write,
 	}
 }
 
@@ -38,7 +38,7 @@ func (r *Recorder) record(s Syscall, b []byte) {
 	r.builder.SetTimestamp(time.Now())
 	r.builder.SetFunctionID(int(s))
 	r.builder.SetFunctionCall(b)
-	r.recorder(r.builder)
+	r.write(&r.builder)
 }
 
 func (r *Recorder) Preopen(hostfd int, path string, fdstat FDStat) FD {
