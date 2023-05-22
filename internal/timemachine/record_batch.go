@@ -239,7 +239,7 @@ func (b *RecordBatchBuilder) Reset(compression Compression, firstOffset int64) {
 //
 // The record is consumed immediately and can be reused safely when the
 // call returns.
-func (b *RecordBatchBuilder) AddRecord(record RecordBuilder) {
+func (b *RecordBatchBuilder) AddRecord(record *RecordBuilder) {
 	if b.finished {
 		panic("builder must be reset before records can be added")
 	}

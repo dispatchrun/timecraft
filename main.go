@@ -255,7 +255,7 @@ func run(args []string) error {
 		}
 		header.SetCompression(c)
 
-		if err := logWriter.WriteLogHeader(header); err != nil {
+		if err := logWriter.WriteLogHeader(&header); err != nil {
 			return fmt.Errorf("failed to write log header: %w", err)
 		}
 

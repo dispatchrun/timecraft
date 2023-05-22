@@ -215,7 +215,7 @@ func (w *LogWriter) Reset(output io.Writer) {
 
 // WriteLogHeader writes the log header. The method must be called before any
 // records are written to the log via calls to WriteRecordBatch.
-func (w *LogWriter) WriteLogHeader(header HeaderBuilder) error {
+func (w *LogWriter) WriteLogHeader(header *HeaderBuilder) error {
 	if w.stickyErr != nil {
 		return w.stickyErr
 	}
@@ -232,7 +232,7 @@ func (w *LogWriter) WriteLogHeader(header HeaderBuilder) error {
 // If the error occurred while writing to the underlying io.Writer, the writer
 // is broken and will always error on future calls to WriteRecordBatch until
 // the program calls Reset.
-func (w *LogWriter) WriteRecordBatch(batch RecordBatchBuilder) error {
+func (w *LogWriter) WriteRecordBatch(batch *RecordBatchBuilder) error {
 	if w.stickyErr != nil {
 		return w.stickyErr
 	}
@@ -270,7 +270,7 @@ func NewLogRecordWriter(w *LogWriter, batchSize int, compression Compression) *L
 //
 // The record is consumed immediately and can be reused safely when the
 // call returns.
-func (w *LogRecordWriter) WriteRecord(record RecordBuilder) error {
+func (w *LogRecordWriter) WriteRecord(record *RecordBuilder) error {
 	w.batch.AddRecord(record)
 	w.count++
 	if w.count >= w.batchSize {
@@ -284,7 +284,7 @@ func (w *LogRecordWriter) Flush() error {
 	if w.count == 0 {
 		return nil
 	}
-	if err := w.WriteRecordBatch(w.batch); err != nil {
+	if err := w.WriteRecordBatch(&w.batch); err != nil {
 		return err
 	}
 	w.firstOffset += int64(w.count)

@@ -45,7 +45,7 @@ func TestReadHeader(t *testing.T) {
 	headerBuilder.SetCompression(header.Compression)
 	headerBuilder.SetSegment(header.Segment)
 
-	if err := w.WriteLogHeader(headerBuilder); err != nil {
+	if err := w.WriteLogHeader(&headerBuilder); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,7 +146,7 @@ func TestReadRecordBatch(t *testing.T) {
 	headerBuilder.SetCompression(header.Compression)
 	headerBuilder.SetSegment(header.Segment)
 
-	if err := writer.WriteLogHeader(headerBuilder); err != nil {
+	if err := writer.WriteLogHeader(&headerBuilder); err != nil {
 		t.Fatal(err)
 	}
 	var functionCallBuilder functioncall.FunctionCallBuilder
@@ -166,9 +166,9 @@ func TestReadRecordBatch(t *testing.T) {
 			recordBuilder.SetTimestamp(r.Timestamp)
 			recordBuilder.SetFunctionID(r.FunctionID)
 			recordBuilder.SetFunctionCall(functionCallBuilder.Bytes())
-			recordBatchBuilder.AddRecord(recordBuilder)
+			recordBatchBuilder.AddRecord(&recordBuilder)
 		}
-		if err := writer.WriteRecordBatch(recordBatchBuilder); err != nil {
+		if err := writer.WriteRecordBatch(&recordBatchBuilder); err != nil {
 			t.Fatal(err)
 		}
 		firstOffset += int64(len(batch))
@@ -290,7 +290,7 @@ func BenchmarkLogReader(b *testing.B) {
 	headerBuilder.SetCompression(header.Compression)
 	headerBuilder.SetSegment(header.Segment)
 
-	if err := writer.WriteLogHeader(headerBuilder); err != nil {
+	if err := writer.WriteLogHeader(&headerBuilder); err != nil {
 		b.Fatal(err)
 	}
 
@@ -468,7 +468,7 @@ func benchmarkLogWriterWriteLogHeader(b *testing.B, header *timemachine.Header) 
 		headerBuilder.SetRuntime(header.Runtime)
 		headerBuilder.SetCompression(header.Compression)
 		headerBuilder.SetSegment(header.Segment)
-		if err := w.WriteLogHeader(headerBuilder); err != nil {
+		if err := w.WriteLogHeader(&headerBuilder); err != nil {
 			b.Fatal(err)
 		}
 		w.Reset(io.Discard)
@@ -482,7 +482,7 @@ func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.Header
 	headerBuilder.SetRuntime(header.Runtime)
 	headerBuilder.SetCompression(header.Compression)
 	headerBuilder.SetSegment(header.Segment)
-	if err := w.WriteLogHeader(headerBuilder); err != nil {
+	if err := w.WriteLogHeader(&headerBuilder); err != nil {
 		b.Fatal(err)
 	}
 
@@ -506,9 +506,9 @@ func benchmarkLogWriterWriteRecordBatch(b *testing.B, header *timemachine.Header
 			recordBuilder.SetTimestamp(r.Timestamp)
 			recordBuilder.SetFunctionID(r.FunctionID)
 			recordBuilder.SetFunctionCall(functionCallBuilder.Bytes())
-			recordBatchBuilder.AddRecord(recordBuilder)
+			recordBatchBuilder.AddRecord(&recordBuilder)
 		}
-		if err := w.WriteRecordBatch(recordBatchBuilder); err != nil {
+		if err := w.WriteRecordBatch(&recordBatchBuilder); err != nil {
 			b.Fatal(err)
 		}
 	}
