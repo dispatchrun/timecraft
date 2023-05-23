@@ -960,7 +960,7 @@ func (r *Replay) PollOneOff(ctx context.Context, subscriptions []Subscription, e
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordSubscriptions, recordEvents, count, errno, err := r.codec.DecodePollOneOff(record.FunctionCall(), r.subscriptions[:0], r.events[:0])
+	recordSubscriptions, recordEvents, errno, err := r.codec.DecodePollOneOff(record.FunctionCall(), r.subscriptions[:0], r.events[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -979,7 +979,7 @@ func (r *Replay) PollOneOff(ctx context.Context, subscriptions []Subscription, e
 		}
 	}
 	copy(events, recordEvents)
-	return count, errno
+	return len(recordEvents), errno
 }
 
 func (r *Replay) ProcExit(ctx context.Context, exitCode ExitCode) Errno {

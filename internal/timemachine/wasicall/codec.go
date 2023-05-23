@@ -774,14 +774,13 @@ func (c *Codec) DecodePathUnlinkFile(buffer []byte) (fd FD, path string, errno E
 	return
 }
 
-func (c *Codec) EncodePollOneOff(buffer []byte, subscriptions []Subscription, events []Event, n int, errno Errno) []byte {
+func (c *Codec) EncodePollOneOff(buffer []byte, subscriptions []Subscription, events []Event, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeSubscriptions(buffer, subscriptions)
-	buffer = encodeEvents(buffer, events)
-	return encodeInt(buffer, n)
+	return encodeEvents(buffer, events)
 }
 
-func (c *Codec) DecodePollOneOff(buffer []byte, subscriptions []Subscription, events []Event) (_ []Subscription, _ []Event, n int, errno Errno, err error) {
+func (c *Codec) DecodePollOneOff(buffer []byte, subscriptions []Subscription, events []Event) (_ []Subscription, _ []Event, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
@@ -791,8 +790,7 @@ func (c *Codec) DecodePollOneOff(buffer []byte, subscriptions []Subscription, ev
 	if events, buffer, err = decodeEvents(buffer, events); err != nil {
 		return
 	}
-	n, buffer, err = decodeInt(buffer)
-	return subscriptions, events, n, errno, err
+	return subscriptions, events, errno, err
 }
 
 func (c *Codec) EncodeProcExit(buffer []byte, exitCode ExitCode, errno Errno) []byte {

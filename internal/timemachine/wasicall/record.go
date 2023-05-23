@@ -279,7 +279,7 @@ func (r *Recorder) PathUnlinkFile(ctx context.Context, fd FD, path string) Errno
 
 func (r *Recorder) PollOneOff(ctx context.Context, subscriptions []Subscription, events []Event) (int, Errno) {
 	n, errno := r.system.PollOneOff(ctx, subscriptions, events)
-	r.record(PollOneOff, r.codec.EncodePollOneOff(r.buffer[:0], subscriptions, events, n, errno))
+	r.record(PollOneOff, r.codec.EncodePollOneOff(r.buffer[:0], subscriptions, events[:n], errno))
 	return n, errno
 }
 
