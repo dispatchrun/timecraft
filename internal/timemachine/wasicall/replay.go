@@ -9,45 +9,57 @@ import (
 
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	. "github.com/stealthrocket/wasi-go"
+	"github.com/tetratelabs/wazero/sys"
 )
 
+const (
+	EOFExitCode   = 0xE0F
+	ErrorExitCode = 0xBAD
+)
+
+// ReplayController controls a replay.
+type ReplayController interface {
+	// EOF is called when the log has been replayed fully and then another
+	// system call is made.
+	//
+	// If the controller returns a new wasi.System here, the pending system
+	// call and all subsequent system calls will be forwarded to it. If the
+	// controller returns nil, the WebAssembly module is terminated with
+	// EOFExitCode.
+	EOF(pendingSyscall Syscall) System
+
+	// Error is called when the replay encounters an error from which it
+	// cannot recover.
+	//
+	// The error will be one of:
+	// - ReadError: indicating that there was an error reading from the log
+	// - DecodeError: indicating that there was an error decoding a record from
+	//   the log
+	// - UnexpectedSyscallError: indicating that a system call was made that
+	//   did not match the next record in the log
+	// - UnexpectedSyscallParamError: indicating that a system call was made
+	//   with input that did not match the next record in the log
+	//
+	// After the controller has been notified, the WebAssembly module is
+	// terminated with ErrorExitCode.
+	Error(err error)
+}
+
 // Replayer implements wasi.System by replaying system calls recorded in a log.
-//
-// There are a few special cases to consider:
-//   - a system call may be requested after the log has been replayed fully. In
-//     this case, the replayer will call the eof callback with the pending
-//     system call number and then forward the call (and all subsequent calls)
-//     to the wasi.System it returns
-//   - an error may occur when reading a record from the log or decoding its
-//     contents. In this case, the error callback is called with a ReadError or
-//     DecodeError
-//   - a system call that doesn't match the next record in the log may be
-//     requested. In this case, the error callback is called with a
-//     UnexpectedSyscallError or one or more UnexpectedSyscallParamError errors
-//   - if the ProcExit system call is called, the replayer will call the exit
-//     callback rather than returning from the call
-//
-// The error and exit callbacks must not return normally, since these are
-// called when an unrecoverable state is encountered. Rather, they should
-// call panic(sys.NewExitError(...)) with an error code to halt execution of
-// the WebAssembly module.
 type Replayer struct {
-	reader timemachine.RecordReader
+	reader     timemachine.RecordReader
+	controller ReplayController
 
 	// Codec is used to encode and decode system call inputs and outputs.
 	// It's not configurable at this time.
 	codec Codec
 
-	// Hooks that are called on edge cases.
-	eof   func(Syscall) System
-	error func(error)
-	exit  func(ExitCode)
-
 	// In strict mode, the Replayer will ensure that the system calls are
-	// called with the same params as those stored on the records.
+	// called with the same params as those stored on the records. It's not
+	// configurable at this time.
 	strict bool
 
-	// eofSystem is the wasi.System returned by the eof hook.
+	// eofSystem is the wasi.System returned by the EOF hook.
 	eofSystem System
 }
 
@@ -55,13 +67,11 @@ var _ System = (*Replayer)(nil)
 var _ SocketsExtension = (*Replayer)(nil)
 
 // NewReplayer creates a Replayer.
-func NewReplayer(reader timemachine.RecordReader, eof func(Syscall) System, error func(error), exit func(ExitCode)) *Replayer {
+func NewReplayer(reader timemachine.RecordReader, controller ReplayController) *Replayer {
 	return &Replayer{
-		reader: reader,
-		eof:    eof,
-		error:  error,
-		exit:   exit,
-		strict: true,
+		reader:     reader,
+		controller: controller,
+		strict:     true,
 	}
 }
 
@@ -76,7 +86,10 @@ func (r *Replayer) Register(hostfd int, fdstat FDStat) FD {
 func (r *Replayer) isEOF(s Syscall, err error) (System, bool) {
 	if err == io.EOF {
 		if r.eofSystem == nil {
-			r.eofSystem = r.eof(s)
+			r.eofSystem = r.controller.EOF(s)
+			if r.eofSystem == nil {
+				panic(sys.NewExitError(EOFExitCode))
+			}
 		}
 		return r.eofSystem, true
 	}
@@ -84,8 +97,8 @@ func (r *Replayer) isEOF(s Syscall, err error) (System, bool) {
 }
 
 func (r *Replayer) handle(err error) {
-	r.error(err)
-	unreachable()
+	r.controller.Error(err)
+	panic(sys.NewExitError(ErrorExitCode))
 }
 
 func (r *Replayer) ArgsGet(ctx context.Context) ([]string, Errno) {
@@ -1166,9 +1179,8 @@ func (r *Replayer) ProcExit(ctx context.Context, exitCode ExitCode) Errno {
 	if r.strict && exitCode != recordExitCode {
 		r.handle(&UnexpectedSyscallParamError{ProcExit, "exitCode", exitCode, recordExitCode})
 	}
-	r.exit(exitCode)
-	unreachable()
-	return errno
+	_ = errno
+	panic(sys.NewExitError(uint32(exitCode)))
 }
 
 func (r *Replayer) ProcRaise(ctx context.Context, signal Signal) Errno {
@@ -1788,8 +1800,4 @@ func equalSubscription(a, b Subscription) bool {
 	} else {
 		return false // invalid event type; cannot compare
 	}
-}
-
-func unreachable() {
-	panic("unreachable")
 }
