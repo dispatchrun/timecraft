@@ -379,7 +379,7 @@ func replay(args []string) error {
 
 	records := timemachine.NewLogRecordReader(logReader)
 
-	replayer := wasicall.NewReplayer(records, ReplayController{})
+	replayer := wasicall.NewReplayer(records)
 	defer replayer.Close(ctx)
 
 	// TODO: need to figure this out dynamically:
@@ -392,16 +392,6 @@ func replay(args []string) error {
 		return err
 	}
 	return instance.Close(ctx)
-}
-
-type ReplayController struct{}
-
-func (ReplayController) EOF(s wasicall.Syscall) wasi.System {
-	panic("not implemented")
-}
-
-func (ReplayController) Error(err error) {
-	panic(err)
 }
 
 type stringList []string

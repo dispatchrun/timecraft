@@ -12,23 +12,15 @@ import (
 	"github.com/tetratelabs/wazero/sys"
 )
 
-const EOFExitCode = 0xE0F
-
-// ReplayController controls a replay.
-type ReplayController interface {
-	// EOF is called when the log has been replayed fully and then another
-	// system call is made.
-	//
-	// If the controller returns a new wasi.System here, the pending system
-	// call and all subsequent system calls will be forwarded to it. If the
-	// controller returns nil, the WebAssembly module is terminated with
-	// EOFExitCode.
-	EOF(pendingSyscall Syscall) System
-}
-
 // Replayer implements wasi.System by replaying system calls recorded in a log.
 //
-// The following unrecoverable errors may occur during replay:
+// When the replay is complete, the Replayer will return ENOSYS for subsequent
+// system calls, and the EOF method will return true.
+//
+// When an error occurs, the Replayer will panic and the execution of the
+// WebAssembly module will be halted.
+//
+// The following errors may occur during replay:
 //   - ReadError: there was an error reading from the log
 //   - DecodeError: there was an error decoding a record from the log
 //   - UnexpectedSyscallError: a system call was made that did not match the
@@ -39,12 +31,8 @@ type ReplayController interface {
 // The error may also be a compound error, indicating that multiple errors
 // were encountered. In this case, the error will implement
 // interface{ Unwrap() []error }.
-//
-// When an error occurs, the Replayer will panic and the execution of the
-// WebAssembly module will be halted.
 type Replayer struct {
-	reader     timemachine.RecordReader
-	controller ReplayController
+	reader timemachine.RecordReader
 
 	// Codec is used to encode and decode system call inputs and outputs.
 	// It's not configurable at this time.
@@ -55,8 +43,7 @@ type Replayer struct {
 	// configurable at this time.
 	strict bool
 
-	// eofSystem is the wasi.System returned by the EOF hook.
-	eofSystem System
+	eof bool
 
 	// Cache for decoded slices.
 	args          []string
@@ -69,11 +56,10 @@ var _ System = (*Replayer)(nil)
 var _ SocketsExtension = (*Replayer)(nil)
 
 // NewReplayer creates a Replayer.
-func NewReplayer(reader timemachine.RecordReader, controller ReplayController) *Replayer {
+func NewReplayer(reader timemachine.RecordReader) *Replayer {
 	return &Replayer{
-		reader:     reader,
-		controller: controller,
-		strict:     true,
+		reader: reader,
+		strict: true,
 	}
 }
 
@@ -85,30 +71,31 @@ func (r *Replayer) Register(hostfd int, fdstat FDStat) FD {
 	panic("Replayer cannot Register")
 }
 
-func (r *Replayer) isEOF(s Syscall, err error) (System, bool) {
-	if err == io.EOF {
-		if r.eofSystem == nil {
-			r.eofSystem = r.controller.EOF(s)
-			if r.eofSystem == nil {
-				panic(sys.NewExitError(EOFExitCode))
-			}
-		}
-		return r.eofSystem, true
-	}
-	return nil, false
-}
-
-func (r *Replayer) ArgsGet(ctx context.Context) (args []string, errno Errno) {
+func (r *Replayer) readRecord(syscall Syscall) (*timemachine.Record, bool) {
 	record, err := r.reader.ReadRecord()
 	if err != nil {
-		if s, ok := r.isEOF(ArgsGet, err); ok {
-			return s.ArgsGet(ctx)
+		if err == io.EOF {
+			r.eof = true
+			return nil, false
 		}
 		panic(&ReadError{err})
 	}
-	if syscall := Syscall(record.FunctionID()); syscall != ArgsGet {
-		panic(&UnexpectedSyscallError{syscall, ArgsGet})
+	if recordSyscall := Syscall(record.FunctionID()); recordSyscall != syscall {
+		panic(&UnexpectedSyscallError{recordSyscall, syscall})
 	}
+	return record, true
+}
+
+func (r *Replayer) EOF() bool {
+	return r.eof
+}
+
+func (r *Replayer) ArgsGet(ctx context.Context) (args []string, errno Errno) {
+	record, ok := r.readRecord(ArgsGet)
+	if !ok {
+		return nil, ENOSYS
+	}
+	var err error
 	r.args, errno, err = r.codec.DecodeArgsGet(record.FunctionCall(), r.args[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
@@ -117,16 +104,11 @@ func (r *Replayer) ArgsGet(ctx context.Context) (args []string, errno Errno) {
 }
 
 func (r *Replayer) EnvironGet(ctx context.Context) (env []string, errno Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(EnvironGet, err); ok {
-			return s.EnvironGet(ctx)
-		}
-		panic(&ReadError{err})
+	record, ok := r.readRecord(EnvironGet)
+	if !ok {
+		return nil, ENOSYS
 	}
-	if syscall := Syscall(record.FunctionID()); syscall != EnvironGet {
-		panic(&UnexpectedSyscallError{syscall, EnvironGet})
-	}
+	var err error
 	r.args, errno, err = r.codec.DecodeEnvironGet(record.FunctionCall(), r.args[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
@@ -135,15 +117,9 @@ func (r *Replayer) EnvironGet(ctx context.Context) (env []string, errno Errno) {
 }
 
 func (r *Replayer) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(ClockResGet, err); ok {
-			return s.ClockResGet(ctx, id)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != ClockResGet {
-		panic(&UnexpectedSyscallError{syscall, ClockResGet})
+	record, ok := r.readRecord(ClockResGet)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordID, timestamp, errno, err := r.codec.DecodeClockResGet(record.FunctionCall())
 	if err != nil {
@@ -156,15 +132,9 @@ func (r *Replayer) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errn
 }
 
 func (r *Replayer) ClockTimeGet(ctx context.Context, id ClockID, precision Timestamp) (Timestamp, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(ClockTimeGet, err); ok {
-			return s.ClockTimeGet(ctx, id, precision)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != ClockTimeGet {
-		panic(&UnexpectedSyscallError{syscall, ClockTimeGet})
+	record, ok := r.readRecord(ClockTimeGet)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordID, recordPrecision, timestamp, errno, err := r.codec.DecodeClockTimeGet(record.FunctionCall())
 	if err != nil {
@@ -186,15 +156,9 @@ func (r *Replayer) ClockTimeGet(ctx context.Context, id ClockID, precision Times
 }
 
 func (r *Replayer) FDAdvise(ctx context.Context, fd FD, offset FileSize, length FileSize, advice Advice) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDAdvise, err); ok {
-			return s.FDAdvise(ctx, fd, offset, length, advice)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDAdvise {
-		panic(&UnexpectedSyscallError{syscall, FDAdvise})
+	record, ok := r.readRecord(FDAdvise)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordOffset, recordLength, recordAdvice, errno, err := r.codec.DecodeFDAdvise(record.FunctionCall())
 	if err != nil {
@@ -222,15 +186,9 @@ func (r *Replayer) FDAdvise(ctx context.Context, fd FD, offset FileSize, length 
 }
 
 func (r *Replayer) FDAllocate(ctx context.Context, fd FD, offset FileSize, length FileSize) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDAllocate, err); ok {
-			return s.FDAllocate(ctx, fd, offset, length)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDAllocate {
-		panic(&UnexpectedSyscallError{syscall, FDAllocate})
+	record, ok := r.readRecord(FDAllocate)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordOffset, recordLength, errno, err := r.codec.DecodeFDAllocate(record.FunctionCall())
 	if err != nil {
@@ -255,15 +213,9 @@ func (r *Replayer) FDAllocate(ctx context.Context, fd FD, offset FileSize, lengt
 }
 
 func (r *Replayer) FDClose(ctx context.Context, fd FD) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDClose, err); ok {
-			return s.FDClose(ctx, fd)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDClose {
-		panic(&UnexpectedSyscallError{syscall, FDClose})
+	record, ok := r.readRecord(FDClose)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, errno, err := r.codec.DecodeFDClose(record.FunctionCall())
 	if err != nil {
@@ -276,15 +228,9 @@ func (r *Replayer) FDClose(ctx context.Context, fd FD) Errno {
 }
 
 func (r *Replayer) FDDataSync(ctx context.Context, fd FD) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDDataSync, err); ok {
-			return s.FDDataSync(ctx, fd)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDDataSync {
-		panic(&UnexpectedSyscallError{syscall, FDDataSync})
+	record, ok := r.readRecord(FDDataSync)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, errno, err := r.codec.DecodeFDDataSync(record.FunctionCall())
 	if err != nil {
@@ -297,15 +243,9 @@ func (r *Replayer) FDDataSync(ctx context.Context, fd FD) Errno {
 }
 
 func (r *Replayer) FDStatGet(ctx context.Context, fd FD) (FDStat, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDStatGet, err); ok {
-			return s.FDStatGet(ctx, fd)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDStatGet {
-		panic(&UnexpectedSyscallError{syscall, FDStatGet})
+	record, ok := r.readRecord(FDStatGet)
+	if !ok {
+		return FDStat{}, ENOSYS
 	}
 	recordFD, stat, errno, err := r.codec.DecodeFDStatGet(record.FunctionCall())
 	if err != nil {
@@ -318,15 +258,9 @@ func (r *Replayer) FDStatGet(ctx context.Context, fd FD) (FDStat, Errno) {
 }
 
 func (r *Replayer) FDStatSetFlags(ctx context.Context, fd FD, flags FDFlags) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDStatSetFlags, err); ok {
-			return s.FDStatSetFlags(ctx, fd, flags)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDStatSetFlags {
-		panic(&UnexpectedSyscallError{syscall, FDStatSetFlags})
+	record, ok := r.readRecord(FDStatSetFlags)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordFlags, errno, err := r.codec.DecodeFDStatSetFlags(record.FunctionCall())
 	if err != nil {
@@ -348,15 +282,9 @@ func (r *Replayer) FDStatSetFlags(ctx context.Context, fd FD, flags FDFlags) Err
 }
 
 func (r *Replayer) FDStatSetRights(ctx context.Context, fd FD, rightsBase, rightsInheriting Rights) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDStatSetRights, err); ok {
-			return s.FDStatSetRights(ctx, fd, rightsBase, rightsInheriting)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDStatSetRights {
-		panic(&UnexpectedSyscallError{syscall, FDStatSetRights})
+	record, ok := r.readRecord(FDStatSetRights)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordRightsBase, recordRightsInheriting, errno, err := r.codec.DecodeFDStatSetRights(record.FunctionCall())
 	if err != nil {
@@ -381,15 +309,9 @@ func (r *Replayer) FDStatSetRights(ctx context.Context, fd FD, rightsBase, right
 }
 
 func (r *Replayer) FDFileStatGet(ctx context.Context, fd FD) (FileStat, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDFileStatGet, err); ok {
-			return s.FDFileStatGet(ctx, fd)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDFileStatGet {
-		panic(&UnexpectedSyscallError{syscall, FDFileStatGet})
+	record, ok := r.readRecord(FDFileStatGet)
+	if !ok {
+		return FileStat{}, ENOSYS
 	}
 	recordFD, stat, errno, err := r.codec.DecodeFDFileStatGet(record.FunctionCall())
 	if err != nil {
@@ -402,15 +324,9 @@ func (r *Replayer) FDFileStatGet(ctx context.Context, fd FD) (FileStat, Errno) {
 }
 
 func (r *Replayer) FDFileStatSetSize(ctx context.Context, fd FD, size FileSize) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDFileStatSetSize, err); ok {
-			return s.FDFileStatSetSize(ctx, fd, size)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDFileStatSetSize {
-		panic(&UnexpectedSyscallError{syscall, FDFileStatSetSize})
+	record, ok := r.readRecord(FDFileStatSetSize)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordSize, errno, err := r.codec.DecodeFDFileStatSetSize(record.FunctionCall())
 	if err != nil {
@@ -432,15 +348,9 @@ func (r *Replayer) FDFileStatSetSize(ctx context.Context, fd FD, size FileSize) 
 }
 
 func (r *Replayer) FDFileStatSetTimes(ctx context.Context, fd FD, accessTime, modifyTime Timestamp, flags FSTFlags) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDFileStatSetTimes, err); ok {
-			return s.FDFileStatSetTimes(ctx, fd, accessTime, modifyTime, flags)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDFileStatSetTimes {
-		panic(&UnexpectedSyscallError{syscall, FDFileStatSetTimes})
+	record, ok := r.readRecord(FDFileStatSetTimes)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordAccessTime, recordModifyTime, recordFlags, errno, err := r.codec.DecodeFDFileStatSetTimes(record.FunctionCall())
 	if err != nil {
@@ -468,15 +378,9 @@ func (r *Replayer) FDFileStatSetTimes(ctx context.Context, fd FD, accessTime, mo
 }
 
 func (r *Replayer) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (Size, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDPread, err); ok {
-			return s.FDPread(ctx, fd, iovecs, offset)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDPread {
-		panic(&UnexpectedSyscallError{syscall, FDPread})
+	record, ok := r.readRecord(FDPread)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPread(record.FunctionCall())
 	if err != nil {
@@ -501,15 +405,9 @@ func (r *Replayer) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset Fi
 }
 
 func (r *Replayer) FDPreStatGet(ctx context.Context, fd FD) (PreStat, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDPreStatGet, err); ok {
-			return s.FDPreStatGet(ctx, fd)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDPreStatGet {
-		panic(&UnexpectedSyscallError{syscall, FDPreStatGet})
+	record, ok := r.readRecord(FDPreStatGet)
+	if !ok {
+		return PreStat{}, ENOSYS
 	}
 	recordFD, stat, errno, err := r.codec.DecodeFDPreStatGet(record.FunctionCall())
 	if err != nil {
@@ -522,15 +420,9 @@ func (r *Replayer) FDPreStatGet(ctx context.Context, fd FD) (PreStat, Errno) {
 }
 
 func (r *Replayer) FDPreStatDirName(ctx context.Context, fd FD) (string, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDPreStatDirName, err); ok {
-			return s.FDPreStatDirName(ctx, fd)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDPreStatDirName {
-		panic(&UnexpectedSyscallError{syscall, FDPreStatDirName})
+	record, ok := r.readRecord(FDPreStatDirName)
+	if !ok {
+		return "", ENOSYS
 	}
 	recordFD, name, errno, err := r.codec.DecodeFDPreStatDirName(record.FunctionCall())
 	if err != nil {
@@ -543,15 +435,9 @@ func (r *Replayer) FDPreStatDirName(ctx context.Context, fd FD) (string, Errno) 
 }
 
 func (r *Replayer) FDPwrite(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (Size, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDPwrite, err); ok {
-			return s.FDPwrite(ctx, fd, iovecs, offset)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDPwrite {
-		panic(&UnexpectedSyscallError{syscall, FDPwrite})
+	record, ok := r.readRecord(FDPwrite)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPwrite(record.FunctionCall())
 	if err != nil {
@@ -576,15 +462,9 @@ func (r *Replayer) FDPwrite(ctx context.Context, fd FD, iovecs []IOVec, offset F
 }
 
 func (r *Replayer) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDRead, err); ok {
-			return s.FDRead(ctx, fd, iovecs)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDRead {
-		panic(&UnexpectedSyscallError{syscall, FDRead})
+	record, ok := r.readRecord(FDRead)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDRead(record.FunctionCall(), r.iovecs[:0])
 	if err != nil {
@@ -610,15 +490,9 @@ func (r *Replayer) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Err
 }
 
 func (r *Replayer) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int) (int, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDReadDir, err); ok {
-			return s.FDReadDir(ctx, fd, entries, cookie, bufferSizeBytes)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDReadDir {
-		panic(&UnexpectedSyscallError{syscall, FDReadDir})
+	record, ok := r.readRecord(FDReadDir)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordFD, recordEntries, recordCookie, recordBufferSizeBytes, count, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall())
 	if err != nil {
@@ -647,15 +521,9 @@ func (r *Replayer) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, coo
 }
 
 func (r *Replayer) FDRenumber(ctx context.Context, from, to FD) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDRenumber, err); ok {
-			return s.FDRenumber(ctx, from, to)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDRenumber {
-		panic(&UnexpectedSyscallError{syscall, FDRenumber})
+	record, ok := r.readRecord(FDRenumber)
+	if !ok {
+		return ENOSYS
 	}
 	recordFrom, recordTo, errno, err := r.codec.DecodeFDRenumber(record.FunctionCall())
 	if err != nil {
@@ -677,15 +545,9 @@ func (r *Replayer) FDRenumber(ctx context.Context, from, to FD) Errno {
 }
 
 func (r *Replayer) FDSeek(ctx context.Context, fd FD, offset FileDelta, whence Whence) (FileSize, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDSeek, err); ok {
-			return s.FDSeek(ctx, fd, offset, whence)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDSeek {
-		panic(&UnexpectedSyscallError{syscall, FDSeek})
+	record, ok := r.readRecord(FDSeek)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordFD, recordOffset, recordWhence, size, errno, err := r.codec.DecodeFDSeek(record.FunctionCall())
 	if err != nil {
@@ -710,15 +572,9 @@ func (r *Replayer) FDSeek(ctx context.Context, fd FD, offset FileDelta, whence W
 }
 
 func (r *Replayer) FDSync(ctx context.Context, fd FD) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDSync, err); ok {
-			return s.FDSync(ctx, fd)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDSync {
-		panic(&UnexpectedSyscallError{syscall, FDSync})
+	record, ok := r.readRecord(FDSync)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, errno, err := r.codec.DecodeFDSync(record.FunctionCall())
 	if err != nil {
@@ -731,15 +587,9 @@ func (r *Replayer) FDSync(ctx context.Context, fd FD) Errno {
 }
 
 func (r *Replayer) FDTell(ctx context.Context, fd FD) (FileSize, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDTell, err); ok {
-			return s.FDTell(ctx, fd)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDTell {
-		panic(&UnexpectedSyscallError{syscall, FDTell})
+	record, ok := r.readRecord(FDTell)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordFD, size, errno, err := r.codec.DecodeFDTell(record.FunctionCall())
 	if err != nil {
@@ -752,15 +602,9 @@ func (r *Replayer) FDTell(ctx context.Context, fd FD) (FileSize, Errno) {
 }
 
 func (r *Replayer) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(FDWrite, err); ok {
-			return s.FDWrite(ctx, fd, iovecs)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != FDWrite {
-		panic(&UnexpectedSyscallError{syscall, FDWrite})
+	record, ok := r.readRecord(FDWrite)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDWrite(record.FunctionCall(), r.iovecs[:0])
 	if err != nil {
@@ -783,15 +627,9 @@ func (r *Replayer) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Er
 }
 
 func (r *Replayer) PathCreateDirectory(ctx context.Context, fd FD, path string) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(PathCreateDirectory, err); ok {
-			return s.PathCreateDirectory(ctx, fd, path)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != PathCreateDirectory {
-		panic(&UnexpectedSyscallError{syscall, PathCreateDirectory})
+	record, ok := r.readRecord(PathCreateDirectory)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordPath, errno, err := r.codec.DecodePathCreateDirectory(record.FunctionCall())
 	if err != nil {
@@ -813,15 +651,9 @@ func (r *Replayer) PathCreateDirectory(ctx context.Context, fd FD, path string) 
 }
 
 func (r *Replayer) PathFileStatGet(ctx context.Context, fd FD, lookupFlags LookupFlags, path string) (FileStat, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(PathFileStatGet, err); ok {
-			return s.PathFileStatGet(ctx, fd, lookupFlags, path)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != PathFileStatGet {
-		panic(&UnexpectedSyscallError{syscall, PathFileStatGet})
+	record, ok := r.readRecord(PathFileStatGet)
+	if !ok {
+		return FileStat{}, ENOSYS
 	}
 	recordFD, recordLookupFlags, recordPath, stat, errno, err := r.codec.DecodePathFileStatGet(record.FunctionCall())
 	if err != nil {
@@ -846,15 +678,9 @@ func (r *Replayer) PathFileStatGet(ctx context.Context, fd FD, lookupFlags Looku
 }
 
 func (r *Replayer) PathFileStatSetTimes(ctx context.Context, fd FD, lookupFlags LookupFlags, path string, accessTime, modifyTime Timestamp, flags FSTFlags) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(PathFileStatSetTimes, err); ok {
-			return s.PathFileStatSetTimes(ctx, fd, lookupFlags, path, accessTime, modifyTime, flags)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != PathFileStatSetTimes {
-		panic(&UnexpectedSyscallError{syscall, PathFileStatSetTimes})
+	record, ok := r.readRecord(PathFileStatSetTimes)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordLookupFlags, recordPath, recordAccessTime, recordModifyTime, recordFlags, errno, err := r.codec.DecodePathFileStatSetTimes(record.FunctionCall())
 	if err != nil {
@@ -888,15 +714,9 @@ func (r *Replayer) PathFileStatSetTimes(ctx context.Context, fd FD, lookupFlags 
 }
 
 func (r *Replayer) PathLink(ctx context.Context, oldFD FD, oldFlags LookupFlags, oldPath string, newFD FD, newPath string) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(PathLink, err); ok {
-			return s.PathLink(ctx, oldFD, oldFlags, oldPath, newFD, newPath)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != PathLink {
-		panic(&UnexpectedSyscallError{syscall, PathLink})
+	record, ok := r.readRecord(PathLink)
+	if !ok {
+		return ENOSYS
 	}
 	recordOldFD, recordOldFlags, recordOldPath, recordNewFD, recordNewPath, errno, err := r.codec.DecodePathLink(record.FunctionCall())
 	if err != nil {
@@ -927,15 +747,9 @@ func (r *Replayer) PathLink(ctx context.Context, oldFD FD, oldFlags LookupFlags,
 }
 
 func (r *Replayer) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, path string, openFlags OpenFlags, rightsBase, rightsInheriting Rights, fdFlags FDFlags) (FD, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(PathOpen, err); ok {
-			return s.PathOpen(ctx, fd, dirFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != PathOpen {
-		panic(&UnexpectedSyscallError{syscall, PathOpen})
+	record, ok := r.readRecord(PathOpen)
+	if !ok {
+		return -1, ENOSYS
 	}
 	recordFD, recordDirFlags, recordPath, recordOpenFlags, recordRightsBase, recordRightsInheriting, recordFDFlags, newfd, errno, err := r.codec.DecodePathOpen(record.FunctionCall())
 	if err != nil {
@@ -972,15 +786,9 @@ func (r *Replayer) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, pa
 }
 
 func (r *Replayer) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) ([]byte, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(PathReadLink, err); ok {
-			return s.PathReadLink(ctx, fd, path, buffer)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != PathReadLink {
-		panic(&UnexpectedSyscallError{syscall, PathReadLink})
+	record, ok := r.readRecord(PathReadLink)
+	if !ok {
+		return nil, ENOSYS
 	}
 	recordFD, recordPath, recordBuffer, result, errno, err := r.codec.DecodePathReadLink(record.FunctionCall())
 	if err != nil {
@@ -1006,15 +814,9 @@ func (r *Replayer) PathReadLink(ctx context.Context, fd FD, path string, buffer 
 }
 
 func (r *Replayer) PathRemoveDirectory(ctx context.Context, fd FD, path string) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(PathRemoveDirectory, err); ok {
-			return s.PathRemoveDirectory(ctx, fd, path)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != PathRemoveDirectory {
-		panic(&UnexpectedSyscallError{syscall, PathRemoveDirectory})
+	record, ok := r.readRecord(PathRemoveDirectory)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordPath, errno, err := r.codec.DecodePathRemoveDirectory(record.FunctionCall())
 	if err != nil {
@@ -1036,15 +838,9 @@ func (r *Replayer) PathRemoveDirectory(ctx context.Context, fd FD, path string) 
 }
 
 func (r *Replayer) PathRename(ctx context.Context, fd FD, oldPath string, newFD FD, newPath string) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(PathRename, err); ok {
-			return s.PathRename(ctx, fd, oldPath, newFD, newPath)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != PathRename {
-		panic(&UnexpectedSyscallError{syscall, PathRename})
+	record, ok := r.readRecord(PathRename)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordOldPath, recordNewFD, recordNewPath, errno, err := r.codec.DecodePathRename(record.FunctionCall())
 	if err != nil {
@@ -1072,15 +868,9 @@ func (r *Replayer) PathRename(ctx context.Context, fd FD, oldPath string, newFD 
 }
 
 func (r *Replayer) PathSymlink(ctx context.Context, oldPath string, fd FD, newPath string) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(PathSymlink, err); ok {
-			return s.PathSymlink(ctx, oldPath, fd, newPath)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != PathSymlink {
-		panic(&UnexpectedSyscallError{syscall, PathSymlink})
+	record, ok := r.readRecord(PathSymlink)
+	if !ok {
+		return ENOSYS
 	}
 	recordOldPath, recordFD, recordNewPath, errno, err := r.codec.DecodePathSymlink(record.FunctionCall())
 	if err != nil {
@@ -1105,15 +895,9 @@ func (r *Replayer) PathSymlink(ctx context.Context, oldPath string, fd FD, newPa
 }
 
 func (r *Replayer) PathUnlinkFile(ctx context.Context, fd FD, path string) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(PathUnlinkFile, err); ok {
-			return s.PathUnlinkFile(ctx, fd, path)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != PathUnlinkFile {
-		panic(&UnexpectedSyscallError{syscall, PathUnlinkFile})
+	record, ok := r.readRecord(PathUnlinkFile)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordPath, errno, err := r.codec.DecodePathUnlinkFile(record.FunctionCall())
 	if err != nil {
@@ -1135,15 +919,9 @@ func (r *Replayer) PathUnlinkFile(ctx context.Context, fd FD, path string) Errno
 }
 
 func (r *Replayer) PollOneOff(ctx context.Context, subscriptions []Subscription, events []Event) (int, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(PollOneOff, err); ok {
-			return s.PollOneOff(ctx, subscriptions, events)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != PollOneOff {
-		panic(&UnexpectedSyscallError{syscall, PollOneOff})
+	record, ok := r.readRecord(PollOneOff)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordSubscriptions, recordEvents, count, errno, err := r.codec.DecodePollOneOff(record.FunctionCall(), r.subscriptions[:0], r.events[:0])
 	if err != nil {
@@ -1168,15 +946,9 @@ func (r *Replayer) PollOneOff(ctx context.Context, subscriptions []Subscription,
 }
 
 func (r *Replayer) ProcExit(ctx context.Context, exitCode ExitCode) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(ProcExit, err); ok {
-			return s.ProcExit(ctx, exitCode)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != ProcExit {
-		panic(&UnexpectedSyscallError{syscall, ProcExit})
+	record, ok := r.readRecord(ProcExit)
+	if !ok {
+		return ENOSYS
 	}
 	recordExitCode, errno, err := r.codec.DecodeProcExit(record.FunctionCall())
 	if err != nil {
@@ -1190,15 +962,9 @@ func (r *Replayer) ProcExit(ctx context.Context, exitCode ExitCode) Errno {
 }
 
 func (r *Replayer) ProcRaise(ctx context.Context, signal Signal) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(ProcRaise, err); ok {
-			return s.ProcRaise(ctx, signal)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != ProcRaise {
-		panic(&UnexpectedSyscallError{syscall, ProcRaise})
+	record, ok := r.readRecord(ProcRaise)
+	if !ok {
+		return ENOSYS
 	}
 	recordSignal, errno, err := r.codec.DecodeProcRaise(record.FunctionCall())
 	if err != nil {
@@ -1211,15 +977,9 @@ func (r *Replayer) ProcRaise(ctx context.Context, signal Signal) Errno {
 }
 
 func (r *Replayer) SchedYield(ctx context.Context) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SchedYield, err); ok {
-			return s.SchedYield(ctx)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SchedYield {
-		panic(&UnexpectedSyscallError{syscall, SchedYield})
+	record, ok := r.readRecord(SchedYield)
+	if !ok {
+		return ENOSYS
 	}
 	errno, err := r.codec.DecodeSchedYield(record.FunctionCall())
 	if err != nil {
@@ -1229,15 +989,9 @@ func (r *Replayer) SchedYield(ctx context.Context) Errno {
 }
 
 func (r *Replayer) RandomGet(ctx context.Context, buffer []byte) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(RandomGet, err); ok {
-			return s.RandomGet(ctx, buffer)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != RandomGet {
-		panic(&UnexpectedSyscallError{syscall, RandomGet})
+	record, ok := r.readRecord(RandomGet)
+	if !ok {
+		return ENOSYS
 	}
 	recordBuffer, errno, err := r.codec.DecodeRandomGet(record.FunctionCall())
 	if err != nil {
@@ -1251,15 +1005,9 @@ func (r *Replayer) RandomGet(ctx context.Context, buffer []byte) Errno {
 }
 
 func (r *Replayer) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockAccept, err); ok {
-			return s.SockAccept(ctx, fd, flags)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockAccept {
-		panic(&UnexpectedSyscallError{syscall, SockAccept})
+	record, ok := r.readRecord(SockAccept)
+	if !ok {
+		return -1, ENOSYS
 	}
 	recordFD, recordFlags, newfd, errno, err := r.codec.DecodeSockAccept(record.FunctionCall())
 	if err != nil {
@@ -1281,15 +1029,9 @@ func (r *Replayer) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Er
 }
 
 func (r *Replayer) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockShutdown, err); ok {
-			return s.SockShutdown(ctx, fd, flags)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockShutdown {
-		panic(&UnexpectedSyscallError{syscall, SockShutdown})
+	record, ok := r.readRecord(SockShutdown)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordFlags, errno, err := r.codec.DecodeSockShutdown(record.FunctionCall())
 	if err != nil {
@@ -1311,15 +1053,9 @@ func (r *Replayer) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno
 }
 
 func (r *Replayer) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockRecv, err); ok {
-			return s.SockRecv(ctx, fd, iovecs, iflags)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockRecv {
-		panic(&UnexpectedSyscallError{syscall, SockRecv})
+	record, ok := r.readRecord(SockRecv)
+	if !ok {
+		return 0, 0, ENOSYS
 	}
 	recordFD, recordIOVecs, recordIFlags, size, oflags, errno, err := r.codec.DecodeSockRecv(record.FunctionCall())
 	if err != nil {
@@ -1344,15 +1080,9 @@ func (r *Replayer) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags R
 }
 
 func (r *Replayer) SockSend(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags) (Size, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockSend, err); ok {
-			return s.SockSend(ctx, fd, iovecs, iflags)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockSend {
-		panic(&UnexpectedSyscallError{syscall, SockSend})
+	record, ok := r.readRecord(SockSend)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordFD, recordIOVecs, recordIFlags, size, errno, err := r.codec.DecodeSockSend(record.FunctionCall())
 	if err != nil {
@@ -1377,19 +1107,9 @@ func (r *Replayer) SockSend(ctx context.Context, fd FD, iovecs []IOVec, iflags S
 }
 
 func (r *Replayer) SockOpen(ctx context.Context, protocolFamily ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase, rightsInheriting Rights) (FD, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockOpen, err); ok {
-			se, ok := s.(SocketsExtension)
-			if !ok {
-				return -1, ENOSYS
-			}
-			return se.SockOpen(ctx, protocolFamily, socketType, protocol, rightsBase, rightsInheriting)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockOpen {
-		panic(&UnexpectedSyscallError{syscall, SockOpen})
+	record, ok := r.readRecord(SockOpen)
+	if !ok {
+		return -1, ENOSYS
 	}
 	recordProtocolFamily, recordSocketType, recordProtocol, recordRightsBase, recordRightsInheriting, newfd, errno, err := r.codec.DecodeSockOpen(record.FunctionCall())
 	if err != nil {
@@ -1420,19 +1140,9 @@ func (r *Replayer) SockOpen(ctx context.Context, protocolFamily ProtocolFamily, 
 }
 
 func (r *Replayer) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockBind, err); ok {
-			se, ok := s.(SocketsExtension)
-			if !ok {
-				return ENOSYS
-			}
-			return se.SockBind(ctx, fd, addr)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockBind {
-		panic(&UnexpectedSyscallError{syscall, SockBind})
+	record, ok := r.readRecord(SockBind)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordAddr, errno, err := r.codec.DecodeSockBind(record.FunctionCall())
 	if err != nil {
@@ -1454,19 +1164,9 @@ func (r *Replayer) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errn
 }
 
 func (r *Replayer) SockConnect(ctx context.Context, fd FD, addr SocketAddress) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockConnect, err); ok {
-			se, ok := s.(SocketsExtension)
-			if !ok {
-				return ENOSYS
-			}
-			return se.SockConnect(ctx, fd, addr)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockConnect {
-		panic(&UnexpectedSyscallError{syscall, SockConnect})
+	record, ok := r.readRecord(SockConnect)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordAddr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall())
 	if err != nil {
@@ -1488,19 +1188,9 @@ func (r *Replayer) SockConnect(ctx context.Context, fd FD, addr SocketAddress) E
 }
 
 func (r *Replayer) SockListen(ctx context.Context, fd FD, backlog int) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockListen, err); ok {
-			se, ok := s.(SocketsExtension)
-			if !ok {
-				return ENOSYS
-			}
-			return se.SockListen(ctx, fd, backlog)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockListen {
-		panic(&UnexpectedSyscallError{syscall, SockListen})
+	record, ok := r.readRecord(SockListen)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordBacklog, errno, err := r.codec.DecodeSockListen(record.FunctionCall())
 	if err != nil {
@@ -1522,19 +1212,9 @@ func (r *Replayer) SockListen(ctx context.Context, fd FD, backlog int) Errno {
 }
 
 func (r *Replayer) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags, addr SocketAddress) (Size, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockSendTo, err); ok {
-			se, ok := s.(SocketsExtension)
-			if !ok {
-				return 0, ENOSYS
-			}
-			return se.SockSendTo(ctx, fd, iovecs, iflags, addr)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockSendTo {
-		panic(&UnexpectedSyscallError{syscall, SockSendTo})
+	record, ok := r.readRecord(SockSendTo)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordFD, recordIOVecs, recordIFlags, recordAddr, size, errno, err := r.codec.DecodeSockSendTo(record.FunctionCall())
 	if err != nil {
@@ -1562,19 +1242,9 @@ func (r *Replayer) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags
 }
 
 func (r *Replayer) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, SocketAddress, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockRecvFrom, err); ok {
-			se, ok := s.(SocketsExtension)
-			if !ok {
-				return 0, 0, nil, ENOSYS
-			}
-			return se.SockRecvFrom(ctx, fd, iovecs, iflags)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockRecvFrom {
-		panic(&UnexpectedSyscallError{syscall, SockRecvFrom})
+	record, ok := r.readRecord(SockRecvFrom)
+	if !ok {
+		return 0, 0, nil, ENOSYS
 	}
 	recordFD, recordIOVecs, recordIFlags, size, oflags, addr, errno, err := r.codec.DecodeSockRecvFrom(record.FunctionCall())
 	if err != nil {
@@ -1599,19 +1269,9 @@ func (r *Replayer) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, ifla
 }
 
 func (r *Replayer) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (int, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockGetOptInt, err); ok {
-			se, ok := s.(SocketsExtension)
-			if !ok {
-				return 0, ENOSYS
-			}
-			return se.SockGetOptInt(ctx, fd, level, option)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockGetOptInt {
-		panic(&UnexpectedSyscallError{syscall, SockGetOptInt})
+	record, ok := r.readRecord(SockGetOptInt)
+	if !ok {
+		return 0, ENOSYS
 	}
 	recordFD, recordLevel, recordOption, value, errno, err := r.codec.DecodeSockGetOptInt(record.FunctionCall())
 	if err != nil {
@@ -1636,19 +1296,9 @@ func (r *Replayer) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionL
 }
 
 func (r *Replayer) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value int) Errno {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockSetOptInt, err); ok {
-			se, ok := s.(SocketsExtension)
-			if !ok {
-				return ENOSYS
-			}
-			return se.SockSetOptInt(ctx, fd, level, option, value)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockSetOptInt {
-		panic(&UnexpectedSyscallError{syscall, SockSetOptInt})
+	record, ok := r.readRecord(SockSetOptInt)
+	if !ok {
+		return ENOSYS
 	}
 	recordFD, recordLevel, recordOption, recordValue, errno, err := r.codec.DecodeSockSetOptInt(record.FunctionCall())
 	if err != nil {
@@ -1676,19 +1326,9 @@ func (r *Replayer) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionL
 }
 
 func (r *Replayer) SockLocalAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockLocalAddress, err); ok {
-			se, ok := s.(SocketsExtension)
-			if !ok {
-				return nil, ENOSYS
-			}
-			return se.SockLocalAddress(ctx, fd)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockLocalAddress {
-		panic(&UnexpectedSyscallError{syscall, SockLocalAddress})
+	record, ok := r.readRecord(SockLocalAddress)
+	if !ok {
+		return nil, ENOSYS
 	}
 	recordFD, addr, errno, err := r.codec.DecodeSockLocalAddress(record.FunctionCall())
 	if err != nil {
@@ -1701,19 +1341,9 @@ func (r *Replayer) SockLocalAddress(ctx context.Context, fd FD) (SocketAddress, 
 }
 
 func (r *Replayer) SockPeerAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if s, ok := r.isEOF(SockPeerAddress, err); ok {
-			se, ok := s.(SocketsExtension)
-			if !ok {
-				return nil, ENOSYS
-			}
-			return se.SockPeerAddress(ctx, fd)
-		}
-		panic(&ReadError{err})
-	}
-	if syscall := Syscall(record.FunctionID()); syscall != SockPeerAddress {
-		panic(&UnexpectedSyscallError{syscall, SockPeerAddress})
+	record, ok := r.readRecord(SockPeerAddress)
+	if !ok {
+		return nil, ENOSYS
 	}
 	recordFD, addr, errno, err := r.codec.DecodeSockPeerAddress(record.FunctionCall())
 	if err != nil {
