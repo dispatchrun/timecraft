@@ -784,6 +784,490 @@ func (r *Replayer) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Er
 	return size, errno
 }
 
+func (r *Replayer) PathCreateDirectory(ctx context.Context, fd FD, path string) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(PathCreateDirectory, err); ok {
+			return s.PathCreateDirectory(ctx, fd, path)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != PathCreateDirectory {
+		r.handle(&UnexpectedSyscallError{syscall, PathCreateDirectory})
+	}
+	recordFD, recordPath, errno, err := r.codec.DecodePathCreateDirectory(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathCreateDirectory, "fd", fd, recordFD})
+		}
+		if path != recordPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathCreateDirectory, "path", path, recordPath})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) PathFileStatGet(ctx context.Context, fd FD, lookupFlags LookupFlags, path string) (FileStat, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(PathFileStatGet, err); ok {
+			return s.PathFileStatGet(ctx, fd, lookupFlags, path)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != PathFileStatGet {
+		r.handle(&UnexpectedSyscallError{syscall, PathFileStatGet})
+	}
+	recordFD, recordLookupFlags, recordPath, stat, errno, err := r.codec.DecodePathFileStatGet(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathFileStatGet, "fd", fd, recordFD})
+		}
+		if lookupFlags != recordLookupFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathFileStatGet, "lookupFlags", lookupFlags, recordLookupFlags})
+		}
+		if path != recordPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathFileStatGet, "path", path, recordPath})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return stat, errno
+}
+
+func (r *Replayer) PathFileStatSetTimes(ctx context.Context, fd FD, lookupFlags LookupFlags, path string, accessTime, modifyTime Timestamp, flags FSTFlags) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(PathFileStatSetTimes, err); ok {
+			return s.PathFileStatSetTimes(ctx, fd, lookupFlags, path, accessTime, modifyTime, flags)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != PathFileStatSetTimes {
+		r.handle(&UnexpectedSyscallError{syscall, PathFileStatSetTimes})
+	}
+	recordFD, recordLookupFlags, recordPath, recordAccessTime, recordModifyTime, recordFlags, errno, err := r.codec.DecodePathFileStatSetTimes(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathFileStatSetTimes, "fd", fd, recordFD})
+		}
+		if lookupFlags != recordLookupFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathFileStatSetTimes, "lookupFlags", lookupFlags, recordLookupFlags})
+		}
+		if accessTime != recordAccessTime {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathFileStatSetTimes, "accessTime", accessTime, recordAccessTime})
+		}
+		if modifyTime != recordModifyTime {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathFileStatSetTimes, "modifyTime", modifyTime, recordModifyTime})
+		}
+		if flags != recordFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathFileStatSetTimes, "flags", flags, recordFlags})
+		}
+		if path != recordPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathFileStatSetTimes, "path", path, recordPath})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) PathLink(ctx context.Context, oldFD FD, oldFlags LookupFlags, oldPath string, newFD FD, newPath string) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(PathLink, err); ok {
+			return s.PathLink(ctx, oldFD, oldFlags, oldPath, newFD, newPath)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != PathLink {
+		r.handle(&UnexpectedSyscallError{syscall, PathLink})
+	}
+	recordOldFD, recordOldFlags, recordOldPath, recordNewFD, recordNewPath, errno, err := r.codec.DecodePathLink(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if oldFD != recordOldFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathLink, "oldFD", oldFD, recordOldFD})
+		}
+		if oldFlags != recordOldFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathLink, "oldFlags", oldFlags, recordOldFlags})
+		}
+		if oldPath != recordOldPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathLink, "oldPath", oldPath, recordOldPath})
+		}
+		if newFD != recordNewFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathLink, "newFD", newFD, recordNewFD})
+		}
+		if newPath != recordNewPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathLink, "newPath", newPath, recordNewPath})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, path string, openFlags OpenFlags, rightsBase, rightsInheriting Rights, fdFlags FDFlags) (FD, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(PathOpen, err); ok {
+			return s.PathOpen(ctx, fd, dirFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != PathOpen {
+		r.handle(&UnexpectedSyscallError{syscall, PathOpen})
+	}
+	recordFD, recordDirFlags, recordPath, recordOpenFlags, recordRightsBase, recordRightsInheriting, recordFDFlags, newfd, errno, err := r.codec.DecodePathOpen(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathOpen, "fd", fd, recordFD})
+		}
+		if dirFlags != recordDirFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathOpen, "dirFlags", dirFlags, recordDirFlags})
+		}
+		if path != recordPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathOpen, "path", path, recordPath})
+		}
+		if openFlags != recordOpenFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathOpen, "openFlags", openFlags, recordOpenFlags})
+		}
+		if rightsBase != recordRightsBase {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathOpen, "rightsBase", rightsBase, recordRightsBase})
+		}
+		if rightsInheriting != recordRightsInheriting {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathOpen, "rightsInheriting", rightsInheriting, recordRightsInheriting})
+		}
+		if fdFlags != recordFDFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathOpen, "fdFlags", fdFlags, recordFDFlags})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return newfd, errno
+}
+
+func (r *Replayer) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) ([]byte, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(PathReadLink, err); ok {
+			return s.PathReadLink(ctx, fd, path, buffer)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != PathReadLink {
+		r.handle(&UnexpectedSyscallError{syscall, PathReadLink})
+	}
+	recordFD, recordPath, recordBuffer, result, errno, err := r.codec.DecodePathReadLink(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathReadLink, "fd", fd, recordFD})
+		}
+		if path != recordPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathReadLink, "path", path, recordPath})
+		}
+		if len(buffer) != len(recordBuffer) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathReadLink, "buffer", buffer, recordFD})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	copy(buffer, result)
+	return buffer, errno
+}
+
+func (r *Replayer) PathRemoveDirectory(ctx context.Context, fd FD, path string) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(PathRemoveDirectory, err); ok {
+			return s.PathRemoveDirectory(ctx, fd, path)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != PathRemoveDirectory {
+		r.handle(&UnexpectedSyscallError{syscall, PathRemoveDirectory})
+	}
+	recordFD, recordPath, errno, err := r.codec.DecodePathRemoveDirectory(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathRemoveDirectory, "fd", fd, recordFD})
+		}
+		if path != recordPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathRemoveDirectory, "path", path, recordPath})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) PathRename(ctx context.Context, fd FD, oldPath string, newFD FD, newPath string) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(PathRename, err); ok {
+			return s.PathRename(ctx, fd, oldPath, newFD, newPath)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != PathRename {
+		r.handle(&UnexpectedSyscallError{syscall, PathRename})
+	}
+	recordFD, recordOldPath, recordNewFD, recordNewPath, errno, err := r.codec.DecodePathRename(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathRename, "fd", fd, recordFD})
+		}
+		if oldPath != recordOldPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathRename, "oldPath", oldPath, recordOldPath})
+		}
+		if newFD != recordNewFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathRename, "newFD", newFD, recordNewFD})
+		}
+		if newPath != recordNewPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathRename, "newPath", newPath, recordNewPath})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) PathSymlink(ctx context.Context, oldPath string, fd FD, newPath string) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(PathSymlink, err); ok {
+			return s.PathSymlink(ctx, oldPath, fd, newPath)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != PathSymlink {
+		r.handle(&UnexpectedSyscallError{syscall, PathSymlink})
+	}
+	recordOldPath, recordFD, recordNewPath, errno, err := r.codec.DecodePathSymlink(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if oldPath != recordOldPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathSymlink, "oldPath", oldPath, recordOldPath})
+		}
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathSymlink, "fd", fd, recordFD})
+		}
+		if newPath != recordNewPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathSymlink, "newPath", newPath, recordNewPath})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) PathUnlinkFile(ctx context.Context, fd FD, path string) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(PathUnlinkFile, err); ok {
+			return s.PathUnlinkFile(ctx, fd, path)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != PathUnlinkFile {
+		r.handle(&UnexpectedSyscallError{syscall, PathUnlinkFile})
+	}
+	recordFD, recordPath, errno, err := r.codec.DecodePathUnlinkFile(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathUnlinkFile, "fd", fd, recordFD})
+		}
+		if path != recordPath {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathUnlinkFile, "path", path, recordPath})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) PollOneOff(ctx context.Context, subscriptions []Subscription, events []Event) (int, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(PollOneOff, err); ok {
+			return s.PollOneOff(ctx, subscriptions, events)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != PollOneOff {
+		r.handle(&UnexpectedSyscallError{syscall, PollOneOff})
+	}
+	recordSubscriptions, recordEvents, count, errno, err := r.codec.DecodePollOneOff(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if !equalSubscriptions(subscriptions, recordSubscriptions) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PollOneOff, "subscriptions", subscriptions, recordSubscriptions})
+		}
+		if len(events) != len(recordEvents) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PollOneOff, "events", events, recordEvents})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return count, errno
+}
+
+func (r *Replayer) ProcExit(ctx context.Context, exitCode ExitCode) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(ProcExit, err); ok {
+			return s.ProcExit(ctx, exitCode)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != ProcExit {
+		r.handle(&UnexpectedSyscallError{syscall, ProcExit})
+	}
+	recordExitCode, errno, err := r.codec.DecodeProcExit(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if exitCode != recordExitCode {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{ProcExit, "exitCode", exitCode, recordExitCode})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	r.exit(exitCode)
+	unreachable()
+	return errno
+}
+
+func (r *Replayer) ProcRaise(ctx context.Context, signal Signal) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(ProcRaise, err); ok {
+			return s.ProcRaise(ctx, signal)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != ProcRaise {
+		r.handle(&UnexpectedSyscallError{syscall, ProcRaise})
+	}
+	recordSignal, errno, err := r.codec.DecodeProcRaise(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if signal != recordSignal {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{ProcRaise, "signal", signal, recordSignal})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) SchedYield(ctx context.Context) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SchedYield, err); ok {
+			return s.SchedYield(ctx)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SchedYield {
+		r.handle(&UnexpectedSyscallError{syscall, SchedYield})
+	}
+	errno, err := r.codec.DecodeSchedYield(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	return errno
+}
+
+func (r *Replayer) RandomGet(ctx context.Context, buffer []byte) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(RandomGet, err); ok {
+			return s.RandomGet(ctx, buffer)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != RandomGet {
+		r.handle(&UnexpectedSyscallError{syscall, RandomGet})
+	}
+	recordBuffer, errno, err := r.codec.DecodeRandomGet(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if len(buffer) != len(recordBuffer) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{RandomGet, "buffer", buffer, recordBuffer})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	copy(buffer, recordBuffer)
+	return errno
+}
+
 func (r *Replayer) Close(ctx context.Context) error {
 	return nil
 }
@@ -837,6 +1321,34 @@ func equalIovec(a, b []IOVec) bool {
 		}
 	}
 	return true
+}
+
+func equalSubscriptions(a, b []Subscription) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !equalSubscription(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func equalSubscription(a, b Subscription) bool {
+	if a.EventType != b.EventType {
+		return false
+	}
+	if a.UserData != b.UserData {
+		return false
+	}
+	if a.EventType == ClockEvent {
+		return a.GetClock() == b.GetClock()
+	} else if a.EventType == FDReadEvent || a.EventType == FDWriteEvent {
+		return a.GetFDReadWrite() == b.GetFDReadWrite()
+	} else {
+		return false // invalid event type; cannot compare
+	}
 }
 
 func unreachable() {
