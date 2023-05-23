@@ -1,39 +1,116 @@
 package wasicall
 
-import . "github.com/stealthrocket/wasi-go"
+import (
+	"encoding/binary"
+	"io"
+	"unsafe"
 
+	. "github.com/stealthrocket/wasi-go"
+)
+
+// Codec is responsible for encoding and decoding system call inputs
+// and outputs.
+//
+// The system calls are sealed so there's no need for forwards or backwards
+// compatibility. Rather than use protobuf or flatbuffers or similar, we use
+// simple bespoke encoders. We aren't too concerned with succinctness since
+// the records are ultimately compressed, but it should be easy to experiment
+// with different encodings (e.g. varints) by changing the append/read helpers.
+// There are also other ways to reduce the size of encoded records, for
+// example avoiding storing return values other than errno when errno!=0.
 type Codec struct{}
 
 func (c *Codec) EncodeArgsGet(buffer []byte, args []string, errno Errno) []byte {
-	panic("not implemented")
+	buffer = appendU32(buffer, uint32(errno))
+	buffer = appendU32(buffer, uint32(len(args)))
+	for _, arg := range args {
+		buffer = appendU32(buffer, uint32(len(arg)))
+		buffer = append(buffer, arg...)
+	}
+	return buffer
 }
 
-func (c *Codec) DecodeArgsGet(buffer []byte) (args []string, errno Errno, err error) {
-	panic("not implemented")
+func (c *Codec) DecodeArgsGet(buffer []byte, args []string) (a []string, errno Errno, err error) {
+	var errnoU32 uint32
+	if errnoU32, buffer, err = readU32(buffer); err != nil {
+		return
+	}
+	var argc uint32
+	if argc, buffer, err = readU32(buffer); err != nil {
+		return
+	}
+	for i := uint32(0); i < argc; i++ {
+		var length uint32
+		if argc, buffer, err = readU32(buffer); err != nil {
+			return
+		}
+		if uint32(len(buffer)) < length {
+			err = io.ErrShortBuffer
+			return
+		}
+		args = append(args, unsafe.String(&buffer[0], length))
+		buffer = buffer[length:]
+	}
+	return args, Errno(errnoU32), nil
 }
 
-func (c *Codec) EncodeEnvironGet(buffer []byte, args []string, errno Errno) []byte {
-	panic("not implemented")
+func (c *Codec) EncodeEnvironGet(buffer []byte, env []string, errno Errno) []byte {
+	return c.EncodeArgsGet(buffer, env, errno)
 }
 
-func (c *Codec) DecodeEnvironGet(buffer []byte) (env []string, errno Errno, err error) {
-	panic("not implemented")
+func (c *Codec) DecodeEnvironGet(buffer []byte, env []string) ([]string, Errno, error) {
+	return c.DecodeArgsGet(buffer, env)
 }
 
 func (c *Codec) EncodeClockResGet(buffer []byte, id ClockID, timestamp Timestamp, errno Errno) []byte {
-	panic("not implemented")
+	buffer = appendU32(buffer, uint32(errno))
+	buffer = appendU32(buffer, uint32(id))
+	buffer = appendU64(buffer, uint64(timestamp))
+	return buffer
 }
 
 func (c *Codec) DecodeClockResGet(buffer []byte) (id ClockID, timestamp Timestamp, errno Errno, err error) {
-	panic("not implemented")
+	var errnoU32 uint32
+	if errnoU32, buffer, err = readU32(buffer); err != nil {
+		return
+	}
+	var idU32 uint32
+	if idU32, buffer, err = readU32(buffer); err != nil {
+		return
+	}
+	var timestampU64 uint64
+	if timestampU64, buffer, err = readU64(buffer); err != nil {
+		return
+	}
+	return ClockID(idU32), Timestamp(timestampU64), Errno(errnoU32), nil
 }
 
 func (c *Codec) EncodeClockTimeGet(buffer []byte, id ClockID, precision Timestamp, timestamp Timestamp, errno Errno) []byte {
-	panic("not implemented")
+	buffer = appendU32(buffer, uint32(errno))
+	buffer = appendU32(buffer, uint32(id))
+	buffer = appendU64(buffer, uint64(precision))
+	buffer = appendU64(buffer, uint64(timestamp))
+	return buffer
 }
 
 func (c *Codec) DecodeClockTimeGet(buffer []byte) (id ClockID, precision Timestamp, timestamp Timestamp, errno Errno, err error) {
-	panic("not implemented")
+	var errnoU32 uint32
+	if errnoU32, buffer, err = readU32(buffer); err != nil {
+		return
+	}
+	var idU32 uint32
+	if idU32, buffer, err = readU32(buffer); err != nil {
+		return
+	}
+	var precisionU64 uint64
+	if precisionU64, buffer, err = readU64(buffer); err != nil {
+		return
+	}
+	var timestampU64 uint64
+	if timestampU64, buffer, err = readU64(buffer); err != nil {
+		return
+	}
+	return ClockID(idU32), Timestamp(precisionU64), Timestamp(timestampU64), Errno(errnoU32), nil
 }
 
 func (c *Codec) EncodeFDAdvise(buffer []byte, fd FD, offset FileSize, length FileSize, advice Advice, errno Errno) []byte {
@@ -317,11 +394,27 @@ func (c *Codec) DecodeSchedYield(buffer []byte) (errno Errno, err error) {
 }
 
 func (c *Codec) EncodeRandomGet(buffer []byte, b []byte, errno Errno) []byte {
-	panic("not implemented")
+	buffer = appendU32(buffer, uint32(errno))
+	buffer = appendU32(buffer, uint32(len(b)))
+	return append(buffer, b...)
 }
 
 func (c *Codec) DecodeRandomGet(buffer []byte) (buf []byte, errno Errno, err error) {
-	panic("not implemented")
+	var errnoU32 uint32
+	if errnoU32, buffer, err = readU32(buffer); err != nil {
+		return
+	}
+	var length uint32
+	if length, buffer, err = readU32(buffer); err != nil {
+		return
+	}
+	if uint32(len(buffer)) < length {
+		err = io.ErrShortBuffer
+		return
+	}
+	buf = buffer[:length]
+	errno = Errno(errnoU32)
+	return
 }
 
 func (c *Codec) EncodeSockAccept(buffer []byte, fd FD, flags FDFlags, newfd FD, errno Errno) []byte {
@@ -434,4 +527,26 @@ func (c *Codec) EncodeSockPeerAddress(buffer []byte, fd FD, addr SocketAddress, 
 
 func (c *Codec) DecodeSockPeerAddress(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
 	panic("not implemented")
+}
+
+func appendU32(b []byte, v uint32) []byte {
+	return binary.LittleEndian.AppendUint32(b, v)
+}
+
+func appendU64(b []byte, v uint64) []byte {
+	return binary.LittleEndian.AppendUint64(b, v)
+}
+
+func readU32(b []byte) (uint32, []byte, error) {
+	if len(b) < 4 {
+		return 0, nil, io.ErrShortBuffer
+	}
+	return binary.LittleEndian.Uint32(b), b[4:], nil
+}
+
+func readU64(b []byte) (uint64, []byte, error) {
+	if len(b) < 8 {
+		return 0, nil, io.ErrShortBuffer
+	}
+	return binary.LittleEndian.Uint64(b), b[8:], nil
 }

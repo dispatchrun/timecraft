@@ -64,6 +64,8 @@ type Replayer struct {
 
 	// eofSystem is the wasi.System returned by the EOF hook.
 	eofSystem System
+
+	args []string
 }
 
 var _ System = (*Replayer)(nil)
@@ -104,7 +106,7 @@ func (r *Replayer) handle(err error) {
 	panic(sys.NewExitError(ErrorExitCode))
 }
 
-func (r *Replayer) ArgsGet(ctx context.Context) ([]string, Errno) {
+func (r *Replayer) ArgsGet(ctx context.Context) (args []string, errno Errno) {
 	record, err := r.reader.ReadRecord()
 	if err != nil {
 		if s, ok := r.isEOF(ArgsGet, err); ok {
@@ -115,14 +117,14 @@ func (r *Replayer) ArgsGet(ctx context.Context) ([]string, Errno) {
 	if syscall := Syscall(record.FunctionID()); syscall != ArgsGet {
 		r.handle(&UnexpectedSyscallError{syscall, ArgsGet})
 	}
-	args, errno, err := r.codec.DecodeArgsGet(record.FunctionCall())
+	r.args, errno, err = r.codec.DecodeArgsGet(record.FunctionCall(), r.args[:0])
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	return args, errno
+	return r.args, errno
 }
 
-func (r *Replayer) EnvironGet(ctx context.Context) ([]string, Errno) {
+func (r *Replayer) EnvironGet(ctx context.Context) (env []string, errno Errno) {
 	record, err := r.reader.ReadRecord()
 	if err != nil {
 		if s, ok := r.isEOF(EnvironGet, err); ok {
@@ -133,11 +135,11 @@ func (r *Replayer) EnvironGet(ctx context.Context) ([]string, Errno) {
 	if syscall := Syscall(record.FunctionID()); syscall != EnvironGet {
 		r.handle(&UnexpectedSyscallError{syscall, EnvironGet})
 	}
-	env, errno, err := r.codec.DecodeEnvironGet(record.FunctionCall())
+	r.args, errno, err = r.codec.DecodeEnvironGet(record.FunctionCall(), r.args[:0])
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	return env, errno
+	return r.args, errno
 }
 
 func (r *Replayer) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errno) {
