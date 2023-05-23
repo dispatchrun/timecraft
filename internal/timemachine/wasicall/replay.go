@@ -66,8 +66,10 @@ type Replayer struct {
 	eofSystem System
 
 	// Cache for decoded slices.
-	args   []string
-	iovecs []IOVec
+	args          []string
+	iovecs        []IOVec
+	subscriptions []Subscription
+	events        []Event
 }
 
 var _ System = (*Replayer)(nil)
@@ -635,7 +637,7 @@ func (r *Replayer) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, coo
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDReadDir, "fd", fd, recordFD})
 		}
-		if len(entries) != len(recordEntries) {
+		if len(entries) < len(recordEntries) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDReadDir, "entries", entries, recordEntries})
 		}
 		if cookie != recordCookie {
@@ -648,6 +650,7 @@ func (r *Replayer) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, coo
 			r.handle(errors.Join(mismatch...))
 		}
 	}
+	copy(entries, recordEntries)
 	return count, errno
 }
 
@@ -1150,22 +1153,25 @@ func (r *Replayer) PollOneOff(ctx context.Context, subscriptions []Subscription,
 	if syscall := Syscall(record.FunctionID()); syscall != PollOneOff {
 		r.handle(&UnexpectedSyscallError{syscall, PollOneOff})
 	}
-	recordSubscriptions, recordEvents, count, errno, err := r.codec.DecodePollOneOff(record.FunctionCall())
+	recordSubscriptions, recordEvents, count, errno, err := r.codec.DecodePollOneOff(record.FunctionCall(), r.subscriptions[:0], r.events[:0])
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
+	r.subscriptions = recordSubscriptions
+	r.events = recordEvents
 	if r.strict {
 		var mismatch []error
 		if !equalSubscriptions(subscriptions, recordSubscriptions) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{PollOneOff, "subscriptions", subscriptions, recordSubscriptions})
 		}
-		if len(events) != len(recordEvents) {
+		if len(events) < len(recordEvents) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{PollOneOff, "events", events, recordEvents})
 		}
 		if len(mismatch) > 0 {
 			r.handle(errors.Join(mismatch...))
 		}
 	}
+	copy(events, recordEvents)
 	return count, errno
 }
 
