@@ -561,7 +561,7 @@ func readBytes(buffer []byte) ([]byte, []byte, error) {
 	if uint32(len(buffer)) < length {
 		return nil, buffer, io.ErrShortBuffer
 	}
-	return buffer[:length], buffer, err
+	return buffer[:length], buffer[length:], err
 }
 
 func appendString(buffer []byte, s string) []byte {
