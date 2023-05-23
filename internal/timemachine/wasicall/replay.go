@@ -76,6 +76,9 @@ func (r *Replayer) Register(hostfd int, fdstat FDStat) FD {
 }
 
 func (r *Replayer) readRecord(syscall Syscall) (*timemachine.Record, bool) {
+	if r.eof {
+		return nil, false
+	}
 	record, err := r.reader.ReadRecord()
 	if err != nil {
 		if err == io.EOF {
