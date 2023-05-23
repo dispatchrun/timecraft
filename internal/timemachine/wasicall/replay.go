@@ -41,6 +41,10 @@ type Replayer struct {
 	// In strict mode, the Replayer will ensure that the system calls are
 	// called with the same params as those stored on the records. It's not
 	// configurable at this time.
+	//
+	// TODO: consider separating the replay from validation, e.g. by making
+	//  Codec an interface, and then having a ValidatingCodec wrapper that
+	//  validates during decode
 	strict bool
 
 	eof bool
