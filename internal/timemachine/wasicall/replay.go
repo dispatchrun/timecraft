@@ -100,6 +100,18 @@ func (r *Replay) EOF() bool {
 	return r.eof
 }
 
+func (r *Replay) ArgsSizesGet(ctx context.Context) (int, int, Errno) {
+	record, ok := r.readRecord(ArgsSizesGet)
+	if !ok {
+		return 0, 0, ENOSYS
+	}
+	argCount, stringBytes, errno, err := r.codec.DecodeArgsSizesGet(record.FunctionCall())
+	if err != nil {
+		panic(&DecodeError{record, err})
+	}
+	return argCount, stringBytes, errno
+}
+
 func (r *Replay) ArgsGet(ctx context.Context) (args []string, errno Errno) {
 	record, ok := r.readRecord(ArgsGet)
 	if !ok {
@@ -111,6 +123,18 @@ func (r *Replay) ArgsGet(ctx context.Context) (args []string, errno Errno) {
 		panic(&DecodeError{record, err})
 	}
 	return r.args, errno
+}
+
+func (r *Replay) EnvironSizesGet(ctx context.Context) (int, int, Errno) {
+	record, ok := r.readRecord(EnvironSizesGet)
+	if !ok {
+		return 0, 0, ENOSYS
+	}
+	envCount, stringBytes, errno, err := r.codec.DecodeEnvironSizesGet(record.FunctionCall())
+	if err != nil {
+		panic(&DecodeError{record, err})
+	}
+	return envCount, stringBytes, errno
 }
 
 func (r *Replay) EnvironGet(ctx context.Context) (env []string, errno Errno) {

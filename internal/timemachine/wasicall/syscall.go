@@ -7,7 +7,9 @@ import (
 type SyscallNumber int
 
 const (
-	ArgsGet SyscallNumber = iota
+	ArgsSizesGet SyscallNumber = iota
+	ArgsGet
+	EnvironSizesGet
 	EnvironGet
 	ClockResGet
 	ClockTimeGet
@@ -72,7 +74,9 @@ func (s SyscallNumber) String() string {
 }
 
 var syscallNumberStrings = [...]string{
+	"ArgsSizesGet",
 	"ArgsGet",
+	"EnvironSizesGet",
 	"EnvironGet",
 	"ClockResGet",
 	"ClockTimeGet",

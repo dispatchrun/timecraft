@@ -21,6 +21,23 @@ import (
 // example avoiding storing return values other than errno when errno!=0.
 type Codec struct{}
 
+func (c *Codec) EncodeArgsSizesGet(buffer []byte, argCount, stringBytes int, errno Errno) []byte {
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeInt(buffer, argCount)
+	return encodeInt(buffer, stringBytes)
+}
+
+func (c *Codec) DecodeArgsSizesGet(buffer []byte) (argCount, stringBytes int, errno Errno, err error) {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if argCount, buffer, err = decodeInt(buffer); err != nil {
+		return
+	}
+	stringBytes, buffer, err = decodeInt(buffer)
+	return
+}
+
 func (c *Codec) EncodeArgsGet(buffer []byte, args []string, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	return encodeStrings(buffer, args)
@@ -32,6 +49,23 @@ func (c *Codec) DecodeArgsGet(buffer []byte, args []string) (_ []string, errno E
 	}
 	args, buffer, err = decodeStrings(buffer, args)
 	return args, errno, err
+}
+
+func (c *Codec) EncodeEnvironSizesGet(buffer []byte, envCount, stringBytes int, errno Errno) []byte {
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeInt(buffer, envCount)
+	return encodeInt(buffer, stringBytes)
+}
+
+func (c *Codec) DecodeEnvironSizesGet(buffer []byte) (envCount, stringBytes int, errno Errno, err error) {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if envCount, buffer, err = decodeInt(buffer); err != nil {
+		return
+	}
+	stringBytes, buffer, err = decodeInt(buffer)
+	return
 }
 
 func (c *Codec) EncodeEnvironGet(buffer []byte, env []string, errno Errno) []byte {

@@ -53,10 +53,22 @@ func (r *Recorder) Register(hostfd int, fdstat FDStat) FD {
 	return r.system.Register(hostfd, fdstat)
 }
 
+func (r *Recorder) ArgsSizesGet(ctx context.Context) (int, int, Errno) {
+	argCount, stringBytes, errno := r.system.ArgsSizesGet(ctx)
+	r.record(ArgsSizesGet, r.codec.EncodeArgsSizesGet(r.buffer[:0], argCount, stringBytes, errno))
+	return argCount, stringBytes, errno
+}
+
 func (r *Recorder) ArgsGet(ctx context.Context) ([]string, Errno) {
 	args, errno := r.system.ArgsGet(ctx)
 	r.record(ArgsGet, r.codec.EncodeArgsGet(r.buffer[:0], args, errno))
 	return args, errno
+}
+
+func (r *Recorder) EnvironSizesGet(ctx context.Context) (int, int, Errno) {
+	envCount, stringBytes, errno := r.system.EnvironSizesGet(ctx)
+	r.record(EnvironSizesGet, r.codec.EncodeEnvironSizesGet(r.buffer[:0], envCount, stringBytes, errno))
+	return envCount, stringBytes, errno
 }
 
 func (r *Recorder) EnvironGet(ctx context.Context) ([]string, Errno) {
