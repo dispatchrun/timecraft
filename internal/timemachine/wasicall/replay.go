@@ -598,10 +598,11 @@ func (r *Replayer) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Err
 	if syscall := Syscall(record.FunctionID()); syscall != FDRead {
 		r.handle(&UnexpectedSyscallError{syscall, FDRead})
 	}
-	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDRead(record.FunctionCall())
+	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDRead(record.FunctionCall(), r.iovecs[:0])
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
+	r.iovecs = recordIOVecs
 	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
@@ -613,6 +614,9 @@ func (r *Replayer) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Err
 		if len(mismatch) > 0 {
 			r.handle(errors.Join(mismatch...))
 		}
+	}
+	for i := range iovecs {
+		copy(iovecs[i], recordIOVecs[i])
 	}
 	return size, errno
 }

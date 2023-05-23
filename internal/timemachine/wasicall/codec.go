@@ -313,11 +313,24 @@ func (c *Codec) DecodeFDPwrite(buffer []byte) (fd FD, iovecs []IOVec, offset Fil
 }
 
 func (c *Codec) EncodeFDRead(buffer []byte, fd FD, iovecs []IOVec, size Size, errno Errno) []byte {
-	panic("not implemented")
+	buffer = appendErrno(buffer, errno)
+	buffer = appendFD(buffer, fd)
+	buffer = appendIOVecs(buffer, iovecs)
+	return appendSize(buffer, size)
 }
 
-func (c *Codec) DecodeFDRead(buffer []byte) (fd FD, iovecs []IOVec, size Size, errno Errno, err error) {
-	panic("not implemented")
+func (c *Codec) DecodeFDRead(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, size Size, errno Errno, err error) {
+	if errno, buffer, err = readErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = readFD(buffer); err != nil {
+		return
+	}
+	if iovecs, buffer, err = readIOVecs(buffer, iovecs); err != nil {
+		return
+	}
+	size, buffer, err = readSize(buffer)
+	return fd, iovecs, size, errno, err
 }
 
 func (c *Codec) EncodeFDReadDir(buffer []byte, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int, count int, errno Errno) []byte {
