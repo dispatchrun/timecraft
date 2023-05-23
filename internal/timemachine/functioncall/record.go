@@ -1,21 +1,25 @@
-package timemachine
+package functioncall
 
 import (
 	"context"
 	"time"
 
+	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero/api"
 )
 
-// Capture is a decorator that captures details about host function calls.
-func Capture[T wazergo.Module](startTime time.Time, functions FunctionIndex, capture func(RecordBuilder)) wazergo.Decorator[T] {
+// Record is a decorator that records details about host function calls.
+//
+// The provided recorder function must consume the record immediately, as it's
+// reused across function calls.
+func Record[T wazergo.Module](startTime time.Time, functions timemachine.FunctionIndex, record func(timemachine.RecordBuilder)) wazergo.Decorator[T] {
 	var interceptor MemoryInterceptorModule
 	var functionCallBuilder FunctionCallBuilder
-	var recordBuilder RecordBuilder
+	var recordBuilder timemachine.RecordBuilder
 
 	return wazergo.DecoratorFunc[T](func(moduleName string, original wazergo.Function[T]) wazergo.Function[T] {
-		function := Function{
+		function := timemachine.Function{
 			Module:      moduleName,
 			Name:        original.Name,
 			ParamCount:  original.NumParams(),
@@ -40,7 +44,7 @@ func Capture[T wazergo.Module](startTime time.Time, functions FunctionIndex, cap
 				recordBuilder.SetFunctionID(functionID)
 				recordBuilder.SetFunctionCall(functionCallBuilder.Bytes())
 
-				capture(recordBuilder)
+				record(recordBuilder)
 			}()
 
 			original.Func(module, ctx, &interceptor, stack)

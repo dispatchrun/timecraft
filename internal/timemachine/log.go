@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"io"
 	"math"
+
+	"github.com/stealthrocket/timecraft/internal/buffer"
 )
 
 const maxFrameSize = (1 * 1024 * 1024) - 4
+
+var frameBufferPool buffer.Pool
 
 // LogReader instances allow programs to read the content of a record log.
 //
@@ -20,13 +24,13 @@ type LogReader struct {
 	bufferSize int
 
 	batch      RecordBatch
-	batchFrame *buffer
+	batchFrame *buffer.Buffer
 }
 
 // NewLogReader construct a new log reader consuming input from the given
 // io.Reader.
 func NewLogReader(input io.ReaderAt) *LogReader {
-	return NewLogReaderSize(input, defaultBufferSize)
+	return NewLogReaderSize(input, buffer.DefaultSize)
 }
 
 // NewLogReaderSize is like NewLogReader but it allows the program to configure
@@ -34,13 +38,13 @@ func NewLogReader(input io.ReaderAt) *LogReader {
 func NewLogReaderSize(input io.ReaderAt, bufferSize int) *LogReader {
 	return &LogReader{
 		input:      input,
-		bufferSize: align(bufferSize),
+		bufferSize: buffer.Align(bufferSize, buffer.DefaultSize),
 	}
 }
 
 // Close closes the log reader.
 func (r *LogReader) Close() error {
-	releaseBuffer(&r.batchFrame, &frameBufferPool)
+	buffer.Release(&r.batchFrame, &frameBufferPool)
 	r.batch.Reset(nil, nil, nil)
 	return nil
 }
@@ -57,35 +61,35 @@ func (r *LogReader) ReadLogHeader() (*Header, int64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	defer frameBufferPool.put(f)
+	defer frameBufferPool.Put(f)
 
-	header, err := NewHeader(f.data)
+	header, err := NewHeader(f.Data)
 	if err != nil {
 		return nil, 0, err
 	}
-	return header, int64(len(f.data)), nil
+	return header, int64(len(f.Data)), nil
 }
 
 // ReadRecordBatch reads a batch at the specified offset.
 //
 // The RecordBatch is only valid until the next call to ReadRecordBatch.
 func (r *LogReader) ReadRecordBatch(header *Header, byteOffset int64) (*RecordBatch, int64, error) {
-	releaseBuffer(&r.batchFrame, &frameBufferPool)
+	buffer.Release(&r.batchFrame, &frameBufferPool)
 	var err error
 	r.batchFrame, err = r.readFrameAt(byteOffset)
 	if err != nil {
 		return nil, 0, err
 	}
-	recordBatchSize := int64(len(r.batchFrame.data))
+	recordBatchSize := int64(len(r.batchFrame.Data))
 	recordsReader := io.NewSectionReader(r.input, byteOffset+recordBatchSize, math.MaxInt64)
-	r.batch.Reset(header, r.batchFrame.data, recordsReader)
+	r.batch.Reset(header, r.batchFrame.Data, recordsReader)
 	return &r.batch, recordBatchSize + int64(r.batch.RecordsSize()), nil
 }
 
-func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
-	f := frameBufferPool.get(int(r.bufferSize))
+func (r *LogReader) readFrameAt(byteOffset int64) (*buffer.Buffer, error) {
+	f := frameBufferPool.Get(r.bufferSize)
 
-	n, err := r.input.ReadAt(f.data, byteOffset)
+	n, err := r.input.ReadAt(f.Data, byteOffset)
 	if n < 4 {
 		if err == io.EOF {
 			if n == 0 {
@@ -93,88 +97,82 @@ func (r *LogReader) readFrameAt(byteOffset int64) (*buffer, error) {
 			}
 			err = io.ErrUnexpectedEOF
 		}
-		frameBufferPool.put(f)
+		frameBufferPool.Put(f)
 		return nil, fmt.Errorf("reading log segment frame at offset %d: %w", byteOffset, err)
 	}
 
-	frameSize := binary.LittleEndian.Uint32(f.data[:4])
+	frameSize := binary.LittleEndian.Uint32(f.Data[:4])
 	if frameSize > maxFrameSize {
-		frameBufferPool.put(f)
+		frameBufferPool.Put(f)
 		return nil, fmt.Errorf("log segment frame at offset %d is too large (%d>%d)", byteOffset, frameSize, maxFrameSize)
 	}
 
 	byteLength := int(4 + frameSize)
 	if n >= byteLength {
-		f.data = f.data[:byteLength]
+		f.Data = f.Data[:byteLength]
 		return f, nil
 	}
 
-	if cap(f.data) >= byteLength {
-		f.data = f.data[:byteLength]
+	if cap(f.Data) >= byteLength {
+		f.Data = f.Data[:byteLength]
 	} else {
-		defer frameBufferPool.put(f)
-		newFrame := newBuffer(byteLength)
-		copy(newFrame.data, f.data)
+		defer frameBufferPool.Put(f)
+		newFrame := buffer.New(byteLength)
+		copy(newFrame.Data, f.Data)
 		f = newFrame
 	}
 
-	if _, err := r.input.ReadAt(f.data[n:], byteOffset+int64(n)); err != nil {
+	if _, err := r.input.ReadAt(f.Data[n:], byteOffset+int64(n)); err != nil {
 		if err == io.EOF {
 			err = io.ErrUnexpectedEOF
 		}
-		frameBufferPool.put(f)
+		frameBufferPool.Put(f)
 		return nil, fmt.Errorf("reading %dB log segment frame at offset %d: %w", byteLength, byteOffset, err)
 	}
 	return f, nil
 }
 
-// LogRecordIterator is a higher level helper for iterating records in a log.
-type LogRecordIterator struct {
-	reader       *LogReader
-	header       *Header
-	batch        *RecordBatch
-	record       Record
-	batchIndex   int
-	readerOffset int64
-	err          error
-}
-
-// NewLogRecordIterator creates a log record iterator.
-func NewLogRecordIterator(r *LogReader) *LogRecordIterator {
-	return &LogRecordIterator{reader: r}
-}
-
-// Next is true if there is another Record available.
-func (i *LogRecordIterator) Next() bool {
-	if i.header == nil {
-		i.header, i.readerOffset, i.err = i.reader.ReadLogHeader()
-		if i.err != nil {
-			return true // i.err is returned on call to Record()
-		}
-	}
-	for i.batch == nil || !i.batch.Next() {
-		var batchLength int64
-		i.batch, batchLength, i.err = i.reader.ReadRecordBatch(i.header, i.readerOffset)
-		if i.err != nil {
-			return i.err != io.EOF
-		}
-		i.readerOffset += batchLength
-	}
-	i.record, i.err = i.batch.Record()
-	return true
-}
-
-// Record returns the next record as a RecordReader.
+// LogRecordReader wraps a LogReader to help with reading individual records
+// in order.
 //
-// The return value is only valid when Next returns true.
-func (i *LogRecordIterator) Record() (Record, error) {
-	return i.record, i.err
+// The reader exposes an iterator like interface. Callers should call Next to
+// determine whether another record is available. If so, it can be retrieved
+// via the Record method.
+type LogRecordReader struct {
+	reader *LogReader
+	header *Header
+	batch  *RecordBatch
+	offset int64
 }
 
-// Close closes the iterator.
-func (i *LogRecordIterator) Close() error {
-	return i.err
+// NewLogRecordReader creates a log record iterator.
+func NewLogRecordReader(r *LogReader) *LogRecordReader {
+	return &LogRecordReader{reader: r}
 }
+
+// ReadRecord satisfies the RecordReader interface.
+func (r *LogRecordReader) ReadRecord() (*Record, error) {
+	var err error
+	if r.header == nil {
+		r.header, r.offset, err = r.reader.ReadLogHeader()
+		if err != nil {
+			return nil, err
+		}
+	}
+	for r.batch == nil || !r.batch.Next() {
+		var batchLength int64
+		r.batch, batchLength, err = r.reader.ReadRecordBatch(r.header, r.offset)
+		if err != nil {
+			return nil, err
+		}
+		r.offset += batchLength
+	}
+	return r.batch.Record()
+}
+
+var (
+	_ RecordReader = (*LogRecordReader)(nil)
+)
 
 // LogWriter supports writing log segments to an io.Writer.
 //
@@ -206,7 +204,7 @@ func (w *LogWriter) Reset(output io.Writer) {
 
 // WriteLogHeader writes the log header. The method must be called before any
 // records are written to the log via calls to WriteRecordBatch.
-func (w *LogWriter) WriteLogHeader(header HeaderBuilder) error {
+func (w *LogWriter) WriteLogHeader(header *HeaderBuilder) error {
 	if w.stickyErr != nil {
 		return w.stickyErr
 	}
@@ -223,7 +221,7 @@ func (w *LogWriter) WriteLogHeader(header HeaderBuilder) error {
 // If the error occurred while writing to the underlying io.Writer, the writer
 // is broken and will always error on future calls to WriteRecordBatch until
 // the program calls Reset.
-func (w *LogWriter) WriteRecordBatch(batch RecordBatchBuilder) error {
+func (w *LogWriter) WriteRecordBatch(batch *RecordBatchBuilder) error {
 	if w.stickyErr != nil {
 		return w.stickyErr
 	}
@@ -258,7 +256,10 @@ func NewLogRecordWriter(w *LogWriter, batchSize int, compression Compression) *L
 
 // WriteRecord buffers a Record in a batch and then flushes the batch once
 // it reaches the configured maximum size.
-func (w *LogRecordWriter) WriteRecord(record RecordBuilder) error {
+//
+// The record is consumed immediately and can be reused safely when the
+// call returns.
+func (w *LogRecordWriter) WriteRecord(record *RecordBuilder) error {
 	w.batch.AddRecord(record)
 	w.count++
 	if w.count >= w.batchSize {
@@ -272,7 +273,7 @@ func (w *LogRecordWriter) Flush() error {
 	if w.count == 0 {
 		return nil
 	}
-	if err := w.WriteRecordBatch(w.batch); err != nil {
+	if err := w.WriteRecordBatch(&w.batch); err != nil {
 		return err
 	}
 	w.firstOffset += int64(w.count)

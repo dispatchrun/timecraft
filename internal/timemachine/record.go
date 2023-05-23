@@ -2,10 +2,12 @@ package timemachine
 
 import (
 	"fmt"
+	"io"
 	"time"
 
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logsegment"
+	"github.com/stealthrocket/timecraft/internal/buffer"
 )
 
 // Record is a read-only record from the log.
@@ -40,13 +42,18 @@ func (r *Record) FunctionID() int {
 	return int(r.record.FunctionId())
 }
 
-// FunctionCall returns the function call details.
-func (r *Record) FunctionCall() (FunctionCall, error) {
+// Function is the record's associated function.
+func (r *Record) Function() (Function, error) {
 	id := r.FunctionID()
 	if id >= len(r.functions) {
-		return FunctionCall{}, fmt.Errorf("invalid function %d", id)
+		return Function{}, fmt.Errorf("invalid function %d", id)
 	}
-	return MakeFunctionCall(&r.functions[id], r.record.FunctionCallBytes()), nil
+	return r.functions[id], nil
+}
+
+// FunctionCall returns the function call details.
+func (r *Record) FunctionCall() []byte {
+	return r.record.FunctionCallBytes()
 }
 
 // RecordBuilder is a builder for records.
@@ -63,7 +70,7 @@ type RecordBuilder struct {
 func (b *RecordBuilder) Reset(startTime time.Time) {
 	b.startTime = startTime
 	if b.builder == nil {
-		b.builder = flatbuffers.NewBuilder(defaultBufferSize)
+		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
 	} else {
 		b.builder.Reset()
 	}
@@ -109,9 +116,15 @@ func (b *RecordBuilder) Bytes() []byte {
 	return b.builder.FinishedBytes()
 }
 
+// Write writes the serialized representation of the record
+// to the specified writer.
+func (b *RecordBuilder) Write(w io.Writer) (int, error) {
+	return w.Write(b.Bytes())
+}
+
 func (b *RecordBuilder) build() {
 	if b.builder == nil {
-		panic("builder is not initialized")
+		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
 	}
 	functionCall := b.builder.CreateByteVector(b.functionCall)
 	logsegment.RecordStart(b.builder)
@@ -119,4 +132,19 @@ func (b *RecordBuilder) build() {
 	logsegment.RecordAddFunctionId(b.builder, b.functionID)
 	logsegment.RecordAddFunctionCall(b.builder, functionCall)
 	logsegment.FinishSizePrefixedRecordBuffer(b.builder, logsegment.RecordEnd(b.builder))
+}
+
+// RecordReader is an interface implemented by types which supporting reading
+// a sequence of records.
+type RecordReader interface {
+	// ReadRecord reads the next record.
+	//
+	// Multiple calls to this method may return a pointer to the same Record
+	// value. The returned value remains valid until the next ReadRecord call,
+	// or until the reader is closed through other means; refer to the reader's
+	// documentation for more details.
+	//
+	// After reading the last record, calls to this method return a nil Record
+	// and io.EOF.
+	ReadRecord() (*Record, error)
 }

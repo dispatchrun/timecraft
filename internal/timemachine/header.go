@@ -3,11 +3,13 @@ package timemachine
 import (
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logsegment"
 	"github.com/stealthrocket/timecraft/format/types"
+	"github.com/stealthrocket/timecraft/internal/buffer"
 )
 
 var (
@@ -116,7 +118,7 @@ type HeaderBuilder struct {
 // Reset resets the builder.
 func (b *HeaderBuilder) Reset() {
 	if b.builder == nil {
-		b.builder = flatbuffers.NewBuilder(defaultBufferSize)
+		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
 	} else {
 		b.builder.Reset()
 	}
@@ -169,9 +171,15 @@ func (b *HeaderBuilder) Bytes() []byte {
 	return b.builder.FinishedBytes()
 }
 
+// Write writes the serialized representation of the header
+// to the specified writer.
+func (b *HeaderBuilder) Write(w io.Writer) (int, error) {
+	return w.Write(b.Bytes())
+}
+
 func (b *HeaderBuilder) build() {
 	if b.builder == nil {
-		b.builder = flatbuffers.NewBuilder(defaultBufferSize)
+		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
 	}
 
 	processIDOffset := b.prependHash(b.process.ID)

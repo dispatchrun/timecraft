@@ -1,4 +1,4 @@
-package timemachine
+package functioncall
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 
 // MemoryInterceptor intercepts reads and writes to an api.Memory instance.
 //
-// After intercepting reads writes, the interceptor provides a set of
+// After intercepting reads and writes, the interceptor provides a set of
 // captured []MemoryAccess that can be applied to the input memory to
 // get it in the same state as the output memory.
 type MemoryInterceptor struct {

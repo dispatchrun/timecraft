@@ -1,9 +1,12 @@
-package timemachine
+package functioncall
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 
+	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero/api"
@@ -13,7 +16,7 @@ import (
 type ReplayController[T wazergo.Module] interface {
 	// Step is called each time a function is called. If an error occurs,
 	// one of the other hooks will be called instead.
-	Step(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record)
+	Step(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record *timemachine.Record)
 
 	// ReadError is called when there's an error reading a record from
 	// the log, or error parsing the record.
@@ -21,20 +24,20 @@ type ReplayController[T wazergo.Module] interface {
 
 	// MismatchError is called when a function is called that doesn't match
 	// the next record.
-	MismatchError(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record, err error)
+	MismatchError(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record *timemachine.Record, err error)
 
 	// Exit is called when the guest exits.
-	Exit(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record Record, exitCode uint32)
+	Exit(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record *timemachine.Record, exitCode uint32)
 
 	// EOF is called when a function is called and there are no more
 	// logs to replay.
 	EOF(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64)
 }
 
-// Replay is a decorator that replays host function calls captured in a log.
-func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterator, controller ReplayController[T]) wazergo.Decorator[T] {
+// Replay is a decorator that replays host function calls recorded to a log.
+func Replay[T wazergo.Module](functions timemachine.FunctionIndex, records *timemachine.LogRecordReader, controller ReplayController[T]) wazergo.Decorator[T] {
 	return wazergo.DecoratorFunc[T](func(moduleName string, original wazergo.Function[T]) wazergo.Function[T] {
-		function := Function{
+		function := timemachine.Function{
 			Module:      moduleName,
 			Name:        original.Name,
 			ParamCount:  original.NumParams(),
@@ -45,24 +48,24 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 			return original
 		}
 		return original.WithFunc(func(module T, ctx context.Context, mod api.Module, stack []uint64) {
-			if !records.Next() {
-				controller.EOF(ctx, module, original, mod, stack)
+			record, err := records.ReadRecord()
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					controller.EOF(ctx, module, original, mod, stack)
+				} else {
+					controller.ReadError(ctx, module, original, mod, stack, err)
+				}
 				return
 			}
-
-			record, err := records.Record()
+			recordFunction, err := record.Function()
 			if err != nil {
 				controller.ReadError(ctx, module, original, mod, stack, err)
 				return
 			}
-			functionCall, err := record.FunctionCall()
-			if err != nil {
-				controller.ReadError(ctx, module, original, mod, stack, err)
-				return
-			}
+			functionCall := MakeFunctionCall(recordFunction, record.FunctionCall())
 
 			memory := mod.Memory()
-			if err := assertEqual(functionID, &function, stack, memory, &record, &functionCall); err != nil {
+			if err := assertEqual(functionID, function, stack, memory, record, functionCall); err != nil {
 				controller.MismatchError(ctx, module, original, mod, stack, record, err)
 				return
 			}
@@ -96,7 +99,7 @@ func Replay[T wazergo.Module](functions FunctionIndex, records *LogRecordIterato
 	})
 }
 
-func assertEqual(functionID int, function *Function, stack []uint64, mem api.Memory, record *Record, functionCall *FunctionCall) error {
+func assertEqual(functionID int, function timemachine.Function, stack []uint64, mem api.Memory, record *timemachine.Record, functionCall FunctionCall) error {
 	if recordFunctionID := record.FunctionID(); recordFunctionID != functionID {
 		return fmt.Errorf("function ID mismatch: got %d, expect %d", functionID, recordFunctionID)
 	}
