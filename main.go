@@ -382,9 +382,11 @@ func replay(args []string) error {
 	replay := wasicall.NewReplay(records)
 	defer replay.Close(ctx)
 
+	system := wasicall.NewFallbackSystem(replay, nil)
+
 	// TODO: need to figure this out dynamically:
 	hostModule := wasi_snapshot_preview1.NewHostModule(wasi_snapshot_preview1.WasmEdgeV2)
-	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(replay))
+	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
 	instance, err := runtime.InstantiateModule(ctx, wasmModule, wazero.NewModuleConfig())
