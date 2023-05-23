@@ -21,96 +21,79 @@ import (
 type Codec struct{}
 
 func (c *Codec) EncodeArgsGet(buffer []byte, args []string, errno Errno) []byte {
-	buffer = appendU32(buffer, uint32(errno))
-	buffer = appendU32(buffer, uint32(len(args)))
-	for _, arg := range args {
-		buffer = appendU32(buffer, uint32(len(arg)))
-		buffer = append(buffer, arg...)
-	}
+	buffer = appendErrno(buffer, errno)
+	buffer = appendStrings(buffer, args)
 	return buffer
 }
 
-func (c *Codec) DecodeArgsGet(buffer []byte, args []string) (a []string, errno Errno, err error) {
-	var errnoU32 uint32
-	if errnoU32, buffer, err = readU32(buffer); err != nil {
+func (c *Codec) DecodeArgsGet(buffer []byte, args []string) (_ []string, errno Errno, err error) {
+	if errno, buffer, err = readErrno(buffer); err != nil {
 		return
 	}
-	var argc uint32
-	if argc, buffer, err = readU32(buffer); err != nil {
+	if args, buffer, err = readStrings(buffer, args); err != nil {
 		return
 	}
-	for i := uint32(0); i < argc; i++ {
-		var length uint32
-		if argc, buffer, err = readU32(buffer); err != nil {
-			return
-		}
-		if uint32(len(buffer)) < length {
-			err = io.ErrShortBuffer
-			return
-		}
-		args = append(args, unsafe.String(&buffer[0], length))
-		buffer = buffer[length:]
-	}
-	return args, Errno(errnoU32), nil
+	return
 }
 
 func (c *Codec) EncodeEnvironGet(buffer []byte, env []string, errno Errno) []byte {
-	return c.EncodeArgsGet(buffer, env, errno)
+	buffer = appendErrno(buffer, errno)
+	buffer = appendStrings(buffer, env)
+	return buffer
 }
 
-func (c *Codec) DecodeEnvironGet(buffer []byte, env []string) ([]string, Errno, error) {
-	return c.DecodeArgsGet(buffer, env)
+func (c *Codec) DecodeEnvironGet(buffer []byte, env []string) (_ []string, errno Errno, err error) {
+	if errno, buffer, err = readErrno(buffer); err != nil {
+		return
+	}
+	if env, buffer, err = readStrings(buffer, env); err != nil {
+		return
+	}
+	return
 }
 
 func (c *Codec) EncodeClockResGet(buffer []byte, id ClockID, timestamp Timestamp, errno Errno) []byte {
-	buffer = appendU32(buffer, uint32(errno))
-	buffer = appendU32(buffer, uint32(id))
-	buffer = appendU64(buffer, uint64(timestamp))
+	buffer = appendErrno(buffer, errno)
+	buffer = appendClockID(buffer, id)
+	buffer = appendTimestamp(buffer, timestamp)
 	return buffer
 }
 
 func (c *Codec) DecodeClockResGet(buffer []byte) (id ClockID, timestamp Timestamp, errno Errno, err error) {
-	var errnoU32 uint32
-	if errnoU32, buffer, err = readU32(buffer); err != nil {
+	if errno, buffer, err = readErrno(buffer); err != nil {
 		return
 	}
-	var idU32 uint32
-	if idU32, buffer, err = readU32(buffer); err != nil {
+	if id, buffer, err = readClockID(buffer); err != nil {
 		return
 	}
-	var timestampU64 uint64
-	if timestampU64, buffer, err = readU64(buffer); err != nil {
+	if timestamp, buffer, err = readTimestamp(buffer); err != nil {
 		return
 	}
-	return ClockID(idU32), Timestamp(timestampU64), Errno(errnoU32), nil
+	return
 }
 
 func (c *Codec) EncodeClockTimeGet(buffer []byte, id ClockID, precision Timestamp, timestamp Timestamp, errno Errno) []byte {
-	buffer = appendU32(buffer, uint32(errno))
-	buffer = appendU32(buffer, uint32(id))
-	buffer = appendU64(buffer, uint64(precision))
-	buffer = appendU64(buffer, uint64(timestamp))
+	buffer = appendErrno(buffer, errno)
+	buffer = appendClockID(buffer, id)
+	buffer = appendTimestamp(buffer, precision)
+	buffer = appendTimestamp(buffer, timestamp)
 	return buffer
 }
 
 func (c *Codec) DecodeClockTimeGet(buffer []byte) (id ClockID, precision Timestamp, timestamp Timestamp, errno Errno, err error) {
-	var errnoU32 uint32
-	if errnoU32, buffer, err = readU32(buffer); err != nil {
+	if errno, buffer, err = readErrno(buffer); err != nil {
 		return
 	}
-	var idU32 uint32
-	if idU32, buffer, err = readU32(buffer); err != nil {
+	if id, buffer, err = readClockID(buffer); err != nil {
 		return
 	}
-	var precisionU64 uint64
-	if precisionU64, buffer, err = readU64(buffer); err != nil {
+	if precision, buffer, err = readTimestamp(buffer); err != nil {
 		return
 	}
-	var timestampU64 uint64
-	if timestampU64, buffer, err = readU64(buffer); err != nil {
+	if timestamp, buffer, err = readTimestamp(buffer); err != nil {
 		return
 	}
-	return ClockID(idU32), Timestamp(precisionU64), Timestamp(timestampU64), Errno(errnoU32), nil
+	return
 }
 
 func (c *Codec) EncodeFDAdvise(buffer []byte, fd FD, offset FileSize, length FileSize, advice Advice, errno Errno) []byte {
@@ -146,11 +129,23 @@ func (c *Codec) DecodeFDDataSync(buffer []byte) (fd FD, errno Errno, err error) 
 }
 
 func (c *Codec) EncodeFDStatGet(buffer []byte, fd FD, stat FDStat, errno Errno) []byte {
-	panic("not implemented")
+	buffer = appendErrno(buffer, errno)
+	buffer = appendFD(buffer, fd)
+	buffer = appendFDStat(buffer, stat)
+	return buffer
 }
 
 func (c *Codec) DecodeFDStatGet(buffer []byte) (fd FD, stat FDStat, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = readErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = readFD(buffer); err != nil {
+		return
+	}
+	if stat, buffer, err = readFDStat(buffer); err != nil {
+		return
+	}
+	return
 }
 
 func (c *Codec) EncodeFDStatSetFlags(buffer []byte, fd FD, flags FDFlags, errno Errno) []byte {
@@ -202,11 +197,23 @@ func (c *Codec) DecodeFDPread(buffer []byte) (fd FD, iovecs []IOVec, offset File
 }
 
 func (c *Codec) EncodeFDPreStatGet(buffer []byte, fd FD, stat PreStat, errno Errno) []byte {
-	panic("not implemented")
+	buffer = appendErrno(buffer, errno)
+	buffer = appendFD(buffer, fd)
+	buffer = appendPreStat(buffer, stat)
+	return buffer
 }
 
 func (c *Codec) DecodeFDPreStatGet(buffer []byte) (fd FD, stat PreStat, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = readErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = readFD(buffer); err != nil {
+		return
+	}
+	if stat, buffer, err = readPreStat(buffer); err != nil {
+		return
+	}
+	return
 }
 
 func (c *Codec) EncodeFDPreStatDirName(buffer []byte, fd FD, name string, errno Errno) []byte {
@@ -274,11 +281,27 @@ func (c *Codec) DecodeFDTell(buffer []byte) (fd FD, offset FileSize, errno Errno
 }
 
 func (c *Codec) EncodeFDWrite(buffer []byte, fd FD, iovecs []IOVec, size Size, errno Errno) []byte {
-	panic("not implemented")
+	buffer = appendErrno(buffer, errno)
+	buffer = appendFD(buffer, fd)
+	buffer = appendIOVecs(buffer, iovecs)
+	buffer = appendSize(buffer, size)
+	return buffer
 }
 
-func (c *Codec) DecodeFDWrite(buffer []byte) (fd FD, iovecs []IOVec, size Size, errno Errno, err error) {
-	panic("not implemented")
+func (c *Codec) DecodeFDWrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, size Size, errno Errno, err error) {
+	if errno, buffer, err = readErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = readFD(buffer); err != nil {
+		return
+	}
+	if iovecs, buffer, err = readIOVecs(buffer, iovecs); err != nil {
+		return
+	}
+	if size, buffer, err = readSize(buffer); err != nil {
+		return
+	}
+	return
 }
 
 func (c *Codec) EncodePathCreateDirectory(buffer []byte, fd FD, path string, errno Errno) []byte {
@@ -370,11 +393,19 @@ func (c *Codec) DecodePollOneOff(buffer []byte) (subscriptions []Subscription, e
 }
 
 func (c *Codec) EncodeProcExit(buffer []byte, exitCode ExitCode, errno Errno) []byte {
-	panic("not implemented")
+	buffer = appendErrno(buffer, errno)
+	buffer = appendExitCode(buffer, exitCode)
+	return buffer
 }
 
 func (c *Codec) DecodeProcExit(buffer []byte) (exitCode ExitCode, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = readErrno(buffer); err != nil {
+		return
+	}
+	if exitCode, buffer, err = readExitCode(buffer); err != nil {
+		return
+	}
+	return
 }
 
 func (c *Codec) EncodeProcRaise(buffer []byte, signal Signal, errno Errno) []byte {
@@ -394,26 +425,16 @@ func (c *Codec) DecodeSchedYield(buffer []byte) (errno Errno, err error) {
 }
 
 func (c *Codec) EncodeRandomGet(buffer []byte, b []byte, errno Errno) []byte {
-	buffer = appendU32(buffer, uint32(errno))
-	buffer = appendU32(buffer, uint32(len(b)))
-	return append(buffer, b...)
+	buffer = appendErrno(buffer, errno)
+	buffer = appendBytes(buffer, b)
+	return buffer
 }
 
-func (c *Codec) DecodeRandomGet(buffer []byte) (buf []byte, errno Errno, err error) {
-	var errnoU32 uint32
-	if errnoU32, buffer, err = readU32(buffer); err != nil {
+func (c *Codec) DecodeRandomGet(buffer []byte) (result []byte, errno Errno, err error) {
+	if errno, buffer, err = readErrno(buffer); err != nil {
 		return
 	}
-	var length uint32
-	if length, buffer, err = readU32(buffer); err != nil {
-		return
-	}
-	if uint32(len(buffer)) < length {
-		err = io.ErrShortBuffer
-		return
-	}
-	buf = buffer[:length]
-	errno = Errno(errnoU32)
+	result, buffer, err = readBytes(buffer)
 	return
 }
 
@@ -533,10 +554,6 @@ func appendU32(b []byte, v uint32) []byte {
 	return binary.LittleEndian.AppendUint32(b, v)
 }
 
-func appendU64(b []byte, v uint64) []byte {
-	return binary.LittleEndian.AppendUint64(b, v)
-}
-
 func readU32(b []byte) (uint32, []byte, error) {
 	if len(b) < 4 {
 		return 0, nil, io.ErrShortBuffer
@@ -544,9 +561,225 @@ func readU32(b []byte) (uint32, []byte, error) {
 	return binary.LittleEndian.Uint32(b), b[4:], nil
 }
 
+func appendU64(b []byte, v uint64) []byte {
+	return binary.LittleEndian.AppendUint64(b, v)
+}
+
 func readU64(b []byte) (uint64, []byte, error) {
 	if len(b) < 8 {
 		return 0, nil, io.ErrShortBuffer
 	}
 	return binary.LittleEndian.Uint64(b), b[8:], nil
+}
+
+func appendBytes(buffer []byte, b []byte) []byte {
+	buffer = appendU32(buffer, uint32(len(b)))
+	return append(buffer, b...)
+}
+
+func readBytes(buffer []byte) ([]byte, []byte, error) {
+	length, buffer, err := readU32(buffer)
+	if err != nil {
+		return nil, buffer, err
+	}
+	if uint32(len(buffer)) < length {
+		return nil, buffer, io.ErrShortBuffer
+	}
+	return buffer[:length], buffer, err
+}
+
+func appendString(buffer []byte, s string) []byte {
+	return appendBytes(buffer, unsafe.Slice(unsafe.StringData(s), len(s)))
+}
+
+func readString(buffer []byte) (string, []byte, error) {
+	result, buffer, err := readBytes(buffer)
+	if err != nil || len(result) == 0 {
+		return "", buffer, err
+	}
+	return unsafe.String(&result[0], len(result)), buffer, err
+}
+
+func appendStrings(buffer []byte, args []string) []byte {
+	buffer = appendU32(buffer, uint32(len(args)))
+	for _, arg := range args {
+		buffer = appendString(buffer, arg)
+	}
+	return buffer
+}
+
+func readStrings(buffer []byte, strings []string) (_ []string, _ []byte, err error) {
+	var count uint32
+	if count, buffer, err = readU32(buffer); err != nil {
+		return
+	}
+	if uint32(len(strings)) < count {
+		strings = make([]string, count)
+	} else {
+		strings = strings[:count]
+	}
+	for i := uint32(0); i < count; i++ {
+		strings[i], buffer, err = readString(buffer)
+		if err != nil {
+			return
+		}
+	}
+	return strings, buffer, nil
+}
+
+func appendIOVecs(buffer []byte, iovecs []IOVec) []byte {
+	buffer = appendU32(buffer, uint32(len(iovecs)))
+	for _, iovec := range iovecs {
+		buffer = appendBytes(buffer, iovec)
+	}
+	return buffer
+}
+
+func readIOVecs(buffer []byte, iovecs []IOVec) (_ []IOVec, _ []byte, err error) {
+	var count uint32
+	if count, buffer, err = readU32(buffer); err != nil {
+		return
+	}
+	if uint32(len(iovecs)) < count {
+		iovecs = make([]IOVec, count)
+	} else {
+		iovecs = iovecs[:count]
+	}
+	for i := uint32(0); i < count; i++ {
+		iovecs[i], buffer, err = readBytes(buffer)
+		if err != nil {
+			return
+		}
+	}
+	return iovecs, buffer, nil
+}
+
+func appendErrno(buffer []byte, errno Errno) []byte {
+	return appendU32(buffer, uint32(errno))
+}
+
+func readErrno(buffer []byte) (Errno, []byte, error) {
+	errno, buffer, err := readU32(buffer)
+	return Errno(errno), buffer, err
+}
+
+func appendFD(buffer []byte, fd FD) []byte {
+	return appendU32(buffer, uint32(fd))
+}
+
+func readFD(buffer []byte) (FD, []byte, error) {
+	fd, buffer, err := readU32(buffer)
+	return FD(fd), buffer, err
+}
+
+func appendClockID(buffer []byte, id ClockID) []byte {
+	return appendU32(buffer, uint32(id))
+}
+
+func readClockID(buffer []byte) (ClockID, []byte, error) {
+	id, buffer, err := readU32(buffer)
+	return ClockID(id), buffer, err
+}
+
+func appendTimestamp(buffer []byte, id Timestamp) []byte {
+	return appendU64(buffer, uint64(id))
+}
+
+func readTimestamp(buffer []byte) (Timestamp, []byte, error) {
+	id, buffer, err := readU64(buffer)
+	return Timestamp(id), buffer, err
+}
+
+func appendSize(buffer []byte, id Size) []byte {
+	return appendU32(buffer, uint32(id))
+}
+
+func readSize(buffer []byte) (Size, []byte, error) {
+	id, buffer, err := readU32(buffer)
+	return Size(id), buffer, err
+}
+
+func appendFileType(buffer []byte, id FileType) []byte {
+	return appendU32(buffer, uint32(id))
+}
+
+func readFileType(buffer []byte) (FileType, []byte, error) {
+	id, buffer, err := readU32(buffer)
+	return FileType(id), buffer, err
+}
+
+func appendFDFlags(buffer []byte, id FDFlags) []byte {
+	return appendU32(buffer, uint32(id))
+}
+
+func readFDFlags(buffer []byte) (FDFlags, []byte, error) {
+	id, buffer, err := readU32(buffer)
+	return FDFlags(id), buffer, err
+}
+
+func appendRights(buffer []byte, id Rights) []byte {
+	return appendU64(buffer, uint64(id))
+}
+
+func readRights(buffer []byte) (Rights, []byte, error) {
+	id, buffer, err := readU64(buffer)
+	return Rights(id), buffer, err
+}
+
+func appendExitCode(buffer []byte, id ExitCode) []byte {
+	return appendU32(buffer, uint32(id))
+}
+
+func readExitCode(buffer []byte) (ExitCode, []byte, error) {
+	id, buffer, err := readU32(buffer)
+	return ExitCode(id), buffer, err
+}
+
+func appendPreOpenType(buffer []byte, t PreOpenType) []byte {
+	return appendU32(buffer, uint32(t))
+}
+
+func readPreOpenType(buffer []byte) (PreOpenType, []byte, error) {
+	t, buffer, err := readU32(buffer)
+	return PreOpenType(t), buffer, err
+}
+
+func appendPreStat(buffer []byte, stat PreStat) []byte {
+	buffer = appendPreOpenType(buffer, stat.Type)
+	buffer = appendSize(buffer, stat.PreStatDir.NameLength)
+	return buffer
+}
+
+func readPreStat(buffer []byte) (stat PreStat, _ []byte, err error) {
+	if stat.Type, buffer, err = readPreOpenType(buffer); err != nil {
+		return
+	}
+	if stat.PreStatDir.NameLength, buffer, err = readSize(buffer); err != nil {
+		return
+	}
+	return
+}
+
+func appendFDStat(buffer []byte, stat FDStat) []byte {
+	buffer = appendFileType(buffer, stat.FileType)
+	buffer = appendFDFlags(buffer, stat.Flags)
+	buffer = appendRights(buffer, stat.RightsBase)
+	buffer = appendRights(buffer, stat.RightsInheriting)
+	return buffer
+}
+
+func readFDStat(buffer []byte) (stat FDStat, _ []byte, err error) {
+	if stat.FileType, buffer, err = readFileType(buffer); err != nil {
+		return
+	}
+	if stat.Flags, buffer, err = readFDFlags(buffer); err != nil {
+		return
+	}
+	if stat.RightsBase, buffer, err = readRights(buffer); err != nil {
+		return
+	}
+	if stat.RightsInheriting, buffer, err = readRights(buffer); err != nil {
+		return
+	}
+	return
 }

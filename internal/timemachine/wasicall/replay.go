@@ -65,7 +65,9 @@ type Replayer struct {
 	// eofSystem is the wasi.System returned by the EOF hook.
 	eofSystem System
 
-	args []string
+	// Cache for decoded slices.
+	args   []string
+	iovecs []IOVec
 }
 
 var _ System = (*Replayer)(nil)
@@ -765,10 +767,11 @@ func (r *Replayer) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Er
 	if syscall := Syscall(record.FunctionID()); syscall != FDWrite {
 		r.handle(&UnexpectedSyscallError{syscall, FDWrite})
 	}
-	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDWrite(record.FunctionCall())
+	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDWrite(record.FunctionCall(), r.iovecs[:0])
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
+	r.iovecs = recordIOVecs
 	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
