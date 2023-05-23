@@ -272,11 +272,29 @@ func (c *Codec) DecodeFDFileStatSetTimes(buffer []byte) (fd FD, accessTime, modi
 }
 
 func (c *Codec) EncodeFDPread(buffer []byte, fd FD, iovecs []IOVec, offset FileSize, size Size, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	// TODO: only need to store the iovecs part that was actually populated
+	buffer = encodeIOVecs(buffer, iovecs)
+	buffer = encodeFileSize(buffer, offset)
+	return encodeSize(buffer, size)
 }
 
-func (c *Codec) DecodeFDPread(buffer []byte) (fd FD, iovecs []IOVec, offset FileSize, size Size, errno Errno, err error) {
-	panic("not implemented")
+func (c *Codec) DecodeFDPread(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, offset FileSize, size Size, errno Errno, err error) {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
+		return
+	}
+	if offset, buffer, err = decodeFileSize(buffer); err != nil {
+		return
+	}
+	size, buffer, err = decodeSize(buffer)
+	return fd, iovecs, offset, size, errno, err
 }
 
 func (c *Codec) EncodeFDPreStatGet(buffer []byte, fd FD, stat PreStat, errno Errno) []byte {
@@ -297,24 +315,51 @@ func (c *Codec) DecodeFDPreStatGet(buffer []byte) (fd FD, stat PreStat, errno Er
 }
 
 func (c *Codec) EncodeFDPreStatDirName(buffer []byte, fd FD, name string, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeString(buffer, name)
 }
 
 func (c *Codec) DecodeFDPreStatDirName(buffer []byte) (fd FD, name string, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	name, buffer, err = decodeString(buffer)
+	return
 }
 
 func (c *Codec) EncodeFDPwrite(buffer []byte, fd FD, iovecs []IOVec, offset FileSize, size Size, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeIOVecs(buffer, iovecs)
+	buffer = encodeFileSize(buffer, offset)
+	return encodeSize(buffer, size)
 }
 
-func (c *Codec) DecodeFDPwrite(buffer []byte) (fd FD, iovecs []IOVec, offset FileSize, size Size, errno Errno, err error) {
-	panic("not implemented")
+func (c *Codec) DecodeFDPwrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, offset FileSize, size Size, errno Errno, err error) {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
+		return
+	}
+	if offset, buffer, err = decodeFileSize(buffer); err != nil {
+		return
+	}
+	size, buffer, err = decodeSize(buffer)
+	return fd, iovecs, offset, size, errno, err
 }
 
 func (c *Codec) EncodeFDRead(buffer []byte, fd FD, iovecs []IOVec, size Size, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
+	// TODO: only need to store the iovecs part that was actually populated
 	buffer = encodeIOVecs(buffer, iovecs)
 	return encodeSize(buffer, size)
 }
@@ -334,27 +379,74 @@ func (c *Codec) DecodeFDRead(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, s
 }
 
 func (c *Codec) EncodeFDReadDir(buffer []byte, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int, count int, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeDirEntries(buffer, entries)
+	buffer = encodeDirCookie(buffer, cookie)
+	buffer = encodeInt(buffer, bufferSizeBytes)
+	return encodeInt(buffer, count)
 }
 
-func (c *Codec) DecodeFDReadDir(buffer []byte) (fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int, count int, errno Errno, err error) {
-	panic("not implemented")
+func (c *Codec) DecodeFDReadDir(buffer []byte, entries []DirEntry) (fd FD, _ []DirEntry, cookie DirCookie, bufferSizeBytes int, count int, errno Errno, err error) {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if entries, buffer, err = decodeDirEntries(buffer, entries); err != nil {
+		return
+	}
+	if cookie, buffer, err = decodeDirCookie(buffer); err != nil {
+		return
+	}
+	if bufferSizeBytes, buffer, err = decodeInt(buffer); err != nil {
+		return
+	}
+	count, buffer, err = decodeInt(buffer)
+	return fd, entries, cookie, bufferSizeBytes, count, errno, err
 }
 
 func (c *Codec) EncodeFDRenumber(buffer []byte, from, to FD, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, from)
+	return encodeFD(buffer, to)
 }
 
 func (c *Codec) DecodeFDRenumber(buffer []byte) (from, to FD, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if from, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	to, buffer, err = decodeFD(buffer)
+	return
 }
 
 func (c *Codec) EncodeFDSeek(buffer []byte, fd FD, seekOffset FileDelta, whence Whence, offset FileSize, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeFileDelta(buffer, seekOffset)
+	buffer = encodeWhence(buffer, whence)
+	return encodeFileSize(buffer, offset)
 }
 
 func (c *Codec) DecodeFDSeek(buffer []byte) (fd FD, seekOffset FileDelta, whence Whence, offset FileSize, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if seekOffset, buffer, err = decodeFileDelta(buffer); err != nil {
+		return
+	}
+	if whence, buffer, err = decodeWhence(buffer); err != nil {
+		return
+	}
+	offset, buffer, err = decodeFileSize(buffer)
+	return
 }
 
 func (c *Codec) EncodeFDSync(buffer []byte, fd FD, errno Errno) []byte {
@@ -371,11 +463,20 @@ func (c *Codec) DecodeFDSync(buffer []byte) (fd FD, errno Errno, err error) {
 }
 
 func (c *Codec) EncodeFDTell(buffer []byte, fd FD, offset FileSize, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeFileSize(buffer, offset)
 }
 
 func (c *Codec) DecodeFDTell(buffer []byte) (fd FD, offset FileSize, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	offset, buffer, err = decodeFileSize(buffer)
+	return
 }
 
 func (c *Codec) EncodeFDWrite(buffer []byte, fd FD, iovecs []IOVec, size Size, errno Errno) []byte {
@@ -400,83 +501,243 @@ func (c *Codec) DecodeFDWrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, 
 }
 
 func (c *Codec) EncodePathCreateDirectory(buffer []byte, fd FD, path string, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeString(buffer, path)
 }
 
 func (c *Codec) DecodePathCreateDirectory(buffer []byte) (fd FD, path string, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	path, buffer, err = decodeString(buffer)
+	return
 }
 
 func (c *Codec) EncodePathFileStatGet(buffer []byte, fd FD, lookupFlags LookupFlags, path string, fileStat FileStat, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeLookupFlags(buffer, lookupFlags)
+	buffer = encodeString(buffer, path)
+	return encodeFileStat(buffer, fileStat)
 }
 
 func (c *Codec) DecodePathFileStatGet(buffer []byte) (fd FD, lookupFlags LookupFlags, path string, fileStat FileStat, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if lookupFlags, buffer, err = decodeLookupFlags(buffer); err != nil {
+		return
+	}
+	if path, buffer, err = decodeString(buffer); err != nil {
+		return
+	}
+	fileStat, buffer, err = decodeFileStat(buffer)
+	return
 }
 
 func (c *Codec) EncodePathFileStatSetTimes(buffer []byte, fd FD, lookupFlags LookupFlags, path string, accessTime, modifyTime Timestamp, flags FSTFlags, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeLookupFlags(buffer, lookupFlags)
+	buffer = encodeString(buffer, path)
+	buffer = encodeTimestamp(buffer, accessTime)
+	buffer = encodeTimestamp(buffer, modifyTime)
+	return encodeFSTFlags(buffer, flags)
 }
 
 func (c *Codec) DecodePathFileStatSetTimes(buffer []byte) (fd FD, lookupFlags LookupFlags, path string, accessTime, modifyTime Timestamp, flags FSTFlags, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if lookupFlags, buffer, err = decodeLookupFlags(buffer); err != nil {
+		return
+	}
+	if path, buffer, err = decodeString(buffer); err != nil {
+		return
+	}
+	if accessTime, buffer, err = decodeTimestamp(buffer); err != nil {
+		return
+	}
+	if modifyTime, buffer, err = decodeTimestamp(buffer); err != nil {
+		return
+	}
+	flags, buffer, err = decodeFSTFlags(buffer)
+	return
 }
 
 func (c *Codec) EncodePathLink(buffer []byte, oldFD FD, oldFlags LookupFlags, oldPath string, newFD FD, newPath string, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, oldFD)
+	buffer = encodeLookupFlags(buffer, oldFlags)
+	buffer = encodeString(buffer, oldPath)
+	buffer = encodeFD(buffer, newFD)
+	return encodeString(buffer, newPath)
 }
 
 func (c *Codec) DecodePathLink(buffer []byte) (oldFD FD, oldFlags LookupFlags, oldPath string, newFD FD, newPath string, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if oldFD, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if oldFlags, buffer, err = decodeLookupFlags(buffer); err != nil {
+		return
+	}
+	if oldPath, buffer, err = decodeString(buffer); err != nil {
+		return
+	}
+	if newFD, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	newPath, buffer, err = decodeString(buffer)
+	return
 }
 
 func (c *Codec) EncodePathOpen(buffer []byte, fd FD, dirFlags LookupFlags, path string, openFlags OpenFlags, rightsBase, rightsInheriting Rights, fdFlags FDFlags, newfd FD, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeLookupFlags(buffer, dirFlags)
+	buffer = encodeString(buffer, path)
+	buffer = encodeOpenFlags(buffer, openFlags)
+	buffer = encodeRights(buffer, rightsBase)
+	buffer = encodeRights(buffer, rightsInheriting)
+	buffer = encodeFDFlags(buffer, fdFlags)
+	return encodeFD(buffer, newfd)
 }
 
 func (c *Codec) DecodePathOpen(buffer []byte) (fd FD, dirFlags LookupFlags, path string, openFlags OpenFlags, rightsBase, rightsInheriting Rights, fdFlags FDFlags, newfd FD, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if dirFlags, buffer, err = decodeLookupFlags(buffer); err != nil {
+		return
+	}
+	if path, buffer, err = decodeString(buffer); err != nil {
+		return
+	}
+	if openFlags, buffer, err = decodeOpenFlags(buffer); err != nil {
+		return
+	}
+	if rightsBase, buffer, err = decodeRights(buffer); err != nil {
+		return
+	}
+	if rightsInheriting, buffer, err = decodeRights(buffer); err != nil {
+		return
+	}
+	fdFlags, buffer, err = decodeFDFlags(buffer)
+	return
 }
 
-func (c *Codec) EncodePathReadLink(buffer []byte, fd FD, path string, b []byte, output []byte, errno Errno) []byte {
-	panic("not implemented")
+func (c *Codec) EncodePathReadLink(buffer []byte, fd FD, path string, output []byte, errno Errno) []byte {
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeString(buffer, path)
+	return encodeBytes(buffer, output)
 }
 
-func (c *Codec) DecodePathReadLink(buffer []byte) (fd FD, path string, b []byte, output []byte, errno Errno, err error) {
-	panic("not implemented")
+func (c *Codec) DecodePathReadLink(buffer []byte) (fd FD, path string, output []byte, errno Errno, err error) {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if path, buffer, err = decodeString(buffer); err != nil {
+		return
+	}
+	output, buffer, err = decodeBytes(buffer)
+	return
 }
 
 func (c *Codec) EncodePathRemoveDirectory(buffer []byte, fd FD, path string, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeString(buffer, path)
 }
 
 func (c *Codec) DecodePathRemoveDirectory(buffer []byte) (fd FD, path string, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	path, buffer, err = decodeString(buffer)
+	return
 }
 
 func (c *Codec) EncodePathRename(buffer []byte, fd FD, oldPath string, newFD FD, newPath string, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeString(buffer, oldPath)
+	buffer = encodeFD(buffer, newFD)
+	return encodeString(buffer, newPath)
 }
 
 func (c *Codec) DecodePathRename(buffer []byte) (fd FD, oldPath string, newFD FD, newPath string, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if oldPath, buffer, err = decodeString(buffer); err != nil {
+		return
+	}
+	if newFD, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	newPath, buffer, err = decodeString(buffer)
+	return
 }
 
 func (c *Codec) EncodePathSymlink(buffer []byte, oldPath string, fd FD, newPath string, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeString(buffer, oldPath)
+	return encodeString(buffer, newPath)
 }
 
 func (c *Codec) DecodePathSymlink(buffer []byte) (oldPath string, fd FD, newPath string, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	newPath, buffer, err = decodeString(buffer)
+	return
 }
 
 func (c *Codec) EncodePathUnlinkFile(buffer []byte, fd FD, path string, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeString(buffer, path)
 }
 
 func (c *Codec) DecodePathUnlinkFile(buffer []byte) (fd FD, path string, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	path, buffer, err = decodeString(buffer)
+	return
 }
 
 func (c *Codec) EncodePollOneOff(buffer []byte, subscriptions []Subscription, events []Event, n int, errno Errno) []byte {
@@ -570,108 +831,307 @@ func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD,
 	return
 }
 
-func (c *Codec) EncodeSockRecv(buffer []byte, fd FD, iovecs []IOVec, flags RIFlags, size Size, oflags ROFlags, errno Errno) []byte {
-	panic("not implemented")
+func (c *Codec) EncodeSockRecv(buffer []byte, fd FD, iovecs []IOVec, iflags RIFlags, size Size, oflags ROFlags, errno Errno) []byte {
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	// TODO: only need to store the iovecs part that was actually populated
+	buffer = encodeIOVecs(buffer, iovecs)
+	buffer = encodeRIFlags(buffer, iflags)
+	buffer = encodeSize(buffer, size)
+	return encodeROFlags(buffer, oflags)
 }
 
-func (c *Codec) DecodeSockRecv(buffer []byte) (fd FD, iovecs []IOVec, flags RIFlags, size Size, oflags ROFlags, errno Errno, err error) {
-	panic("not implemented")
+func (c *Codec) DecodeSockRecv(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, iflags RIFlags, size Size, oflags ROFlags, errno Errno, err error) {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
+		return
+	}
+	if iflags, buffer, err = decodeRIFlags(buffer); err != nil {
+		return
+	}
+	if size, buffer, err = decodeSize(buffer); err != nil {
+		return
+	}
+	oflags, buffer, err = decodeROFlags(buffer)
+	return fd, iovecs, iflags, size, oflags, errno, err
 }
 
 func (c *Codec) EncodeSockSend(buffer []byte, fd FD, iovecs []IOVec, flags SIFlags, size Size, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeIOVecs(buffer, iovecs)
+	buffer = encodeSIFlags(buffer, flags)
+	return encodeSize(buffer, size)
 }
 
 func (c *Codec) DecodeSockSend(buffer []byte) (fd FD, iovecs []IOVec, flags SIFlags, size Size, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
+		return
+	}
+	if flags, buffer, err = decodeSIFlags(buffer); err != nil {
+		return
+	}
+	size, buffer, err = decodeSize(buffer)
+	return fd, iovecs, flags, size, errno, err
 }
 
 func (c *Codec) EncodeSockShutdown(buffer []byte, fd FD, flags SDFlags, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeSDFlags(buffer, flags)
 }
 
 func (c *Codec) DecodeSockShutdown(buffer []byte) (fd FD, flags SDFlags, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	flags, buffer, err = decodeSDFlags(buffer)
+	return
 }
 
 func (c *Codec) EncodeSockOpen(buffer []byte, family ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase, rightsInheriting Rights, fd FD, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeProtocolFamily(buffer, family)
+	buffer = encodeSocketType(buffer, socketType)
+	buffer = encodeProtocol(buffer, protocol)
+	buffer = encodeRights(buffer, rightsBase)
+	buffer = encodeRights(buffer, rightsInheriting)
+	return encodeFD(buffer, fd)
 }
 
 func (c *Codec) DecodeSockOpen(buffer []byte) (family ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase, rightsInheriting Rights, fd FD, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if family, buffer, err = decodeProtocolFamily(buffer); err != nil {
+		return
+	}
+	if socketType, buffer, err = decodeSocketType(buffer); err != nil {
+		return
+	}
+	if protocol, buffer, err = decodeProtocol(buffer); err != nil {
+		return
+	}
+	if rightsBase, buffer, err = decodeRights(buffer); err != nil {
+		return
+	}
+	if rightsInheriting, buffer, err = decodeRights(buffer); err != nil {
+		return
+	}
+	fd, buffer, err = decodeFD(buffer)
+	return
 }
 
 func (c *Codec) EncodeSockBind(buffer []byte, fd FD, addr SocketAddress, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeAddr(buffer, addr)
 }
 
 func (c *Codec) DecodeSockBind(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	addr, buffer, err = decodeAddr(buffer)
+	return
 }
 
 func (c *Codec) EncodeSockConnect(buffer []byte, fd FD, addr SocketAddress, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeAddr(buffer, addr)
 }
 
 func (c *Codec) DecodeSockConnect(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	addr, buffer, err = decodeAddr(buffer)
+	return
 }
 
 func (c *Codec) EncodeSockListen(buffer []byte, fd FD, backlog int, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeInt(buffer, backlog)
 }
 
 func (c *Codec) DecodeSockListen(buffer []byte) (fd FD, backlog int, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	backlog, buffer, err = decodeInt(buffer)
+	return
 }
 
 func (c *Codec) EncodeSockSendTo(buffer []byte, fd FD, iovecs []IOVec, iflags SIFlags, addr SocketAddress, size Size, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeIOVecs(buffer, iovecs)
+	buffer = encodeSIFlags(buffer, iflags)
+	buffer = encodeAddr(buffer, addr)
+	return encodeSize(buffer, size)
 }
 
-func (c *Codec) DecodeSockSendTo(buffer []byte) (fd FD, iovecs []IOVec, iflags SIFlags, addr SocketAddress, size Size, errno Errno, err error) {
-	panic("not implemented")
+func (c *Codec) DecodeSockSendTo(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, iflags SIFlags, addr SocketAddress, size Size, errno Errno, err error) {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
+		return
+	}
+	if iflags, buffer, err = decodeSIFlags(buffer); err != nil {
+		return
+	}
+	if addr, buffer, err = decodeAddr(buffer); err != nil {
+		return
+	}
+	size, buffer, err = decodeSize(buffer)
+	return fd, iovecs, iflags, addr, size, errno, err
 }
 
 func (c *Codec) EncodeSockRecvFrom(buffer []byte, fd FD, iovecs []IOVec, iflags RIFlags, size Size, oflags ROFlags, addr SocketAddress, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	// TODO: only need to store the iovecs part that was actually populated
+	buffer = encodeIOVecs(buffer, iovecs)
+	buffer = encodeRIFlags(buffer, iflags)
+	buffer = encodeSize(buffer, size)
+	buffer = encodeROFlags(buffer, oflags)
+	return encodeAddr(buffer, addr)
 }
 
-func (c *Codec) DecodeSockRecvFrom(buffer []byte) (fd FD, iovecs []IOVec, iflags RIFlags, size Size, oflags ROFlags, addr SocketAddress, errno Errno, err error) {
-	panic("not implemented")
+func (c *Codec) DecodeSockRecvFrom(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, iflags RIFlags, size Size, oflags ROFlags, addr SocketAddress, errno Errno, err error) {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
+		return
+	}
+	if iflags, buffer, err = decodeRIFlags(buffer); err != nil {
+		return
+	}
+	if size, buffer, err = decodeSize(buffer); err != nil {
+		return
+	}
+	if oflags, buffer, err = decodeROFlags(buffer); err != nil {
+		return
+	}
+	addr, buffer, err = decodeAddr(buffer)
+	return fd, iovecs, iflags, size, oflags, addr, errno, err
 }
 
 func (c *Codec) EncodeSockGetOptInt(buffer []byte, fd FD, level SocketOptionLevel, option SocketOption, value int, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeSocketOptionLevel(buffer, level)
+	buffer = encodeSocketOption(buffer, option)
+	return encodeInt(buffer, value)
 }
 
 func (c *Codec) DecodeSockGetOptInt(buffer []byte) (fd FD, level SocketOptionLevel, option SocketOption, value int, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if level, buffer, err = decodeSocketOptionLevel(buffer); err != nil {
+		return
+	}
+	if option, buffer, err = decodeSocketOption(buffer); err != nil {
+		return
+	}
+	value, buffer, err = decodeInt(buffer)
+	return
 }
 
 func (c *Codec) EncodeSockSetOptInt(buffer []byte, fd FD, level SocketOptionLevel, option SocketOption, value int, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeSocketOptionLevel(buffer, level)
+	buffer = encodeSocketOption(buffer, option)
+	return encodeInt(buffer, value)
 }
 
 func (c *Codec) DecodeSockSetOptInt(buffer []byte) (fd FD, level SocketOptionLevel, option SocketOption, value int, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if level, buffer, err = decodeSocketOptionLevel(buffer); err != nil {
+		return
+	}
+	if option, buffer, err = decodeSocketOption(buffer); err != nil {
+		return
+	}
+	value, buffer, err = decodeInt(buffer)
+	return
 }
 
 func (c *Codec) EncodeSockLocalAddress(buffer []byte, fd FD, addr SocketAddress, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeAddr(buffer, addr)
 }
 
 func (c *Codec) DecodeSockLocalAddress(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	addr, buffer, err = decodeAddr(buffer)
+	return
 }
 
 func (c *Codec) EncodeSockPeerAddress(buffer []byte, fd FD, addr SocketAddress, errno Errno) []byte {
-	panic("not implemented")
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeAddr(buffer, addr)
 }
 
 func (c *Codec) DecodeSockPeerAddress(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
-	panic("not implemented")
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	addr, buffer, err = decodeAddr(buffer)
+	return
 }
 
 func encodeU32(b []byte, v uint32) []byte {
@@ -976,6 +1436,132 @@ func decodeEventFDReadWriteFlags(buffer []byte) (EventFDReadWriteFlags, []byte, 
 	return EventFDReadWriteFlags(t), buffer, err
 }
 
+func encodeDirCookie(buffer []byte, id DirCookie) []byte {
+	return encodeU64(buffer, uint64(id))
+}
+
+func decodeDirCookie(buffer []byte) (DirCookie, []byte, error) {
+	id, buffer, err := decodeU64(buffer)
+	return DirCookie(id), buffer, err
+}
+
+func encodeFileDelta(buffer []byte, id FileDelta) []byte {
+	return encodeU64(buffer, uint64(id))
+}
+
+func decodeFileDelta(buffer []byte) (FileDelta, []byte, error) {
+	id, buffer, err := decodeU64(buffer)
+	return FileDelta(id), buffer, err
+}
+
+func encodeWhence(buffer []byte, t Whence) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeWhence(buffer []byte) (Whence, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return Whence(t), buffer, err
+}
+
+func encodeLookupFlags(buffer []byte, t LookupFlags) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeLookupFlags(buffer []byte) (LookupFlags, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return LookupFlags(t), buffer, err
+}
+
+func encodeOpenFlags(buffer []byte, t OpenFlags) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeOpenFlags(buffer []byte) (OpenFlags, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return OpenFlags(t), buffer, err
+}
+
+func encodeRIFlags(buffer []byte, t RIFlags) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeRIFlags(buffer []byte) (RIFlags, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return RIFlags(t), buffer, err
+}
+
+func encodeROFlags(buffer []byte, t ROFlags) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeROFlags(buffer []byte) (ROFlags, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return ROFlags(t), buffer, err
+}
+
+func encodeSIFlags(buffer []byte, t SIFlags) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeSIFlags(buffer []byte) (SIFlags, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return SIFlags(t), buffer, err
+}
+
+func encodeSDFlags(buffer []byte, t SDFlags) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeSDFlags(buffer []byte) (SDFlags, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return SDFlags(t), buffer, err
+}
+
+func encodeProtocolFamily(buffer []byte, t ProtocolFamily) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeProtocolFamily(buffer []byte) (ProtocolFamily, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return ProtocolFamily(t), buffer, err
+}
+
+func encodeSocketType(buffer []byte, t SocketType) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeSocketType(buffer []byte) (SocketType, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return SocketType(t), buffer, err
+}
+
+func encodeProtocol(buffer []byte, t Protocol) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeProtocol(buffer []byte) (Protocol, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return Protocol(t), buffer, err
+}
+
+func encodeSocketOptionLevel(buffer []byte, t SocketOptionLevel) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeSocketOptionLevel(buffer []byte) (SocketOptionLevel, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return SocketOptionLevel(t), buffer, err
+}
+
+func encodeSocketOption(buffer []byte, t SocketOption) []byte {
+	return encodeU32(buffer, uint32(t))
+}
+
+func decodeSocketOption(buffer []byte) (SocketOption, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
+	return SocketOption(t), buffer, err
+}
+
 func encodePreStat(buffer []byte, stat PreStat) []byte {
 	buffer = encodePreOpenType(buffer, stat.Type)
 	buffer = encodeSize(buffer, stat.PreStatDir.NameLength)
@@ -1196,4 +1782,109 @@ func decodeEvents(buffer []byte, events []Event) (_ []Event, _ []byte, err error
 		}
 	}
 	return events, buffer, nil
+}
+
+func encodeDirEntry(buffer []byte, d DirEntry) []byte {
+	buffer = encodeDirCookie(buffer, d.Next)
+	buffer = encodeINode(buffer, d.INode)
+	buffer = encodeFileType(buffer, d.Type)
+	return encodeBytes(buffer, d.Name)
+}
+
+func decodeDirEntry(buffer []byte) (d DirEntry, _ []byte, err error) {
+	if d.Next, buffer, err = decodeDirCookie(buffer); err != nil {
+		return
+	}
+	if d.INode, buffer, err = decodeINode(buffer); err != nil {
+		return
+	}
+	if d.Type, buffer, err = decodeFileType(buffer); err != nil {
+		return
+	}
+	d.Name, buffer, err = decodeBytes(buffer)
+	return d, buffer, err
+}
+
+func encodeDirEntries(buffer []byte, entries []DirEntry) []byte {
+	buffer = encodeU32(buffer, uint32(len(entries)))
+	for i := range entries {
+		buffer = encodeDirEntry(buffer, entries[i])
+	}
+	return buffer
+}
+
+func decodeDirEntries(buffer []byte, entries []DirEntry) (_ []DirEntry, _ []byte, err error) {
+	var count uint32
+	if count, buffer, err = decodeU32(buffer); err != nil {
+		return
+	}
+	if uint32(len(entries)) < count {
+		entries = make([]DirEntry, count)
+	} else {
+		entries = entries[:count]
+	}
+	for i := uint32(0); i < count; i++ {
+		entries[i], buffer, err = decodeDirEntry(buffer)
+		if err != nil {
+			return
+		}
+	}
+	return entries, buffer, nil
+}
+
+func encodeAddr(buffer []byte, addr SocketAddress) []byte {
+	switch a := addr.(type) {
+	case *Inet4Address:
+		buffer = encodeProtocolFamily(buffer, Inet)
+		buffer = encodeInt(buffer, a.Port)
+		return encodeBytes(buffer, a.Addr[:])
+	case *Inet6Address:
+		buffer = encodeProtocolFamily(buffer, Inet6)
+		buffer = encodeInt(buffer, a.Port)
+		return encodeBytes(buffer, a.Addr[:])
+	case *UnixAddress:
+		panic("not implemented") // waiting for upstream support
+	default:
+		panic("unreachable")
+	}
+}
+
+func decodeAddr(buffer []byte) (_ SocketAddress, _ []byte, err error) {
+	var f ProtocolFamily
+	if f, buffer, err = decodeProtocolFamily(buffer); err != nil {
+		return
+	}
+	// TODO: eliminate these allocations by having the caller pass in a
+	//  *Inet4Address and *Inet6Address to populate
+	var ip []byte
+	switch f {
+	case Inet:
+		var addr Inet4Address
+		if addr.Port, buffer, err = decodeInt(buffer); err != nil {
+			return
+		}
+		if ip, buffer, err = decodeBytes(buffer); err != nil {
+			return
+		}
+		if len(ip) != 4 {
+			return nil, buffer, fmt.Errorf("invalid IPv4 length: %v", len(ip))
+		}
+		copy(addr.Addr[:], ip)
+		return &addr, buffer, nil
+	case Inet6:
+		var addr Inet6Address
+		if addr.Port, buffer, err = decodeInt(buffer); err != nil {
+			return
+		}
+		if ip, buffer, err = decodeBytes(buffer); err != nil {
+			return
+		}
+		if len(ip) != 16 {
+			return nil, buffer, fmt.Errorf("invalid IPv6 length: %v", len(ip))
+		}
+		copy(addr.Addr[:], ip)
+		return &addr, buffer, nil
+	default:
+		return nil, buffer, fmt.Errorf("invalid or unsupported protocol family: %v", f)
+	}
 }

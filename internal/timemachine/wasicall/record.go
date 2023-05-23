@@ -235,7 +235,9 @@ func (r *Recorder) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, pa
 
 func (r *Recorder) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) ([]byte, Errno) {
 	result, errno := r.system.PathReadLink(ctx, fd, path, buffer)
-	r.record(PathReadLink, r.codec.EncodePathReadLink(r.buffer[:0], fd, path, buffer, result, errno))
+	// Note: we do not capture the input buffer, just the part
+	// that was overwritten (result).
+	r.record(PathReadLink, r.codec.EncodePathReadLink(r.buffer[:0], fd, path, result, errno))
 	return result, errno
 }
 

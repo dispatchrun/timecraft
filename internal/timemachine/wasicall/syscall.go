@@ -4,11 +4,10 @@ import (
 	"fmt"
 )
 
-type Syscall int
+type SyscallNumber int
 
 const (
-	// WASI preview 1 system calls.
-	ArgsGet Syscall = iota
+	ArgsGet SyscallNumber = iota
 	EnvironGet
 	ClockResGet
 	ClockTimeGet
@@ -53,7 +52,6 @@ const (
 	SockSend
 	SockShutdown
 
-	// Sockets extension system calls.
 	SockOpen
 	SockBind
 	SockConnect
@@ -66,14 +64,14 @@ const (
 	SockPeerAddress
 )
 
-func (s Syscall) String() string {
-	if int(s) >= len(syscallStrings) {
-		return fmt.Sprintf("Syscall(%d)", int(s))
+func (s SyscallNumber) String() string {
+	if int(s) >= len(syscallNumberStrings) {
+		return fmt.Sprintf("SyscallNumber(%d)", int(s))
 	}
-	return syscallStrings[s]
+	return syscallNumberStrings[s]
 }
 
-var syscallStrings = [...]string{
+var syscallNumberStrings = [...]string{
 	"ArgsGet",
 	"EnvironGet",
 	"ClockResGet",

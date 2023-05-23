@@ -54,6 +54,7 @@ type Replay struct {
 	iovecs        []IOVec
 	subscriptions []Subscription
 	events        []Event
+	entries       []DirEntry
 
 	eof bool
 }
@@ -391,10 +392,11 @@ func (r *Replay) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset File
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPread(record.FunctionCall())
+	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPread(record.FunctionCall(), r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
+	r.iovecs = recordIOVecs
 	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
@@ -448,10 +450,11 @@ func (r *Replay) FDPwrite(ctx context.Context, fd FD, iovecs []IOVec, offset Fil
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPwrite(record.FunctionCall())
+	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPwrite(record.FunctionCall(), r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
+	r.iovecs = recordIOVecs
 	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
@@ -503,10 +506,11 @@ func (r *Replay) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cooki
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordEntries, recordCookie, recordBufferSizeBytes, count, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall())
+	recordFD, recordEntries, recordCookie, recordBufferSizeBytes, count, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall(), r.entries[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
+	r.entries = recordEntries
 	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
@@ -799,7 +803,7 @@ func (r *Replay) PathReadLink(ctx context.Context, fd FD, path string, buffer []
 	if !ok {
 		return nil, ENOSYS
 	}
-	recordFD, recordPath, recordBuffer, result, errno, err := r.codec.DecodePathReadLink(record.FunctionCall())
+	recordFD, recordPath, result, errno, err := r.codec.DecodePathReadLink(record.FunctionCall())
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -811,8 +815,8 @@ func (r *Replay) PathReadLink(ctx context.Context, fd FD, path string, buffer []
 		if path != recordPath {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathReadLink, "path", path, recordPath})
 		}
-		if len(buffer) != len(recordBuffer) {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathReadLink, "buffer", buffer, recordFD})
+		if len(buffer) < len(result) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathReadLink, "buffer", buffer, result})
 		}
 		if len(mismatch) > 0 {
 			panic(errors.Join(mismatch...))
@@ -1066,10 +1070,11 @@ func (r *Replay) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIF
 	if !ok {
 		return 0, 0, ENOSYS
 	}
-	recordFD, recordIOVecs, recordIFlags, size, oflags, errno, err := r.codec.DecodeSockRecv(record.FunctionCall())
+	recordFD, recordIOVecs, recordIFlags, size, oflags, errno, err := r.codec.DecodeSockRecv(record.FunctionCall(), r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
+	r.iovecs = recordIOVecs
 	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
@@ -1225,10 +1230,11 @@ func (r *Replay) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags S
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordIOVecs, recordIFlags, recordAddr, size, errno, err := r.codec.DecodeSockSendTo(record.FunctionCall())
+	recordFD, recordIOVecs, recordIFlags, recordAddr, size, errno, err := r.codec.DecodeSockSendTo(record.FunctionCall(), r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
+	r.iovecs = recordIOVecs
 	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
@@ -1255,10 +1261,11 @@ func (r *Replay) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags
 	if !ok {
 		return 0, 0, nil, ENOSYS
 	}
-	recordFD, recordIOVecs, recordIFlags, size, oflags, addr, errno, err := r.codec.DecodeSockRecvFrom(record.FunctionCall())
+	recordFD, recordIOVecs, recordIFlags, size, oflags, addr, errno, err := r.codec.DecodeSockRecvFrom(record.FunctionCall(), r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
+	r.iovecs = recordIOVecs
 	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
