@@ -14,14 +14,12 @@ import (
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/timemachine"
-	"github.com/stealthrocket/timecraft/internal/timemachine/functioncall"
+	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/sys"
 )
 
 var version = "devel"
@@ -262,13 +260,13 @@ func run(args []string) error {
 		recordWriter := timemachine.NewLogRecordWriter(logWriter, *batchSize, c)
 		defer recordWriter.Flush()
 
-		builder = builder.WithDecorators(
-			functioncall.Record[*wasi_snapshot_preview1.Module](startTime, functions, func(record timemachine.RecordBuilder) {
+		builder = builder.WithWrappers(func(s wasi.System) wasi.System {
+			return wasicall.NewRecorder(s, startTime, func(record *timemachine.RecordBuilder) {
 				if err := recordWriter.WriteRecord(record); err != nil {
 					panic(err)
 				}
-			}),
-		)
+			})
+		})
 	}
 
 	var system wasi.System
@@ -356,14 +354,6 @@ func replay(args []string) error {
 	}
 	defer wasmModule.Close(ctx)
 
-	wasmName, args := logHeader.Process.Args[0], logHeader.Process.Args[1:]
-	envs := logHeader.Process.Environ
-
-	builder := imports.NewBuilder().
-		WithName(wasmName).
-		WithArgs(args...).
-		WithEnv(envs...)
-
 	var functions timemachine.FunctionIndex
 	importedFunctions := wasmModule.ImportedFunctions()
 	for _, f := range importedFunctions {
@@ -389,15 +379,13 @@ func replay(args []string) error {
 
 	records := timemachine.NewLogRecordReader(logReader)
 
-	controller := &replayController[*wasi_snapshot_preview1.Module]{}
-	builder = builder.WithDecorators(functioncall.Replay[*wasi_snapshot_preview1.Module](functions, records, controller))
+	replayer := wasicall.NewReplayer(records, ReplayController{})
+	defer replayer.Close(ctx)
 
-	var system wasi.System
-	ctx, system, err = builder.Instantiate(ctx, runtime)
-	if err != nil {
-		return err
-	}
-	defer system.Close(ctx)
+	// TODO: need to figure this out dynamically:
+	hostModule := wasi_snapshot_preview1.NewHostModule(wasi_snapshot_preview1.WasmEdgeV2)
+	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(replayer))
+	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
 	instance, err := runtime.InstantiateModule(ctx, wasmModule, wazero.NewModuleConfig())
 	if err != nil {
@@ -406,26 +394,14 @@ func replay(args []string) error {
 	return instance.Close(ctx)
 }
 
-type replayController[T wazergo.Module] struct{}
+type ReplayController struct{}
 
-func (r *replayController[T]) Step(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record *timemachine.Record) {
-	// noop
+func (ReplayController) EOF(s wasicall.Syscall) wasi.System {
+	panic("not implemented")
 }
 
-func (r *replayController[T]) ReadError(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, err error) {
+func (ReplayController) Error(err error) {
 	panic(err)
-}
-
-func (r replayController[T]) MismatchError(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record *timemachine.Record, err error) {
-	panic(err)
-}
-
-func (r replayController[T]) Exit(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64, record *timemachine.Record, exitCode uint32) {
-	panic(sys.NewExitError(exitCode))
-}
-
-func (r *replayController[T]) EOF(ctx context.Context, module T, fn wazergo.Function[T], mod api.Module, stack []uint64) {
-	panic("EOF")
 }
 
 type stringList []string
