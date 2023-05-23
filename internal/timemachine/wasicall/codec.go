@@ -16,258 +16,258 @@ import (
 // compatibility. Rather than use protobuf or flatbuffers or similar, we use
 // simple bespoke encoders. We aren't too concerned with succinctness since
 // the records are ultimately compressed, but it should be easy to experiment
-// with different encodings (e.g. varints) by changing the append/read helpers.
+// with different encodings (e.g. varints) by changing the helpers.
 // There are also other ways to reduce the size of encoded records, for
 // example avoiding storing return values other than errno when errno!=0.
 type Codec struct{}
 
 func (c *Codec) EncodeArgsGet(buffer []byte, args []string, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	return appendStrings(buffer, args)
+	buffer = encodeErrno(buffer, errno)
+	return encodeStrings(buffer, args)
 }
 
 func (c *Codec) DecodeArgsGet(buffer []byte, args []string) (_ []string, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	args, buffer, err = readStrings(buffer, args)
+	args, buffer, err = decodeStrings(buffer, args)
 	return args, errno, err
 }
 
 func (c *Codec) EncodeEnvironGet(buffer []byte, env []string, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	return appendStrings(buffer, env)
+	buffer = encodeErrno(buffer, errno)
+	return encodeStrings(buffer, env)
 }
 
 func (c *Codec) DecodeEnvironGet(buffer []byte, env []string) (_ []string, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	env, buffer, err = readStrings(buffer, env)
+	env, buffer, err = decodeStrings(buffer, env)
 	return env, errno, err
 }
 
 func (c *Codec) EncodeClockResGet(buffer []byte, id ClockID, timestamp Timestamp, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendClockID(buffer, id)
-	return appendTimestamp(buffer, timestamp)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeClockID(buffer, id)
+	return encodeTimestamp(buffer, timestamp)
 }
 
 func (c *Codec) DecodeClockResGet(buffer []byte) (id ClockID, timestamp Timestamp, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if id, buffer, err = readClockID(buffer); err != nil {
+	if id, buffer, err = decodeClockID(buffer); err != nil {
 		return
 	}
-	timestamp, buffer, err = readTimestamp(buffer)
+	timestamp, buffer, err = decodeTimestamp(buffer)
 	return
 }
 
 func (c *Codec) EncodeClockTimeGet(buffer []byte, id ClockID, precision Timestamp, timestamp Timestamp, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendClockID(buffer, id)
-	buffer = appendTimestamp(buffer, precision)
-	return appendTimestamp(buffer, timestamp)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeClockID(buffer, id)
+	buffer = encodeTimestamp(buffer, precision)
+	return encodeTimestamp(buffer, timestamp)
 }
 
 func (c *Codec) DecodeClockTimeGet(buffer []byte) (id ClockID, precision Timestamp, timestamp Timestamp, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if id, buffer, err = readClockID(buffer); err != nil {
+	if id, buffer, err = decodeClockID(buffer); err != nil {
 		return
 	}
-	if precision, buffer, err = readTimestamp(buffer); err != nil {
+	if precision, buffer, err = decodeTimestamp(buffer); err != nil {
 		return
 	}
-	timestamp, buffer, err = readTimestamp(buffer)
+	timestamp, buffer, err = decodeTimestamp(buffer)
 	return
 }
 
 func (c *Codec) EncodeFDAdvise(buffer []byte, fd FD, offset FileSize, length FileSize, advice Advice, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	buffer = appendFileSize(buffer, offset)
-	buffer = appendFileSize(buffer, length)
-	return appendAdvice(buffer, advice)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeFileSize(buffer, offset)
+	buffer = encodeFileSize(buffer, length)
+	return encodeAdvice(buffer, advice)
 }
 
 func (c *Codec) DecodeFDAdvise(buffer []byte) (fd FD, offset FileSize, length FileSize, advice Advice, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if offset, buffer, err = readFileSize(buffer); err != nil {
+	if offset, buffer, err = decodeFileSize(buffer); err != nil {
 		return
 	}
-	if length, buffer, err = readFileSize(buffer); err != nil {
+	if length, buffer, err = decodeFileSize(buffer); err != nil {
 		return
 	}
-	advice, buffer, err = readAdvice(buffer)
+	advice, buffer, err = decodeAdvice(buffer)
 	return
 }
 
 func (c *Codec) EncodeFDAllocate(buffer []byte, fd FD, offset FileSize, length FileSize, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	buffer = appendFileSize(buffer, offset)
-	return appendFileSize(buffer, length)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeFileSize(buffer, offset)
+	return encodeFileSize(buffer, length)
 }
 
 func (c *Codec) DecodeFDAllocate(buffer []byte) (fd FD, offset FileSize, length FileSize, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if offset, buffer, err = readFileSize(buffer); err != nil {
+	if offset, buffer, err = decodeFileSize(buffer); err != nil {
 		return
 	}
-	length, buffer, err = readFileSize(buffer)
+	length, buffer, err = decodeFileSize(buffer)
 	return
 }
 
 func (c *Codec) EncodeFDClose(buffer []byte, fd FD, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	return appendFD(buffer, fd)
+	buffer = encodeErrno(buffer, errno)
+	return encodeFD(buffer, fd)
 }
 
 func (c *Codec) DecodeFDClose(buffer []byte) (fd FD, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	fd, buffer, err = readFD(buffer)
+	fd, buffer, err = decodeFD(buffer)
 	return
 }
 
 func (c *Codec) EncodeFDDataSync(buffer []byte, fd FD, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	return appendFD(buffer, fd)
+	buffer = encodeErrno(buffer, errno)
+	return encodeFD(buffer, fd)
 }
 
 func (c *Codec) DecodeFDDataSync(buffer []byte) (fd FD, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	fd, buffer, err = readFD(buffer)
+	fd, buffer, err = decodeFD(buffer)
 	return
 }
 
 func (c *Codec) EncodeFDStatGet(buffer []byte, fd FD, stat FDStat, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	return appendFDStat(buffer, stat)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeFDStat(buffer, stat)
 }
 
 func (c *Codec) DecodeFDStatGet(buffer []byte) (fd FD, stat FDStat, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	stat, buffer, err = readFDStat(buffer)
+	stat, buffer, err = decodeFDStat(buffer)
 	return
 }
 
 func (c *Codec) EncodeFDStatSetFlags(buffer []byte, fd FD, flags FDFlags, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	return appendFDFlags(buffer, flags)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeFDFlags(buffer, flags)
 }
 
 func (c *Codec) DecodeFDStatSetFlags(buffer []byte) (fd FD, flags FDFlags, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	flags, buffer, err = readFDFlags(buffer)
+	flags, buffer, err = decodeFDFlags(buffer)
 	return
 }
 
 func (c *Codec) EncodeFDStatSetRights(buffer []byte, fd FD, rightsBase, rightsInheriting Rights, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	buffer = appendRights(buffer, rightsBase)
-	return appendRights(buffer, rightsInheriting)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeRights(buffer, rightsBase)
+	return encodeRights(buffer, rightsInheriting)
 }
 
 func (c *Codec) DecodeFDStatSetRights(buffer []byte) (fd FD, rightsBase, rightsInheriting Rights, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if rightsBase, buffer, err = readRights(buffer); err != nil {
+	if rightsBase, buffer, err = decodeRights(buffer); err != nil {
 		return
 	}
-	rightsInheriting, buffer, err = readRights(buffer)
+	rightsInheriting, buffer, err = decodeRights(buffer)
 	return
 }
 
 func (c *Codec) EncodeFDFileStatGet(buffer []byte, fd FD, stat FileStat, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	return appendFileStat(buffer, stat)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeFileStat(buffer, stat)
 }
 
 func (c *Codec) DecodeFDFileStatGet(buffer []byte) (fd FD, stat FileStat, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	stat, buffer, err = readFileStat(buffer)
+	stat, buffer, err = decodeFileStat(buffer)
 	return
 }
 
 func (c *Codec) EncodeFDFileStatSetSize(buffer []byte, fd FD, size FileSize, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	return appendFileSize(buffer, size)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodeFileSize(buffer, size)
 }
 
 func (c *Codec) DecodeFDFileStatSetSize(buffer []byte) (fd FD, size FileSize, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	size, buffer, err = readFileSize(buffer)
+	size, buffer, err = decodeFileSize(buffer)
 	return
 }
 
 func (c *Codec) EncodeFDFileStatSetTimes(buffer []byte, fd FD, accessTime, modifyTime Timestamp, flags FSTFlags, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	buffer = appendTimestamp(buffer, accessTime)
-	buffer = appendTimestamp(buffer, modifyTime)
-	return appendFSTFlags(buffer, flags)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeTimestamp(buffer, accessTime)
+	buffer = encodeTimestamp(buffer, modifyTime)
+	return encodeFSTFlags(buffer, flags)
 }
 
 func (c *Codec) DecodeFDFileStatSetTimes(buffer []byte) (fd FD, accessTime, modifyTime Timestamp, flags FSTFlags, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if accessTime, buffer, err = readTimestamp(buffer); err != nil {
+	if accessTime, buffer, err = decodeTimestamp(buffer); err != nil {
 		return
 	}
-	if modifyTime, buffer, err = readTimestamp(buffer); err != nil {
+	if modifyTime, buffer, err = decodeTimestamp(buffer); err != nil {
 		return
 	}
-	flags, buffer, err = readFSTFlags(buffer)
+	flags, buffer, err = decodeFSTFlags(buffer)
 	return
 }
 
@@ -280,19 +280,19 @@ func (c *Codec) DecodeFDPread(buffer []byte) (fd FD, iovecs []IOVec, offset File
 }
 
 func (c *Codec) EncodeFDPreStatGet(buffer []byte, fd FD, stat PreStat, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	return appendPreStat(buffer, stat)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	return encodePreStat(buffer, stat)
 }
 
 func (c *Codec) DecodeFDPreStatGet(buffer []byte) (fd FD, stat PreStat, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	stat, buffer, err = readPreStat(buffer)
+	stat, buffer, err = decodePreStat(buffer)
 	return
 }
 
@@ -313,23 +313,23 @@ func (c *Codec) DecodeFDPwrite(buffer []byte) (fd FD, iovecs []IOVec, offset Fil
 }
 
 func (c *Codec) EncodeFDRead(buffer []byte, fd FD, iovecs []IOVec, size Size, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	buffer = appendIOVecs(buffer, iovecs)
-	return appendSize(buffer, size)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeIOVecs(buffer, iovecs)
+	return encodeSize(buffer, size)
 }
 
 func (c *Codec) DecodeFDRead(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, size Size, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if iovecs, buffer, err = readIOVecs(buffer, iovecs); err != nil {
+	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
 		return
 	}
-	size, buffer, err = readSize(buffer)
+	size, buffer, err = decodeSize(buffer)
 	return fd, iovecs, size, errno, err
 }
 
@@ -358,15 +358,15 @@ func (c *Codec) DecodeFDSeek(buffer []byte) (fd FD, seekOffset FileDelta, whence
 }
 
 func (c *Codec) EncodeFDSync(buffer []byte, fd FD, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	return appendFD(buffer, fd)
+	buffer = encodeErrno(buffer, errno)
+	return encodeFD(buffer, fd)
 }
 
 func (c *Codec) DecodeFDSync(buffer []byte) (fd FD, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	fd, buffer, err = readFD(buffer)
+	fd, buffer, err = decodeFD(buffer)
 	return
 }
 
@@ -379,23 +379,23 @@ func (c *Codec) DecodeFDTell(buffer []byte) (fd FD, offset FileSize, errno Errno
 }
 
 func (c *Codec) EncodeFDWrite(buffer []byte, fd FD, iovecs []IOVec, size Size, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	buffer = appendIOVecs(buffer, iovecs)
-	return appendSize(buffer, size)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeIOVecs(buffer, iovecs)
+	return encodeSize(buffer, size)
 }
 
 func (c *Codec) DecodeFDWrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, size Size, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if iovecs, buffer, err = readIOVecs(buffer, iovecs); err != nil {
+	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
 		return
 	}
-	size, buffer, err = readSize(buffer)
+	size, buffer, err = decodeSize(buffer)
 	return fd, iovecs, size, errno, err
 }
 
@@ -480,93 +480,93 @@ func (c *Codec) DecodePathUnlinkFile(buffer []byte) (fd FD, path string, errno E
 }
 
 func (c *Codec) EncodePollOneOff(buffer []byte, subscriptions []Subscription, events []Event, n int, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendSubscriptions(buffer, subscriptions)
-	buffer = appendEvents(buffer, events)
-	return appendInt(buffer, n)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeSubscriptions(buffer, subscriptions)
+	buffer = encodeEvents(buffer, events)
+	return encodeInt(buffer, n)
 }
 
 func (c *Codec) DecodePollOneOff(buffer []byte, subscriptions []Subscription, events []Event) (_ []Subscription, _ []Event, n int, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if subscriptions, buffer, err = readSubscriptions(buffer, subscriptions); err != nil {
+	if subscriptions, buffer, err = decodeSubscriptions(buffer, subscriptions); err != nil {
 		return
 	}
-	if events, buffer, err = readEvents(buffer, events); err != nil {
+	if events, buffer, err = decodeEvents(buffer, events); err != nil {
 		return
 	}
-	n, buffer, err = readInt(buffer)
+	n, buffer, err = decodeInt(buffer)
 	return subscriptions, events, n, errno, err
 }
 
 func (c *Codec) EncodeProcExit(buffer []byte, exitCode ExitCode, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	return appendExitCode(buffer, exitCode)
+	buffer = encodeErrno(buffer, errno)
+	return encodeExitCode(buffer, exitCode)
 }
 
 func (c *Codec) DecodeProcExit(buffer []byte) (exitCode ExitCode, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	exitCode, buffer, err = readExitCode(buffer)
+	exitCode, buffer, err = decodeExitCode(buffer)
 	return
 }
 
 func (c *Codec) EncodeProcRaise(buffer []byte, signal Signal, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	return appendSignal(buffer, signal)
+	buffer = encodeErrno(buffer, errno)
+	return encodeSignal(buffer, signal)
 }
 
 func (c *Codec) DecodeProcRaise(buffer []byte) (signal Signal, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	signal, buffer, err = readSignal(buffer)
+	signal, buffer, err = decodeSignal(buffer)
 	return
 }
 
 func (c *Codec) EncodeSchedYield(buffer []byte, errno Errno) []byte {
-	return appendErrno(buffer, errno)
+	return encodeErrno(buffer, errno)
 }
 
 func (c *Codec) DecodeSchedYield(buffer []byte) (errno Errno, err error) {
-	errno, buffer, err = readErrno(buffer)
+	errno, buffer, err = decodeErrno(buffer)
 	return
 }
 
 func (c *Codec) EncodeRandomGet(buffer []byte, b []byte, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendBytes(buffer, b)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeBytes(buffer, b)
 	return buffer
 }
 
 func (c *Codec) DecodeRandomGet(buffer []byte) (result []byte, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	result, buffer, err = readBytes(buffer)
+	result, buffer, err = decodeBytes(buffer)
 	return
 }
 
 func (c *Codec) EncodeSockAccept(buffer []byte, fd FD, flags FDFlags, newfd FD, errno Errno) []byte {
-	buffer = appendErrno(buffer, errno)
-	buffer = appendFD(buffer, fd)
-	buffer = appendFDFlags(buffer, flags)
-	return appendFD(buffer, newfd)
+	buffer = encodeErrno(buffer, errno)
+	buffer = encodeFD(buffer, fd)
+	buffer = encodeFDFlags(buffer, flags)
+	return encodeFD(buffer, newfd)
 }
 
 func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD, errno Errno, err error) {
-	if errno, buffer, err = readErrno(buffer); err != nil {
+	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if fd, buffer, err = readFD(buffer); err != nil {
+	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if flags, buffer, err = readFDFlags(buffer); err != nil {
+	if flags, buffer, err = decodeFDFlags(buffer); err != nil {
 		return
 	}
-	newfd, buffer, err = readFD(buffer)
+	newfd, buffer, err = decodeFD(buffer)
 	return
 }
 
@@ -674,44 +674,44 @@ func (c *Codec) DecodeSockPeerAddress(buffer []byte) (fd FD, addr SocketAddress,
 	panic("not implemented")
 }
 
-func appendU32(b []byte, v uint32) []byte {
+func encodeU32(b []byte, v uint32) []byte {
 	return binary.LittleEndian.AppendUint32(b, v)
 }
 
-func readU32(b []byte) (uint32, []byte, error) {
+func decodeU32(b []byte) (uint32, []byte, error) {
 	if len(b) < 4 {
 		return 0, nil, io.ErrShortBuffer
 	}
 	return binary.LittleEndian.Uint32(b), b[4:], nil
 }
 
-func appendU64(b []byte, v uint64) []byte {
+func encodeU64(b []byte, v uint64) []byte {
 	return binary.LittleEndian.AppendUint64(b, v)
 }
 
-func readU64(b []byte) (uint64, []byte, error) {
+func decodeU64(b []byte) (uint64, []byte, error) {
 	if len(b) < 8 {
 		return 0, nil, io.ErrShortBuffer
 	}
 	return binary.LittleEndian.Uint64(b), b[8:], nil
 }
 
-func appendInt(b []byte, v int) []byte {
-	return appendU32(b, uint32(v))
+func encodeInt(b []byte, v int) []byte {
+	return encodeU32(b, uint32(v))
 }
 
-func readInt(b []byte) (int, []byte, error) {
-	v, b, err := readU32(b)
+func decodeInt(b []byte) (int, []byte, error) {
+	v, b, err := decodeU32(b)
 	return int(v), b, err
 }
 
-func appendBytes(buffer []byte, b []byte) []byte {
-	buffer = appendU32(buffer, uint32(len(b)))
+func encodeBytes(buffer []byte, b []byte) []byte {
+	buffer = encodeU32(buffer, uint32(len(b)))
 	return append(buffer, b...)
 }
 
-func readBytes(buffer []byte) ([]byte, []byte, error) {
-	length, buffer, err := readU32(buffer)
+func decodeBytes(buffer []byte) ([]byte, []byte, error) {
+	length, buffer, err := decodeU32(buffer)
 	if err != nil {
 		return nil, buffer, err
 	}
@@ -721,29 +721,29 @@ func readBytes(buffer []byte) ([]byte, []byte, error) {
 	return buffer[:length], buffer[length:], err
 }
 
-func appendString(buffer []byte, s string) []byte {
-	return appendBytes(buffer, unsafe.Slice(unsafe.StringData(s), len(s)))
+func encodeString(buffer []byte, s string) []byte {
+	return encodeBytes(buffer, unsafe.Slice(unsafe.StringData(s), len(s)))
 }
 
-func readString(buffer []byte) (string, []byte, error) {
-	result, buffer, err := readBytes(buffer)
+func decodeString(buffer []byte) (string, []byte, error) {
+	result, buffer, err := decodeBytes(buffer)
 	if err != nil || len(result) == 0 {
 		return "", buffer, err
 	}
 	return unsafe.String(&result[0], len(result)), buffer, err
 }
 
-func appendStrings(buffer []byte, args []string) []byte {
-	buffer = appendU32(buffer, uint32(len(args)))
+func encodeStrings(buffer []byte, args []string) []byte {
+	buffer = encodeU32(buffer, uint32(len(args)))
 	for _, arg := range args {
-		buffer = appendString(buffer, arg)
+		buffer = encodeString(buffer, arg)
 	}
 	return buffer
 }
 
-func readStrings(buffer []byte, strings []string) (_ []string, _ []byte, err error) {
+func decodeStrings(buffer []byte, strings []string) (_ []string, _ []byte, err error) {
 	var count uint32
-	if count, buffer, err = readU32(buffer); err != nil {
+	if count, buffer, err = decodeU32(buffer); err != nil {
 		return
 	}
 	if uint32(len(strings)) < count {
@@ -752,7 +752,7 @@ func readStrings(buffer []byte, strings []string) (_ []string, _ []byte, err err
 		strings = strings[:count]
 	}
 	for i := uint32(0); i < count; i++ {
-		strings[i], buffer, err = readString(buffer)
+		strings[i], buffer, err = decodeString(buffer)
 		if err != nil {
 			return
 		}
@@ -760,17 +760,17 @@ func readStrings(buffer []byte, strings []string) (_ []string, _ []byte, err err
 	return strings, buffer, nil
 }
 
-func appendIOVecs(buffer []byte, iovecs []IOVec) []byte {
-	buffer = appendU32(buffer, uint32(len(iovecs)))
+func encodeIOVecs(buffer []byte, iovecs []IOVec) []byte {
+	buffer = encodeU32(buffer, uint32(len(iovecs)))
 	for _, iovec := range iovecs {
-		buffer = appendBytes(buffer, iovec)
+		buffer = encodeBytes(buffer, iovec)
 	}
 	return buffer
 }
 
-func readIOVecs(buffer []byte, iovecs []IOVec) (_ []IOVec, _ []byte, err error) {
+func decodeIOVecs(buffer []byte, iovecs []IOVec) (_ []IOVec, _ []byte, err error) {
 	var count uint32
-	if count, buffer, err = readU32(buffer); err != nil {
+	if count, buffer, err = decodeU32(buffer); err != nil {
 		return
 	}
 	if uint32(len(iovecs)) < count {
@@ -779,7 +779,7 @@ func readIOVecs(buffer []byte, iovecs []IOVec) (_ []IOVec, _ []byte, err error) 
 		iovecs = iovecs[:count]
 	}
 	for i := uint32(0); i < count; i++ {
-		iovecs[i], buffer, err = readBytes(buffer)
+		iovecs[i], buffer, err = decodeBytes(buffer)
 		if err != nil {
 			return
 		}
@@ -787,316 +787,316 @@ func readIOVecs(buffer []byte, iovecs []IOVec) (_ []IOVec, _ []byte, err error) 
 	return iovecs, buffer, nil
 }
 
-func appendErrno(buffer []byte, errno Errno) []byte {
-	return appendU32(buffer, uint32(errno))
+func encodeErrno(buffer []byte, errno Errno) []byte {
+	return encodeU32(buffer, uint32(errno))
 }
 
-func readErrno(buffer []byte) (Errno, []byte, error) {
-	errno, buffer, err := readU32(buffer)
+func decodeErrno(buffer []byte) (Errno, []byte, error) {
+	errno, buffer, err := decodeU32(buffer)
 	return Errno(errno), buffer, err
 }
 
-func appendFD(buffer []byte, fd FD) []byte {
-	return appendU32(buffer, uint32(fd))
+func encodeFD(buffer []byte, fd FD) []byte {
+	return encodeU32(buffer, uint32(fd))
 }
 
-func readFD(buffer []byte) (FD, []byte, error) {
-	fd, buffer, err := readU32(buffer)
+func decodeFD(buffer []byte) (FD, []byte, error) {
+	fd, buffer, err := decodeU32(buffer)
 	return FD(fd), buffer, err
 }
 
-func appendClockID(buffer []byte, id ClockID) []byte {
-	return appendU32(buffer, uint32(id))
+func encodeClockID(buffer []byte, id ClockID) []byte {
+	return encodeU32(buffer, uint32(id))
 }
 
-func readClockID(buffer []byte) (ClockID, []byte, error) {
-	id, buffer, err := readU32(buffer)
+func decodeClockID(buffer []byte) (ClockID, []byte, error) {
+	id, buffer, err := decodeU32(buffer)
 	return ClockID(id), buffer, err
 }
 
-func appendTimestamp(buffer []byte, id Timestamp) []byte {
-	return appendU64(buffer, uint64(id))
+func encodeTimestamp(buffer []byte, id Timestamp) []byte {
+	return encodeU64(buffer, uint64(id))
 }
 
-func readTimestamp(buffer []byte) (Timestamp, []byte, error) {
-	id, buffer, err := readU64(buffer)
+func decodeTimestamp(buffer []byte) (Timestamp, []byte, error) {
+	id, buffer, err := decodeU64(buffer)
 	return Timestamp(id), buffer, err
 }
 
-func appendSize(buffer []byte, id Size) []byte {
-	return appendU32(buffer, uint32(id))
+func encodeSize(buffer []byte, id Size) []byte {
+	return encodeU32(buffer, uint32(id))
 }
 
-func readSize(buffer []byte) (Size, []byte, error) {
-	id, buffer, err := readU32(buffer)
+func decodeSize(buffer []byte) (Size, []byte, error) {
+	id, buffer, err := decodeU32(buffer)
 	return Size(id), buffer, err
 }
 
-func appendFileType(buffer []byte, id FileType) []byte {
-	return appendU32(buffer, uint32(id))
+func encodeFileType(buffer []byte, id FileType) []byte {
+	return encodeU32(buffer, uint32(id))
 }
 
-func readFileType(buffer []byte) (FileType, []byte, error) {
-	id, buffer, err := readU32(buffer)
+func decodeFileType(buffer []byte) (FileType, []byte, error) {
+	id, buffer, err := decodeU32(buffer)
 	return FileType(id), buffer, err
 }
 
-func appendFDFlags(buffer []byte, id FDFlags) []byte {
-	return appendU32(buffer, uint32(id))
+func encodeFDFlags(buffer []byte, id FDFlags) []byte {
+	return encodeU32(buffer, uint32(id))
 }
 
-func readFDFlags(buffer []byte) (FDFlags, []byte, error) {
-	id, buffer, err := readU32(buffer)
+func decodeFDFlags(buffer []byte) (FDFlags, []byte, error) {
+	id, buffer, err := decodeU32(buffer)
 	return FDFlags(id), buffer, err
 }
 
-func appendFSTFlags(buffer []byte, id FSTFlags) []byte {
-	return appendU32(buffer, uint32(id))
+func encodeFSTFlags(buffer []byte, id FSTFlags) []byte {
+	return encodeU32(buffer, uint32(id))
 }
 
-func readFSTFlags(buffer []byte) (FSTFlags, []byte, error) {
-	id, buffer, err := readU32(buffer)
+func decodeFSTFlags(buffer []byte) (FSTFlags, []byte, error) {
+	id, buffer, err := decodeU32(buffer)
 	return FSTFlags(id), buffer, err
 }
 
-func appendRights(buffer []byte, id Rights) []byte {
-	return appendU64(buffer, uint64(id))
+func encodeRights(buffer []byte, id Rights) []byte {
+	return encodeU64(buffer, uint64(id))
 }
 
-func readRights(buffer []byte) (Rights, []byte, error) {
-	id, buffer, err := readU64(buffer)
+func decodeRights(buffer []byte) (Rights, []byte, error) {
+	id, buffer, err := decodeU64(buffer)
 	return Rights(id), buffer, err
 }
 
-func appendFileSize(buffer []byte, id FileSize) []byte {
-	return appendU64(buffer, uint64(id))
+func encodeFileSize(buffer []byte, id FileSize) []byte {
+	return encodeU64(buffer, uint64(id))
 }
 
-func readFileSize(buffer []byte) (FileSize, []byte, error) {
-	id, buffer, err := readU64(buffer)
+func decodeFileSize(buffer []byte) (FileSize, []byte, error) {
+	id, buffer, err := decodeU64(buffer)
 	return FileSize(id), buffer, err
 }
 
-func appendDevice(buffer []byte, id Device) []byte {
-	return appendU64(buffer, uint64(id))
+func encodeDevice(buffer []byte, id Device) []byte {
+	return encodeU64(buffer, uint64(id))
 }
 
-func readDevice(buffer []byte) (Device, []byte, error) {
-	id, buffer, err := readU64(buffer)
+func decodeDevice(buffer []byte) (Device, []byte, error) {
+	id, buffer, err := decodeU64(buffer)
 	return Device(id), buffer, err
 }
 
-func appendINode(buffer []byte, id INode) []byte {
-	return appendU64(buffer, uint64(id))
+func encodeINode(buffer []byte, id INode) []byte {
+	return encodeU64(buffer, uint64(id))
 }
 
-func readINode(buffer []byte) (INode, []byte, error) {
-	id, buffer, err := readU64(buffer)
+func decodeINode(buffer []byte) (INode, []byte, error) {
+	id, buffer, err := decodeU64(buffer)
 	return INode(id), buffer, err
 }
 
-func appendLinkCount(buffer []byte, id LinkCount) []byte {
-	return appendU64(buffer, uint64(id))
+func encodeLinkCount(buffer []byte, id LinkCount) []byte {
+	return encodeU64(buffer, uint64(id))
 }
 
-func readLinkCount(buffer []byte) (LinkCount, []byte, error) {
-	id, buffer, err := readU64(buffer)
+func decodeLinkCount(buffer []byte) (LinkCount, []byte, error) {
+	id, buffer, err := decodeU64(buffer)
 	return LinkCount(id), buffer, err
 }
 
-func appendAdvice(buffer []byte, id Advice) []byte {
-	return appendU32(buffer, uint32(id))
+func encodeAdvice(buffer []byte, id Advice) []byte {
+	return encodeU32(buffer, uint32(id))
 }
 
-func readAdvice(buffer []byte) (Advice, []byte, error) {
-	id, buffer, err := readU32(buffer)
+func decodeAdvice(buffer []byte) (Advice, []byte, error) {
+	id, buffer, err := decodeU32(buffer)
 	return Advice(id), buffer, err
 }
 
-func appendExitCode(buffer []byte, id ExitCode) []byte {
-	return appendU32(buffer, uint32(id))
+func encodeExitCode(buffer []byte, id ExitCode) []byte {
+	return encodeU32(buffer, uint32(id))
 }
 
-func readExitCode(buffer []byte) (ExitCode, []byte, error) {
-	id, buffer, err := readU32(buffer)
+func decodeExitCode(buffer []byte) (ExitCode, []byte, error) {
+	id, buffer, err := decodeU32(buffer)
 	return ExitCode(id), buffer, err
 }
 
-func appendSignal(buffer []byte, id Signal) []byte {
-	return appendU32(buffer, uint32(id))
+func encodeSignal(buffer []byte, id Signal) []byte {
+	return encodeU32(buffer, uint32(id))
 }
 
-func readSignal(buffer []byte) (Signal, []byte, error) {
-	id, buffer, err := readU32(buffer)
+func decodeSignal(buffer []byte) (Signal, []byte, error) {
+	id, buffer, err := decodeU32(buffer)
 	return Signal(id), buffer, err
 }
 
-func appendPreOpenType(buffer []byte, t PreOpenType) []byte {
-	return appendU32(buffer, uint32(t))
+func encodePreOpenType(buffer []byte, t PreOpenType) []byte {
+	return encodeU32(buffer, uint32(t))
 }
 
-func readPreOpenType(buffer []byte) (PreOpenType, []byte, error) {
-	t, buffer, err := readU32(buffer)
+func decodePreOpenType(buffer []byte) (PreOpenType, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
 	return PreOpenType(t), buffer, err
 }
 
-func appendUserData(buffer []byte, id UserData) []byte {
-	return appendU64(buffer, uint64(id))
+func encodeUserData(buffer []byte, id UserData) []byte {
+	return encodeU64(buffer, uint64(id))
 }
 
-func readUserData(buffer []byte) (UserData, []byte, error) {
-	id, buffer, err := readU64(buffer)
+func decodeUserData(buffer []byte) (UserData, []byte, error) {
+	id, buffer, err := decodeU64(buffer)
 	return UserData(id), buffer, err
 }
 
-func appendEventType(buffer []byte, t EventType) []byte {
-	return appendU32(buffer, uint32(t))
+func encodeEventType(buffer []byte, t EventType) []byte {
+	return encodeU32(buffer, uint32(t))
 }
 
-func readEventType(buffer []byte) (EventType, []byte, error) {
-	t, buffer, err := readU32(buffer)
+func decodeEventType(buffer []byte) (EventType, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
 	return EventType(t), buffer, err
 }
 
-func appendSubscriptionClockFlags(buffer []byte, t SubscriptionClockFlags) []byte {
-	return appendU32(buffer, uint32(t))
+func encodeSubscriptionClockFlags(buffer []byte, t SubscriptionClockFlags) []byte {
+	return encodeU32(buffer, uint32(t))
 }
 
-func readSubscriptionClockFlags(buffer []byte) (SubscriptionClockFlags, []byte, error) {
-	t, buffer, err := readU32(buffer)
+func decodeSubscriptionClockFlags(buffer []byte) (SubscriptionClockFlags, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
 	return SubscriptionClockFlags(t), buffer, err
 }
 
-func appendEventFDReadWriteFlags(buffer []byte, t EventFDReadWriteFlags) []byte {
-	return appendU32(buffer, uint32(t))
+func encodeEventFDReadWriteFlags(buffer []byte, t EventFDReadWriteFlags) []byte {
+	return encodeU32(buffer, uint32(t))
 }
 
-func readEventFDReadWriteFlags(buffer []byte) (EventFDReadWriteFlags, []byte, error) {
-	t, buffer, err := readU32(buffer)
+func decodeEventFDReadWriteFlags(buffer []byte) (EventFDReadWriteFlags, []byte, error) {
+	t, buffer, err := decodeU32(buffer)
 	return EventFDReadWriteFlags(t), buffer, err
 }
 
-func appendPreStat(buffer []byte, stat PreStat) []byte {
-	buffer = appendPreOpenType(buffer, stat.Type)
-	buffer = appendSize(buffer, stat.PreStatDir.NameLength)
+func encodePreStat(buffer []byte, stat PreStat) []byte {
+	buffer = encodePreOpenType(buffer, stat.Type)
+	buffer = encodeSize(buffer, stat.PreStatDir.NameLength)
 	return buffer
 }
 
-func readPreStat(buffer []byte) (stat PreStat, _ []byte, err error) {
-	if stat.Type, buffer, err = readPreOpenType(buffer); err != nil {
+func decodePreStat(buffer []byte) (stat PreStat, _ []byte, err error) {
+	if stat.Type, buffer, err = decodePreOpenType(buffer); err != nil {
 		return
 	}
-	if stat.PreStatDir.NameLength, buffer, err = readSize(buffer); err != nil {
+	if stat.PreStatDir.NameLength, buffer, err = decodeSize(buffer); err != nil {
 		return
 	}
 	return
 }
 
-func appendFDStat(buffer []byte, stat FDStat) []byte {
-	buffer = appendFileType(buffer, stat.FileType)
-	buffer = appendFDFlags(buffer, stat.Flags)
-	buffer = appendRights(buffer, stat.RightsBase)
-	buffer = appendRights(buffer, stat.RightsInheriting)
+func encodeFDStat(buffer []byte, stat FDStat) []byte {
+	buffer = encodeFileType(buffer, stat.FileType)
+	buffer = encodeFDFlags(buffer, stat.Flags)
+	buffer = encodeRights(buffer, stat.RightsBase)
+	buffer = encodeRights(buffer, stat.RightsInheriting)
 	return buffer
 }
 
-func readFDStat(buffer []byte) (stat FDStat, _ []byte, err error) {
-	if stat.FileType, buffer, err = readFileType(buffer); err != nil {
+func decodeFDStat(buffer []byte) (stat FDStat, _ []byte, err error) {
+	if stat.FileType, buffer, err = decodeFileType(buffer); err != nil {
 		return
 	}
-	if stat.Flags, buffer, err = readFDFlags(buffer); err != nil {
+	if stat.Flags, buffer, err = decodeFDFlags(buffer); err != nil {
 		return
 	}
-	if stat.RightsBase, buffer, err = readRights(buffer); err != nil {
+	if stat.RightsBase, buffer, err = decodeRights(buffer); err != nil {
 		return
 	}
-	if stat.RightsInheriting, buffer, err = readRights(buffer); err != nil {
+	if stat.RightsInheriting, buffer, err = decodeRights(buffer); err != nil {
 		return
 	}
 	return
 }
 
-func appendFileStat(buffer []byte, stat FileStat) []byte {
-	buffer = appendDevice(buffer, stat.Device)
-	buffer = appendINode(buffer, stat.INode)
-	buffer = appendFileType(buffer, stat.FileType)
-	buffer = appendLinkCount(buffer, stat.NLink)
-	buffer = appendFileSize(buffer, stat.Size)
-	buffer = appendTimestamp(buffer, stat.AccessTime)
-	buffer = appendTimestamp(buffer, stat.ModifyTime)
-	return appendTimestamp(buffer, stat.ChangeTime)
+func encodeFileStat(buffer []byte, stat FileStat) []byte {
+	buffer = encodeDevice(buffer, stat.Device)
+	buffer = encodeINode(buffer, stat.INode)
+	buffer = encodeFileType(buffer, stat.FileType)
+	buffer = encodeLinkCount(buffer, stat.NLink)
+	buffer = encodeFileSize(buffer, stat.Size)
+	buffer = encodeTimestamp(buffer, stat.AccessTime)
+	buffer = encodeTimestamp(buffer, stat.ModifyTime)
+	return encodeTimestamp(buffer, stat.ChangeTime)
 }
 
-func readFileStat(buffer []byte) (stat FileStat, _ []byte, err error) {
-	if stat.Device, buffer, err = readDevice(buffer); err != nil {
+func decodeFileStat(buffer []byte) (stat FileStat, _ []byte, err error) {
+	if stat.Device, buffer, err = decodeDevice(buffer); err != nil {
 		return
 	}
-	if stat.INode, buffer, err = readINode(buffer); err != nil {
+	if stat.INode, buffer, err = decodeINode(buffer); err != nil {
 		return
 	}
-	if stat.FileType, buffer, err = readFileType(buffer); err != nil {
+	if stat.FileType, buffer, err = decodeFileType(buffer); err != nil {
 		return
 	}
-	if stat.NLink, buffer, err = readLinkCount(buffer); err != nil {
+	if stat.NLink, buffer, err = decodeLinkCount(buffer); err != nil {
 		return
 	}
-	if stat.Size, buffer, err = readFileSize(buffer); err != nil {
+	if stat.Size, buffer, err = decodeFileSize(buffer); err != nil {
 		return
 	}
-	if stat.AccessTime, buffer, err = readTimestamp(buffer); err != nil {
+	if stat.AccessTime, buffer, err = decodeTimestamp(buffer); err != nil {
 		return
 	}
-	if stat.ModifyTime, buffer, err = readTimestamp(buffer); err != nil {
+	if stat.ModifyTime, buffer, err = decodeTimestamp(buffer); err != nil {
 		return
 	}
-	stat.ChangeTime, buffer, err = readTimestamp(buffer)
+	stat.ChangeTime, buffer, err = decodeTimestamp(buffer)
 	return
 }
 
-func appendSubscription(buffer []byte, s Subscription) []byte {
-	buffer = appendUserData(buffer, s.UserData)
-	buffer = appendEventType(buffer, s.EventType)
+func encodeSubscription(buffer []byte, s Subscription) []byte {
+	buffer = encodeUserData(buffer, s.UserData)
+	buffer = encodeEventType(buffer, s.EventType)
 	switch s.EventType {
 	case FDReadEvent, FDWriteEvent:
 		f := s.GetFDReadWrite()
-		return appendFD(buffer, f.FD)
+		return encodeFD(buffer, f.FD)
 	case ClockEvent:
 		c := s.GetClock()
-		buffer = appendClockID(buffer, c.ID)
-		buffer = appendTimestamp(buffer, c.Precision)
-		buffer = appendTimestamp(buffer, c.Timeout)
-		return appendSubscriptionClockFlags(buffer, c.Flags)
+		buffer = encodeClockID(buffer, c.ID)
+		buffer = encodeTimestamp(buffer, c.Precision)
+		buffer = encodeTimestamp(buffer, c.Timeout)
+		return encodeSubscriptionClockFlags(buffer, c.Flags)
 	default:
 		panic("invalid subscription event type")
 	}
 }
 
-func readSubscription(buffer []byte) (s Subscription, _ []byte, err error) {
-	if s.UserData, buffer, err = readUserData(buffer); err != nil {
+func decodeSubscription(buffer []byte) (s Subscription, _ []byte, err error) {
+	if s.UserData, buffer, err = decodeUserData(buffer); err != nil {
 		return
 	}
-	if s.EventType, buffer, err = readEventType(buffer); err != nil {
+	if s.EventType, buffer, err = decodeEventType(buffer); err != nil {
 		return
 	}
 	switch s.EventType {
 	case FDReadEvent, FDWriteEvent:
 		var f SubscriptionFDReadWrite
-		if f.FD, buffer, err = readFD(buffer); err != nil {
+		if f.FD, buffer, err = decodeFD(buffer); err != nil {
 			return
 		}
 		s.SetFDReadWrite(f)
 	case ClockEvent:
 		var c SubscriptionClock
-		if c.ID, buffer, err = readClockID(buffer); err != nil {
+		if c.ID, buffer, err = decodeClockID(buffer); err != nil {
 			return
 		}
-		if c.Precision, buffer, err = readTimestamp(buffer); err != nil {
+		if c.Precision, buffer, err = decodeTimestamp(buffer); err != nil {
 			return
 		}
-		if c.Timeout, buffer, err = readTimestamp(buffer); err != nil {
+		if c.Timeout, buffer, err = decodeTimestamp(buffer); err != nil {
 			return
 		}
-		if c.Flags, buffer, err = readSubscriptionClockFlags(buffer); err != nil {
+		if c.Flags, buffer, err = decodeSubscriptionClockFlags(buffer); err != nil {
 			return
 		}
 		s.SetClock(c)
@@ -1106,14 +1106,14 @@ func readSubscription(buffer []byte) (s Subscription, _ []byte, err error) {
 	return
 }
 
-func appendEvent(buffer []byte, e Event) []byte {
-	buffer = appendUserData(buffer, e.UserData)
-	buffer = appendErrno(buffer, e.Errno)
-	buffer = appendEventType(buffer, e.EventType)
+func encodeEvent(buffer []byte, e Event) []byte {
+	buffer = encodeUserData(buffer, e.UserData)
+	buffer = encodeErrno(buffer, e.Errno)
+	buffer = encodeEventType(buffer, e.EventType)
 	switch e.EventType {
 	case FDReadEvent, FDWriteEvent:
-		buffer = appendFileSize(buffer, e.FDReadWrite.NBytes)
-		return appendEventFDReadWriteFlags(buffer, e.FDReadWrite.Flags)
+		buffer = encodeFileSize(buffer, e.FDReadWrite.NBytes)
+		return encodeEventFDReadWriteFlags(buffer, e.FDReadWrite.Flags)
 	case ClockEvent:
 		return buffer
 	default:
@@ -1121,22 +1121,22 @@ func appendEvent(buffer []byte, e Event) []byte {
 	}
 }
 
-func readEvent(buffer []byte) (e Event, _ []byte, err error) {
-	if e.UserData, buffer, err = readUserData(buffer); err != nil {
+func decodeEvent(buffer []byte) (e Event, _ []byte, err error) {
+	if e.UserData, buffer, err = decodeUserData(buffer); err != nil {
 		return
 	}
-	if e.Errno, buffer, err = readErrno(buffer); err != nil {
+	if e.Errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if e.EventType, buffer, err = readEventType(buffer); err != nil {
+	if e.EventType, buffer, err = decodeEventType(buffer); err != nil {
 		return
 	}
 	switch e.EventType {
 	case FDReadEvent, FDWriteEvent:
-		if e.FDReadWrite.NBytes, buffer, err = readFileSize(buffer); err != nil {
+		if e.FDReadWrite.NBytes, buffer, err = decodeFileSize(buffer); err != nil {
 			return
 		}
-		e.FDReadWrite.Flags, buffer, err = readEventFDReadWriteFlags(buffer)
+		e.FDReadWrite.Flags, buffer, err = decodeEventFDReadWriteFlags(buffer)
 	case ClockEvent:
 	default:
 		err = fmt.Errorf("invalid subscription event type: %v", e.EventType)
@@ -1144,17 +1144,17 @@ func readEvent(buffer []byte) (e Event, _ []byte, err error) {
 	return
 }
 
-func appendSubscriptions(buffer []byte, subscriptions []Subscription) []byte {
-	buffer = appendU32(buffer, uint32(len(subscriptions)))
+func encodeSubscriptions(buffer []byte, subscriptions []Subscription) []byte {
+	buffer = encodeU32(buffer, uint32(len(subscriptions)))
 	for i := range subscriptions {
-		buffer = appendSubscription(buffer, subscriptions[i])
+		buffer = encodeSubscription(buffer, subscriptions[i])
 	}
 	return buffer
 }
 
-func readSubscriptions(buffer []byte, subscriptions []Subscription) (_ []Subscription, _ []byte, err error) {
+func decodeSubscriptions(buffer []byte, subscriptions []Subscription) (_ []Subscription, _ []byte, err error) {
 	var count uint32
-	if count, buffer, err = readU32(buffer); err != nil {
+	if count, buffer, err = decodeU32(buffer); err != nil {
 		return
 	}
 	if uint32(len(subscriptions)) < count {
@@ -1163,7 +1163,7 @@ func readSubscriptions(buffer []byte, subscriptions []Subscription) (_ []Subscri
 		subscriptions = subscriptions[:count]
 	}
 	for i := uint32(0); i < count; i++ {
-		subscriptions[i], buffer, err = readSubscription(buffer)
+		subscriptions[i], buffer, err = decodeSubscription(buffer)
 		if err != nil {
 			return
 		}
@@ -1171,17 +1171,17 @@ func readSubscriptions(buffer []byte, subscriptions []Subscription) (_ []Subscri
 	return subscriptions, buffer, nil
 }
 
-func appendEvents(buffer []byte, events []Event) []byte {
-	buffer = appendU32(buffer, uint32(len(events)))
+func encodeEvents(buffer []byte, events []Event) []byte {
+	buffer = encodeU32(buffer, uint32(len(events)))
 	for i := range events {
-		buffer = appendEvent(buffer, events[i])
+		buffer = encodeEvent(buffer, events[i])
 	}
 	return buffer
 }
 
-func readEvents(buffer []byte, events []Event) (_ []Event, _ []byte, err error) {
+func decodeEvents(buffer []byte, events []Event) (_ []Event, _ []byte, err error) {
 	var count uint32
-	if count, buffer, err = readU32(buffer); err != nil {
+	if count, buffer, err = decodeU32(buffer); err != nil {
 		return
 	}
 	if uint32(len(events)) < count {
@@ -1190,7 +1190,7 @@ func readEvents(buffer []byte, events []Event) (_ []Event, _ []byte, err error) 
 		events = events[:count]
 	}
 	for i := uint32(0); i < count; i++ {
-		events[i], buffer, err = readEvent(buffer)
+		events[i], buffer, err = decodeEvent(buffer)
 		if err != nil {
 			return
 		}
