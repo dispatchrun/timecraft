@@ -1750,12 +1750,12 @@ func (e *UnexpectedSyscallParamError) Error() string {
 }
 
 type UnexpectedSyscallError struct {
-	Actual Syscall
-	Expect Syscall
+	Recorded Syscall
+	Observed Syscall
 }
 
 func (e *UnexpectedSyscallError) Error() string {
-	return fmt.Sprintf("expected syscall %s (%d) but got %s (%d)", e.Expect, int(e.Expect), e.Actual, int(e.Actual))
+	return fmt.Sprintf("got syscall %s (%d) but log contained %s (%d)", e.Observed, int(e.Observed), e.Recorded, int(e.Recorded))
 }
 
 func equalIovecsShape(a, b []IOVec) bool {

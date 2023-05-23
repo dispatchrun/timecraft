@@ -139,12 +139,10 @@ func (r *LogReader) readFrameAt(byteOffset int64) (*buffer.Buffer, error) {
 // determine whether another record is available. If so, it can be retrieved
 // via the Record method.
 type LogRecordReader struct {
-	reader       *LogReader
-	header       *Header
-	batch        *RecordBatch
-	record       Record
-	batchIndex   int
-	readerOffset int64
+	reader *LogReader
+	header *Header
+	batch  *RecordBatch
+	offset int64
 }
 
 // NewLogRecordReader creates a log record iterator.
@@ -156,18 +154,18 @@ func NewLogRecordReader(r *LogReader) *LogRecordReader {
 func (r *LogRecordReader) ReadRecord() (*Record, error) {
 	var err error
 	if r.header == nil {
-		r.header, r.readerOffset, err = r.reader.ReadLogHeader()
+		r.header, r.offset, err = r.reader.ReadLogHeader()
 		if err != nil {
 			return nil, err
 		}
 	}
 	for r.batch == nil || !r.batch.Next() {
 		var batchLength int64
-		r.batch, batchLength, err = r.reader.ReadRecordBatch(r.header, r.readerOffset)
+		r.batch, batchLength, err = r.reader.ReadRecordBatch(r.header, r.offset)
 		if err != nil {
 			return nil, err
 		}
-		r.readerOffset += batchLength
+		r.offset += batchLength
 	}
 	return r.batch.Record()
 }

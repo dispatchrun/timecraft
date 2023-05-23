@@ -22,41 +22,34 @@ type Codec struct{}
 
 func (c *Codec) EncodeArgsGet(buffer []byte, args []string, errno Errno) []byte {
 	buffer = appendErrno(buffer, errno)
-	buffer = appendStrings(buffer, args)
-	return buffer
+	return appendStrings(buffer, args)
 }
 
 func (c *Codec) DecodeArgsGet(buffer []byte, args []string) (_ []string, errno Errno, err error) {
 	if errno, buffer, err = readErrno(buffer); err != nil {
 		return
 	}
-	if args, buffer, err = readStrings(buffer, args); err != nil {
-		return
-	}
-	return
+	args, buffer, err = readStrings(buffer, args)
+	return args, errno, err
 }
 
 func (c *Codec) EncodeEnvironGet(buffer []byte, env []string, errno Errno) []byte {
 	buffer = appendErrno(buffer, errno)
-	buffer = appendStrings(buffer, env)
-	return buffer
+	return appendStrings(buffer, env)
 }
 
 func (c *Codec) DecodeEnvironGet(buffer []byte, env []string) (_ []string, errno Errno, err error) {
 	if errno, buffer, err = readErrno(buffer); err != nil {
 		return
 	}
-	if env, buffer, err = readStrings(buffer, env); err != nil {
-		return
-	}
-	return
+	env, buffer, err = readStrings(buffer, env)
+	return env, errno, err
 }
 
 func (c *Codec) EncodeClockResGet(buffer []byte, id ClockID, timestamp Timestamp, errno Errno) []byte {
 	buffer = appendErrno(buffer, errno)
 	buffer = appendClockID(buffer, id)
-	buffer = appendTimestamp(buffer, timestamp)
-	return buffer
+	return appendTimestamp(buffer, timestamp)
 }
 
 func (c *Codec) DecodeClockResGet(buffer []byte) (id ClockID, timestamp Timestamp, errno Errno, err error) {
@@ -66,9 +59,7 @@ func (c *Codec) DecodeClockResGet(buffer []byte) (id ClockID, timestamp Timestam
 	if id, buffer, err = readClockID(buffer); err != nil {
 		return
 	}
-	if timestamp, buffer, err = readTimestamp(buffer); err != nil {
-		return
-	}
+	timestamp, buffer, err = readTimestamp(buffer)
 	return
 }
 
@@ -76,8 +67,7 @@ func (c *Codec) EncodeClockTimeGet(buffer []byte, id ClockID, precision Timestam
 	buffer = appendErrno(buffer, errno)
 	buffer = appendClockID(buffer, id)
 	buffer = appendTimestamp(buffer, precision)
-	buffer = appendTimestamp(buffer, timestamp)
-	return buffer
+	return appendTimestamp(buffer, timestamp)
 }
 
 func (c *Codec) DecodeClockTimeGet(buffer []byte) (id ClockID, precision Timestamp, timestamp Timestamp, errno Errno, err error) {
@@ -90,9 +80,7 @@ func (c *Codec) DecodeClockTimeGet(buffer []byte) (id ClockID, precision Timesta
 	if precision, buffer, err = readTimestamp(buffer); err != nil {
 		return
 	}
-	if timestamp, buffer, err = readTimestamp(buffer); err != nil {
-		return
-	}
+	timestamp, buffer, err = readTimestamp(buffer)
 	return
 }
 
@@ -131,8 +119,7 @@ func (c *Codec) DecodeFDDataSync(buffer []byte) (fd FD, errno Errno, err error) 
 func (c *Codec) EncodeFDStatGet(buffer []byte, fd FD, stat FDStat, errno Errno) []byte {
 	buffer = appendErrno(buffer, errno)
 	buffer = appendFD(buffer, fd)
-	buffer = appendFDStat(buffer, stat)
-	return buffer
+	return appendFDStat(buffer, stat)
 }
 
 func (c *Codec) DecodeFDStatGet(buffer []byte) (fd FD, stat FDStat, errno Errno, err error) {
@@ -142,9 +129,7 @@ func (c *Codec) DecodeFDStatGet(buffer []byte) (fd FD, stat FDStat, errno Errno,
 	if fd, buffer, err = readFD(buffer); err != nil {
 		return
 	}
-	if stat, buffer, err = readFDStat(buffer); err != nil {
-		return
-	}
+	stat, buffer, err = readFDStat(buffer)
 	return
 }
 
@@ -199,8 +184,7 @@ func (c *Codec) DecodeFDPread(buffer []byte) (fd FD, iovecs []IOVec, offset File
 func (c *Codec) EncodeFDPreStatGet(buffer []byte, fd FD, stat PreStat, errno Errno) []byte {
 	buffer = appendErrno(buffer, errno)
 	buffer = appendFD(buffer, fd)
-	buffer = appendPreStat(buffer, stat)
-	return buffer
+	return appendPreStat(buffer, stat)
 }
 
 func (c *Codec) DecodeFDPreStatGet(buffer []byte) (fd FD, stat PreStat, errno Errno, err error) {
@@ -210,9 +194,7 @@ func (c *Codec) DecodeFDPreStatGet(buffer []byte) (fd FD, stat PreStat, errno Er
 	if fd, buffer, err = readFD(buffer); err != nil {
 		return
 	}
-	if stat, buffer, err = readPreStat(buffer); err != nil {
-		return
-	}
+	stat, buffer, err = readPreStat(buffer)
 	return
 }
 
@@ -284,8 +266,7 @@ func (c *Codec) EncodeFDWrite(buffer []byte, fd FD, iovecs []IOVec, size Size, e
 	buffer = appendErrno(buffer, errno)
 	buffer = appendFD(buffer, fd)
 	buffer = appendIOVecs(buffer, iovecs)
-	buffer = appendSize(buffer, size)
-	return buffer
+	return appendSize(buffer, size)
 }
 
 func (c *Codec) DecodeFDWrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, size Size, errno Errno, err error) {
@@ -298,10 +279,8 @@ func (c *Codec) DecodeFDWrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, 
 	if iovecs, buffer, err = readIOVecs(buffer, iovecs); err != nil {
 		return
 	}
-	if size, buffer, err = readSize(buffer); err != nil {
-		return
-	}
-	return
+	size, buffer, err = readSize(buffer)
+	return fd, iovecs, size, errno, err
 }
 
 func (c *Codec) EncodePathCreateDirectory(buffer []byte, fd FD, path string, errno Errno) []byte {
@@ -394,17 +373,14 @@ func (c *Codec) DecodePollOneOff(buffer []byte) (subscriptions []Subscription, e
 
 func (c *Codec) EncodeProcExit(buffer []byte, exitCode ExitCode, errno Errno) []byte {
 	buffer = appendErrno(buffer, errno)
-	buffer = appendExitCode(buffer, exitCode)
-	return buffer
+	return appendExitCode(buffer, exitCode)
 }
 
 func (c *Codec) DecodeProcExit(buffer []byte) (exitCode ExitCode, errno Errno, err error) {
 	if errno, buffer, err = readErrno(buffer); err != nil {
 		return
 	}
-	if exitCode, buffer, err = readExitCode(buffer); err != nil {
-		return
-	}
+	exitCode, buffer, err = readExitCode(buffer)
 	return
 }
 

@@ -137,7 +137,7 @@ func (b *RecordBuilder) build() {
 // RecordReader is an interface implemented by types which supporting reading
 // a sequence of records.
 type RecordReader interface {
-	// Reads the next record.
+	// ReadRecord reads the next record.
 	//
 	// Multiple calls to this method may return a pointer to the same Record
 	// value. The returned value remains valid until the next ReadRecord call,
