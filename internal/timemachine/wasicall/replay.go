@@ -32,13 +32,16 @@ type ReplayController interface {
 	// cannot recover.
 	//
 	// The error will be one of:
-	// - ReadError: indicating that there was an error reading from the log
-	// - DecodeError: indicating that there was an error decoding a record from
-	//   the log
-	// - UnexpectedSyscallError: indicating that a system call was made that
+	// - ReadError: there was an error reading from the log
+	// - DecodeError: there was an error decoding a record from the log
+	// - UnexpectedSyscallError: a system call was made that did not match the
+	//   next record in the log
+	// - UnexpectedSyscallParamError: a system call was made with input that
 	//   did not match the next record in the log
-	// - UnexpectedSyscallParamError: indicating that a system call was made
-	//   with input that did not match the next record in the log
+	//
+	// The error may also be a compound error, indicating that multiple errors
+	// were encountered. In this case, the error will implement
+	// interface{ Unwrap() []error }.
 	//
 	// After the controller has been notified, the WebAssembly module is
 	// terminated with ErrorExitCode.
