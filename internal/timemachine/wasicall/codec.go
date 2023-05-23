@@ -1103,7 +1103,7 @@ func decodeSubscription(buffer []byte) (s Subscription, _ []byte, err error) {
 	default:
 		err = fmt.Errorf("invalid subscription event type: %v", s.EventType)
 	}
-	return
+	return s, buffer, err
 }
 
 func encodeEvent(buffer []byte, e Event) []byte {
@@ -1141,7 +1141,7 @@ func decodeEvent(buffer []byte) (e Event, _ []byte, err error) {
 	default:
 		err = fmt.Errorf("invalid subscription event type: %v", e.EventType)
 	}
-	return
+	return e, buffer, err
 }
 
 func encodeSubscriptions(buffer []byte, subscriptions []Subscription) []byte {
