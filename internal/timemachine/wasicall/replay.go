@@ -51,8 +51,8 @@ type Replayer struct {
 	eofSystem System
 }
 
-// var _ System = (*Replayer)(nil)
-// var _ SocketsExtension = (*Replayer)(nil)
+var _ System = (*Replayer)(nil)
+var _ SocketsExtension = (*Replayer)(nil)
 
 // NewReplayer creates a Replayer.
 func NewReplayer(reader timemachine.RecordReader, eof func(Syscall) System, error func(error), exit func(ExitCode)) *Replayer {
@@ -139,10 +139,8 @@ func (r *Replayer) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errn
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.strict {
-		if id != recordID {
-			r.handle(&UnexpectedSyscallParamError{ClockResGet, "id", id, recordID})
-		}
+	if r.strict && id != recordID {
+		r.handle(&UnexpectedSyscallParamError{ClockResGet, "id", id, recordID})
 	}
 	return timestamp, errno
 }
@@ -261,10 +259,8 @@ func (r *Replayer) FDClose(ctx context.Context, fd FD) Errno {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.strict {
-		if fd != recordFD {
-			r.handle(&UnexpectedSyscallParamError{FDClose, "fd", fd, recordFD})
-		}
+	if r.strict && fd != recordFD {
+		r.handle(&UnexpectedSyscallParamError{FDClose, "fd", fd, recordFD})
 	}
 	return errno
 }
@@ -284,10 +280,8 @@ func (r *Replayer) FDDataSync(ctx context.Context, fd FD) Errno {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.strict {
-		if fd != recordFD {
-			r.handle(&UnexpectedSyscallParamError{FDDataSync, "fd", fd, recordFD})
-		}
+	if r.strict && fd != recordFD {
+		r.handle(&UnexpectedSyscallParamError{FDDataSync, "fd", fd, recordFD})
 	}
 	return errno
 }
@@ -307,10 +301,8 @@ func (r *Replayer) FDStatGet(ctx context.Context, fd FD) (FDStat, Errno) {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.strict {
-		if fd != recordFD {
-			r.handle(&UnexpectedSyscallParamError{FDStatGet, "fd", fd, recordFD})
-		}
+	if r.strict && fd != recordFD {
+		r.handle(&UnexpectedSyscallParamError{FDStatGet, "fd", fd, recordFD})
 	}
 	return stat, errno
 }
@@ -393,10 +385,8 @@ func (r *Replayer) FDFileStatGet(ctx context.Context, fd FD) (FileStat, Errno) {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.strict {
-		if fd != recordFD {
-			r.handle(&UnexpectedSyscallParamError{FDFileStatGet, "fd", fd, recordFD})
-		}
+	if r.strict && fd != recordFD {
+		r.handle(&UnexpectedSyscallParamError{FDFileStatGet, "fd", fd, recordFD})
 	}
 	return stat, errno
 }
@@ -487,7 +477,7 @@ func (r *Replayer) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset Fi
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPread, "fd", fd, recordFD})
 		}
-		if !equalIovecShape(iovecs, recordIOVecs) {
+		if !equalIovecsShape(iovecs, recordIOVecs) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPread, "iovecs", iovecs, recordIOVecs})
 		}
 		if offset != recordOffset {
@@ -515,10 +505,8 @@ func (r *Replayer) FDPreStatGet(ctx context.Context, fd FD) (PreStat, Errno) {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.strict {
-		if fd != recordFD {
-			r.handle(&UnexpectedSyscallParamError{FDPreStatGet, "fd", fd, recordFD})
-		}
+	if r.strict && fd != recordFD {
+		r.handle(&UnexpectedSyscallParamError{FDPreStatGet, "fd", fd, recordFD})
 	}
 	return stat, errno
 }
@@ -538,10 +526,8 @@ func (r *Replayer) FDPreStatDirName(ctx context.Context, fd FD) (string, Errno) 
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.strict {
-		if fd != recordFD {
-			r.handle(&UnexpectedSyscallParamError{FDPreStatDirName, "fd", fd, recordFD})
-		}
+	if r.strict && fd != recordFD {
+		r.handle(&UnexpectedSyscallParamError{FDPreStatDirName, "fd", fd, recordFD})
 	}
 	return name, errno
 }
@@ -566,7 +552,7 @@ func (r *Replayer) FDPwrite(ctx context.Context, fd FD, iovecs []IOVec, offset F
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPwrite, "fd", fd, recordFD})
 		}
-		if !equalIovec(iovecs, recordIOVecs) {
+		if !equalIovecs(iovecs, recordIOVecs) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPwrite, "iovecs", iovecs, recordIOVecs})
 		}
 		if offset != recordOffset {
@@ -599,7 +585,7 @@ func (r *Replayer) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Err
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDRead, "fd", fd, recordFD})
 		}
-		if !equalIovecShape(iovecs, recordIOVecs) {
+		if !equalIovecsShape(iovecs, recordIOVecs) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDRead, "iovecs", iovecs, recordIOVecs})
 		}
 		if len(mismatch) > 0 {
@@ -723,10 +709,8 @@ func (r *Replayer) FDSync(ctx context.Context, fd FD) Errno {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.strict {
-		if fd != recordFD {
-			r.handle(&UnexpectedSyscallParamError{FDSync, "fd", fd, recordFD})
-		}
+	if r.strict && fd != recordFD {
+		r.handle(&UnexpectedSyscallParamError{FDSync, "fd", fd, recordFD})
 	}
 	return errno
 }
@@ -746,10 +730,8 @@ func (r *Replayer) FDTell(ctx context.Context, fd FD) (FileSize, Errno) {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.strict {
-		if fd != recordFD {
-			r.handle(&UnexpectedSyscallParamError{FDTell, "fd", fd, recordFD})
-		}
+	if r.strict && fd != recordFD {
+		r.handle(&UnexpectedSyscallParamError{FDTell, "fd", fd, recordFD})
 	}
 	return size, errno
 }
@@ -774,7 +756,7 @@ func (r *Replayer) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Er
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDWrite, "fd", fd, recordFD})
 		}
-		if !equalIovec(iovecs, recordIOVecs) {
+		if !equalIovecs(iovecs, recordIOVecs) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDWrite, "iovecs", iovecs, recordIOVecs})
 		}
 		if len(mismatch) > 0 {
@@ -1181,14 +1163,8 @@ func (r *Replayer) ProcExit(ctx context.Context, exitCode ExitCode) Errno {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.strict {
-		var mismatch []error
-		if exitCode != recordExitCode {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{ProcExit, "exitCode", exitCode, recordExitCode})
-		}
-		if len(mismatch) > 0 {
-			r.handle(errors.Join(mismatch...))
-		}
+	if r.strict && exitCode != recordExitCode {
+		r.handle(&UnexpectedSyscallParamError{ProcExit, "exitCode", exitCode, recordExitCode})
 	}
 	r.exit(exitCode)
 	unreachable()
@@ -1210,14 +1186,8 @@ func (r *Replayer) ProcRaise(ctx context.Context, signal Signal) Errno {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
-	if r.strict {
-		var mismatch []error
-		if signal != recordSignal {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{ProcRaise, "signal", signal, recordSignal})
-		}
-		if len(mismatch) > 0 {
-			r.handle(errors.Join(mismatch...))
-		}
+	if r.strict && signal != recordSignal {
+		r.handle(&UnexpectedSyscallParamError{ProcRaise, "signal", signal, recordSignal})
 	}
 	return errno
 }
@@ -1255,17 +1225,486 @@ func (r *Replayer) RandomGet(ctx context.Context, buffer []byte) Errno {
 	if err != nil {
 		r.handle(&DecodeError{record, err})
 	}
+	if r.strict && len(buffer) != len(recordBuffer) {
+		r.handle(&UnexpectedSyscallParamError{RandomGet, "buffer", buffer, recordBuffer})
+	}
+	copy(buffer, recordBuffer)
+	return errno
+}
+
+func (r *Replayer) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockAccept, err); ok {
+			return s.SockAccept(ctx, fd, flags)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockAccept {
+		r.handle(&UnexpectedSyscallError{syscall, SockAccept})
+	}
+	recordFD, recordFlags, newfd, errno, err := r.codec.DecodeSockAccept(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
 	if r.strict {
 		var mismatch []error
-		if len(buffer) != len(recordBuffer) {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{RandomGet, "buffer", buffer, recordBuffer})
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockAccept, "fd", fd, recordFD})
+		}
+		if flags != recordFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockAccept, "flags", flags, recordFlags})
 		}
 		if len(mismatch) > 0 {
 			r.handle(errors.Join(mismatch...))
 		}
 	}
-	copy(buffer, recordBuffer)
+	return newfd, errno
+}
+
+func (r *Replayer) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockShutdown, err); ok {
+			return s.SockShutdown(ctx, fd, flags)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockShutdown {
+		r.handle(&UnexpectedSyscallError{syscall, SockShutdown})
+	}
+	recordFD, recordFlags, errno, err := r.codec.DecodeSockShutdown(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockShutdown, "fd", fd, recordFD})
+		}
+		if flags != recordFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockShutdown, "flags", flags, recordFlags})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
 	return errno
+}
+
+func (r *Replayer) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockRecv, err); ok {
+			return s.SockRecv(ctx, fd, iovecs, iflags)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockRecv {
+		r.handle(&UnexpectedSyscallError{syscall, SockRecv})
+	}
+	recordFD, recordIOVecs, recordIFlags, size, oflags, errno, err := r.codec.DecodeSockRecv(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecv, "fd", fd, recordFD})
+		}
+		if !equalIovecsShape(iovecs, recordIOVecs) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecv, "iovecs", iovecs, recordIOVecs})
+		}
+		if iflags != recordIFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecv, "iflags", iflags, recordIFlags})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return size, oflags, errno
+}
+
+func (r *Replayer) SockSend(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags) (Size, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockSend, err); ok {
+			return s.SockSend(ctx, fd, iovecs, iflags)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockSend {
+		r.handle(&UnexpectedSyscallError{syscall, SockSend})
+	}
+	recordFD, recordIOVecs, recordIFlags, size, errno, err := r.codec.DecodeSockSend(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSend, "fd", fd, recordFD})
+		}
+		if !equalIovecs(iovecs, recordIOVecs) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSend, "iovecs", iovecs, recordIOVecs})
+		}
+		if iflags != recordIFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSend, "iflags", iflags, recordIFlags})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return size, errno
+}
+
+func (r *Replayer) SockOpen(ctx context.Context, protocolFamily ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase, rightsInheriting Rights) (FD, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockOpen, err); ok {
+			se, ok := s.(SocketsExtension)
+			if !ok {
+				return -1, ENOSYS
+			}
+			return se.SockOpen(ctx, protocolFamily, socketType, protocol, rightsBase, rightsInheriting)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockOpen {
+		r.handle(&UnexpectedSyscallError{syscall, SockOpen})
+	}
+	recordProtocolFamily, recordSocketType, recordProtocol, recordRightsBase, recordRightsInheriting, newfd, errno, err := r.codec.DecodeSockOpen(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if protocolFamily != recordProtocolFamily {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockOpen, "protocolFamily", protocolFamily, recordProtocolFamily})
+		}
+		if socketType != recordSocketType {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockOpen, "socketType", socketType, recordSocketType})
+		}
+		if protocol != recordProtocol {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockOpen, "protocol", protocol, recordProtocol})
+		}
+		if rightsBase != recordRightsBase {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockOpen, "rightsBase", rightsBase, recordRightsBase})
+		}
+		if rightsInheriting != recordRightsInheriting {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockOpen, "rightsInheriting", rightsInheriting, recordRightsInheriting})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return newfd, errno
+}
+
+func (r *Replayer) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockBind, err); ok {
+			se, ok := s.(SocketsExtension)
+			if !ok {
+				return ENOSYS
+			}
+			return se.SockBind(ctx, fd, addr)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockBind {
+		r.handle(&UnexpectedSyscallError{syscall, SockBind})
+	}
+	recordFD, recordAddr, errno, err := r.codec.DecodeSockBind(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "fd", fd, recordFD})
+		}
+		if addr != recordAddr {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "addr", addr, recordAddr})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) SockConnect(ctx context.Context, fd FD, addr SocketAddress) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockConnect, err); ok {
+			se, ok := s.(SocketsExtension)
+			if !ok {
+				return ENOSYS
+			}
+			return se.SockConnect(ctx, fd, addr)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockConnect {
+		r.handle(&UnexpectedSyscallError{syscall, SockConnect})
+	}
+	recordFD, recordAddr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockConnect, "fd", fd, recordFD})
+		}
+		if addr != recordAddr {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockConnect, "addr", addr, recordAddr})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) SockListen(ctx context.Context, fd FD, backlog int) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockListen, err); ok {
+			se, ok := s.(SocketsExtension)
+			if !ok {
+				return ENOSYS
+			}
+			return se.SockListen(ctx, fd, backlog)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockListen {
+		r.handle(&UnexpectedSyscallError{syscall, SockListen})
+	}
+	recordFD, recordBacklog, errno, err := r.codec.DecodeSockListen(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockListen, "fd", fd, recordFD})
+		}
+		if backlog != recordBacklog {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockListen, "backlog", backlog, recordBacklog})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags, addr SocketAddress) (Size, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockSendTo, err); ok {
+			se, ok := s.(SocketsExtension)
+			if !ok {
+				return 0, ENOSYS
+			}
+			return se.SockSendTo(ctx, fd, iovecs, iflags, addr)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockSendTo {
+		r.handle(&UnexpectedSyscallError{syscall, SockSendTo})
+	}
+	recordFD, recordIOVecs, recordIFlags, recordAddr, size, errno, err := r.codec.DecodeSockSendTo(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSendTo, "fd", fd, recordFD})
+		}
+		if !equalIovecs(iovecs, recordIOVecs) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSendTo, "iovecs", iovecs, recordIOVecs})
+		}
+		if iflags != recordIFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSendTo, "iflags", iflags, recordIFlags})
+		}
+		if addr != recordAddr {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSendTo, "addr", addr, recordAddr})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return size, errno
+}
+
+func (r *Replayer) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, SocketAddress, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockRecvFrom, err); ok {
+			se, ok := s.(SocketsExtension)
+			if !ok {
+				return 0, 0, nil, ENOSYS
+			}
+			return se.SockRecvFrom(ctx, fd, iovecs, iflags)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockRecvFrom {
+		r.handle(&UnexpectedSyscallError{syscall, SockRecvFrom})
+	}
+	recordFD, recordIOVecs, recordIFlags, size, oflags, addr, errno, err := r.codec.DecodeSockRecvFrom(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecvFrom, "fd", fd, recordFD})
+		}
+		if !equalIovecsShape(iovecs, recordIOVecs) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecvFrom, "iovecs", iovecs, recordIOVecs})
+		}
+		if iflags != recordIFlags {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecvFrom, "iflags", iflags, recordIFlags})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return size, oflags, addr, errno
+}
+
+func (r *Replayer) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (int, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockGetOptInt, err); ok {
+			se, ok := s.(SocketsExtension)
+			if !ok {
+				return 0, ENOSYS
+			}
+			return se.SockGetOptInt(ctx, fd, level, option)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockGetOptInt {
+		r.handle(&UnexpectedSyscallError{syscall, SockGetOptInt})
+	}
+	recordFD, recordLevel, recordOption, value, errno, err := r.codec.DecodeSockGetOptInt(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockGetOptInt, "fd", fd, recordFD})
+		}
+		if level != recordLevel {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockGetOptInt, "level", level, recordLevel})
+		}
+		if option != recordOption {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockGetOptInt, "option", option, recordOption})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return value, errno
+}
+
+func (r *Replayer) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value int) Errno {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockSetOptInt, err); ok {
+			se, ok := s.(SocketsExtension)
+			if !ok {
+				return ENOSYS
+			}
+			return se.SockSetOptInt(ctx, fd, level, option, value)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockSetOptInt {
+		r.handle(&UnexpectedSyscallError{syscall, SockSetOptInt})
+	}
+	recordFD, recordLevel, recordOption, recordValue, errno, err := r.codec.DecodeSockSetOptInt(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict {
+		var mismatch []error
+		if fd != recordFD {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOptInt, "fd", fd, recordFD})
+		}
+		if level != recordLevel {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOptInt, "level", level, recordLevel})
+		}
+		if option != recordOption {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOptInt, "option", option, recordOption})
+		}
+		if value != recordValue {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOptInt, "value", value, recordValue})
+		}
+		if len(mismatch) > 0 {
+			r.handle(errors.Join(mismatch...))
+		}
+	}
+	return errno
+}
+
+func (r *Replayer) SockLocalAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockLocalAddress, err); ok {
+			se, ok := s.(SocketsExtension)
+			if !ok {
+				return nil, ENOSYS
+			}
+			return se.SockLocalAddress(ctx, fd)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockLocalAddress {
+		r.handle(&UnexpectedSyscallError{syscall, SockLocalAddress})
+	}
+	recordFD, addr, errno, err := r.codec.DecodeSockLocalAddress(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict && fd != recordFD {
+		r.handle(&UnexpectedSyscallParamError{SockLocalAddress, "fd", fd, recordFD})
+	}
+	return addr, errno
+}
+
+func (r *Replayer) SockPeerAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
+	record, err := r.reader.ReadRecord()
+	if err != nil {
+		if s, ok := r.isEOF(SockPeerAddress, err); ok {
+			se, ok := s.(SocketsExtension)
+			if !ok {
+				return nil, ENOSYS
+			}
+			return se.SockPeerAddress(ctx, fd)
+		}
+		r.handle(&ReadError{err})
+	}
+	if syscall := Syscall(record.FunctionID()); syscall != SockPeerAddress {
+		r.handle(&UnexpectedSyscallError{syscall, SockPeerAddress})
+	}
+	recordFD, addr, errno, err := r.codec.DecodeSockPeerAddress(record.FunctionCall())
+	if err != nil {
+		r.handle(&DecodeError{record, err})
+	}
+	if r.strict && fd != recordFD {
+		r.handle(&UnexpectedSyscallParamError{SockPeerAddress, "fd", fd, recordFD})
+	}
+	return addr, errno
 }
 
 func (r *Replayer) Close(ctx context.Context) error {
@@ -1299,7 +1738,7 @@ func (e *UnexpectedSyscallError) Error() string {
 	return fmt.Sprintf("expected syscall %s (%d) but got %s (%d)", e.Expect, int(e.Expect), e.Actual, int(e.Actual))
 }
 
-func equalIovecShape(a, b []IOVec) bool {
+func equalIovecsShape(a, b []IOVec) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -1311,7 +1750,7 @@ func equalIovecShape(a, b []IOVec) bool {
 	return true
 }
 
-func equalIovec(a, b []IOVec) bool {
+func equalIovecs(a, b []IOVec) bool {
 	if len(a) != len(b) {
 		return false
 	}
