@@ -382,11 +382,9 @@ func replay(args []string) error {
 	replayer := wasicall.NewReplayer(records, ReplayController{})
 	defer replayer.Close(ctx)
 
-	traced := &wasi.Tracer{Writer: os.Stderr, System: replayer}
-
 	// TODO: need to figure this out dynamically:
 	hostModule := wasi_snapshot_preview1.NewHostModule(wasi_snapshot_preview1.WasmEdgeV2)
-	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(traced))
+	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(replayer))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
 	instance, err := runtime.InstantiateModule(ctx, wasmModule, wazero.NewModuleConfig())
