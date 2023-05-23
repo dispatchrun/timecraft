@@ -12,15 +12,17 @@ import (
 	"github.com/tetratelabs/wazero/sys"
 )
 
-// Replayer implements wasi.System by replaying system calls recorded in a log.
+// Replay implements wasi.System by replaying system calls recorded in a log.
 //
-// When the replay is complete, the Replayer will return ENOSYS for subsequent
-// system calls, and the EOF method will return true.
+// During replay, records are pulled from the log and then used to answer
+// system calls. No actual system calls are ever made. The WebAssembly module
+// should thus be identical to the one used to create the log records.
 //
-// When an error occurs, the Replayer will panic and the execution of the
-// WebAssembly module will be halted.
+// When the replay is complete, the implementation will return ENOSYS for
+// subsequent system calls, and the EOF method will return true.
 //
-// The following errors may occur during replay:
+// When an error occurs, the replay will panic and the execution of the
+// WebAssembly module will be halted. The following errors may occur:
 //   - ReadError: there was an error reading from the log
 //   - DecodeError: there was an error decoding a record from the log
 //   - UnexpectedSyscallError: a system call was made that did not match the
@@ -31,15 +33,15 @@ import (
 // The error may also be a compound error, indicating that multiple errors
 // were encountered. In this case, the error will implement
 // interface{ Unwrap() []error }.
-type Replayer struct {
+type Replay struct {
 	reader timemachine.RecordReader
 
 	// Codec is used to encode and decode system call inputs and outputs.
 	// It's not configurable at this time.
 	codec Codec
 
-	// In strict mode, the Replayer will ensure that the system calls are
-	// called with the same params as those stored on the records. It's not
+	// In strict mode, the replay will ensure that system calls are called
+	// with the same params as those stored on the records. It's not
 	// configurable at this time.
 	//
 	// TODO: consider separating the replay from validation, e.g. by making
@@ -47,35 +49,35 @@ type Replayer struct {
 	//  validates during decode
 	strict bool
 
-	eof bool
-
 	// Cache for decoded slices.
 	args          []string
 	iovecs        []IOVec
 	subscriptions []Subscription
 	events        []Event
+
+	eof bool
 }
 
-var _ System = (*Replayer)(nil)
-var _ SocketsExtension = (*Replayer)(nil)
+var _ System = (*Replay)(nil)
+var _ SocketsExtension = (*Replay)(nil)
 
-// NewReplayer creates a Replayer.
-func NewReplayer(reader timemachine.RecordReader) *Replayer {
-	return &Replayer{
+// NewReplay creates a Replay.
+func NewReplay(reader timemachine.RecordReader) *Replay {
+	return &Replay{
 		reader: reader,
 		strict: true,
 	}
 }
 
-func (r *Replayer) Preopen(hostfd int, path string, fdstat FDStat) FD {
-	panic("Replayer cannot Preopen")
+func (r *Replay) Preopen(hostfd int, path string, fdstat FDStat) FD {
+	panic("Replay cannot Preopen")
 }
 
-func (r *Replayer) Register(hostfd int, fdstat FDStat) FD {
-	panic("Replayer cannot Register")
+func (r *Replay) Register(hostfd int, fdstat FDStat) FD {
+	panic("Replay cannot Register")
 }
 
-func (r *Replayer) readRecord(syscall Syscall) (*timemachine.Record, bool) {
+func (r *Replay) readRecord(syscall Syscall) (*timemachine.Record, bool) {
 	if r.eof {
 		return nil, false
 	}
@@ -93,11 +95,11 @@ func (r *Replayer) readRecord(syscall Syscall) (*timemachine.Record, bool) {
 	return record, true
 }
 
-func (r *Replayer) EOF() bool {
+func (r *Replay) EOF() bool {
 	return r.eof
 }
 
-func (r *Replayer) ArgsGet(ctx context.Context) (args []string, errno Errno) {
+func (r *Replay) ArgsGet(ctx context.Context) (args []string, errno Errno) {
 	record, ok := r.readRecord(ArgsGet)
 	if !ok {
 		return nil, ENOSYS
@@ -110,7 +112,7 @@ func (r *Replayer) ArgsGet(ctx context.Context) (args []string, errno Errno) {
 	return r.args, errno
 }
 
-func (r *Replayer) EnvironGet(ctx context.Context) (env []string, errno Errno) {
+func (r *Replay) EnvironGet(ctx context.Context) (env []string, errno Errno) {
 	record, ok := r.readRecord(EnvironGet)
 	if !ok {
 		return nil, ENOSYS
@@ -123,7 +125,7 @@ func (r *Replayer) EnvironGet(ctx context.Context) (env []string, errno Errno) {
 	return r.args, errno
 }
 
-func (r *Replayer) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errno) {
+func (r *Replay) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errno) {
 	record, ok := r.readRecord(ClockResGet)
 	if !ok {
 		return 0, ENOSYS
@@ -138,7 +140,7 @@ func (r *Replayer) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errn
 	return timestamp, errno
 }
 
-func (r *Replayer) ClockTimeGet(ctx context.Context, id ClockID, precision Timestamp) (Timestamp, Errno) {
+func (r *Replay) ClockTimeGet(ctx context.Context, id ClockID, precision Timestamp) (Timestamp, Errno) {
 	record, ok := r.readRecord(ClockTimeGet)
 	if !ok {
 		return 0, ENOSYS
@@ -162,7 +164,7 @@ func (r *Replayer) ClockTimeGet(ctx context.Context, id ClockID, precision Times
 	return timestamp, errno
 }
 
-func (r *Replayer) FDAdvise(ctx context.Context, fd FD, offset FileSize, length FileSize, advice Advice) Errno {
+func (r *Replay) FDAdvise(ctx context.Context, fd FD, offset FileSize, length FileSize, advice Advice) Errno {
 	record, ok := r.readRecord(FDAdvise)
 	if !ok {
 		return ENOSYS
@@ -192,7 +194,7 @@ func (r *Replayer) FDAdvise(ctx context.Context, fd FD, offset FileSize, length 
 	return errno
 }
 
-func (r *Replayer) FDAllocate(ctx context.Context, fd FD, offset FileSize, length FileSize) Errno {
+func (r *Replay) FDAllocate(ctx context.Context, fd FD, offset FileSize, length FileSize) Errno {
 	record, ok := r.readRecord(FDAllocate)
 	if !ok {
 		return ENOSYS
@@ -219,7 +221,7 @@ func (r *Replayer) FDAllocate(ctx context.Context, fd FD, offset FileSize, lengt
 	return errno
 }
 
-func (r *Replayer) FDClose(ctx context.Context, fd FD) Errno {
+func (r *Replay) FDClose(ctx context.Context, fd FD) Errno {
 	record, ok := r.readRecord(FDClose)
 	if !ok {
 		return ENOSYS
@@ -234,7 +236,7 @@ func (r *Replayer) FDClose(ctx context.Context, fd FD) Errno {
 	return errno
 }
 
-func (r *Replayer) FDDataSync(ctx context.Context, fd FD) Errno {
+func (r *Replay) FDDataSync(ctx context.Context, fd FD) Errno {
 	record, ok := r.readRecord(FDDataSync)
 	if !ok {
 		return ENOSYS
@@ -249,7 +251,7 @@ func (r *Replayer) FDDataSync(ctx context.Context, fd FD) Errno {
 	return errno
 }
 
-func (r *Replayer) FDStatGet(ctx context.Context, fd FD) (FDStat, Errno) {
+func (r *Replay) FDStatGet(ctx context.Context, fd FD) (FDStat, Errno) {
 	record, ok := r.readRecord(FDStatGet)
 	if !ok {
 		return FDStat{}, ENOSYS
@@ -264,7 +266,7 @@ func (r *Replayer) FDStatGet(ctx context.Context, fd FD) (FDStat, Errno) {
 	return stat, errno
 }
 
-func (r *Replayer) FDStatSetFlags(ctx context.Context, fd FD, flags FDFlags) Errno {
+func (r *Replay) FDStatSetFlags(ctx context.Context, fd FD, flags FDFlags) Errno {
 	record, ok := r.readRecord(FDStatSetFlags)
 	if !ok {
 		return ENOSYS
@@ -288,7 +290,7 @@ func (r *Replayer) FDStatSetFlags(ctx context.Context, fd FD, flags FDFlags) Err
 	return errno
 }
 
-func (r *Replayer) FDStatSetRights(ctx context.Context, fd FD, rightsBase, rightsInheriting Rights) Errno {
+func (r *Replay) FDStatSetRights(ctx context.Context, fd FD, rightsBase, rightsInheriting Rights) Errno {
 	record, ok := r.readRecord(FDStatSetRights)
 	if !ok {
 		return ENOSYS
@@ -315,7 +317,7 @@ func (r *Replayer) FDStatSetRights(ctx context.Context, fd FD, rightsBase, right
 	return errno
 }
 
-func (r *Replayer) FDFileStatGet(ctx context.Context, fd FD) (FileStat, Errno) {
+func (r *Replay) FDFileStatGet(ctx context.Context, fd FD) (FileStat, Errno) {
 	record, ok := r.readRecord(FDFileStatGet)
 	if !ok {
 		return FileStat{}, ENOSYS
@@ -330,7 +332,7 @@ func (r *Replayer) FDFileStatGet(ctx context.Context, fd FD) (FileStat, Errno) {
 	return stat, errno
 }
 
-func (r *Replayer) FDFileStatSetSize(ctx context.Context, fd FD, size FileSize) Errno {
+func (r *Replay) FDFileStatSetSize(ctx context.Context, fd FD, size FileSize) Errno {
 	record, ok := r.readRecord(FDFileStatSetSize)
 	if !ok {
 		return ENOSYS
@@ -354,7 +356,7 @@ func (r *Replayer) FDFileStatSetSize(ctx context.Context, fd FD, size FileSize) 
 	return errno
 }
 
-func (r *Replayer) FDFileStatSetTimes(ctx context.Context, fd FD, accessTime, modifyTime Timestamp, flags FSTFlags) Errno {
+func (r *Replay) FDFileStatSetTimes(ctx context.Context, fd FD, accessTime, modifyTime Timestamp, flags FSTFlags) Errno {
 	record, ok := r.readRecord(FDFileStatSetTimes)
 	if !ok {
 		return ENOSYS
@@ -384,7 +386,7 @@ func (r *Replayer) FDFileStatSetTimes(ctx context.Context, fd FD, accessTime, mo
 	return errno
 }
 
-func (r *Replayer) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (Size, Errno) {
+func (r *Replay) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (Size, Errno) {
 	record, ok := r.readRecord(FDPread)
 	if !ok {
 		return 0, ENOSYS
@@ -411,7 +413,7 @@ func (r *Replayer) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset Fi
 	return size, errno
 }
 
-func (r *Replayer) FDPreStatGet(ctx context.Context, fd FD) (PreStat, Errno) {
+func (r *Replay) FDPreStatGet(ctx context.Context, fd FD) (PreStat, Errno) {
 	record, ok := r.readRecord(FDPreStatGet)
 	if !ok {
 		return PreStat{}, ENOSYS
@@ -426,7 +428,7 @@ func (r *Replayer) FDPreStatGet(ctx context.Context, fd FD) (PreStat, Errno) {
 	return stat, errno
 }
 
-func (r *Replayer) FDPreStatDirName(ctx context.Context, fd FD) (string, Errno) {
+func (r *Replay) FDPreStatDirName(ctx context.Context, fd FD) (string, Errno) {
 	record, ok := r.readRecord(FDPreStatDirName)
 	if !ok {
 		return "", ENOSYS
@@ -441,7 +443,7 @@ func (r *Replayer) FDPreStatDirName(ctx context.Context, fd FD) (string, Errno) 
 	return name, errno
 }
 
-func (r *Replayer) FDPwrite(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (Size, Errno) {
+func (r *Replay) FDPwrite(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (Size, Errno) {
 	record, ok := r.readRecord(FDPwrite)
 	if !ok {
 		return 0, ENOSYS
@@ -468,7 +470,7 @@ func (r *Replayer) FDPwrite(ctx context.Context, fd FD, iovecs []IOVec, offset F
 	return size, errno
 }
 
-func (r *Replayer) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno) {
+func (r *Replay) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno) {
 	record, ok := r.readRecord(FDRead)
 	if !ok {
 		return 0, ENOSYS
@@ -496,7 +498,7 @@ func (r *Replayer) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Err
 	return size, errno
 }
 
-func (r *Replayer) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int) (int, Errno) {
+func (r *Replay) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int) (int, Errno) {
 	record, ok := r.readRecord(FDReadDir)
 	if !ok {
 		return 0, ENOSYS
@@ -527,7 +529,7 @@ func (r *Replayer) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, coo
 	return count, errno
 }
 
-func (r *Replayer) FDRenumber(ctx context.Context, from, to FD) Errno {
+func (r *Replay) FDRenumber(ctx context.Context, from, to FD) Errno {
 	record, ok := r.readRecord(FDRenumber)
 	if !ok {
 		return ENOSYS
@@ -551,7 +553,7 @@ func (r *Replayer) FDRenumber(ctx context.Context, from, to FD) Errno {
 	return errno
 }
 
-func (r *Replayer) FDSeek(ctx context.Context, fd FD, offset FileDelta, whence Whence) (FileSize, Errno) {
+func (r *Replay) FDSeek(ctx context.Context, fd FD, offset FileDelta, whence Whence) (FileSize, Errno) {
 	record, ok := r.readRecord(FDSeek)
 	if !ok {
 		return 0, ENOSYS
@@ -578,7 +580,7 @@ func (r *Replayer) FDSeek(ctx context.Context, fd FD, offset FileDelta, whence W
 	return size, errno
 }
 
-func (r *Replayer) FDSync(ctx context.Context, fd FD) Errno {
+func (r *Replay) FDSync(ctx context.Context, fd FD) Errno {
 	record, ok := r.readRecord(FDSync)
 	if !ok {
 		return ENOSYS
@@ -593,7 +595,7 @@ func (r *Replayer) FDSync(ctx context.Context, fd FD) Errno {
 	return errno
 }
 
-func (r *Replayer) FDTell(ctx context.Context, fd FD) (FileSize, Errno) {
+func (r *Replay) FDTell(ctx context.Context, fd FD) (FileSize, Errno) {
 	record, ok := r.readRecord(FDTell)
 	if !ok {
 		return 0, ENOSYS
@@ -608,7 +610,7 @@ func (r *Replayer) FDTell(ctx context.Context, fd FD) (FileSize, Errno) {
 	return size, errno
 }
 
-func (r *Replayer) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno) {
+func (r *Replay) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno) {
 	record, ok := r.readRecord(FDWrite)
 	if !ok {
 		return 0, ENOSYS
@@ -633,7 +635,7 @@ func (r *Replayer) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Er
 	return size, errno
 }
 
-func (r *Replayer) PathCreateDirectory(ctx context.Context, fd FD, path string) Errno {
+func (r *Replay) PathCreateDirectory(ctx context.Context, fd FD, path string) Errno {
 	record, ok := r.readRecord(PathCreateDirectory)
 	if !ok {
 		return ENOSYS
@@ -657,7 +659,7 @@ func (r *Replayer) PathCreateDirectory(ctx context.Context, fd FD, path string) 
 	return errno
 }
 
-func (r *Replayer) PathFileStatGet(ctx context.Context, fd FD, lookupFlags LookupFlags, path string) (FileStat, Errno) {
+func (r *Replay) PathFileStatGet(ctx context.Context, fd FD, lookupFlags LookupFlags, path string) (FileStat, Errno) {
 	record, ok := r.readRecord(PathFileStatGet)
 	if !ok {
 		return FileStat{}, ENOSYS
@@ -684,7 +686,7 @@ func (r *Replayer) PathFileStatGet(ctx context.Context, fd FD, lookupFlags Looku
 	return stat, errno
 }
 
-func (r *Replayer) PathFileStatSetTimes(ctx context.Context, fd FD, lookupFlags LookupFlags, path string, accessTime, modifyTime Timestamp, flags FSTFlags) Errno {
+func (r *Replay) PathFileStatSetTimes(ctx context.Context, fd FD, lookupFlags LookupFlags, path string, accessTime, modifyTime Timestamp, flags FSTFlags) Errno {
 	record, ok := r.readRecord(PathFileStatSetTimes)
 	if !ok {
 		return ENOSYS
@@ -720,7 +722,7 @@ func (r *Replayer) PathFileStatSetTimes(ctx context.Context, fd FD, lookupFlags 
 	return errno
 }
 
-func (r *Replayer) PathLink(ctx context.Context, oldFD FD, oldFlags LookupFlags, oldPath string, newFD FD, newPath string) Errno {
+func (r *Replay) PathLink(ctx context.Context, oldFD FD, oldFlags LookupFlags, oldPath string, newFD FD, newPath string) Errno {
 	record, ok := r.readRecord(PathLink)
 	if !ok {
 		return ENOSYS
@@ -753,7 +755,7 @@ func (r *Replayer) PathLink(ctx context.Context, oldFD FD, oldFlags LookupFlags,
 	return errno
 }
 
-func (r *Replayer) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, path string, openFlags OpenFlags, rightsBase, rightsInheriting Rights, fdFlags FDFlags) (FD, Errno) {
+func (r *Replay) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, path string, openFlags OpenFlags, rightsBase, rightsInheriting Rights, fdFlags FDFlags) (FD, Errno) {
 	record, ok := r.readRecord(PathOpen)
 	if !ok {
 		return -1, ENOSYS
@@ -792,7 +794,7 @@ func (r *Replayer) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, pa
 	return newfd, errno
 }
 
-func (r *Replayer) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) ([]byte, Errno) {
+func (r *Replay) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) ([]byte, Errno) {
 	record, ok := r.readRecord(PathReadLink)
 	if !ok {
 		return nil, ENOSYS
@@ -820,7 +822,7 @@ func (r *Replayer) PathReadLink(ctx context.Context, fd FD, path string, buffer 
 	return buffer, errno
 }
 
-func (r *Replayer) PathRemoveDirectory(ctx context.Context, fd FD, path string) Errno {
+func (r *Replay) PathRemoveDirectory(ctx context.Context, fd FD, path string) Errno {
 	record, ok := r.readRecord(PathRemoveDirectory)
 	if !ok {
 		return ENOSYS
@@ -844,7 +846,7 @@ func (r *Replayer) PathRemoveDirectory(ctx context.Context, fd FD, path string) 
 	return errno
 }
 
-func (r *Replayer) PathRename(ctx context.Context, fd FD, oldPath string, newFD FD, newPath string) Errno {
+func (r *Replay) PathRename(ctx context.Context, fd FD, oldPath string, newFD FD, newPath string) Errno {
 	record, ok := r.readRecord(PathRename)
 	if !ok {
 		return ENOSYS
@@ -874,7 +876,7 @@ func (r *Replayer) PathRename(ctx context.Context, fd FD, oldPath string, newFD 
 	return errno
 }
 
-func (r *Replayer) PathSymlink(ctx context.Context, oldPath string, fd FD, newPath string) Errno {
+func (r *Replay) PathSymlink(ctx context.Context, oldPath string, fd FD, newPath string) Errno {
 	record, ok := r.readRecord(PathSymlink)
 	if !ok {
 		return ENOSYS
@@ -901,7 +903,7 @@ func (r *Replayer) PathSymlink(ctx context.Context, oldPath string, fd FD, newPa
 	return errno
 }
 
-func (r *Replayer) PathUnlinkFile(ctx context.Context, fd FD, path string) Errno {
+func (r *Replay) PathUnlinkFile(ctx context.Context, fd FD, path string) Errno {
 	record, ok := r.readRecord(PathUnlinkFile)
 	if !ok {
 		return ENOSYS
@@ -925,7 +927,7 @@ func (r *Replayer) PathUnlinkFile(ctx context.Context, fd FD, path string) Errno
 	return errno
 }
 
-func (r *Replayer) PollOneOff(ctx context.Context, subscriptions []Subscription, events []Event) (int, Errno) {
+func (r *Replay) PollOneOff(ctx context.Context, subscriptions []Subscription, events []Event) (int, Errno) {
 	record, ok := r.readRecord(PollOneOff)
 	if !ok {
 		return 0, ENOSYS
@@ -952,7 +954,7 @@ func (r *Replayer) PollOneOff(ctx context.Context, subscriptions []Subscription,
 	return count, errno
 }
 
-func (r *Replayer) ProcExit(ctx context.Context, exitCode ExitCode) Errno {
+func (r *Replay) ProcExit(ctx context.Context, exitCode ExitCode) Errno {
 	record, ok := r.readRecord(ProcExit)
 	if !ok {
 		return ENOSYS
@@ -968,7 +970,7 @@ func (r *Replayer) ProcExit(ctx context.Context, exitCode ExitCode) Errno {
 	panic(sys.NewExitError(uint32(exitCode)))
 }
 
-func (r *Replayer) ProcRaise(ctx context.Context, signal Signal) Errno {
+func (r *Replay) ProcRaise(ctx context.Context, signal Signal) Errno {
 	record, ok := r.readRecord(ProcRaise)
 	if !ok {
 		return ENOSYS
@@ -983,7 +985,7 @@ func (r *Replayer) ProcRaise(ctx context.Context, signal Signal) Errno {
 	return errno
 }
 
-func (r *Replayer) SchedYield(ctx context.Context) Errno {
+func (r *Replay) SchedYield(ctx context.Context) Errno {
 	record, ok := r.readRecord(SchedYield)
 	if !ok {
 		return ENOSYS
@@ -995,7 +997,7 @@ func (r *Replayer) SchedYield(ctx context.Context) Errno {
 	return errno
 }
 
-func (r *Replayer) RandomGet(ctx context.Context, buffer []byte) Errno {
+func (r *Replay) RandomGet(ctx context.Context, buffer []byte) Errno {
 	record, ok := r.readRecord(RandomGet)
 	if !ok {
 		return ENOSYS
@@ -1011,7 +1013,7 @@ func (r *Replayer) RandomGet(ctx context.Context, buffer []byte) Errno {
 	return errno
 }
 
-func (r *Replayer) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errno) {
+func (r *Replay) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errno) {
 	record, ok := r.readRecord(SockAccept)
 	if !ok {
 		return -1, ENOSYS
@@ -1035,7 +1037,7 @@ func (r *Replayer) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Er
 	return newfd, errno
 }
 
-func (r *Replayer) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno {
+func (r *Replay) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno {
 	record, ok := r.readRecord(SockShutdown)
 	if !ok {
 		return ENOSYS
@@ -1059,7 +1061,7 @@ func (r *Replayer) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno
 	return errno
 }
 
-func (r *Replayer) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, Errno) {
+func (r *Replay) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, Errno) {
 	record, ok := r.readRecord(SockRecv)
 	if !ok {
 		return 0, 0, ENOSYS
@@ -1086,7 +1088,7 @@ func (r *Replayer) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags R
 	return size, oflags, errno
 }
 
-func (r *Replayer) SockSend(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags) (Size, Errno) {
+func (r *Replay) SockSend(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags) (Size, Errno) {
 	record, ok := r.readRecord(SockSend)
 	if !ok {
 		return 0, ENOSYS
@@ -1113,7 +1115,7 @@ func (r *Replayer) SockSend(ctx context.Context, fd FD, iovecs []IOVec, iflags S
 	return size, errno
 }
 
-func (r *Replayer) SockOpen(ctx context.Context, protocolFamily ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase, rightsInheriting Rights) (FD, Errno) {
+func (r *Replay) SockOpen(ctx context.Context, protocolFamily ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase, rightsInheriting Rights) (FD, Errno) {
 	record, ok := r.readRecord(SockOpen)
 	if !ok {
 		return -1, ENOSYS
@@ -1146,7 +1148,7 @@ func (r *Replayer) SockOpen(ctx context.Context, protocolFamily ProtocolFamily, 
 	return newfd, errno
 }
 
-func (r *Replayer) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errno {
+func (r *Replay) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errno {
 	record, ok := r.readRecord(SockBind)
 	if !ok {
 		return ENOSYS
@@ -1170,7 +1172,7 @@ func (r *Replayer) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errn
 	return errno
 }
 
-func (r *Replayer) SockConnect(ctx context.Context, fd FD, addr SocketAddress) Errno {
+func (r *Replay) SockConnect(ctx context.Context, fd FD, addr SocketAddress) Errno {
 	record, ok := r.readRecord(SockConnect)
 	if !ok {
 		return ENOSYS
@@ -1194,7 +1196,7 @@ func (r *Replayer) SockConnect(ctx context.Context, fd FD, addr SocketAddress) E
 	return errno
 }
 
-func (r *Replayer) SockListen(ctx context.Context, fd FD, backlog int) Errno {
+func (r *Replay) SockListen(ctx context.Context, fd FD, backlog int) Errno {
 	record, ok := r.readRecord(SockListen)
 	if !ok {
 		return ENOSYS
@@ -1218,7 +1220,7 @@ func (r *Replayer) SockListen(ctx context.Context, fd FD, backlog int) Errno {
 	return errno
 }
 
-func (r *Replayer) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags, addr SocketAddress) (Size, Errno) {
+func (r *Replay) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags, addr SocketAddress) (Size, Errno) {
 	record, ok := r.readRecord(SockSendTo)
 	if !ok {
 		return 0, ENOSYS
@@ -1248,7 +1250,7 @@ func (r *Replayer) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags
 	return size, errno
 }
 
-func (r *Replayer) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, SocketAddress, Errno) {
+func (r *Replay) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, SocketAddress, Errno) {
 	record, ok := r.readRecord(SockRecvFrom)
 	if !ok {
 		return 0, 0, nil, ENOSYS
@@ -1275,7 +1277,7 @@ func (r *Replayer) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, ifla
 	return size, oflags, addr, errno
 }
 
-func (r *Replayer) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (int, Errno) {
+func (r *Replay) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (int, Errno) {
 	record, ok := r.readRecord(SockGetOptInt)
 	if !ok {
 		return 0, ENOSYS
@@ -1302,7 +1304,7 @@ func (r *Replayer) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionL
 	return value, errno
 }
 
-func (r *Replayer) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value int) Errno {
+func (r *Replay) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value int) Errno {
 	record, ok := r.readRecord(SockSetOptInt)
 	if !ok {
 		return ENOSYS
@@ -1332,7 +1334,7 @@ func (r *Replayer) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionL
 	return errno
 }
 
-func (r *Replayer) SockLocalAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
+func (r *Replay) SockLocalAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
 	record, ok := r.readRecord(SockLocalAddress)
 	if !ok {
 		return nil, ENOSYS
@@ -1347,7 +1349,7 @@ func (r *Replayer) SockLocalAddress(ctx context.Context, fd FD) (SocketAddress, 
 	return addr, errno
 }
 
-func (r *Replayer) SockPeerAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
+func (r *Replay) SockPeerAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
 	record, ok := r.readRecord(SockPeerAddress)
 	if !ok {
 		return nil, ENOSYS
@@ -1362,7 +1364,7 @@ func (r *Replayer) SockPeerAddress(ctx context.Context, fd FD) (SocketAddress, E
 	return addr, errno
 }
 
-func (r *Replayer) Close(ctx context.Context) error {
+func (r *Replay) Close(ctx context.Context) error {
 	return nil
 }
 

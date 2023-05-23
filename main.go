@@ -379,12 +379,12 @@ func replay(args []string) error {
 
 	records := timemachine.NewLogRecordReader(logReader)
 
-	replayer := wasicall.NewReplayer(records)
-	defer replayer.Close(ctx)
+	replay := wasicall.NewReplay(records)
+	defer replay.Close(ctx)
 
 	// TODO: need to figure this out dynamically:
 	hostModule := wasi_snapshot_preview1.NewHostModule(wasi_snapshot_preview1.WasmEdgeV2)
-	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(replayer))
+	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(replay))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
 	instance, err := runtime.InstantiateModule(ctx, wasmModule, wazero.NewModuleConfig())

@@ -22,9 +22,9 @@ type Recorder struct {
 var _ System = (*Recorder)(nil)
 var _ SocketsExtension = (*Recorder)(nil)
 
-// NewRecorder creates a new Recorder.
+// NewRecorder creates a Recorder.
 //
-// The provided write function must consume the record immediately, as it's
+// The provided write function must consume the record immediately as it's
 // reused across function calls.
 func NewRecorder(system System, startTime time.Time, write func(*timemachine.RecordBuilder)) *Recorder {
 	return &Recorder{
