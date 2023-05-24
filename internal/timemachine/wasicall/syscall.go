@@ -2,12 +2,35 @@ package wasicall
 
 import (
 	"fmt"
+
+	"github.com/stealthrocket/wasi-go"
 )
 
-type SyscallNumber int
+// Syscall is a system call.
+//
+// It carries an identifier for the syscall, the inputs passed
+// to the underlying system call, and the value(s) it returns.
+type Syscall interface {
+	// ID is the syscall identifier.
+	ID() SyscallID
+
+	// Params is the set of input parameters.
+	Params() []any
+
+	// Results it the set of return values.
+	Results() []any
+
+	// Errno is the system call error.
+	Errno() wasi.Errno
+
+	private()
+}
+
+// SyscallID is a system call identifier.
+type SyscallID int
 
 const (
-	ArgsSizesGet SyscallNumber = iota
+	ArgsSizesGet SyscallID = iota
 	ArgsGet
 	EnvironSizesGet
 	EnvironGet
@@ -66,14 +89,14 @@ const (
 	SockPeerAddress
 )
 
-func (s SyscallNumber) String() string {
-	if int(s) >= len(syscallNumberStrings) {
-		return fmt.Sprintf("SyscallNumber(%d)", int(s))
+func (s SyscallID) String() string {
+	if int(s) >= len(syscallIDStrings) {
+		return fmt.Sprintf("SyscallID(%d)", int(s))
 	}
-	return syscallNumberStrings[s]
+	return syscallIDStrings[s]
 }
 
-var syscallNumberStrings = [...]string{
+var syscallIDStrings = [...]string{
 	"ArgsSizesGet",
 	"ArgsGet",
 	"EnvironSizesGet",

@@ -78,7 +78,7 @@ func (r *Replay) Register(hostfd int, fdstat FDStat) FD {
 	panic("Replay cannot Register")
 }
 
-func (r *Replay) readRecord(syscall SyscallNumber) (*timemachine.Record, bool) {
+func (r *Replay) readRecord(syscall SyscallID) (*timemachine.Record, bool) {
 	if r.eof {
 		return nil, false
 	}
@@ -90,7 +90,7 @@ func (r *Replay) readRecord(syscall SyscallNumber) (*timemachine.Record, bool) {
 		}
 		panic(&ReadError{err})
 	}
-	if recordSyscall := SyscallNumber(record.FunctionID()); recordSyscall != syscall {
+	if recordSyscall := SyscallID(record.FunctionID()); recordSyscall != syscall {
 		panic(&UnexpectedSyscallError{recordSyscall, syscall})
 	}
 	return record, true
@@ -1407,7 +1407,7 @@ type DecodeError struct {
 }
 
 type UnexpectedSyscallParamError struct {
-	Syscall SyscallNumber
+	Syscall SyscallID
 	Name    string
 	Actual  interface{}
 	Expect  interface{}
@@ -1418,8 +1418,8 @@ func (e *UnexpectedSyscallParamError) Error() string {
 }
 
 type UnexpectedSyscallError struct {
-	Recorded SyscallNumber
-	Observed SyscallNumber
+	Recorded SyscallID
+	Observed SyscallID
 }
 
 func (e *UnexpectedSyscallError) Error() string {
