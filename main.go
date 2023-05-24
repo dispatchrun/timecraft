@@ -384,7 +384,7 @@ func replay(args []string) error {
 
 	fallback := wasicall.NewObserver(nil, func(ctx context.Context, s wasicall.Syscall) {
 		panic(fmt.Sprintf("system call made after log EOF: %s", s.ID()))
-	})
+	}, nil)
 	system := wasicall.NewFallbackSystem(replay, fallback)
 
 	// TODO: need to figure this out dynamically:

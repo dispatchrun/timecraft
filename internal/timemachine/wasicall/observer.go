@@ -7,402 +7,675 @@ import (
 )
 
 // Observer wraps a wasi.System for observation.
-//
-// The provided callback receives a Syscall instance with details
-// about a system call each time one is made. The callback is called after
-// the system call returns but before control is returned to the guest.
-// This allows the observer to see both system call inputs and outputs.
-// It also allows for other action to be taken prior to system calls
-// returning, for example pausing when providing an interactive debugging
-// experience.
-//
-// The callback must not retain the syscall or any of its fields.
 type Observer struct {
 	System
 
-	observe func(context.Context, Syscall)
+	before ObserverCallback
+	after  ObserverCallback
 }
 
+type ObserverCallback func(context.Context, Syscall)
+
 // NewObserver creates an Observer.
-func NewObserver(system System, observe func(context.Context, Syscall)) *Observer {
-	return &Observer{system, observe}
+func NewObserver(system System, before, after ObserverCallback) *Observer {
+	return &Observer{system, before, after}
 }
 
 var _ System = (*Observer)(nil)
 var _ SocketsExtension = (*Observer)(nil)
 
-func (o *Observer) ArgsSizesGet(ctx context.Context) (int, int, Errno) {
-	argCount, stringBytes, errno := o.System.ArgsSizesGet(ctx)
-	o.observe(ctx, &ArgsSizesGetSyscall{argCount, stringBytes, errno})
-	return argCount, stringBytes, errno
+func (o *Observer) ArgsSizesGet(ctx context.Context) (argCount int, stringBytes int, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &ArgsSizesGetSyscall{argCount, stringBytes, errno})
+	}
+	argCount, stringBytes, errno = o.System.ArgsSizesGet(ctx)
+	if o.after != nil {
+		o.after(ctx, &ArgsSizesGetSyscall{argCount, stringBytes, errno})
+	}
+	return
 }
 
-func (o *Observer) ArgsGet(ctx context.Context) ([]string, Errno) {
-	args, errno := o.System.ArgsGet(ctx)
-	o.observe(ctx, &ArgsGetSyscall{args, errno})
-	return args, errno
+func (o *Observer) ArgsGet(ctx context.Context) (args []string, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &ArgsGetSyscall{args, errno})
+	}
+	args, errno = o.System.ArgsGet(ctx)
+	if o.after != nil {
+		o.after(ctx, &ArgsGetSyscall{args, errno})
+	}
+	return
 }
 
-func (o *Observer) EnvironSizesGet(ctx context.Context) (int, int, Errno) {
-	envCount, stringBytes, errno := o.System.EnvironSizesGet(ctx)
-	o.observe(ctx, &EnvironSizesGetSyscall{envCount, stringBytes, errno})
-	return envCount, stringBytes, errno
+func (o *Observer) EnvironSizesGet(ctx context.Context) (envCount int, stringBytes int, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &EnvironSizesGetSyscall{envCount, stringBytes, errno})
+	}
+	envCount, stringBytes, errno = o.System.EnvironSizesGet(ctx)
+	if o.after != nil {
+		o.after(ctx, &EnvironSizesGetSyscall{envCount, stringBytes, errno})
+	}
+	return
 }
 
-func (o *Observer) EnvironGet(ctx context.Context) ([]string, Errno) {
-	env, errno := o.System.EnvironGet(ctx)
-	o.observe(ctx, &EnvironGetSyscall{env, errno})
-	return env, errno
+func (o *Observer) EnvironGet(ctx context.Context) (env []string, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &EnvironGetSyscall{env, errno})
+	}
+	env, errno = o.System.EnvironGet(ctx)
+	if o.after != nil {
+		o.after(ctx, &EnvironGetSyscall{env, errno})
+	}
+	return
 }
 
-func (o *Observer) ClockResGet(ctx context.Context, clockID ClockID) (Timestamp, Errno) {
-	timestamp, errno := o.System.ClockResGet(ctx, clockID)
-	o.observe(ctx, &ClockResGetSyscall{clockID, timestamp, errno})
-	return timestamp, errno
+func (o *Observer) ClockResGet(ctx context.Context, clockID ClockID) (timestamp Timestamp, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &ClockResGetSyscall{clockID, timestamp, errno})
+	}
+	timestamp, errno = o.System.ClockResGet(ctx, clockID)
+	if o.after != nil {
+		o.after(ctx, &ClockResGetSyscall{clockID, timestamp, errno})
+	}
+	return
 }
 
-func (o *Observer) ClockTimeGet(ctx context.Context, clockID ClockID, precision Timestamp) (Timestamp, Errno) {
-	timestamp, errno := o.System.ClockTimeGet(ctx, clockID, precision)
-	o.observe(ctx, &ClockTimeGetSyscall{clockID, precision, timestamp, errno})
-	return timestamp, errno
+func (o *Observer) ClockTimeGet(ctx context.Context, clockID ClockID, precision Timestamp) (timestamp Timestamp, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &ClockTimeGetSyscall{clockID, precision, timestamp, errno})
+	}
+	timestamp, errno = o.System.ClockTimeGet(ctx, clockID, precision)
+	if o.after != nil {
+		o.after(ctx, &ClockTimeGetSyscall{clockID, precision, timestamp, errno})
+	}
+	return
 }
 
-func (o *Observer) FDAdvise(ctx context.Context, fd FD, offset FileSize, length FileSize, advice Advice) Errno {
-	errno := o.System.FDAdvise(ctx, fd, offset, length, advice)
-	o.observe(ctx, &FDAdviseSyscall{fd, offset, length, advice, errno})
-	return errno
+func (o *Observer) FDAdvise(ctx context.Context, fd FD, offset FileSize, length FileSize, advice Advice) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDAdviseSyscall{fd, offset, length, advice, errno})
+	}
+	errno = o.System.FDAdvise(ctx, fd, offset, length, advice)
+	if o.after != nil {
+		o.after(ctx, &FDAdviseSyscall{fd, offset, length, advice, errno})
+	}
+	return
 }
 
-func (o *Observer) FDAllocate(ctx context.Context, fd FD, offset FileSize, length FileSize) Errno {
-	errno := o.System.FDAllocate(ctx, fd, offset, length)
-	o.observe(ctx, &FDAllocateSyscall{fd, offset, length, errno})
-	return errno
+func (o *Observer) FDAllocate(ctx context.Context, fd FD, offset FileSize, length FileSize) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDAllocateSyscall{fd, offset, length, errno})
+	}
+	errno = o.System.FDAllocate(ctx, fd, offset, length)
+	if o.after != nil {
+		o.after(ctx, &FDAllocateSyscall{fd, offset, length, errno})
+	}
+	return
 }
 
-func (o *Observer) FDClose(ctx context.Context, fd FD) Errno {
-	errno := o.System.FDClose(ctx, fd)
-	o.observe(ctx, &FDCloseSyscall{fd, errno})
-	return errno
+func (o *Observer) FDClose(ctx context.Context, fd FD) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDCloseSyscall{fd, errno})
+	}
+	errno = o.System.FDClose(ctx, fd)
+	if o.after != nil {
+		o.after(ctx, &FDCloseSyscall{fd, errno})
+	}
+	return
 }
 
-func (o *Observer) FDDataSync(ctx context.Context, fd FD) Errno {
-	errno := o.System.FDDataSync(ctx, fd)
-	o.observe(ctx, &FDDataSyncSyscall{fd, errno})
-	return errno
+func (o *Observer) FDDataSync(ctx context.Context, fd FD) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDDataSyncSyscall{fd, errno})
+	}
+	errno = o.System.FDDataSync(ctx, fd)
+	if o.after != nil {
+		o.after(ctx, &FDDataSyncSyscall{fd, errno})
+	}
+	return
 }
 
-func (o *Observer) FDStatGet(ctx context.Context, fd FD) (FDStat, Errno) {
-	stat, errno := o.System.FDStatGet(ctx, fd)
-	o.observe(ctx, &FDStatGetSyscall{fd, stat, errno})
-	return stat, errno
+func (o *Observer) FDStatGet(ctx context.Context, fd FD) (stat FDStat, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDStatGetSyscall{fd, stat, errno})
+	}
+	stat, errno = o.System.FDStatGet(ctx, fd)
+	if o.after != nil {
+		o.after(ctx, &FDStatGetSyscall{fd, stat, errno})
+	}
+	return
 }
 
-func (o *Observer) FDStatSetFlags(ctx context.Context, fd FD, flags FDFlags) Errno {
-	errno := o.System.FDStatSetFlags(ctx, fd, flags)
-	o.observe(ctx, &FDStatSetFlagsSyscall{fd, flags, errno})
-	return errno
+func (o *Observer) FDStatSetFlags(ctx context.Context, fd FD, flags FDFlags) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDStatSetFlagsSyscall{fd, flags, errno})
+	}
+	errno = o.System.FDStatSetFlags(ctx, fd, flags)
+	if o.after != nil {
+		o.after(ctx, &FDStatSetFlagsSyscall{fd, flags, errno})
+	}
+	return
 }
 
-func (o *Observer) FDStatSetRights(ctx context.Context, fd FD, rightsBase Rights, rightsInheriting Rights) Errno {
-	errno := o.System.FDStatSetRights(ctx, fd, rightsBase, rightsInheriting)
-	o.observe(ctx, &FDStatSetRightsSyscall{fd, rightsBase, rightsInheriting, errno})
-	return errno
+func (o *Observer) FDStatSetRights(ctx context.Context, fd FD, rightsBase Rights, rightsInheriting Rights) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDStatSetRightsSyscall{fd, rightsBase, rightsInheriting, errno})
+	}
+	errno = o.System.FDStatSetRights(ctx, fd, rightsBase, rightsInheriting)
+	if o.after != nil {
+		o.after(ctx, &FDStatSetRightsSyscall{fd, rightsBase, rightsInheriting, errno})
+	}
+	return
 }
 
-func (o *Observer) FDFileStatGet(ctx context.Context, fd FD) (FileStat, Errno) {
-	stat, errno := o.System.FDFileStatGet(ctx, fd)
-	o.observe(ctx, &FDFileStatGetSyscall{fd, stat, errno})
-	return stat, errno
+func (o *Observer) FDFileStatGet(ctx context.Context, fd FD) (stat FileStat, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDFileStatGetSyscall{fd, stat, errno})
+	}
+	stat, errno = o.System.FDFileStatGet(ctx, fd)
+	if o.after != nil {
+		o.after(ctx, &FDFileStatGetSyscall{fd, stat, errno})
+	}
+	return
 }
 
-func (o *Observer) FDFileStatSetSize(ctx context.Context, fd FD, size FileSize) Errno {
-	errno := o.System.FDFileStatSetSize(ctx, fd, size)
-	o.observe(ctx, &FDFileStatSetSizeSyscall{fd, size, errno})
-	return errno
+func (o *Observer) FDFileStatSetSize(ctx context.Context, fd FD, size FileSize) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDFileStatSetSizeSyscall{fd, size, errno})
+	}
+	errno = o.System.FDFileStatSetSize(ctx, fd, size)
+	if o.after != nil {
+		o.after(ctx, &FDFileStatSetSizeSyscall{fd, size, errno})
+	}
+	return
 }
 
-func (o *Observer) FDFileStatSetTimes(ctx context.Context, fd FD, accessTime Timestamp, modifyTime Timestamp, flags FSTFlags) Errno {
-	errno := o.System.FDFileStatSetTimes(ctx, fd, accessTime, modifyTime, flags)
-	o.observe(ctx, &FDFileStatSetTimesSyscall{fd, accessTime, modifyTime, flags, errno})
-	return errno
+func (o *Observer) FDFileStatSetTimes(ctx context.Context, fd FD, accessTime Timestamp, modifyTime Timestamp, flags FSTFlags) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDFileStatSetTimesSyscall{fd, accessTime, modifyTime, flags, errno})
+	}
+	errno = o.System.FDFileStatSetTimes(ctx, fd, accessTime, modifyTime, flags)
+	if o.after != nil {
+		o.after(ctx, &FDFileStatSetTimesSyscall{fd, accessTime, modifyTime, flags, errno})
+	}
+	return
 }
 
-func (o *Observer) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (Size, Errno) {
-	size, errno := o.System.FDPread(ctx, fd, iovecs, offset)
-	o.observe(ctx, &FDPreadSyscall{fd, iovecs, offset, size, errno})
-	return size, errno
+func (o *Observer) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (size Size, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDPreadSyscall{fd, iovecs, offset, size, errno})
+	}
+	size, errno = o.System.FDPread(ctx, fd, iovecs, offset)
+	if o.after != nil {
+		o.after(ctx, &FDPreadSyscall{fd, iovecs, offset, size, errno})
+	}
+	return
 }
 
-func (o *Observer) FDPreStatGet(ctx context.Context, fd FD) (PreStat, Errno) {
-	stat, errno := o.System.FDPreStatGet(ctx, fd)
-	o.observe(ctx, &FDPreStatGetSyscall{fd, stat, errno})
-	return stat, errno
+func (o *Observer) FDPreStatGet(ctx context.Context, fd FD) (stat PreStat, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDPreStatGetSyscall{fd, stat, errno})
+	}
+	stat, errno = o.System.FDPreStatGet(ctx, fd)
+	if o.after != nil {
+		o.after(ctx, &FDPreStatGetSyscall{fd, stat, errno})
+	}
+	return
 }
 
-func (o *Observer) FDPreStatDirName(ctx context.Context, fd FD) (string, Errno) {
-	name, errno := o.System.FDPreStatDirName(ctx, fd)
-	o.observe(ctx, &FDPreStatDirNameSyscall{fd, name, errno})
-	return name, errno
+func (o *Observer) FDPreStatDirName(ctx context.Context, fd FD) (name string, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDPreStatDirNameSyscall{fd, name, errno})
+	}
+	name, errno = o.System.FDPreStatDirName(ctx, fd)
+	if o.after != nil {
+		o.after(ctx, &FDPreStatDirNameSyscall{fd, name, errno})
+	}
+	return
 }
 
-func (o *Observer) FDPwrite(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (Size, Errno) {
-	size, errno := o.System.FDPwrite(ctx, fd, iovecs, offset)
-	o.observe(ctx, &FDPwriteSyscall{fd, iovecs, offset, size, errno})
-	return size, errno
+func (o *Observer) FDPwrite(ctx context.Context, fd FD, iovecs []IOVec, offset FileSize) (size Size, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDPwriteSyscall{fd, iovecs, offset, size, errno})
+	}
+	size, errno = o.System.FDPwrite(ctx, fd, iovecs, offset)
+	if o.after != nil {
+		o.after(ctx, &FDPwriteSyscall{fd, iovecs, offset, size, errno})
+	}
+	return
 }
 
-func (o *Observer) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno) {
-	size, errno := o.System.FDRead(ctx, fd, iovecs)
-	o.observe(ctx, &FDReadSyscall{fd, iovecs, size, errno})
-	return size, errno
+func (o *Observer) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (size Size, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDReadSyscall{fd, iovecs, size, errno})
+	}
+	size, errno = o.System.FDRead(ctx, fd, iovecs)
+	if o.after != nil {
+		o.after(ctx, &FDReadSyscall{fd, iovecs, size, errno})
+	}
+	return
 }
 
-func (o *Observer) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int) (int, Errno) {
-	count, errno := o.System.FDReadDir(ctx, fd, entries, cookie, bufferSizeBytes)
-	o.observe(ctx, &FDReadDirSyscall{fd, entries, cookie, bufferSizeBytes, count, errno})
-	return count, errno
+func (o *Observer) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int) (count int, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDReadDirSyscall{fd, entries, cookie, bufferSizeBytes, count, errno})
+	}
+	count, errno = o.System.FDReadDir(ctx, fd, entries, cookie, bufferSizeBytes)
+	if o.after != nil {
+		o.after(ctx, &FDReadDirSyscall{fd, entries, cookie, bufferSizeBytes, count, errno})
+	}
+	return
 }
 
-func (o *Observer) FDRenumber(ctx context.Context, from FD, to FD) Errno {
-	errno := o.System.FDRenumber(ctx, from, to)
-	o.observe(ctx, &FDRenumberSyscall{from, to, errno})
-	return errno
+func (o *Observer) FDRenumber(ctx context.Context, from FD, to FD) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDRenumberSyscall{from, to, errno})
+	}
+	errno = o.System.FDRenumber(ctx, from, to)
+	if o.after != nil {
+		o.after(ctx, &FDRenumberSyscall{from, to, errno})
+	}
+	return
 }
 
-func (o *Observer) FDSeek(ctx context.Context, fd FD, offset FileDelta, whence Whence) (FileSize, Errno) {
-	size, errno := o.System.FDSeek(ctx, fd, offset, whence)
-	o.observe(ctx, &FDSeekSyscall{fd, offset, whence, size, errno})
-	return size, errno
+func (o *Observer) FDSeek(ctx context.Context, fd FD, offset FileDelta, whence Whence) (size FileSize, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDSeekSyscall{fd, offset, whence, size, errno})
+	}
+	size, errno = o.System.FDSeek(ctx, fd, offset, whence)
+	if o.after != nil {
+		o.after(ctx, &FDSeekSyscall{fd, offset, whence, size, errno})
+	}
+	return
 }
 
-func (o *Observer) FDSync(ctx context.Context, fd FD) Errno {
-	errno := o.System.FDSync(ctx, fd)
-	o.observe(ctx, &FDSyncSyscall{fd, errno})
-	return errno
+func (o *Observer) FDSync(ctx context.Context, fd FD) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDSyncSyscall{fd, errno})
+	}
+	errno = o.System.FDSync(ctx, fd)
+	if o.after != nil {
+		o.after(ctx, &FDSyncSyscall{fd, errno})
+	}
+	return
 }
 
-func (o *Observer) FDTell(ctx context.Context, fd FD) (FileSize, Errno) {
-	size, errno := o.System.FDTell(ctx, fd)
-	o.observe(ctx, &FDTellSyscall{fd, size, errno})
-	return size, errno
+func (o *Observer) FDTell(ctx context.Context, fd FD) (size FileSize, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDTellSyscall{fd, size, errno})
+	}
+	size, errno = o.System.FDTell(ctx, fd)
+	if o.after != nil {
+		o.after(ctx, &FDTellSyscall{fd, size, errno})
+	}
+	return
 }
 
-func (o *Observer) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno) {
-	size, errno := o.System.FDWrite(ctx, fd, iovecs)
-	o.observe(ctx, &FDWriteSyscall{fd, iovecs, size, errno})
-	return size, errno
+func (o *Observer) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (size Size, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &FDWriteSyscall{fd, iovecs, size, errno})
+	}
+	size, errno = o.System.FDWrite(ctx, fd, iovecs)
+	if o.after != nil {
+		o.after(ctx, &FDWriteSyscall{fd, iovecs, size, errno})
+	}
+	return
 }
 
-func (o *Observer) PathCreateDirectory(ctx context.Context, fd FD, path string) Errno {
-	errno := o.System.PathCreateDirectory(ctx, fd, path)
-	o.observe(ctx, &PathCreateDirectorySyscall{fd, path, errno})
-	return errno
+func (o *Observer) PathCreateDirectory(ctx context.Context, fd FD, path string) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &PathCreateDirectorySyscall{fd, path, errno})
+	}
+	errno = o.System.PathCreateDirectory(ctx, fd, path)
+	if o.after != nil {
+		o.after(ctx, &PathCreateDirectorySyscall{fd, path, errno})
+	}
+	return
 }
 
-func (o *Observer) PathFileStatGet(ctx context.Context, fd FD, lookupFlags LookupFlags, path string) (FileStat, Errno) {
-	stat, errno := o.System.PathFileStatGet(ctx, fd, lookupFlags, path)
-	o.observe(ctx, &PathFileStatGetSyscall{fd, lookupFlags, path, stat, errno})
-	return stat, errno
+func (o *Observer) PathFileStatGet(ctx context.Context, fd FD, lookupFlags LookupFlags, path string) (stat FileStat, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &PathFileStatGetSyscall{fd, lookupFlags, path, stat, errno})
+	}
+	stat, errno = o.System.PathFileStatGet(ctx, fd, lookupFlags, path)
+	if o.after != nil {
+		o.after(ctx, &PathFileStatGetSyscall{fd, lookupFlags, path, stat, errno})
+	}
+	return
 }
 
-func (o *Observer) PathFileStatSetTimes(ctx context.Context, fd FD, lookupFlags LookupFlags, path string, accessTime Timestamp, modifyTime Timestamp, flags FSTFlags) Errno {
-	errno := o.System.PathFileStatSetTimes(ctx, fd, lookupFlags, path, accessTime, modifyTime, flags)
-	o.observe(ctx, &PathFileStatSetTimesSyscall{fd, lookupFlags, path, accessTime, modifyTime, flags, errno})
-	return errno
+func (o *Observer) PathFileStatSetTimes(ctx context.Context, fd FD, lookupFlags LookupFlags, path string, accessTime Timestamp, modifyTime Timestamp, flags FSTFlags) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &PathFileStatSetTimesSyscall{fd, lookupFlags, path, accessTime, modifyTime, flags, errno})
+	}
+	errno = o.System.PathFileStatSetTimes(ctx, fd, lookupFlags, path, accessTime, modifyTime, flags)
+	if o.after != nil {
+		o.after(ctx, &PathFileStatSetTimesSyscall{fd, lookupFlags, path, accessTime, modifyTime, flags, errno})
+	}
+	return
 }
 
-func (o *Observer) PathLink(ctx context.Context, oldFD FD, oldFlags LookupFlags, oldPath string, newFD FD, newPath string) Errno {
-	errno := o.System.PathLink(ctx, oldFD, oldFlags, oldPath, newFD, newPath)
-	o.observe(ctx, &PathLinkSyscall{oldFD, oldFlags, oldPath, newFD, newPath, errno})
-	return errno
+func (o *Observer) PathLink(ctx context.Context, oldFD FD, oldFlags LookupFlags, oldPath string, newFD FD, newPath string) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &PathLinkSyscall{oldFD, oldFlags, oldPath, newFD, newPath, errno})
+	}
+	errno = o.System.PathLink(ctx, oldFD, oldFlags, oldPath, newFD, newPath)
+	if o.after != nil {
+		o.after(ctx, &PathLinkSyscall{oldFD, oldFlags, oldPath, newFD, newPath, errno})
+	}
+	return
 }
 
-func (o *Observer) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, path string, openFlags OpenFlags, rightsBase Rights, rightsInheriting Rights, fdFlags FDFlags) (FD, Errno) {
-	newfd, errno := o.System.PathOpen(ctx, fd, dirFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
-	o.observe(ctx, &PathOpenSyscall{fd, dirFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags, newfd, errno})
-	return newfd, errno
+func (o *Observer) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, path string, openFlags OpenFlags, rightsBase Rights, rightsInheriting Rights, fdFlags FDFlags) (newfd FD, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &PathOpenSyscall{fd, dirFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags, newfd, errno})
+	}
+	newfd, errno = o.System.PathOpen(ctx, fd, dirFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
+	if o.after != nil {
+		o.after(ctx, &PathOpenSyscall{fd, dirFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags, newfd, errno})
+	}
+	return
 }
 
-func (o *Observer) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) ([]byte, Errno) {
-	output, errno := o.System.PathReadLink(ctx, fd, path, buffer)
-	o.observe(ctx, &PathReadLinkSyscall{fd, path, output, errno})
-	return output, errno
+func (o *Observer) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) (output []byte, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &PathReadLinkSyscall{fd, path, buffer, errno})
+	}
+	output, errno = o.System.PathReadLink(ctx, fd, path, buffer)
+	if o.after != nil {
+		o.after(ctx, &PathReadLinkSyscall{fd, path, output, errno})
+	}
+	return
 }
 
-func (o *Observer) PathRemoveDirectory(ctx context.Context, fd FD, path string) Errno {
-	errno := o.System.PathRemoveDirectory(ctx, fd, path)
-	o.observe(ctx, &PathRemoveDirectorySyscall{fd, path, errno})
-	return errno
+func (o *Observer) PathRemoveDirectory(ctx context.Context, fd FD, path string) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &PathRemoveDirectorySyscall{fd, path, errno})
+	}
+	errno = o.System.PathRemoveDirectory(ctx, fd, path)
+	if o.after != nil {
+		o.after(ctx, &PathRemoveDirectorySyscall{fd, path, errno})
+	}
+	return
 }
 
-func (o *Observer) PathRename(ctx context.Context, fd FD, oldPath string, newFD FD, newPath string) Errno {
-	errno := o.System.PathRename(ctx, fd, oldPath, newFD, newPath)
-	o.observe(ctx, &PathRenameSyscall{fd, oldPath, newFD, newPath, errno})
-	return errno
+func (o *Observer) PathRename(ctx context.Context, fd FD, oldPath string, newFD FD, newPath string) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &PathRenameSyscall{fd, oldPath, newFD, newPath, errno})
+	}
+	errno = o.System.PathRename(ctx, fd, oldPath, newFD, newPath)
+	if o.after != nil {
+		o.after(ctx, &PathRenameSyscall{fd, oldPath, newFD, newPath, errno})
+	}
+	return
 }
 
-func (o *Observer) PathSymlink(ctx context.Context, oldPath string, fd FD, newPath string) Errno {
-	errno := o.System.PathSymlink(ctx, oldPath, fd, newPath)
-	o.observe(ctx, &PathSymlinkSyscall{oldPath, fd, newPath, errno})
-	return errno
+func (o *Observer) PathSymlink(ctx context.Context, oldPath string, fd FD, newPath string) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &PathSymlinkSyscall{oldPath, fd, newPath, errno})
+	}
+	errno = o.System.PathSymlink(ctx, oldPath, fd, newPath)
+	if o.after != nil {
+		o.after(ctx, &PathSymlinkSyscall{oldPath, fd, newPath, errno})
+	}
+	return
 }
 
-func (o *Observer) PathUnlinkFile(ctx context.Context, fd FD, path string) Errno {
-	errno := o.System.PathUnlinkFile(ctx, fd, path)
-	o.observe(ctx, &PathUnlinkFileSyscall{fd, path, errno})
-	return errno
+func (o *Observer) PathUnlinkFile(ctx context.Context, fd FD, path string) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &PathUnlinkFileSyscall{fd, path, errno})
+	}
+	errno = o.System.PathUnlinkFile(ctx, fd, path)
+	if o.after != nil {
+		o.after(ctx, &PathUnlinkFileSyscall{fd, path, errno})
+	}
+	return
 }
 
-func (o *Observer) PollOneOff(ctx context.Context, subscriptions []Subscription, events []Event) (int, Errno) {
-	count, errno := o.System.PollOneOff(ctx, subscriptions, events)
-	o.observe(ctx, &PollOneOffSyscall{subscriptions, events[:count], errno})
-	return count, errno
+func (o *Observer) PollOneOff(ctx context.Context, subscriptions []Subscription, events []Event) (count int, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &PollOneOffSyscall{subscriptions, events, errno})
+	}
+	count, errno = o.System.PollOneOff(ctx, subscriptions, events)
+	if o.after != nil {
+		o.after(ctx, &PollOneOffSyscall{subscriptions, events[:count], errno})
+	}
+	return
 }
 
-func (o *Observer) ProcExit(ctx context.Context, exitCode ExitCode) Errno {
-	errno := o.System.ProcExit(ctx, exitCode)
-	o.observe(ctx, &ProcExitSyscall{exitCode, errno})
-	return errno
+func (o *Observer) ProcExit(ctx context.Context, exitCode ExitCode) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &ProcExitSyscall{exitCode, errno})
+	}
+	errno = o.System.ProcExit(ctx, exitCode)
+	if o.after != nil {
+		o.after(ctx, &ProcExitSyscall{exitCode, errno})
+	}
+	return
 }
 
-func (o *Observer) ProcRaise(ctx context.Context, signal Signal) Errno {
-	errno := o.System.ProcRaise(ctx, signal)
-	o.observe(ctx, &ProcRaiseSyscall{signal, errno})
-	return errno
+func (o *Observer) ProcRaise(ctx context.Context, signal Signal) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &ProcRaiseSyscall{signal, errno})
+	}
+	errno = o.System.ProcRaise(ctx, signal)
+	if o.after != nil {
+		o.after(ctx, &ProcRaiseSyscall{signal, errno})
+	}
+	return
 }
 
-func (o *Observer) SchedYield(ctx context.Context) Errno {
-	errno := o.System.SchedYield(ctx)
-	o.observe(ctx, &SchedYieldSyscall{errno})
-	return errno
+func (o *Observer) SchedYield(ctx context.Context) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &SchedYieldSyscall{errno})
+	}
+	errno = o.System.SchedYield(ctx)
+	if o.after != nil {
+		o.after(ctx, &SchedYieldSyscall{errno})
+	}
+	return
 }
 
-func (o *Observer) RandomGet(ctx context.Context, b []byte) Errno {
-	errno := o.System.RandomGet(ctx, b)
-	o.observe(ctx, &RandomGetSyscall{b, errno})
-	return errno
+func (o *Observer) RandomGet(ctx context.Context, b []byte) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &RandomGetSyscall{b, errno})
+	}
+	errno = o.System.RandomGet(ctx, b)
+	if o.after != nil {
+		o.after(ctx, &RandomGetSyscall{b, errno})
+	}
+	return
 }
 
-func (o *Observer) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errno) {
-	newfd, errno := o.System.SockAccept(ctx, fd, flags)
-	o.observe(ctx, &SockAcceptSyscall{fd, flags, newfd, errno})
-	return newfd, errno
+func (o *Observer) SockAccept(ctx context.Context, fd FD, flags FDFlags) (newfd FD, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &SockAcceptSyscall{fd, flags, newfd, errno})
+	}
+	newfd, errno = o.System.SockAccept(ctx, fd, flags)
+	if o.after != nil {
+		o.after(ctx, &SockAcceptSyscall{fd, flags, newfd, errno})
+	}
+	return
 }
 
-func (o *Observer) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno {
-	errno := o.System.SockShutdown(ctx, fd, flags)
-	o.observe(ctx, &SockShutdownSyscall{fd, flags, errno})
-	return errno
+func (o *Observer) SockShutdown(ctx context.Context, fd FD, flags SDFlags) (errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &SockShutdownSyscall{fd, flags, errno})
+	}
+	errno = o.System.SockShutdown(ctx, fd, flags)
+	if o.after != nil {
+		o.after(ctx, &SockShutdownSyscall{fd, flags, errno})
+	}
+	return
 }
 
-func (o *Observer) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, Errno) {
-	size, oflags, errno := o.System.SockRecv(ctx, fd, iovecs, iflags)
-	o.observe(ctx, &SockRecvSyscall{fd, iovecs, iflags, size, oflags, errno})
-	return size, oflags, errno
+func (o *Observer) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (size Size, oflags ROFlags, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &SockRecvSyscall{fd, iovecs, iflags, size, oflags, errno})
+	}
+	size, oflags, errno = o.System.SockRecv(ctx, fd, iovecs, iflags)
+	if o.after != nil {
+		o.after(ctx, &SockRecvSyscall{fd, iovecs, iflags, size, oflags, errno})
+	}
+	return
 }
 
-func (o *Observer) SockSend(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags) (Size, Errno) {
-	size, errno := o.System.SockSend(ctx, fd, iovecs, iflags)
-	o.observe(ctx, &SockSendSyscall{fd, iovecs, iflags, size, errno})
-	return size, errno
+func (o *Observer) SockSend(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags) (size Size, errno Errno) {
+	if o.before != nil {
+		o.before(ctx, &SockSendSyscall{fd, iovecs, iflags, size, errno})
+	}
+	size, errno = o.System.SockSend(ctx, fd, iovecs, iflags)
+	if o.after != nil {
+		o.after(ctx, &SockSendSyscall{fd, iovecs, iflags, size, errno})
+	}
+	return
 }
 
-func (o *Observer) SockOpen(ctx context.Context, family ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase Rights, rightsInheriting Rights) (FD, Errno) {
+func (o *Observer) SockOpen(ctx context.Context, family ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase Rights, rightsInheriting Rights) (fd FD, errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
 		return -1, ENOSYS
 	}
-	fd, errno := se.SockOpen(ctx, family, socketType, protocol, rightsBase, rightsInheriting)
-	o.observe(ctx, &SockOpenSyscall{family, socketType, protocol, rightsBase, rightsInheriting, fd, errno})
-	return fd, errno
+	if o.before != nil {
+		o.before(ctx, &SockOpenSyscall{family, socketType, protocol, rightsBase, rightsInheriting, fd, errno})
+	}
+	fd, errno = se.SockOpen(ctx, family, socketType, protocol, rightsBase, rightsInheriting)
+	if o.after != nil {
+		o.after(ctx, &SockOpenSyscall{family, socketType, protocol, rightsBase, rightsInheriting, fd, errno})
+	}
+	return
 }
 
-func (o *Observer) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errno {
+func (o *Observer) SockBind(ctx context.Context, fd FD, addr SocketAddress) (errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
 		return ENOSYS
 	}
-	errno := se.SockBind(ctx, fd, addr)
-	o.observe(ctx, &SockBindSyscall{fd, addr, errno})
-	return errno
+	if o.before != nil {
+		o.before(ctx, &SockBindSyscall{fd, addr, errno})
+	}
+	errno = se.SockBind(ctx, fd, addr)
+	if o.after != nil {
+		o.after(ctx, &SockBindSyscall{fd, addr, errno})
+	}
+	return
 }
 
-func (o *Observer) SockConnect(ctx context.Context, fd FD, addr SocketAddress) Errno {
+func (o *Observer) SockConnect(ctx context.Context, fd FD, addr SocketAddress) (errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
 		return ENOSYS
 	}
-	errno := se.SockConnect(ctx, fd, addr)
-	o.observe(ctx, &SockConnectSyscall{fd, addr, errno})
-	return errno
+	if o.before != nil {
+		o.before(ctx, &SockConnectSyscall{fd, addr, errno})
+	}
+	errno = se.SockConnect(ctx, fd, addr)
+	if o.after != nil {
+		o.after(ctx, &SockConnectSyscall{fd, addr, errno})
+	}
+	return
 }
 
-func (o *Observer) SockListen(ctx context.Context, fd FD, backlog int) Errno {
+func (o *Observer) SockListen(ctx context.Context, fd FD, backlog int) (errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
 		return ENOSYS
 	}
-	errno := se.SockListen(ctx, fd, backlog)
-	o.observe(ctx, &SockListenSyscall{fd, backlog, errno})
-	return errno
+	if o.before != nil {
+		o.before(ctx, &SockListenSyscall{fd, backlog, errno})
+	}
+	errno = se.SockListen(ctx, fd, backlog)
+	if o.after != nil {
+		o.after(ctx, &SockListenSyscall{fd, backlog, errno})
+	}
+	return
 }
 
-func (o *Observer) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags, addr SocketAddress) (Size, Errno) {
+func (o *Observer) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags, addr SocketAddress) (size Size, errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
 		return 0, ENOSYS
 	}
-	size, errno := se.SockSendTo(ctx, fd, iovecs, iflags, addr)
-	o.observe(ctx, &SockSendToSyscall{fd, iovecs, iflags, addr, size, errno})
-	return size, errno
+	if o.before != nil {
+		o.before(ctx, &SockSendToSyscall{fd, iovecs, iflags, addr, size, errno})
+	}
+	size, errno = se.SockSendTo(ctx, fd, iovecs, iflags, addr)
+	if o.after != nil {
+		o.after(ctx, &SockSendToSyscall{fd, iovecs, iflags, addr, size, errno})
+	}
+	return
 }
 
-func (o *Observer) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, SocketAddress, Errno) {
+func (o *Observer) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (size Size, oflags ROFlags, addr SocketAddress, errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
 		return 0, 0, nil, ENOSYS
 	}
-	size, oflags, addr, errno := se.SockRecvFrom(ctx, fd, iovecs, iflags)
-	o.observe(ctx, &SockRecvFromSyscall{fd, iovecs, iflags, size, oflags, addr, errno})
-	return size, oflags, addr, errno
+	if o.before != nil {
+		o.before(ctx, &SockRecvFromSyscall{fd, iovecs, iflags, size, oflags, addr, errno})
+	}
+	size, oflags, addr, errno = se.SockRecvFrom(ctx, fd, iovecs, iflags)
+	if o.after != nil {
+		o.after(ctx, &SockRecvFromSyscall{fd, iovecs, iflags, size, oflags, addr, errno})
+	}
+	return
 }
 
-func (o *Observer) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (int, Errno) {
+func (o *Observer) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (value int, errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
-		return 0, ENOSYS
+		return -1, ENOSYS
 	}
-	value, errno := se.SockGetOptInt(ctx, fd, level, option)
-	o.observe(ctx, &SockGetOptIntSyscall{fd, level, option, value, errno})
-	return value, errno
+	if o.before != nil {
+		o.before(ctx, &SockGetOptIntSyscall{fd, level, option, value, errno})
+	}
+	value, errno = se.SockGetOptInt(ctx, fd, level, option)
+	if o.after != nil {
+		o.after(ctx, &SockGetOptIntSyscall{fd, level, option, value, errno})
+	}
+	return
 }
 
-func (o *Observer) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value int) Errno {
+func (o *Observer) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value int) (errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
 		return ENOSYS
 	}
-	errno := se.SockSetOptInt(ctx, fd, level, option, value)
-	o.observe(ctx, &SockSetOptIntSyscall{fd, level, option, value, errno})
-	return errno
+	if o.before != nil {
+		o.before(ctx, &SockSetOptIntSyscall{fd, level, option, value, errno})
+	}
+	errno = se.SockSetOptInt(ctx, fd, level, option, value)
+	if o.after != nil {
+		o.after(ctx, &SockSetOptIntSyscall{fd, level, option, value, errno})
+	}
+	return
 }
 
-func (o *Observer) SockLocalAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
+func (o *Observer) SockLocalAddress(ctx context.Context, fd FD) (addr SocketAddress, errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
 		return nil, ENOSYS
 	}
-	addr, errno := se.SockLocalAddress(ctx, fd)
-	o.observe(ctx, &SockLocalAddressSyscall{fd, addr, errno})
-	return addr, errno
+	if o.before != nil {
+		o.before(ctx, &SockLocalAddressSyscall{fd, addr, errno})
+	}
+	addr, errno = se.SockLocalAddress(ctx, fd)
+	if o.after != nil {
+		o.after(ctx, &SockLocalAddressSyscall{fd, addr, errno})
+	}
+	return
 }
 
-func (o *Observer) SockPeerAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
+func (o *Observer) SockPeerAddress(ctx context.Context, fd FD) (addr SocketAddress, errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
 		return nil, ENOSYS
 	}
-	addr, errno := se.SockPeerAddress(ctx, fd)
-	o.observe(ctx, &SockPeerAddressSyscall{fd, addr, errno})
-	return addr, errno
+	if o.before != nil {
+		o.before(ctx, &SockPeerAddressSyscall{fd, addr, errno})
+	}
+	addr, errno = se.SockPeerAddress(ctx, fd)
+	if o.after != nil {
+		o.after(ctx, &SockPeerAddressSyscall{fd, addr, errno})
+	}
+	return
 }
