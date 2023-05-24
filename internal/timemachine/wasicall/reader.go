@@ -9,6 +9,10 @@ import (
 )
 
 // Reader reads recorded system calls.
+//
+// This is similar to Replay, but it allows the caller to drive the
+// consumption of log records, and is required for offline consumption
+// and analysis.
 type Reader struct {
 	reader timemachine.RecordReader
 

@@ -382,7 +382,10 @@ func replay(args []string) error {
 	replay := wasicall.NewReplay(records)
 	defer replay.Close(ctx)
 
-	system := wasicall.NewFallbackSystem(replay, nil)
+	fallback := wasicall.NewObserver(nil, func(ctx context.Context, s wasicall.Syscall) {
+		panic(fmt.Sprintf("system call made after log EOF: %s", s.ID()))
+	})
+	system := wasicall.NewFallbackSystem(replay, fallback)
 
 	// TODO: need to figure this out dynamically:
 	hostModule := wasi_snapshot_preview1.NewHostModule(wasi_snapshot_preview1.WasmEdgeV2)
