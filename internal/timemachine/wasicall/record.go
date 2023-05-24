@@ -34,7 +34,7 @@ func NewRecorder(system System, startTime time.Time, write func(*timemachine.Rec
 	}
 }
 
-func (r *Recorder) record(s SyscallNumber, b []byte) {
+func (r *Recorder) record(s SyscallID, b []byte) {
 	r.buffer = b
 	r.builder.Reset(r.startTime)
 	r.builder.SetTimestamp(time.Now())
