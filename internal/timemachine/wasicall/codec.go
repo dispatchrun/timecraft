@@ -348,8 +348,7 @@ func (c *Codec) EncodeFDPread(buffer []byte, fd FD, iovecs []IOVec, offset FileS
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	if errno == ESUCCESS {
-		// TODO: only need to store the iovecs part that was actually populated
-		buffer = encodeIOVecs(buffer, iovecs)
+		buffer = encodeIOVecsPrefix(buffer, iovecs, size)
 	}
 	buffer = encodeFileSize(buffer, offset)
 	if errno == ESUCCESS {
@@ -457,8 +456,7 @@ func (c *Codec) EncodeFDRead(buffer []byte, fd FD, iovecs []IOVec, size Size, er
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	if errno == ESUCCESS {
-		// TODO: only need to store the iovecs part that was actually populated
-		buffer = encodeIOVecs(buffer, iovecs)
+		buffer = encodeIOVecsPrefix(buffer, iovecs, size)
 		buffer = encodeSize(buffer, size)
 	}
 	return buffer
@@ -981,9 +979,8 @@ func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD,
 func (c *Codec) EncodeSockRecv(buffer []byte, fd FD, iovecs []IOVec, iflags RIFlags, size Size, oflags ROFlags, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	// TODO: only need to store the iovecs part that was actually populated
 	if errno == ESUCCESS {
-		buffer = encodeIOVecs(buffer, iovecs)
+		buffer = encodeIOVecsPrefix(buffer, iovecs, size)
 	}
 	buffer = encodeRIFlags(buffer, iflags)
 	if errno == ESUCCESS {
@@ -1191,8 +1188,7 @@ func (c *Codec) EncodeSockRecvFrom(buffer []byte, fd FD, iovecs []IOVec, iflags 
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	if errno == ESUCCESS {
-		// TODO: only need to store the iovecs part that was actually populated
-		buffer = encodeIOVecs(buffer, iovecs)
+		buffer = encodeIOVecsPrefix(buffer, iovecs, size)
 	}
 	buffer = encodeRIFlags(buffer, iflags)
 	if errno == ESUCCESS {
@@ -1418,6 +1414,32 @@ func decodeStrings(buffer []byte, strings []string) (_ []string, _ []byte, err e
 func encodeIOVecs(buffer []byte, iovecs []IOVec) []byte {
 	buffer = encodeU32(buffer, uint32(len(iovecs)))
 	for _, iovec := range iovecs {
+		buffer = encodeBytes(buffer, iovec)
+	}
+	return buffer
+}
+
+func encodeIOVecsPrefix(buffer []byte, iovecs []IOVec, size Size) []byte {
+	if size == 0 {
+		return encodeU32(buffer, 0)
+	}
+	prefixCount := 0
+	prefixSize := 0
+	for _, iovec := range iovecs {
+		prefixCount++
+		prefixSize += len(iovec)
+		if Size(prefixSize) >= size {
+			break
+		}
+	}
+	buffer = encodeU32(buffer, uint32(prefixCount))
+	remaining := size
+	for _, iovec := range iovecs {
+		if remaining <= Size(len(iovec)) {
+			buffer = encodeBytes(buffer, iovec[:remaining])
+			break
+		}
+		remaining -= Size(len(iovec))
 		buffer = encodeBytes(buffer, iovec)
 	}
 	return buffer
