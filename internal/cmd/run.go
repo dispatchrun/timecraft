@@ -82,7 +82,7 @@ func run(args []string) error {
 	trace := flagSet.Bool("trace", false, "")
 	logPath := flagSet.String("record", "", "")
 	compression := flagSet.String("compression", "zstd", "")
-	batchSize := flagSet.Int("batch-size", 1024, "")
+	batchSize := flagSet.Int("batch-size", 4096, "")
 
 	flagSet.Parse(args)
 
