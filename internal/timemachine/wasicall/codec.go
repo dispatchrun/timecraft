@@ -15,10 +15,12 @@ import (
 // The system calls are sealed so there's no need for forwards or backwards
 // compatibility. Rather than use protobuf or flatbuffers or similar, we use
 // simple bespoke encoders. We aren't too concerned with succinctness since
-// the records are ultimately compressed, but it should be easy to experiment
-// with different encodings (e.g. varints) by changing the helpers.
-// There are also other ways to reduce the size of encoded records, for
-// example avoiding storing return values other than errno when errno!=0.
+// the records are ultimately compressed.
+//
+// Other things that have been tried:
+//   - varints (bb159c7, discussed in stealthrocket/timecraft#11)
+//   - omitting return values except for errno when errno!=ESUCCESS (532bfbb,
+//     discussed in stealthrocket/timecraft#11)
 type Codec struct{}
 
 func (c *Codec) EncodeArgsSizesGet(buffer []byte, argCount, stringBytes int, errno Errno) []byte {
@@ -308,8 +310,7 @@ func (c *Codec) DecodeFDFileStatSetTimes(buffer []byte) (fd FD, accessTime, modi
 func (c *Codec) EncodeFDPread(buffer []byte, fd FD, iovecs []IOVec, offset FileSize, size Size, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	// TODO: only need to store the iovecs part that was actually populated
-	buffer = encodeIOVecs(buffer, iovecs)
+	buffer = encodeIOVecsPrefix(buffer, iovecs, size)
 	buffer = encodeFileSize(buffer, offset)
 	return encodeSize(buffer, size)
 }
@@ -393,8 +394,7 @@ func (c *Codec) DecodeFDPwrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec,
 func (c *Codec) EncodeFDRead(buffer []byte, fd FD, iovecs []IOVec, size Size, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	// TODO: only need to store the iovecs part that was actually populated
-	buffer = encodeIOVecs(buffer, iovecs)
+	buffer = encodeIOVecsPrefix(buffer, iovecs, size)
 	return encodeSize(buffer, size)
 }
 
@@ -866,8 +866,7 @@ func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD,
 func (c *Codec) EncodeSockRecv(buffer []byte, fd FD, iovecs []IOVec, iflags RIFlags, size Size, oflags ROFlags, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	// TODO: only need to store the iovecs part that was actually populated
-	buffer = encodeIOVecs(buffer, iovecs)
+	buffer = encodeIOVecsPrefix(buffer, iovecs, size)
 	buffer = encodeRIFlags(buffer, iflags)
 	buffer = encodeSize(buffer, size)
 	return encodeROFlags(buffer, oflags)
@@ -1051,8 +1050,7 @@ func (c *Codec) DecodeSockSendTo(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVe
 func (c *Codec) EncodeSockRecvFrom(buffer []byte, fd FD, iovecs []IOVec, iflags RIFlags, size Size, oflags ROFlags, addr SocketAddress, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	// TODO: only need to store the iovecs part that was actually populated
-	buffer = encodeIOVecs(buffer, iovecs)
+	buffer = encodeIOVecsPrefix(buffer, iovecs, size)
 	buffer = encodeRIFlags(buffer, iflags)
 	buffer = encodeSize(buffer, size)
 	buffer = encodeROFlags(buffer, oflags)
@@ -1255,6 +1253,32 @@ func decodeStrings(buffer []byte, strings []string) (_ []string, _ []byte, err e
 func encodeIOVecs(buffer []byte, iovecs []IOVec) []byte {
 	buffer = encodeU32(buffer, uint32(len(iovecs)))
 	for _, iovec := range iovecs {
+		buffer = encodeBytes(buffer, iovec)
+	}
+	return buffer
+}
+
+func encodeIOVecsPrefix(buffer []byte, iovecs []IOVec, size Size) []byte {
+	if size == 0 {
+		return encodeU32(buffer, 0)
+	}
+	prefixCount := 0
+	prefixSize := 0
+	for _, iovec := range iovecs {
+		prefixCount++
+		prefixSize += len(iovec)
+		if Size(prefixSize) >= size {
+			break
+		}
+	}
+	buffer = encodeU32(buffer, uint32(prefixCount))
+	remaining := size
+	for _, iovec := range iovecs {
+		if remaining <= Size(len(iovec)) {
+			buffer = encodeBytes(buffer, iovec[:remaining])
+			break
+		}
+		remaining -= Size(len(iovec))
 		buffer = encodeBytes(buffer, iovec)
 	}
 	return buffer

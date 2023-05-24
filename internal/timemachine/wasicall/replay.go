@@ -426,7 +426,7 @@ func (r *Replay) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset File
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPread, "fd", fd, recordFD})
 		}
-		if !equalIovecsShape(iovecs, recordIOVecs) {
+		if !equalIovecsShapePrefix(iovecs, recordIOVecs, size) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPread, "iovecs", iovecs, recordIOVecs})
 		}
 		if offset != recordOffset {
@@ -435,6 +435,9 @@ func (r *Replay) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset File
 		if len(mismatch) > 0 {
 			panic(errors.Join(mismatch...))
 		}
+	}
+	for i := range recordIOVecs {
+		copy(iovecs[i], recordIOVecs[i])
 	}
 	return size, errno
 }
@@ -512,14 +515,14 @@ func (r *Replay) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDRead, "fd", fd, recordFD})
 		}
-		if !equalIovecsShape(iovecs, recordIOVecs) {
+		if !equalIovecsShapePrefix(iovecs, recordIOVecs, size) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDRead, "iovecs", iovecs, recordIOVecs})
 		}
 		if len(mismatch) > 0 {
 			panic(errors.Join(mismatch...))
 		}
 	}
-	for i := range iovecs {
+	for i := range recordIOVecs {
 		copy(iovecs[i], recordIOVecs[i])
 	}
 	return size, errno
@@ -1104,7 +1107,7 @@ func (r *Replay) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIF
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecv, "fd", fd, recordFD})
 		}
-		if !equalIovecsShape(iovecs, recordIOVecs) {
+		if !equalIovecsShapePrefix(iovecs, recordIOVecs, size) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecv, "iovecs", iovecs, recordIOVecs})
 		}
 		if iflags != recordIFlags {
@@ -1113,6 +1116,9 @@ func (r *Replay) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIF
 		if len(mismatch) > 0 {
 			panic(errors.Join(mismatch...))
 		}
+	}
+	for i := range recordIOVecs {
+		copy(iovecs[i], recordIOVecs[i])
 	}
 	return size, oflags, errno
 }
@@ -1295,7 +1301,7 @@ func (r *Replay) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecvFrom, "fd", fd, recordFD})
 		}
-		if !equalIovecsShape(iovecs, recordIOVecs) {
+		if !equalIovecsShapePrefix(iovecs, recordIOVecs, size) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecvFrom, "iovecs", iovecs, recordIOVecs})
 		}
 		if iflags != recordIFlags {
@@ -1304,6 +1310,9 @@ func (r *Replay) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags
 		if len(mismatch) > 0 {
 			panic(errors.Join(mismatch...))
 		}
+	}
+	for i := range recordIOVecs {
+		copy(iovecs[i], recordIOVecs[i])
 	}
 	return size, oflags, addr, errno
 }
@@ -1426,16 +1435,20 @@ func (e *UnexpectedSyscallError) Error() string {
 	return fmt.Sprintf("got syscall %s (%d) but log contained %s (%d)", e.Observed, int(e.Observed), e.Recorded, int(e.Recorded))
 }
 
-func equalIovecsShape(a, b []IOVec) bool {
-	if len(a) != len(b) {
+func equalIovecsShapePrefix(iovecs, prefix []IOVec, size Size) bool {
+	if len(prefix) == 0 {
+		return true
+	}
+	if len(iovecs) < len(prefix) {
 		return false
 	}
-	for i := range a {
-		if len(a[i]) != len(b[i]) {
+	for i := 0; i < len(prefix)-1; i++ {
+		if len(iovecs[i]) != len(prefix[i]) {
 			return false
 		}
 	}
-	return true
+	last := len(prefix) - 1
+	return len(iovecs[last]) >= len(prefix[last])
 }
 
 func equalIovecs(a, b []IOVec) bool {
