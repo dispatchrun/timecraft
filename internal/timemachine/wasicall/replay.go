@@ -426,7 +426,7 @@ func (r *Replay) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset File
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPread, "fd", fd, recordFD})
 		}
-		if !equalIovecsShape(iovecs, recordIOVecs) {
+		if errno == ESUCCESS && !equalIovecsShape(iovecs, recordIOVecs) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDPread, "iovecs", iovecs, recordIOVecs})
 		}
 		if offset != recordOffset {
@@ -512,7 +512,7 @@ func (r *Replay) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDRead, "fd", fd, recordFD})
 		}
-		if !equalIovecsShape(iovecs, recordIOVecs) {
+		if errno == ESUCCESS && !equalIovecsShape(iovecs, recordIOVecs) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDRead, "iovecs", iovecs, recordIOVecs})
 		}
 		if len(mismatch) > 0 {
@@ -540,7 +540,7 @@ func (r *Replay) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cooki
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDReadDir, "fd", fd, recordFD})
 		}
-		if len(entries) < len(recordEntries) {
+		if errno == ESUCCESS && len(entries) < len(recordEntries) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{FDReadDir, "entries", entries, recordEntries})
 		}
 		if cookie != recordCookie {
@@ -839,7 +839,7 @@ func (r *Replay) PathReadLink(ctx context.Context, fd FD, path string, buffer []
 		if path != recordPath {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathReadLink, "path", path, recordPath})
 		}
-		if len(buffer) < len(result) {
+		if errno == ESUCCESS && len(buffer) < len(result) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathReadLink, "buffer", buffer, result})
 		}
 		if len(mismatch) > 0 {
@@ -971,7 +971,7 @@ func (r *Replay) PollOneOff(ctx context.Context, subscriptions []Subscription, e
 		if !equalSubscriptions(subscriptions, recordSubscriptions) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{PollOneOff, "subscriptions", subscriptions, recordSubscriptions})
 		}
-		if len(events) < len(recordEvents) {
+		if errno == ESUCCESS && len(events) < len(recordEvents) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{PollOneOff, "events", events, recordEvents})
 		}
 		if len(mismatch) > 0 {
@@ -1104,7 +1104,7 @@ func (r *Replay) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIF
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecv, "fd", fd, recordFD})
 		}
-		if !equalIovecsShape(iovecs, recordIOVecs) {
+		if errno == ESUCCESS && !equalIovecsShape(iovecs, recordIOVecs) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecv, "iovecs", iovecs, recordIOVecs})
 		}
 		if iflags != recordIFlags {
@@ -1295,7 +1295,7 @@ func (r *Replay) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecvFrom, "fd", fd, recordFD})
 		}
-		if !equalIovecsShape(iovecs, recordIOVecs) {
+		if errno == ESUCCESS && !equalIovecsShape(iovecs, recordIOVecs) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockRecvFrom, "iovecs", iovecs, recordIOVecs})
 		}
 		if iflags != recordIFlags {

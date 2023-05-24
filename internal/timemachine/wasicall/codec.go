@@ -18,75 +18,95 @@ import (
 // the records are ultimately compressed. Experiments showed that using varints
 // in the base {en,de}codeU{32,64} helpers did not lead to a meaningful
 // decrease in the size of the logs.
-//
-// There are also other ways to reduce the size of encoded records, for
-// example avoiding storing return values other than errno when errno!=0.
 type Codec struct{}
 
 func (c *Codec) EncodeArgsSizesGet(buffer []byte, argCount, stringBytes int, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
-	buffer = encodeInt(buffer, argCount)
-	return encodeInt(buffer, stringBytes)
+	if errno == ESUCCESS {
+		buffer = encodeInt(buffer, argCount)
+		buffer = encodeInt(buffer, stringBytes)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeArgsSizesGet(buffer []byte) (argCount, stringBytes int, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if argCount, buffer, err = decodeInt(buffer); err != nil {
-		return
+	if errno == ESUCCESS {
+		if argCount, buffer, err = decodeInt(buffer); err != nil {
+			return
+		}
+		stringBytes, buffer, err = decodeInt(buffer)
 	}
-	stringBytes, buffer, err = decodeInt(buffer)
 	return
 }
 
 func (c *Codec) EncodeArgsGet(buffer []byte, args []string, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
-	return encodeStrings(buffer, args)
+	if errno == ESUCCESS {
+		buffer = encodeStrings(buffer, args)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeArgsGet(buffer []byte, args []string) (_ []string, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	args, buffer, err = decodeStrings(buffer, args)
+	if errno == ESUCCESS {
+		args, buffer, err = decodeStrings(buffer, args)
+	}
 	return args, errno, err
 }
 
 func (c *Codec) EncodeEnvironSizesGet(buffer []byte, envCount, stringBytes int, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
-	buffer = encodeInt(buffer, envCount)
-	return encodeInt(buffer, stringBytes)
+	if errno == ESUCCESS {
+		buffer = encodeInt(buffer, envCount)
+		buffer = encodeInt(buffer, stringBytes)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeEnvironSizesGet(buffer []byte) (envCount, stringBytes int, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	if envCount, buffer, err = decodeInt(buffer); err != nil {
-		return
+	if errno == ESUCCESS {
+		if envCount, buffer, err = decodeInt(buffer); err != nil {
+			return
+		}
+		stringBytes, buffer, err = decodeInt(buffer)
 	}
-	stringBytes, buffer, err = decodeInt(buffer)
 	return
 }
 
 func (c *Codec) EncodeEnvironGet(buffer []byte, env []string, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
-	return encodeStrings(buffer, env)
+	if errno == ESUCCESS {
+		buffer = encodeStrings(buffer, env)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeEnvironGet(buffer []byte, env []string) (_ []string, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	env, buffer, err = decodeStrings(buffer, env)
+	if errno == ESUCCESS {
+		env, buffer, err = decodeStrings(buffer, env)
+	}
 	return env, errno, err
 }
 
 func (c *Codec) EncodeClockResGet(buffer []byte, id ClockID, timestamp Timestamp, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
-	buffer = encodeClockID(buffer, id)
-	return encodeTimestamp(buffer, timestamp)
+	if errno == ESUCCESS {
+		buffer = encodeClockID(buffer, id)
+		buffer = encodeTimestamp(buffer, timestamp)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeClockResGet(buffer []byte) (id ClockID, timestamp Timestamp, errno Errno, err error) {
@@ -96,7 +116,9 @@ func (c *Codec) DecodeClockResGet(buffer []byte) (id ClockID, timestamp Timestam
 	if id, buffer, err = decodeClockID(buffer); err != nil {
 		return
 	}
-	timestamp, buffer, err = decodeTimestamp(buffer)
+	if errno == ESUCCESS {
+		timestamp, buffer, err = decodeTimestamp(buffer)
+	}
 	return
 }
 
@@ -104,7 +126,10 @@ func (c *Codec) EncodeClockTimeGet(buffer []byte, id ClockID, precision Timestam
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeClockID(buffer, id)
 	buffer = encodeTimestamp(buffer, precision)
-	return encodeTimestamp(buffer, timestamp)
+	if errno == ESUCCESS {
+		buffer = encodeTimestamp(buffer, timestamp)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeClockTimeGet(buffer []byte) (id ClockID, precision Timestamp, timestamp Timestamp, errno Errno, err error) {
@@ -117,7 +142,9 @@ func (c *Codec) DecodeClockTimeGet(buffer []byte) (id ClockID, precision Timesta
 	if precision, buffer, err = decodeTimestamp(buffer); err != nil {
 		return
 	}
-	timestamp, buffer, err = decodeTimestamp(buffer)
+	if errno == ESUCCESS {
+		timestamp, buffer, err = decodeTimestamp(buffer)
+	}
 	return
 }
 
@@ -196,7 +223,10 @@ func (c *Codec) DecodeFDDataSync(buffer []byte) (fd FD, errno Errno, err error) 
 func (c *Codec) EncodeFDStatGet(buffer []byte, fd FD, stat FDStat, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	return encodeFDStat(buffer, stat)
+	if errno == ESUCCESS {
+		buffer = encodeFDStat(buffer, stat)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeFDStatGet(buffer []byte) (fd FD, stat FDStat, errno Errno, err error) {
@@ -206,7 +236,9 @@ func (c *Codec) DecodeFDStatGet(buffer []byte) (fd FD, stat FDStat, errno Errno,
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	stat, buffer, err = decodeFDStat(buffer)
+	if errno == ESUCCESS {
+		stat, buffer, err = decodeFDStat(buffer)
+	}
 	return
 }
 
@@ -251,7 +283,10 @@ func (c *Codec) DecodeFDStatSetRights(buffer []byte) (fd FD, rightsBase, rightsI
 func (c *Codec) EncodeFDFileStatGet(buffer []byte, fd FD, stat FileStat, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	return encodeFileStat(buffer, stat)
+	if errno == ESUCCESS {
+		buffer = encodeFileStat(buffer, stat)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeFDFileStatGet(buffer []byte) (fd FD, stat FileStat, errno Errno, err error) {
@@ -261,7 +296,9 @@ func (c *Codec) DecodeFDFileStatGet(buffer []byte) (fd FD, stat FileStat, errno 
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	stat, buffer, err = decodeFileStat(buffer)
+	if errno == ESUCCESS {
+		stat, buffer, err = decodeFileStat(buffer)
+	}
 	return
 }
 
@@ -310,10 +347,15 @@ func (c *Codec) DecodeFDFileStatSetTimes(buffer []byte) (fd FD, accessTime, modi
 func (c *Codec) EncodeFDPread(buffer []byte, fd FD, iovecs []IOVec, offset FileSize, size Size, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	// TODO: only need to store the iovecs part that was actually populated
-	buffer = encodeIOVecs(buffer, iovecs)
+	if errno == ESUCCESS {
+		// TODO: only need to store the iovecs part that was actually populated
+		buffer = encodeIOVecs(buffer, iovecs)
+	}
 	buffer = encodeFileSize(buffer, offset)
-	return encodeSize(buffer, size)
+	if errno == ESUCCESS {
+		buffer = encodeSize(buffer, size)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeFDPread(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, offset FileSize, size Size, errno Errno, err error) {
@@ -323,20 +365,27 @@ func (c *Codec) DecodeFDPread(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, 
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
-		return
+	if errno == ESUCCESS {
+		if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
+			return
+		}
 	}
 	if offset, buffer, err = decodeFileSize(buffer); err != nil {
 		return
 	}
-	size, buffer, err = decodeSize(buffer)
+	if errno == ESUCCESS {
+		size, buffer, err = decodeSize(buffer)
+	}
 	return fd, iovecs, offset, size, errno, err
 }
 
 func (c *Codec) EncodeFDPreStatGet(buffer []byte, fd FD, stat PreStat, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	return encodePreStat(buffer, stat)
+	if errno == ESUCCESS {
+		buffer = encodePreStat(buffer, stat)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeFDPreStatGet(buffer []byte) (fd FD, stat PreStat, errno Errno, err error) {
@@ -346,14 +395,19 @@ func (c *Codec) DecodeFDPreStatGet(buffer []byte) (fd FD, stat PreStat, errno Er
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	stat, buffer, err = decodePreStat(buffer)
+	if errno == ESUCCESS {
+		stat, buffer, err = decodePreStat(buffer)
+	}
 	return
 }
 
 func (c *Codec) EncodeFDPreStatDirName(buffer []byte, fd FD, name string, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	return encodeString(buffer, name)
+	if errno == ESUCCESS {
+		buffer = encodeString(buffer, name)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeFDPreStatDirName(buffer []byte) (fd FD, name string, errno Errno, err error) {
@@ -363,7 +417,9 @@ func (c *Codec) DecodeFDPreStatDirName(buffer []byte) (fd FD, name string, errno
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	name, buffer, err = decodeString(buffer)
+	if errno == ESUCCESS {
+		name, buffer, err = decodeString(buffer)
+	}
 	return
 }
 
@@ -372,7 +428,10 @@ func (c *Codec) EncodeFDPwrite(buffer []byte, fd FD, iovecs []IOVec, offset File
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeIOVecs(buffer, iovecs)
 	buffer = encodeFileSize(buffer, offset)
-	return encodeSize(buffer, size)
+	if errno == ESUCCESS {
+		buffer = encodeSize(buffer, size)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeFDPwrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, offset FileSize, size Size, errno Errno, err error) {
@@ -388,16 +447,21 @@ func (c *Codec) DecodeFDPwrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec,
 	if offset, buffer, err = decodeFileSize(buffer); err != nil {
 		return
 	}
-	size, buffer, err = decodeSize(buffer)
+	if errno == ESUCCESS {
+		size, buffer, err = decodeSize(buffer)
+	}
 	return fd, iovecs, offset, size, errno, err
 }
 
 func (c *Codec) EncodeFDRead(buffer []byte, fd FD, iovecs []IOVec, size Size, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	// TODO: only need to store the iovecs part that was actually populated
-	buffer = encodeIOVecs(buffer, iovecs)
-	return encodeSize(buffer, size)
+	if errno == ESUCCESS {
+		// TODO: only need to store the iovecs part that was actually populated
+		buffer = encodeIOVecs(buffer, iovecs)
+		buffer = encodeSize(buffer, size)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeFDRead(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, size Size, errno Errno, err error) {
@@ -407,20 +471,27 @@ func (c *Codec) DecodeFDRead(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, s
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
-		return
+	if errno == ESUCCESS {
+		if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
+			return
+		}
+		size, buffer, err = decodeSize(buffer)
 	}
-	size, buffer, err = decodeSize(buffer)
 	return fd, iovecs, size, errno, err
 }
 
 func (c *Codec) EncodeFDReadDir(buffer []byte, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int, count int, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	buffer = encodeDirEntries(buffer, entries)
+	if errno == ESUCCESS {
+		buffer = encodeDirEntries(buffer, entries)
+	}
 	buffer = encodeDirCookie(buffer, cookie)
 	buffer = encodeInt(buffer, bufferSizeBytes)
-	return encodeInt(buffer, count)
+	if errno == ESUCCESS {
+		buffer = encodeInt(buffer, count)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeFDReadDir(buffer []byte, entries []DirEntry) (fd FD, _ []DirEntry, cookie DirCookie, bufferSizeBytes int, count int, errno Errno, err error) {
@@ -430,8 +501,10 @@ func (c *Codec) DecodeFDReadDir(buffer []byte, entries []DirEntry) (fd FD, _ []D
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if entries, buffer, err = decodeDirEntries(buffer, entries); err != nil {
-		return
+	if errno == ESUCCESS {
+		if entries, buffer, err = decodeDirEntries(buffer, entries); err != nil {
+			return
+		}
 	}
 	if cookie, buffer, err = decodeDirCookie(buffer); err != nil {
 		return
@@ -439,7 +512,9 @@ func (c *Codec) DecodeFDReadDir(buffer []byte, entries []DirEntry) (fd FD, _ []D
 	if bufferSizeBytes, buffer, err = decodeInt(buffer); err != nil {
 		return
 	}
-	count, buffer, err = decodeInt(buffer)
+	if errno == ESUCCESS {
+		count, buffer, err = decodeInt(buffer)
+	}
 	return fd, entries, cookie, bufferSizeBytes, count, errno, err
 }
 
@@ -465,7 +540,10 @@ func (c *Codec) EncodeFDSeek(buffer []byte, fd FD, seekOffset FileDelta, whence 
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeFileDelta(buffer, seekOffset)
 	buffer = encodeWhence(buffer, whence)
-	return encodeFileSize(buffer, offset)
+	if errno == ESUCCESS {
+		buffer = encodeFileSize(buffer, offset)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeFDSeek(buffer []byte) (fd FD, seekOffset FileDelta, whence Whence, offset FileSize, errno Errno, err error) {
@@ -481,7 +559,9 @@ func (c *Codec) DecodeFDSeek(buffer []byte) (fd FD, seekOffset FileDelta, whence
 	if whence, buffer, err = decodeWhence(buffer); err != nil {
 		return
 	}
-	offset, buffer, err = decodeFileSize(buffer)
+	if errno == ESUCCESS {
+		offset, buffer, err = decodeFileSize(buffer)
+	}
 	return
 }
 
@@ -501,7 +581,10 @@ func (c *Codec) DecodeFDSync(buffer []byte) (fd FD, errno Errno, err error) {
 func (c *Codec) EncodeFDTell(buffer []byte, fd FD, offset FileSize, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	return encodeFileSize(buffer, offset)
+	if errno == ESUCCESS {
+		buffer = encodeFileSize(buffer, offset)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeFDTell(buffer []byte) (fd FD, offset FileSize, errno Errno, err error) {
@@ -511,7 +594,9 @@ func (c *Codec) DecodeFDTell(buffer []byte) (fd FD, offset FileSize, errno Errno
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	offset, buffer, err = decodeFileSize(buffer)
+	if errno == ESUCCESS {
+		offset, buffer, err = decodeFileSize(buffer)
+	}
 	return
 }
 
@@ -519,7 +604,10 @@ func (c *Codec) EncodeFDWrite(buffer []byte, fd FD, iovecs []IOVec, size Size, e
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeIOVecs(buffer, iovecs)
-	return encodeSize(buffer, size)
+	if errno == ESUCCESS {
+		buffer = encodeSize(buffer, size)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeFDWrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, size Size, errno Errno, err error) {
@@ -532,7 +620,9 @@ func (c *Codec) DecodeFDWrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, 
 	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
 		return
 	}
-	size, buffer, err = decodeSize(buffer)
+	if errno == ESUCCESS {
+		size, buffer, err = decodeSize(buffer)
+	}
 	return fd, iovecs, size, errno, err
 }
 
@@ -558,7 +648,10 @@ func (c *Codec) EncodePathFileStatGet(buffer []byte, fd FD, lookupFlags LookupFl
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeLookupFlags(buffer, lookupFlags)
 	buffer = encodeString(buffer, path)
-	return encodeFileStat(buffer, fileStat)
+	if errno == ESUCCESS {
+		buffer = encodeFileStat(buffer, fileStat)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodePathFileStatGet(buffer []byte) (fd FD, lookupFlags LookupFlags, path string, fileStat FileStat, errno Errno, err error) {
@@ -574,7 +667,9 @@ func (c *Codec) DecodePathFileStatGet(buffer []byte) (fd FD, lookupFlags LookupF
 	if path, buffer, err = decodeString(buffer); err != nil {
 		return
 	}
-	fileStat, buffer, err = decodeFileStat(buffer)
+	if errno == ESUCCESS {
+		fileStat, buffer, err = decodeFileStat(buffer)
+	}
 	return
 }
 
@@ -649,7 +744,10 @@ func (c *Codec) EncodePathOpen(buffer []byte, fd FD, dirFlags LookupFlags, path 
 	buffer = encodeRights(buffer, rightsBase)
 	buffer = encodeRights(buffer, rightsInheriting)
 	buffer = encodeFDFlags(buffer, fdFlags)
-	return encodeFD(buffer, newfd)
+	if errno == ESUCCESS {
+		buffer = encodeFD(buffer, newfd)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodePathOpen(buffer []byte) (fd FD, dirFlags LookupFlags, path string, openFlags OpenFlags, rightsBase, rightsInheriting Rights, fdFlags FDFlags, newfd FD, errno Errno, err error) {
@@ -674,7 +772,9 @@ func (c *Codec) DecodePathOpen(buffer []byte) (fd FD, dirFlags LookupFlags, path
 	if rightsInheriting, buffer, err = decodeRights(buffer); err != nil {
 		return
 	}
-	fdFlags, buffer, err = decodeFDFlags(buffer)
+	if errno == ESUCCESS {
+		fdFlags, buffer, err = decodeFDFlags(buffer)
+	}
 	return
 }
 
@@ -682,7 +782,10 @@ func (c *Codec) EncodePathReadLink(buffer []byte, fd FD, path string, output []b
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeString(buffer, path)
-	return encodeBytes(buffer, output)
+	if errno == ESUCCESS {
+		buffer = encodeBytes(buffer, output)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodePathReadLink(buffer []byte) (fd FD, path string, output []byte, errno Errno, err error) {
@@ -695,7 +798,9 @@ func (c *Codec) DecodePathReadLink(buffer []byte) (fd FD, path string, output []
 	if path, buffer, err = decodeString(buffer); err != nil {
 		return
 	}
-	output, buffer, err = decodeBytes(buffer)
+	if errno == ESUCCESS {
+		output, buffer, err = decodeBytes(buffer)
+	}
 	return
 }
 
@@ -779,7 +884,10 @@ func (c *Codec) DecodePathUnlinkFile(buffer []byte) (fd FD, path string, errno E
 func (c *Codec) EncodePollOneOff(buffer []byte, subscriptions []Subscription, events []Event, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeSubscriptions(buffer, subscriptions)
-	return encodeEvents(buffer, events)
+	if errno == ESUCCESS {
+		buffer = encodeEvents(buffer, events)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodePollOneOff(buffer []byte, subscriptions []Subscription, events []Event) (_ []Subscription, _ []Event, errno Errno, err error) {
@@ -789,8 +897,8 @@ func (c *Codec) DecodePollOneOff(buffer []byte, subscriptions []Subscription, ev
 	if subscriptions, buffer, err = decodeSubscriptions(buffer, subscriptions); err != nil {
 		return
 	}
-	if events, buffer, err = decodeEvents(buffer, events); err != nil {
-		return
+	if errno == ESUCCESS {
+		events, buffer, err = decodeEvents(buffer, events)
 	}
 	return subscriptions, events, errno, err
 }
@@ -848,7 +956,10 @@ func (c *Codec) EncodeSockAccept(buffer []byte, fd FD, flags FDFlags, newfd FD, 
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeFDFlags(buffer, flags)
-	return encodeFD(buffer, newfd)
+	if errno == ESUCCESS {
+		buffer = encodeFD(buffer, newfd)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD, errno Errno, err error) {
@@ -861,7 +972,9 @@ func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD,
 	if flags, buffer, err = decodeFDFlags(buffer); err != nil {
 		return
 	}
-	newfd, buffer, err = decodeFD(buffer)
+	if errno == ESUCCESS {
+		newfd, buffer, err = decodeFD(buffer)
+	}
 	return
 }
 
@@ -869,10 +982,15 @@ func (c *Codec) EncodeSockRecv(buffer []byte, fd FD, iovecs []IOVec, iflags RIFl
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	// TODO: only need to store the iovecs part that was actually populated
-	buffer = encodeIOVecs(buffer, iovecs)
+	if errno == ESUCCESS {
+		buffer = encodeIOVecs(buffer, iovecs)
+	}
 	buffer = encodeRIFlags(buffer, iflags)
-	buffer = encodeSize(buffer, size)
-	return encodeROFlags(buffer, oflags)
+	if errno == ESUCCESS {
+		buffer = encodeSize(buffer, size)
+		buffer = encodeROFlags(buffer, oflags)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeSockRecv(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, iflags RIFlags, size Size, oflags ROFlags, errno Errno, err error) {
@@ -882,16 +1000,20 @@ func (c *Codec) DecodeSockRecv(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec,
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
-		return
+	if errno == ESUCCESS {
+		if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
+			return
+		}
 	}
 	if iflags, buffer, err = decodeRIFlags(buffer); err != nil {
 		return
 	}
-	if size, buffer, err = decodeSize(buffer); err != nil {
-		return
+	if errno == ESUCCESS {
+		if size, buffer, err = decodeSize(buffer); err != nil {
+			return
+		}
+		oflags, buffer, err = decodeROFlags(buffer)
 	}
-	oflags, buffer, err = decodeROFlags(buffer)
 	return fd, iovecs, iflags, size, oflags, errno, err
 }
 
@@ -900,7 +1022,10 @@ func (c *Codec) EncodeSockSend(buffer []byte, fd FD, iovecs []IOVec, flags SIFla
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeIOVecs(buffer, iovecs)
 	buffer = encodeSIFlags(buffer, flags)
-	return encodeSize(buffer, size)
+	if errno == ESUCCESS {
+		buffer = encodeSize(buffer, size)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeSockSend(buffer []byte) (fd FD, iovecs []IOVec, flags SIFlags, size Size, errno Errno, err error) {
@@ -916,7 +1041,9 @@ func (c *Codec) DecodeSockSend(buffer []byte) (fd FD, iovecs []IOVec, flags SIFl
 	if flags, buffer, err = decodeSIFlags(buffer); err != nil {
 		return
 	}
-	size, buffer, err = decodeSize(buffer)
+	if errno == ESUCCESS {
+		size, buffer, err = decodeSize(buffer)
+	}
 	return fd, iovecs, flags, size, errno, err
 }
 
@@ -944,7 +1071,10 @@ func (c *Codec) EncodeSockOpen(buffer []byte, family ProtocolFamily, socketType 
 	buffer = encodeProtocol(buffer, protocol)
 	buffer = encodeRights(buffer, rightsBase)
 	buffer = encodeRights(buffer, rightsInheriting)
-	return encodeFD(buffer, fd)
+	if errno == ESUCCESS {
+		buffer = encodeFD(buffer, fd)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeSockOpen(buffer []byte) (family ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase, rightsInheriting Rights, fd FD, errno Errno, err error) {
@@ -966,7 +1096,9 @@ func (c *Codec) DecodeSockOpen(buffer []byte) (family ProtocolFamily, socketType
 	if rightsInheriting, buffer, err = decodeRights(buffer); err != nil {
 		return
 	}
-	fd, buffer, err = decodeFD(buffer)
+	if errno == ESUCCESS {
+		fd, buffer, err = decodeFD(buffer)
+	}
 	return
 }
 
@@ -1027,7 +1159,10 @@ func (c *Codec) EncodeSockSendTo(buffer []byte, fd FD, iovecs []IOVec, iflags SI
 	buffer = encodeIOVecs(buffer, iovecs)
 	buffer = encodeSIFlags(buffer, iflags)
 	buffer = encodeAddr(buffer, addr)
-	return encodeSize(buffer, size)
+	if errno == ESUCCESS {
+		buffer = encodeSize(buffer, size)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeSockSendTo(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, iflags SIFlags, addr SocketAddress, size Size, errno Errno, err error) {
@@ -1046,19 +1181,26 @@ func (c *Codec) DecodeSockSendTo(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVe
 	if addr, buffer, err = decodeAddr(buffer); err != nil {
 		return
 	}
-	size, buffer, err = decodeSize(buffer)
+	if errno == ESUCCESS {
+		size, buffer, err = decodeSize(buffer)
+	}
 	return fd, iovecs, iflags, addr, size, errno, err
 }
 
 func (c *Codec) EncodeSockRecvFrom(buffer []byte, fd FD, iovecs []IOVec, iflags RIFlags, size Size, oflags ROFlags, addr SocketAddress, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	// TODO: only need to store the iovecs part that was actually populated
-	buffer = encodeIOVecs(buffer, iovecs)
+	if errno == ESUCCESS {
+		// TODO: only need to store the iovecs part that was actually populated
+		buffer = encodeIOVecs(buffer, iovecs)
+	}
 	buffer = encodeRIFlags(buffer, iflags)
-	buffer = encodeSize(buffer, size)
-	buffer = encodeROFlags(buffer, oflags)
-	return encodeAddr(buffer, addr)
+	if errno == ESUCCESS {
+		buffer = encodeSize(buffer, size)
+		buffer = encodeROFlags(buffer, oflags)
+		buffer = encodeAddr(buffer, addr)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeSockRecvFrom(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, iflags RIFlags, size Size, oflags ROFlags, addr SocketAddress, errno Errno, err error) {
@@ -1068,19 +1210,23 @@ func (c *Codec) DecodeSockRecvFrom(buffer []byte, iovecs []IOVec) (fd FD, _ []IO
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
-		return
+	if errno == ESUCCESS {
+		if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
+			return
+		}
 	}
 	if iflags, buffer, err = decodeRIFlags(buffer); err != nil {
 		return
 	}
-	if size, buffer, err = decodeSize(buffer); err != nil {
-		return
+	if errno == ESUCCESS {
+		if size, buffer, err = decodeSize(buffer); err != nil {
+			return
+		}
+		if oflags, buffer, err = decodeROFlags(buffer); err != nil {
+			return
+		}
+		addr, buffer, err = decodeAddr(buffer)
 	}
-	if oflags, buffer, err = decodeROFlags(buffer); err != nil {
-		return
-	}
-	addr, buffer, err = decodeAddr(buffer)
 	return fd, iovecs, iflags, size, oflags, addr, errno, err
 }
 
@@ -1089,7 +1235,10 @@ func (c *Codec) EncodeSockGetOptInt(buffer []byte, fd FD, level SocketOptionLeve
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeSocketOptionLevel(buffer, level)
 	buffer = encodeSocketOption(buffer, option)
-	return encodeInt(buffer, value)
+	if errno == ESUCCESS {
+		buffer = encodeInt(buffer, value)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeSockGetOptInt(buffer []byte) (fd FD, level SocketOptionLevel, option SocketOption, value int, errno Errno, err error) {
@@ -1105,7 +1254,9 @@ func (c *Codec) DecodeSockGetOptInt(buffer []byte) (fd FD, level SocketOptionLev
 	if option, buffer, err = decodeSocketOption(buffer); err != nil {
 		return
 	}
-	value, buffer, err = decodeInt(buffer)
+	if errno == ESUCCESS {
+		value, buffer, err = decodeInt(buffer)
+	}
 	return
 }
 
@@ -1137,7 +1288,10 @@ func (c *Codec) DecodeSockSetOptInt(buffer []byte) (fd FD, level SocketOptionLev
 func (c *Codec) EncodeSockLocalAddress(buffer []byte, fd FD, addr SocketAddress, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	return encodeAddr(buffer, addr)
+	if errno == ESUCCESS {
+		buffer = encodeAddr(buffer, addr)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeSockLocalAddress(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
@@ -1147,14 +1301,19 @@ func (c *Codec) DecodeSockLocalAddress(buffer []byte) (fd FD, addr SocketAddress
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	addr, buffer, err = decodeAddr(buffer)
+	if errno == ESUCCESS {
+		addr, buffer, err = decodeAddr(buffer)
+	}
 	return
 }
 
 func (c *Codec) EncodeSockPeerAddress(buffer []byte, fd FD, addr SocketAddress, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	return encodeAddr(buffer, addr)
+	if errno == ESUCCESS {
+		buffer = encodeAddr(buffer, addr)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeSockPeerAddress(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
@@ -1164,7 +1323,9 @@ func (c *Codec) DecodeSockPeerAddress(buffer []byte) (fd FD, addr SocketAddress,
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	addr, buffer, err = decodeAddr(buffer)
+	if errno == ESUCCESS {
+		addr, buffer, err = decodeAddr(buffer)
+	}
 	return
 }
 
