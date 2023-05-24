@@ -15,8 +15,10 @@ import (
 // The system calls are sealed so there's no need for forwards or backwards
 // compatibility. Rather than use protobuf or flatbuffers or similar, we use
 // simple bespoke encoders. We aren't too concerned with succinctness since
-// the records are ultimately compressed, but it should be easy to experiment
-// with different encodings (e.g. varints) by changing the helpers.
+// the records are ultimately compressed. Experiments showed that using varints
+// in the base {en,de}codeU{32,64} helpers did not lead to a meaningful
+// decrease in the size of the logs.
+//
 // There are also other ways to reduce the size of encoded records, for
 // example avoiding storing return values other than errno when errno!=0.
 type Codec struct{}
