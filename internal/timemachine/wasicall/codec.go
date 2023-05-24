@@ -1238,7 +1238,7 @@ func decodeStrings(buffer []byte, strings []string) (_ []string, _ []byte, err e
 	if count, buffer, err = decodeU32(buffer); err != nil {
 		return
 	}
-	if uint32(len(strings)) < count {
+	if uint32(cap(strings)) < count {
 		strings = make([]string, count)
 	} else {
 		strings = strings[:count]
@@ -1265,7 +1265,7 @@ func decodeIOVecs(buffer []byte, iovecs []IOVec) (_ []IOVec, _ []byte, err error
 	if count, buffer, err = decodeU32(buffer); err != nil {
 		return
 	}
-	if uint32(len(iovecs)) < count {
+	if uint32(cap(iovecs)) < count {
 		iovecs = make([]IOVec, count)
 	} else {
 		iovecs = iovecs[:count]
@@ -1775,7 +1775,7 @@ func decodeSubscriptions(buffer []byte, subscriptions []Subscription) (_ []Subsc
 	if count, buffer, err = decodeU32(buffer); err != nil {
 		return
 	}
-	if uint32(len(subscriptions)) < count {
+	if uint32(cap(subscriptions)) < count {
 		subscriptions = make([]Subscription, count)
 	} else {
 		subscriptions = subscriptions[:count]
@@ -1802,7 +1802,7 @@ func decodeEvents(buffer []byte, events []Event) (_ []Event, _ []byte, err error
 	if count, buffer, err = decodeU32(buffer); err != nil {
 		return
 	}
-	if uint32(len(events)) < count {
+	if uint32(cap(events)) < count {
 		events = make([]Event, count)
 	} else {
 		events = events[:count]
@@ -1850,7 +1850,7 @@ func decodeDirEntries(buffer []byte, entries []DirEntry) (_ []DirEntry, _ []byte
 	if count, buffer, err = decodeU32(buffer); err != nil {
 		return
 	}
-	if uint32(len(entries)) < count {
+	if uint32(cap(entries)) < count {
 		entries = make([]DirEntry, count)
 	} else {
 		entries = entries[:count]
