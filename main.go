@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	_ "net/http/pprof"
 	"os"
 
 	"github.com/stealthrocket/timecraft/internal/cmd"
