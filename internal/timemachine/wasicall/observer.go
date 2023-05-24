@@ -18,9 +18,24 @@ var _ SocketsExtension = (*Observer)(nil)
 
 func (o *Observer) ArgsSizesGet(ctx context.Context) (int, int, Errno) {
 	argCount, stringBytes, errno := o.system.ArgsSizesGet(ctx)
+	o.observe(ctx, &ArgsSizesGetSyscall{argCount, stringBytes, errno})
+	return argCount, stringBytes, errno
+}
 
-	// TODO: construct Syscall
-	// TODO: call observe()
+func (o *Observer) ArgsGet(ctx context.Context) ([]string, Errno) {
+	args, errno := o.system.ArgsGet(ctx)
+	o.observe(ctx, &ArgsGetSyscall{args, errno})
+	return args, errno
+}
 
-	panic("not implemented")
+func (o *Observer) EnvironSizesGet(ctx context.Context) (int, int, Errno) {
+	envCount, stringBytes, errno := o.system.EnvironSizesGet(ctx)
+	o.observe(ctx, &EnvironSizesGetSyscall{envCount, stringBytes, errno})
+	return envCount, stringBytes, errno
+}
+
+func (o *Observer) EnvironGet(ctx context.Context) ([]string, Errno) {
+	env, errno := o.system.EnvironGet(ctx)
+	o.observe(ctx, &EnvironGetSyscall{env, errno})
+	return env, errno
 }

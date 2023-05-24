@@ -3,7 +3,7 @@ package wasicall
 import (
 	"fmt"
 
-	"github.com/stealthrocket/wasi-go"
+	. "github.com/stealthrocket/wasi-go"
 )
 
 // Syscall is a system call.
@@ -17,14 +17,61 @@ type Syscall interface {
 	// Params is the set of input parameters.
 	Params() []any
 
-	// Results it the set of return values.
+	// Results is the set of return values.
 	Results() []any
 
-	// Errno is the system call error.
-	Errno() wasi.Errno
+	// Error is the system call error, or ESUCCESS if no
+	// error occurred.
+	Error() Errno
 
 	private()
 }
+
+type ArgsSizesGetSyscall struct {
+	ArgCount    int
+	StringBytes int
+	Errno       Errno
+}
+
+func (s *ArgsSizesGetSyscall) ID() SyscallID  { return ArgsSizesGet }
+func (s *ArgsSizesGetSyscall) Params() []any  { return nil }
+func (s *ArgsSizesGetSyscall) Results() []any { return []any{s.ArgCount, s.StringBytes, s.Errno} }
+func (s *ArgsSizesGetSyscall) Error() Errno   { return s.Errno }
+func (s *ArgsSizesGetSyscall) private()       {}
+
+type ArgsGetSyscall struct {
+	Args  []string
+	Errno Errno
+}
+
+func (s *ArgsGetSyscall) ID() SyscallID  { return ArgsGet }
+func (s *ArgsGetSyscall) Params() []any  { return nil }
+func (s *ArgsGetSyscall) Results() []any { return []any{s.Args, s.Errno} }
+func (s *ArgsGetSyscall) Error() Errno   { return s.Errno }
+func (s *ArgsGetSyscall) private()       {}
+
+type EnvironSizesGetSyscall struct {
+	EnvCount    int
+	StringBytes int
+	Errno       Errno
+}
+
+func (s *EnvironSizesGetSyscall) ID() SyscallID  { return EnvironSizesGet }
+func (s *EnvironSizesGetSyscall) Params() []any  { return nil }
+func (s *EnvironSizesGetSyscall) Results() []any { return []any{s.EnvCount, s.StringBytes, s.Errno} }
+func (s *EnvironSizesGetSyscall) Error() Errno   { return s.Errno }
+func (s *EnvironSizesGetSyscall) private()       {}
+
+type EnvironGetSyscall struct {
+	Env   []string
+	Errno Errno
+}
+
+func (s *EnvironGetSyscall) ID() SyscallID  { return EnvironGet }
+func (s *EnvironGetSyscall) Params() []any  { return nil }
+func (s *EnvironGetSyscall) Results() []any { return []any{s.Env, s.Errno} }
+func (s *EnvironGetSyscall) Error() Errno   { return s.Errno }
+func (s *EnvironGetSyscall) private()       {}
 
 // SyscallID is a system call identifier.
 type SyscallID int
