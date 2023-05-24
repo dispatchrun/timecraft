@@ -2,10 +2,8 @@ package wasicall
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
-	"math"
 	"unsafe"
 
 	. "github.com/stealthrocket/wasi-go"
@@ -1167,29 +1165,25 @@ func (c *Codec) DecodeSockPeerAddress(buffer []byte) (fd FD, addr SocketAddress,
 }
 
 func encodeU32(b []byte, v uint32) []byte {
-	return binary.AppendUvarint(b, uint64(v))
+	return binary.LittleEndian.AppendUint32(b, v)
 }
 
 func decodeU32(b []byte) (uint32, []byte, error) {
-	v, length := binary.Uvarint(b)
-	if length <= 0 {
+	if len(b) < 4 {
 		return 0, nil, io.ErrShortBuffer
-	} else if v > math.MaxUint32 {
-		return 0, nil, errors.New("overflow decoding U32 varint")
 	}
-	return uint32(v), b[length:], nil
+	return binary.LittleEndian.Uint32(b), b[4:], nil
 }
 
 func encodeU64(b []byte, v uint64) []byte {
-	return binary.AppendUvarint(b, v)
+	return binary.LittleEndian.AppendUint64(b, v)
 }
 
 func decodeU64(b []byte) (uint64, []byte, error) {
-	v, length := binary.Uvarint(b)
-	if length <= 0 {
+	if len(b) < 8 {
 		return 0, nil, io.ErrShortBuffer
 	}
-	return v, b[length:], nil
+	return binary.LittleEndian.Uint64(b), b[8:], nil
 }
 
 func encodeInt(b []byte, v int) []byte {
