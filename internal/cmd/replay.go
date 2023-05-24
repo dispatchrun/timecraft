@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
@@ -17,7 +16,7 @@ func replayUsage() {
 	fmt.Print(`timecraft replay - Replay a recorded trace of execution
 
 USAGE:
-   timecraft replay [OPTIONS]... <LOG> <MODULE>
+   timecraft replay [OPTIONS]... <ID>
 
 ARGS:
    <LOG>
@@ -29,52 +28,59 @@ ARGS:
 OPTIONS:
    -h, --help
       Show this usage information
+
+   --store <PATH>
+      Path to the directory where the timecraft object store is available
+      (default to ~/.timecraft/data)
 `)
 }
 
-func replay(args []string) error {
+func replay(ctx context.Context, args []string) error {
+	var (
+		store string
+	)
+
 	flagSet := flag.NewFlagSet("timecraft run", flag.ExitOnError)
 	flagSet.Usage = replayUsage
-
+	flagSet.StringVar(&store, "store", "~/.timecraft/data", "")
 	flagSet.Parse(args)
 
 	args = flagSet.Args()
-	if len(args) != 2 {
+	if len(args) != 1 {
 		replayUsage()
-		os.Exit(1)
+		return ExitCode(1)
 	}
-	logPath := args[0]
-	wasmPath := args[1]
 
-	logFile, err := os.Open(logPath)
+	processID, err := timemachine.ParseHash(args[0])
+	if err != nil {
+		replayUsage()
+		return err
+	}
+
+	timestore, err := openStore(store)
 	if err != nil {
 		return err
 	}
-	defer logFile.Close()
 
-	logReader := timemachine.NewLogReader(logFile)
+	logSegment, err := timestore.ReadLogSegment(ctx, processID, 0)
+	if err != nil {
+		return err
+	}
+	defer logSegment.Close()
+
+	logReader := timemachine.NewLogReader(logSegment)
 	defer logReader.Close()
 
-	logHeader, _, err := logReader.ReadLogHeader()
+	logHeader, err := logReader.ReadLogHeader()
 	if err != nil {
-		return fmt.Errorf("cannot read header from log %q: %w", logPath, err)
+		return fmt.Errorf("cannot read header from log of %s: %w", processID, err)
 	}
 
-	wasmCode, err := os.ReadFile(wasmPath)
+	wasmCode, err := timestore.ReadModule(ctx, logHeader.Process.Image)
 	if err != nil {
-		return fmt.Errorf("could not read WASM file '%s': %w", wasmPath, err)
+		return fmt.Errorf("cannot read module byte code of %s: %w", processID, err)
 	}
 
-	switch imageHash := logHeader.Process.Image; imageHash.Algorithm {
-	case "sha256":
-		if hash := timemachine.SHA256(wasmCode); hash != imageHash {
-			return fmt.Errorf("image hash mismatch for %q: got %s, expect %s", wasmPath, hash.Digest, imageHash.Digest)
-		}
-	default:
-		return fmt.Errorf("unsupported process image hash algorithm: %q", imageHash.Algorithm)
-	}
-
-	ctx := context.Background()
 	runtime := wazero.NewRuntime(ctx)
 	defer runtime.Close(ctx)
 
@@ -119,7 +125,6 @@ func replay(args []string) error {
 
 	// TODO: need to figure this out dynamically:
 	hostModule := wasi_snapshot_preview1.NewHostModule(wasi_snapshot_preview1.WasmEdgeV2)
-
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 

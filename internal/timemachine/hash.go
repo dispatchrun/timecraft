@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"strings"
 
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/types"
@@ -12,6 +13,25 @@ import (
 
 type Hash struct {
 	Algorithm, Digest string
+}
+
+func ParseHash(s string) (hash Hash, err error) {
+	var ok bool
+	hash.Algorithm, hash.Digest, ok = strings.Cut(s, ":")
+	if !ok {
+		return hash, fmt.Errorf("malformed hash: %q", s)
+	}
+	switch hash.Algorithm { // TODO: more validation + tests
+	case "sha256":
+	case "uuidv4":
+	default:
+		return hash, fmt.Errorf("unsupported hash algorithm: %q", s)
+	}
+	return hash, nil
+}
+
+func (h Hash) String() string {
+	return h.Algorithm + ":" + h.Digest
 }
 
 func SHA256(b []byte) Hash {

@@ -34,6 +34,10 @@ var (
 	// whether a method invocation from a Store instance failed due to being
 	// called on an object which did not exist.
 	ErrNotExist = fs.ErrNotExist
+
+	// ErrReadOnly is an error returned when attempting to create an object in
+	// a read-only store.
+	ErrReadOnly = errors.New("read only object store")
 )
 
 // Store is an interface abstracting an object storage layer.
@@ -78,6 +82,32 @@ type Info struct {
 	CreatedAt time.Time
 }
 
+// EmptyStore returns a Store instance representing an empty, read-only object
+// store.
+func EmptyStore() Store { return emptyStore{} }
+
+type emptyStore struct{}
+
+func (emptyStore) CreateObject(ctx context.Context, name string, data io.Reader) error {
+	return ErrReadOnly
+}
+
+func (emptyStore) ReadObject(ctx context.Context, name string) (io.ReadCloser, error) {
+	return nil, ErrNotExist
+}
+
+func (emptyStore) StatObject(ctx context.Context, name string) (Info, error) {
+	return Info{}, ErrNotExist
+}
+
+func (emptyStore) ListObjects(ctx context.Context, prefix string) Iter[Info] {
+	return EmptyIter[Info]()
+}
+
+func (emptyStore) DeleteObject(ctx context.Context, name string) error {
+	return nil
+}
+
 // DirOption represents options which may be applied when constructing an object
 // store from a local directory.
 type DirOption func(*dirStore)
@@ -94,17 +124,11 @@ func ReadDirBufferSize(n int) DirOption {
 // The function converts the directory location to an absolute path to decouple
 // the store from a change of the current working directory.
 //
-// The directory is created if it does not exist. The function will fail if the
-// parent directories do not exist or if a file exists at the given location.
+// The directory is not created if it does not exist.
 func DirStore(path string, opts ...DirOption) (Store, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
-	}
-	if err := os.Mkdir(absPath, 0777); err != nil {
-		if !errors.Is(err, fs.ErrExist) {
-			return nil, err
-		}
 	}
 	d := &dirStore{
 		root:              absPath,
@@ -185,14 +209,14 @@ func (store *dirStore) ListObjects(ctx context.Context, prefix string) Iter[Info
 	}
 	path, err := store.joinPath(prefix)
 	if err != nil {
-		return Err[Info](err)
+		return ErrorIter[Info](err)
 	}
 	dir, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return Empty[Info]()
+			return EmptyIter[Info]()
 		}
-		return Err[Info](err)
+		return ErrorIter[Info](err)
 	}
 	return &dirIter{
 		dir:  dir,

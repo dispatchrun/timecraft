@@ -42,8 +42,8 @@ func Items[T any](iter Iter[T]) ([]T, error) {
 	return items, iter.Close()
 }
 
-// Empty constructs an empty iterator over items of type T.
-func Empty[T any]() Iter[T] {
+// EmptyIter constructs an empty iterator over items of type T.
+func EmptyIter[T any]() Iter[T] {
 	return emptyIter[T]{}
 }
 
@@ -53,9 +53,9 @@ func (emptyIter[T]) Close() error { return nil }
 func (emptyIter[T]) Next() bool   { return false }
 func (emptyIter[T]) Item() (_ T)  { return }
 
-// Err constructs an iterator over items of type T which produces no items and
-// returns the given error when closed.
-func Err[T any](err error) Iter[T] {
+// ErrorIter constructs an iterator over items of type T which produces no items
+// and returns the given error when closed.
+func ErrorIter[T any](err error) Iter[T] {
 	return &errorIter[T]{err: err}
 }
 
@@ -64,3 +64,43 @@ type errorIter[T any] struct{ err error }
 func (it *errorIter[T]) Close() error { return it.err }
 func (it *errorIter[T]) Next() bool   { return false }
 func (it *errorIter[T]) Item() (_ T)  { return }
+
+// ConvertIter converts a sequence of items of type From to a sequence of items
+// of type To, using the conversion function passed as argument.
+func ConvertIter[To, From any](base Iter[From], conv func(From) (To, error)) Iter[To] {
+	return &convertIter[To, From]{base: base, conv: conv}
+}
+
+type convertIter[To, From any] struct {
+	base Iter[From]
+	conv func(From) (To, error)
+	item To
+	err  error
+}
+
+func (it *convertIter[To, From]) Close() error {
+	if err := it.base.Close(); err != nil {
+		return err
+	}
+	return it.err
+}
+
+func (it *convertIter[To, From]) Next() bool {
+	if it.err != nil {
+		return false
+	}
+	if !it.base.Next() {
+		return false
+	}
+	if item, err := it.conv(it.base.Item()); err != nil {
+		it.err = err
+		return false
+	} else {
+		it.item = item
+		return true
+	}
+}
+
+func (it *convertIter[To, From]) Item() To {
+	return it.item
+}

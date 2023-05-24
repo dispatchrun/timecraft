@@ -1,13 +1,30 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"os/user"
+	"path/filepath"
 	"runtime/debug"
+	"strings"
+
+	"github.com/stealthrocket/timecraft/internal/object"
+	"github.com/stealthrocket/timecraft/internal/timemachine"
 )
+
+// ExitCode is an error type returned from Root to indicate the exit code that
+// should be returned by the program.
+type ExitCode int
+
+func (e ExitCode) Error() string {
+	return fmt.Sprintf("exit: %d", e)
+}
 
 var version = "devel"
 
@@ -40,7 +57,7 @@ OPTIONS:
 }
 
 // Root is the timecraft entrypoint.
-func Root(args []string) error {
+func Root(ctx context.Context, args []string) error {
 	flagSet := flag.NewFlagSet("timecraft", flag.ExitOnError)
 	flagSet.Usage = rootUsage
 
@@ -67,9 +84,9 @@ func Root(args []string) error {
 
 	switch args[0] {
 	case "run":
-		return run(args[1:])
+		return run(ctx, args[1:])
 	case "replay":
-		return replay(args[1:])
+		return replay(ctx, args[1:])
 	default:
 		return fmt.Errorf("invalid command %q", args[0])
 	}
@@ -84,4 +101,40 @@ func (s stringList) String() string {
 func (s *stringList) Set(value string) error {
 	*s = append(*s, value)
 	return nil
+}
+
+func createStore(path string) (*timemachine.Store, error) {
+	path, err := resolvePath(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Mkdir(path, 0777); err != nil {
+		if !errors.Is(err, fs.ErrExist) {
+			return nil, err
+		}
+	}
+	return openStore(path)
+}
+
+func openStore(path string) (*timemachine.Store, error) {
+	path, err := resolvePath(path)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := object.DirStore(path)
+	if err != nil {
+		return nil, err
+	}
+	return timemachine.NewStore(dir), nil
+}
+
+func resolvePath(path string) (string, error) {
+	if strings.HasPrefix(path, "~") {
+		u, err := user.Current()
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(u.HomeDir, path[1:])
+	}
+	return path, nil
 }
