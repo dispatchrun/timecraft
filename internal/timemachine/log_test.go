@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stealthrocket/timecraft/internal/assert"
+	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/functioncall"
 )
@@ -52,14 +54,12 @@ func TestReadHeader(t *testing.T) {
 	r0 := bytes.NewReader(b.Bytes())
 	r1 := timemachine.NewLogReader(r0)
 
-	for i := 0; i < 10; i++ {
-		h, _, err := r1.ReadLogHeader()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if diff := cmp.Diff(header, h); diff != "" {
-			t.Fatal(diff)
-		}
+	h, err := r1.ReadLogHeader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(header, h); diff != "" {
+		t.Fatal(diff)
 	}
 }
 
@@ -176,7 +176,7 @@ func TestReadRecordBatch(t *testing.T) {
 
 	reader := timemachine.NewLogReader(bytes.NewReader(buffer.Bytes()))
 
-	headerRead, offset, err := reader.ReadLogHeader()
+	headerRead, err := reader.ReadLogHeader()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestReadRecordBatch(t *testing.T) {
 
 	batchesRead := make([][]record, 0, len(batches))
 	for {
-		batch, length, err := reader.ReadRecordBatch(headerRead, offset)
+		batch, err := reader.ReadRecordBatch(headerRead)
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -195,11 +195,11 @@ func TestReadRecordBatch(t *testing.T) {
 		}
 		records := make([]record, batch.NumRecords())
 		count := 0
-		for batch.Next() {
-			r, err := batch.Record()
-			if err != nil {
-				t.Fatal(err)
-			}
+		iter := stream.Iter[timemachine.Record](batch)
+
+		for iter.Next() {
+			r := iter.Value()
+
 			function, err := r.Function()
 			if err != nil {
 				t.Fatal(err)
@@ -226,9 +226,7 @@ func TestReadRecordBatch(t *testing.T) {
 					memoryAccess[i] = f.MemoryAccess(i)
 				}
 			}
-			if count >= len(records) {
-				t.Fatal("too many records")
-			}
+			assert.Less(t, count, len(records))
 			records[count] = record{
 				Timestamp:    r.Timestamp(),
 				FunctionID:   r.FunctionID(),
@@ -238,12 +236,12 @@ func TestReadRecordBatch(t *testing.T) {
 			}
 			count++
 		}
-		if count != len(records) {
-			t.Fatal("not enough records")
-		}
+
+		assert.OK(t, iter.Err())
+		assert.Equal(t, count, len(records))
 		batchesRead = append(batchesRead, records)
-		offset += length
 	}
+
 	if diff := cmp.Diff(batches, batchesRead); diff != "" {
 		t.Fatal(diff)
 	}
@@ -293,18 +291,6 @@ func BenchmarkLogReader(b *testing.B) {
 	if err := writer.WriteLogHeader(&headerBuilder); err != nil {
 		b.Fatal(err)
 	}
-
-	b.Run("ReadLogHeader", func(b *testing.B) {
-		r0 := bytes.NewReader(buffer.Bytes())
-		r1 := timemachine.NewLogReader(r0)
-
-		for i := 0; i < b.N; i++ {
-			_, _, err := r1.ReadLogHeader()
-			if err != nil {
-				b.Fatal(i, err)
-			}
-		}
-	})
 }
 
 func BenchmarkLogWriter(b *testing.B) {

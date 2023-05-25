@@ -5,8 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 
+	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	. "github.com/stealthrocket/wasi-go"
 	"github.com/tetratelabs/wazero/sys"
@@ -34,7 +34,7 @@ import (
 // were encountered. In this case, the error will implement
 // interface{ Unwrap() []error }.
 type Replay struct {
-	reader timemachine.RecordReader
+	records stream.Iterator[timemachine.Record]
 
 	// Codec is used to encode and decode system call inputs and outputs.
 	// It's not configurable at this time.
@@ -55,19 +55,16 @@ type Replay struct {
 	subscriptions []Subscription
 	events        []Event
 	entries       []DirEntry
-
-	eof bool
 }
 
 var _ System = (*Replay)(nil)
 var _ SocketsExtension = (*Replay)(nil)
 
 // NewReplay creates a Replay.
-func NewReplay(reader timemachine.RecordReader) *Replay {
-	return &Replay{
-		reader: reader,
-		strict: true,
-	}
+func NewReplay(records stream.Reader[timemachine.Record]) *Replay {
+	r := &Replay{strict: true}
+	r.records.Reset(records)
+	return r
 }
 
 func (r *Replay) Preopen(hostfd int, path string, fdstat FDStat) FD {
@@ -78,26 +75,18 @@ func (r *Replay) Register(hostfd int, fdstat FDStat) FD {
 	panic("Replay cannot Register")
 }
 
-func (r *Replay) readRecord(syscall SyscallID) (*timemachine.Record, bool) {
-	if r.eof {
-		return nil, false
-	}
-	record, err := r.reader.ReadRecord()
-	if err != nil {
-		if err == io.EOF {
-			r.eof = true
-			return nil, false
+func (r *Replay) readRecord(syscall SyscallID) (timemachine.Record, bool) {
+	if !r.records.Next() {
+		if err := r.records.Err(); err != nil {
+			panic(&ReadError{err})
 		}
-		panic(&ReadError{err})
+		return timemachine.Record{}, false
 	}
+	record := r.records.Value()
 	if recordSyscall := SyscallID(record.FunctionID()); recordSyscall != syscall {
 		panic(&UnexpectedSyscallError{recordSyscall, syscall})
 	}
 	return record, true
-}
-
-func (r *Replay) EOF() bool {
-	return r.eof
 }
 
 func (r *Replay) ArgsSizesGet(ctx context.Context) (int, int, Errno) {
@@ -1411,7 +1400,7 @@ func (r *Replay) Close(ctx context.Context) error {
 type ReadError struct{ error }
 
 type DecodeError struct {
-	Record *timemachine.Record
+	Record timemachine.Record
 	error
 }
 

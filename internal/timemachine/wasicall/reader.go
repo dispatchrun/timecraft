@@ -2,8 +2,10 @@ package wasicall
 
 import (
 	"fmt"
+	"io"
 	"time"
 
+	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/wasi-go"
 )
@@ -14,9 +16,8 @@ import (
 // consumption of log records, and is required for offline consumption
 // and analysis.
 type Reader struct {
-	reader timemachine.RecordReader
-
-	codec Codec
+	records stream.Iterator[timemachine.Record]
+	codec   Codec
 
 	// Cache for decoded slices.
 	args          []string
@@ -27,16 +28,23 @@ type Reader struct {
 }
 
 // NewReader creates a Reader.
-func NewReader(recordReader timemachine.RecordReader) *Reader {
-	return &Reader{reader: recordReader}
+func NewReader(records stream.Reader[timemachine.Record]) *Reader {
+	r := &Reader{}
+	r.records.Reset(records)
+	return r
 }
 
 // ReadSyscall reads a recorded system call.
 func (r *Reader) ReadSyscall() (time.Time, Syscall, error) {
-	record, err := r.reader.ReadRecord()
-	if err != nil {
+	if !r.records.Next() {
+		err := r.records.Err()
+		if err == nil {
+			err = io.EOF
+		}
 		return time.Time{}, nil, err
 	}
+
+	record := r.records.Value()
 	// TODO: eliminate allocations by caching the Syscall
 	//  instances on *Reader
 	var syscall Syscall
