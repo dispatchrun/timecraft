@@ -31,9 +31,6 @@ ARGS:
       Arguments to pass to the module
 
 OPTIONS:
-   --record <LOG>
-      Record a trace of execution to a log at the specified path
-
    --compression <TYPE>
       Compression to use when writing the log, either {snappy, zstd,
       none}. Default is zstd
@@ -54,9 +51,16 @@ OPTIONS:
    --env <NAME=VAL>
       Pass an environment variable to the module
 
+   --record
+      Enable recording of the module execution
+
    --sockets <NAME>
       Enable a sockets extension, either {none, auto, path_open,
       wasmedgev1, wasmedgev2}. Default is auto
+
+   --store <PATH>
+      Path to the directory where the timecraft object store is available
+      (default to ~/.timecraft/data)
 
    --trace
       Enable logging of system calls (like strace)
@@ -66,30 +70,43 @@ OPTIONS:
 `)
 }
 
-func run(args []string) error {
+func run(ctx context.Context, args []string) error {
 	flagSet := flag.NewFlagSet("timecraft run", flag.ExitOnError)
 	flagSet.Usage = runUsage
 
-	var envs stringList
-	var dirs stringList
-	var listens stringList
-	var dials stringList
+	var (
+		envs        stringList
+		dirs        stringList
+		listens     stringList
+		dials       stringList
+		batchSize   int
+		compression string
+		sockets     string
+		store       string
+		record      bool
+		trace       bool
+	)
 	flagSet.Var(&envs, "env", "")
 	flagSet.Var(&dirs, "dir", "")
 	flagSet.Var(&listens, "listen", "")
 	flagSet.Var(&dials, "dial", "")
-	sockets := flagSet.String("sockets", "auto", "")
-	trace := flagSet.Bool("trace", false, "")
-	logPath := flagSet.String("record", "", "")
-	compression := flagSet.String("compression", "zstd", "")
-	batchSize := flagSet.Int("batch-size", 4096, "")
-
+	flagSet.StringVar(&compression, "compression", "zstd", "")
+	flagSet.StringVar(&sockets, "sockets", "auto", "")
+	flagSet.StringVar(&store, "store", "~/.timecraft/data", "")
+	flagSet.BoolVar(&trace, "trace", false, "")
+	flagSet.BoolVar(&record, "record", false, "")
+	flagSet.IntVar(&batchSize, "batch-size", 4096, "")
 	flagSet.Parse(args)
 
 	args = flagSet.Args()
 	if len(args) == 0 {
 		runUsage()
-		os.Exit(1)
+		return ExitCode(1)
+	}
+
+	timestore, err := createStore(store)
+	if err != nil {
+		return err
 	}
 
 	wasmPath := args[0]
@@ -104,7 +121,6 @@ func run(args []string) error {
 		args = args[1:]
 	}
 
-	ctx := context.Background()
 	runtime := wazero.NewRuntime(ctx)
 	defer runtime.Close(ctx)
 
@@ -121,17 +137,35 @@ func run(args []string) error {
 		WithDirs(dirs...).
 		WithListens(listens...).
 		WithDials(dials...).
-		WithSocketsExtension(*sockets, wasmModule).
-		WithTracer(*trace, os.Stderr)
+		WithSocketsExtension(sockets, wasmModule).
+		WithTracer(trace, os.Stderr)
 
-	if *logPath != "" {
-		logFile, err := os.Create(*logPath)
-		if err != nil {
-			return fmt.Errorf("failed to open log file %q: %w", *logPath, err)
+	if record {
+		var c timemachine.Compression
+		switch strings.ToLower(compression) {
+		case "snappy":
+			c = timemachine.Snappy
+		case "zstd":
+			c = timemachine.Zstd
+		case "none", "":
+			c = timemachine.Uncompressed
+		default:
+			return fmt.Errorf("invalid compression type %q", compression)
 		}
-		defer logFile.Close()
 
-		logWriter := timemachine.NewLogWriter(logFile)
+		processID := timemachine.UUIDv4(rand.Reader)
+		moduleID := timemachine.SHA256(wasmCode)
+		defer fmt.Println(processID)
+
+		if err := timestore.CreateModule(ctx, moduleID, wasmCode); err != nil {
+			return err
+		}
+		logSegment, err := timestore.CreateLogSegment(ctx, processID, 0)
+		if err != nil {
+			return err
+		}
+		defer logSegment.Close()
+		logWriter := timemachine.NewLogWriter(logSegment)
 
 		var functions timemachine.FunctionIndex
 		importedFunctions := wasmModule.ImportedFunctions()
@@ -156,31 +190,19 @@ func run(args []string) error {
 		})
 		startTime := time.Now()
 		header.SetProcess(timemachine.Process{
-			ID:        timemachine.UUIDv4(rand.Reader),
-			Image:     timemachine.SHA256(wasmCode),
+			ID:        processID,
+			Image:     moduleID,
 			StartTime: startTime,
 			Args:      append([]string{wasmName}, args...),
 			Environ:   envs,
 		})
-
-		var c timemachine.Compression
-		switch strings.ToLower(*compression) {
-		case "snappy":
-			c = timemachine.Snappy
-		case "zstd":
-			c = timemachine.Zstd
-		case "none", "":
-			c = timemachine.Uncompressed
-		default:
-			return fmt.Errorf("invalid compression type %q", *compression)
-		}
 		header.SetCompression(c)
 
 		if err := logWriter.WriteLogHeader(&header); err != nil {
 			return fmt.Errorf("failed to write log header: %w", err)
 		}
 
-		recordWriter := timemachine.NewLogRecordWriter(logWriter, *batchSize, c)
+		recordWriter := timemachine.NewLogRecordWriter(logWriter, batchSize, c)
 		defer recordWriter.Flush()
 
 		builder = builder.WithWrappers(func(s wasi.System) wasi.System {
