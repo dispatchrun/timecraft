@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"crypto/rand"
 	"flag"
 	"fmt"
 	"os"
@@ -10,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
@@ -60,7 +62,7 @@ OPTIONS:
 
    --store <PATH>
       Path to the directory where the timecraft object store is available
-      (default to ~/.timecraft/data)
+      (default to ~/.timecraft)
 
    --trace
       Enable logging of system calls (like strace)
@@ -92,7 +94,7 @@ func run(ctx context.Context, args []string) error {
 	flagSet.Var(&dials, "dial", "")
 	flagSet.StringVar(&compression, "compression", "zstd", "")
 	flagSet.StringVar(&sockets, "sockets", "auto", "")
-	flagSet.StringVar(&store, "store", "~/.timecraft/data", "")
+	flagSet.StringVar(&store, "store", "~/.timecraft", "")
 	flagSet.BoolVar(&trace, "trace", false, "")
 	flagSet.BoolVar(&record, "record", false, "")
 	flagSet.IntVar(&batchSize, "batch-size", 4096, "")
@@ -153,38 +155,53 @@ func run(ctx context.Context, args []string) error {
 			return fmt.Errorf("invalid compression type %q", compression)
 		}
 
-		processID := timemachine.UUIDv4(rand.Reader)
-		moduleID := timemachine.SHA256(wasmCode)
-		defer fmt.Println(processID)
+		processID := uuid.New()
+		startTime := time.Now()
 
-		if err := timestore.CreateModule(ctx, moduleID, wasmCode); err != nil {
+		module, err := timestore.CreateModule(ctx, format.Module(wasmCode))
+		if err != nil {
 			return err
 		}
+
+		runtime, err := timestore.CreateRuntime(ctx, &format.Runtime{
+			Version: version,
+		})
+		if err != nil {
+			return err
+		}
+
+		config, err := timestore.CreateConfig(ctx, &format.Config{
+			Runtime: runtime,
+			Modules: []*format.Descriptor{module},
+			Args:    append([]string{wasmName}, args...),
+			Env:     envs,
+		})
+		if err != nil {
+			return err
+		}
+
+		process, err := timestore.CreateProcess(ctx, &format.Process{
+			ID:        processID,
+			StartTime: startTime,
+			Config:    config,
+		})
+		if err != nil {
+			return err
+		}
+
+		if err := timestore.CreateLogManifest(ctx, processID, &format.Manifest{
+			Process:   process,
+			StartTime: startTime,
+		}); err != nil {
+			return err
+		}
+
 		logSegment, err := timestore.CreateLogSegment(ctx, processID, 0)
 		if err != nil {
 			return err
 		}
 		defer logSegment.Close()
 		logWriter := timemachine.NewLogWriter(logSegment)
-
-		var header timemachine.HeaderBuilder
-		header.SetRuntime(timemachine.Runtime{
-			Runtime: "timecraft",
-			Version: version,
-		})
-		startTime := time.Now()
-		header.SetProcess(timemachine.Process{
-			ID:        processID,
-			Image:     moduleID,
-			StartTime: startTime,
-			Args:      append([]string{wasmName}, args...),
-			Environ:   envs,
-		})
-		header.SetCompression(c)
-
-		if err := logWriter.WriteLogHeader(&header); err != nil {
-			return fmt.Errorf("failed to write log header: %w", err)
-		}
 
 		recordWriter := timemachine.NewLogRecordWriter(logWriter, batchSize, c)
 		defer recordWriter.Flush()
@@ -196,6 +213,8 @@ func run(ctx context.Context, args []string) error {
 				}
 			})
 		})
+
+		defer fmt.Println(processID)
 	}
 
 	var system wasi.System
@@ -205,9 +224,18 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer system.Close(ctx)
 
-	instance, err := runtime.InstantiateModule(ctx, wasmModule, wazero.NewModuleConfig())
+	instance, err := runtime.InstantiateModule(ctx, wasmModule, wazero.NewModuleConfig().
+		WithStartFunctions())
 	if err != nil {
 		return err
+	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	go func() {
+		_, err := instance.ExportedFunction("_start").Call(ctx)
+		cancel(err)
+	}()
+	if <-ctx.Done(); ctx.Err() != nil {
+		fmt.Println()
 	}
 	return instance.Close(ctx)
 }

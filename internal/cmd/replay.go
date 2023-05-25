@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
@@ -31,7 +33,7 @@ OPTIONS:
 
    --store <PATH>
       Path to the directory where the timecraft object store is available
-      (default to ~/.timecraft/data)
+      (default to ~/.timecraft)
 `)
 }
 
@@ -42,7 +44,7 @@ func replay(ctx context.Context, args []string) error {
 
 	flagSet := flag.NewFlagSet("timecraft run", flag.ExitOnError)
 	flagSet.Usage = replayUsage
-	flagSet.StringVar(&store, "store", "~/.timecraft/data", "")
+	flagSet.StringVar(&store, "store", "~/.timecraft", "")
 	flagSet.Parse(args)
 
 	args = flagSet.Args()
@@ -51,7 +53,7 @@ func replay(ctx context.Context, args []string) error {
 		return ExitCode(1)
 	}
 
-	processID, err := timemachine.ParseHash(args[0])
+	processID, err := uuid.Parse(args[0])
 	if err != nil {
 		replayUsage()
 		return err
@@ -62,33 +64,40 @@ func replay(ctx context.Context, args []string) error {
 		return err
 	}
 
+	manifest, err := timestore.LookupLogManifest(ctx, processID)
+	if err != nil {
+		return err
+	}
+	process, err := timestore.LookupProcess(ctx, manifest.Process.Digest)
+	if err != nil {
+		return err
+	}
+	config, err := timestore.LookupConfig(ctx, process.Config.Digest)
+	if err != nil {
+		return err
+	}
+	module, err := timestore.LookupModule(ctx, config.Modules[0].Digest)
+	if err != nil {
+		return err
+	}
+
 	logSegment, err := timestore.ReadLogSegment(ctx, processID, 0)
 	if err != nil {
 		return err
 	}
 	defer logSegment.Close()
 
-	logReader := timemachine.NewLogReader(logSegment)
+	logReader := timemachine.NewLogReader(logSegment, manifest.StartTime)
 	defer logReader.Close()
-
-	logHeader, err := logReader.ReadLogHeader()
-	if err != nil {
-		return fmt.Errorf("cannot read header from log of %s: %w", processID, err)
-	}
-
-	wasmCode, err := timestore.ReadModule(ctx, logHeader.Process.Image)
-	if err != nil {
-		return fmt.Errorf("cannot read module byte code of %s: %w", processID, err)
-	}
 
 	runtime := wazero.NewRuntime(ctx)
 	defer runtime.Close(ctx)
 
-	wasmModule, err := runtime.CompileModule(ctx, wasmCode)
+	compiledModule, err := runtime.CompileModule(ctx, module)
 	if err != nil {
 		return err
 	}
-	defer wasmModule.Close(ctx)
+	defer compiledModule.Close(ctx)
 
 	records := timemachine.NewLogRecordReader(logReader)
 
@@ -105,9 +114,16 @@ func replay(ctx context.Context, args []string) error {
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
-	instance, err := runtime.InstantiateModule(ctx, wasmModule, wazero.NewModuleConfig())
+	guestModuleInstance, err := runtime.InstantiateModule(ctx, compiledModule, wazero.NewModuleConfig().
+		WithStartFunctions())
 	if err != nil {
 		return err
 	}
-	return instance.Close(ctx)
+	ctx, cancel := context.WithCancelCause(ctx)
+	go func() {
+		_, err := guestModuleInstance.ExportedFunction("_start").Call(ctx)
+		cancel(err)
+	}()
+	<-ctx.Done()
+	return guestModuleInstance.Close(ctx)
 }

@@ -2,40 +2,6 @@ include "../types/types.fbs";
 
 namespace logsegment;
 
-// Runtime captures information about the runtime that recorded the log.
-table Runtime {
- runtime:string (required);
- version:string (required);
-}
-
-// Process contains information about the process that the log was recorded for.
-table Process {
- // A globally unique identifier for the process.
- id:types.Hash (required);
- // OCI identifier of the WebAssembly module image that the process was
- // instantiated from.
- image:types.Hash (required);
- // The unix start time of the process (in nanoseconds).
- unix_start_time:long;
- // List of arguments passed to the process when it was started.
- arguments:[string];
- // List of environment variables passed to the process when it was started.
- environment:[string];
- // Unique identifier of the parent that created this process (may be zero).
- parent_process_id:types.Hash;
- // Logical offset in the parent log of the host call that created the process.
- parent_fork_offset:long;
-}
-
-// Header represents the very first section of the log recording information
-// about the runtime and the process being recorded.
-table LogHeader {
- runtime:Runtime (required);
- process:Process (required);
- segment:uint; // index of the log segment
- compression:types.Compression;
-}
-
 // The RecordBatch table represents a group of records. Metadata about the records
 // is embedded in the record batch, and the records themselves are concatenated in
 // compressed form.
@@ -53,6 +19,8 @@ table RecordBatch {
  num_records:uint;
  // CRC32 (Castagnoli) checksum of the compressed records following the record batch.
  checksum:uint;
+ // The compression format used by the record batch.
+ compression:types.Compression;
 }
 
 // The Record table holds metdata about the recording of a single host function
@@ -97,7 +65,7 @@ struct MemoryAccess {
  index_offset:uint;
 }
 
-root_type LogHeader;
+root_type RecordBatch;
 
 file_identifier "TL.0";
 file_extension "log";

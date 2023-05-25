@@ -1,43 +1,17 @@
 package timemachine
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
-	"strings"
 
 	flatbuffers "github.com/google/flatbuffers/go"
+	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/format/types"
 )
 
-type Hash struct {
-	Algorithm, Digest string
-}
+type Hash = format.Hash
 
-func ParseHash(s string) (hash Hash, err error) {
-	var ok bool
-	hash.Algorithm, hash.Digest, ok = strings.Cut(s, ":")
-	if !ok {
-		return hash, fmt.Errorf("malformed hash: %q", s)
-	}
-	switch hash.Algorithm { // TODO: more validation + tests
-	case "sha256":
-	case "uuidv4":
-	default:
-		return hash, fmt.Errorf("unsupported hash algorithm: %q", s)
-	}
-	return hash, nil
-}
-
-func (h Hash) String() string {
-	return h.Algorithm + ":" + h.Digest
-}
-
-func SHA256(b []byte) Hash {
-	digest := sha256.Sum256(b)
-	return Hash{Algorithm: "sha256", Digest: hex.EncodeToString(digest[:])}
-}
+func SHA256(b []byte) Hash { return format.SHA256(b) }
 
 func UUIDv4(r io.Reader) Hash {
 	var uuid [16]byte
@@ -57,7 +31,7 @@ func makeHash(h *types.Hash) Hash {
 	}
 }
 
-func (h *Hash) prepend(b *flatbuffers.Builder) flatbuffers.UOffsetT {
+func prependHash(b *flatbuffers.Builder, h Hash) flatbuffers.UOffsetT {
 	algorithm := b.CreateSharedString(h.Algorithm)
 	digest := b.CreateString(h.Digest)
 	types.HashStart(b)
