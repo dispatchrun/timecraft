@@ -8,6 +8,7 @@ import (
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logsegment"
 	"github.com/stealthrocket/timecraft/internal/buffer"
+	"github.com/stealthrocket/timecraft/internal/stream"
 )
 
 var (
@@ -24,8 +25,8 @@ var (
 type RecordBatch struct {
 	// Reader for the records data section adjacent to the record batch. When
 	// the records are accessed, they're lazily read into the records buffer.
-	recordsReader io.Reader
-	records       *buffer.Buffer
+	reader  io.LimitedReader
+	records *buffer.Buffer
 
 	batch logsegment.RecordBatch
 
@@ -33,14 +34,9 @@ type RecordBatch struct {
 	// from.
 	header *Header
 
-	// If an error occurs while reading, it is captured in `err` and all reads of
-	// the records will observe the error.
-	err error
-
-	// When using the batch as a record iterator, this holds the current offset
-	// into the records.
+	// When reading records from the batch, this holds the current offset into
+	// the records buffer.
 	offset uint32
-	record Record
 }
 
 // MakeRecordBatch creates a record batch from the specified buffer.
@@ -60,7 +56,6 @@ func (b *RecordBatch) Reset(header *Header, buf []byte, reader io.Reader) {
 		}
 		buffer.Release(&b.records, recordsBufferPool)
 	}
-	b.recordsReader = reader
 	b.records = nil
 	b.header = header
 	if len(buf) > 0 {
@@ -68,9 +63,9 @@ func (b *RecordBatch) Reset(header *Header, buf []byte, reader io.Reader) {
 	} else {
 		b.batch = logsegment.RecordBatch{}
 	}
-	b.err = nil
 	b.offset = 0
-	b.record = Record{}
+	b.reader.R = reader
+	b.reader.N = int64(b.RecordsSize())
 }
 
 // RecordsSize is the size of the adjacent record data.
@@ -116,57 +111,33 @@ func (b *RecordBatch) NumRecords() int {
 	return int(b.batch.NumRecords())
 }
 
-// Records is a helper function which reads all records of a batch in memory.
+// Read reads records from the batch.
 //
-// The method is useful in contexts with relaxed performance constraints, as the
-// returned values are heap allocated and hold copies of the underlying memory
-// buffers.
-func (b *RecordBatch) Records() ([]Record, error) {
-	records := make([]Record, 0, b.NumRecords())
-	b.Rewind()
-	for b.Next() {
-		if b.err != nil {
-			return nil, b.err
-		}
-		records = append(records, b.record)
-	}
-	return records, nil
-}
-
-// Next is true if the batch contains another record.
-func (b *RecordBatch) Next() bool {
-	if b.err != nil {
-		return true // the error is returned on the Record() call
-	}
-	records, err := b.readRecords()
+// The record values share memory buffers with the record batch, they remain
+// valid until the next call to ReadRecordBatch on the parent LogReader.
+func (b *RecordBatch) Read(records []Record) (int, error) {
+	batch, err := b.readRecords()
 	if err != nil {
-		return true // the error is returned on the Record() call
+		return 0, err
 	}
-	if b.offset >= uint32(len(records)) {
-		return false
+	startTime := b.header.Process.StartTime
+	functions := b.header.Runtime.Functions
+	var n int
+	for n = range records {
+		if b.offset == uint32(len(batch)) {
+			return n, io.EOF
+		}
+		if b.offset+4 > uint32(len(batch)) {
+			return n, fmt.Errorf("cannot read record at offset %d as records buffer is length %d: %w", b.offset, len(batch), io.ErrUnexpectedEOF)
+		}
+		size := flatbuffers.GetSizePrefix(batch, flatbuffers.UOffsetT(b.offset))
+		if b.offset+size < b.offset || b.offset+size > uint32(len(batch)) {
+			return n, fmt.Errorf("cannot read record at [%d:%d+%d] as records buffer is length %d: %w", b.offset, b.offset, size, len(batch), io.ErrUnexpectedEOF)
+		}
+		records[n] = MakeRecord(startTime, functions, batch[b.offset:b.offset+size+4])
+		b.offset += size + 4
 	}
-	if b.offset+4 < b.offset || b.offset+4 > uint32(len(records)) {
-		b.err = fmt.Errorf("cannot read record at offset %d as records buffer is length %d", b.offset, len(records))
-		return true
-	}
-	size := flatbuffers.GetSizePrefix(records, flatbuffers.UOffsetT(b.offset))
-	if b.offset+size < b.offset || b.offset+size > uint32(len(records)) {
-		b.err = fmt.Errorf("cannot read record at [%d:%d+%d] as records buffer is length %d", b.offset, b.offset, size, len(records))
-		return true
-	}
-	b.record = MakeRecord(b.header.Process.StartTime, b.header.Runtime.Functions, records[b.offset:b.offset+4+size])
-	b.offset += size + 4
-	return true
-}
-
-// Rewind rewinds the batch in order to read records again.
-func (b *RecordBatch) Rewind() {
-	b.offset = 0
-}
-
-// Record returns the next record in the batch.
-func (b *RecordBatch) Record() (*Record, error) {
-	return &b.record, b.err
+	return n, nil
 }
 
 func (b *RecordBatch) readRecords() ([]byte, error) {
@@ -180,7 +151,7 @@ func (b *RecordBatch) readRecords() ([]byte, error) {
 	}
 	recordsBuffer := recordsBufferPool.Get(b.RecordsSize())
 
-	_, err := io.ReadFull(b.recordsReader, recordsBuffer.Data)
+	_, err := io.ReadFull(&b.reader, recordsBuffer.Data)
 	if err != nil {
 		recordsBufferPool.Put(recordsBuffer)
 		return nil, err
@@ -199,6 +170,10 @@ func (b *RecordBatch) readRecords() ([]byte, error) {
 	b.records = uncompressedBufferPool.Get(int(b.UncompressedSize()))
 	return decompress(b.records.Data, recordsBuffer.Data, b.header.Compression)
 }
+
+var (
+	_ stream.Reader[Record] = (*RecordBatch)(nil)
+)
 
 // RecordBatchBuilder is a builder for record batches.
 type RecordBatchBuilder struct {

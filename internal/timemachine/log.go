@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/stealthrocket/timecraft/internal/buffer"
+	"github.com/stealthrocket/timecraft/internal/stream"
 )
 
 const maxFrameSize = (1 * 1024 * 1024) - 4
@@ -21,7 +22,6 @@ var frameBufferPool buffer.Pool
 // returned to scan through the log.
 type LogReader struct {
 	input      *bufio.Reader
-	frame      io.LimitedReader
 	bufferSize int
 
 	batch      RecordBatch
@@ -63,20 +63,15 @@ func (r *LogReader) ReadLogHeader() (*Header, error) {
 		return nil, err
 	}
 	defer frameBufferPool.Put(f)
-
-	header, err := NewHeader(f.Data)
-	if err != nil {
-		return nil, err
-	}
-	return header, nil
+	return NewHeader(f.Data)
 }
 
 // ReadRecordBatch reads the next record batch.
 //
 // The RecordBatch is only valid until the next call to ReadRecordBatch.
 func (r *LogReader) ReadRecordBatch(header *Header) (*RecordBatch, error) {
-	if r.frame.N > 0 {
-		if _, err := io.Copy(io.Discard, &r.frame); err != nil {
+	if r.batch.reader.N > 0 {
+		if _, err := io.Copy(io.Discard, &r.batch.reader); err != nil {
 			return nil, err
 		}
 	}
@@ -86,9 +81,7 @@ func (r *LogReader) ReadRecordBatch(header *Header) (*RecordBatch, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.frame.R = r.input
-	r.frame.N = int64(r.batch.RecordsSize())
-	r.batch.Reset(header, r.batchFrame.Data, &r.frame)
+	r.batch.Reset(header, r.batchFrame.Data, r.input)
 	return &r.batch, nil
 }
 
@@ -155,26 +148,40 @@ func NewLogRecordReader(r *LogReader) *LogRecordReader {
 	return &LogRecordReader{reader: r}
 }
 
-// ReadRecord satisfies the RecordReader interface.
-func (r *LogRecordReader) ReadRecord() (*Record, error) {
-	var err error
+// Read reads records from r.
+//
+// The record values share memory buffer with the reader, they remain valid
+// until the next call to Read.
+func (r *LogRecordReader) Read(records []Record) (int, error) {
 	if r.header == nil {
-		r.header, err = r.reader.ReadLogHeader()
+		h, err := r.reader.ReadLogHeader()
 		if err != nil {
-			return nil, err
+			return 0, err
+		}
+		r.header = h
+	}
+	for {
+		if r.batch == nil {
+			b, err := r.reader.ReadRecordBatch(r.header)
+			if err != nil {
+				return 0, err
+			}
+			r.batch = b
+		}
+		n, err := r.batch.Read(records)
+		if n > 0 {
+			return n, nil
+		}
+		if err != io.EOF {
+			return n, err
+		} else {
+			r.batch = nil
 		}
 	}
-	for r.batch == nil || !r.batch.Next() {
-		r.batch, err = r.reader.ReadRecordBatch(r.header)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return r.batch.Record()
 }
 
 var (
-	_ RecordReader = (*LogRecordReader)(nil)
+	_ stream.Reader[Record] = (*LogRecordReader)(nil)
 )
 
 // LogWriter supports writing log segments to an io.Writer.

@@ -1,30 +1,28 @@
 package stream
 
-import (
-	"io"
-)
+import "io"
 
 type Iterator[T any] struct {
-	base ReadCloser[T]
+	base Reader[T]
 	err  error
 	off  int
 	len  int
 	buf  [20]T
 }
 
-func Items[T any](it *Iterator[T]) ([]T, error) {
-	var items []T
+func Values[T any](it *Iterator[T]) ([]T, error) {
+	var values []T
 	for it.Next() {
-		items = append(items, it.Item())
+		values = append(values, it.Value())
 	}
-	return items, it.Close()
+	return values, it.Err()
 }
 
-func Iter[T any](r ReadCloser[T]) *Iterator[T] {
+func Iter[T any](r Reader[T]) *Iterator[T] {
 	return &Iterator[T]{base: r}
 }
 
-func (it *Iterator[T]) Reset(r ReadCloser[T]) {
+func (it *Iterator[T]) Reset(r Reader[T]) {
 	it.base = r
 	it.err = nil
 	it.len = 0
@@ -37,19 +35,14 @@ func (it *Iterator[T]) Reset(r ReadCloser[T]) {
 	}
 }
 
-func (it *Iterator[T]) Close() error {
-	err := it.base.Close()
-	if err == nil && it.err != io.EOF {
-		err = it.err
-	}
-	return err
-}
-
 func (it *Iterator[T]) Next() bool {
 	if it.off++; it.off < it.len {
 		return true
 	}
 	if it.base == nil {
+		return false
+	}
+	if it.err != nil {
 		return false
 	}
 	n, err := it.base.Read(it.buf[:])
@@ -59,6 +52,14 @@ func (it *Iterator[T]) Next() bool {
 	return n > 0
 }
 
-func (it *Iterator[T]) Item() T {
+func (it *Iterator[T]) Value() T {
 	return it.buf[it.off]
+}
+
+func (it *Iterator[T]) Err() error {
+	err := it.err
+	if err == io.EOF {
+		err = nil
+	}
+	return err
 }
