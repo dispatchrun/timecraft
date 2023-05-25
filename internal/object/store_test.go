@@ -2,20 +2,21 @@ package object_test
 
 import (
 	"context"
-	"errors"
 	"io"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/object"
+	"github.com/stealthrocket/timecraft/internal/stream"
 	"golang.org/x/exp/slices"
 )
 
 func TestObjectStore(t *testing.T) {
 	t.Run("dir", func(t *testing.T) {
 		testObjectStore(t, func(t *testing.T) (object.Store, func()) {
-			store, err := object.DirStore(t.TempDir(), object.ReadDirBufferSize(1))
+			store, err := object.DirStore(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -88,37 +89,37 @@ func testObjectStore(t *testing.T, newStore func(*testing.T) (object.Store, func
 }
 
 func testObjectStoreListEmpty(t *testing.T, ctx context.Context, store object.Store) {
-	items := assertItems(t, store.ListObjects(ctx, "."))
+	items := readValues(t, store.ListObjects(ctx, "."))
 	if len(items) != 0 {
 		t.Errorf("too many objects: want=0 got=%d", len(items))
 	}
 }
 
 func testObjectStoreDeleteEmpty(t *testing.T, ctx context.Context, store object.Store) {
-	assertError(t, store.DeleteObject(ctx, "nope"), nil)
-	assertError(t, store.DeleteObject(ctx, "whatever"), nil)
+	assert.OK(t, store.DeleteObject(ctx, "nope"))
+	assert.OK(t, store.DeleteObject(ctx, "whatever"))
 }
 
 func testObjectStoreReadNotExist(t *testing.T, ctx context.Context, store object.Store) {
 	_, err := store.ReadObject(ctx, "nope")
-	assertError(t, err, object.ErrNotExist)
+	assert.Error(t, err, object.ErrNotExist)
 }
 
 func testObjectStoreStatNotExist(t *testing.T, ctx context.Context, store object.Store) {
 	_, err := store.StatObject(ctx, "nope")
-	assertError(t, err, object.ErrNotExist)
+	assert.Error(t, err, object.ErrNotExist)
 }
 
 func testObjectStoreCreateAndList(t *testing.T, ctx context.Context, store object.Store) {
-	assertError(t, store.CreateObject(ctx, "test-1", strings.NewReader("")), nil)
-	assertError(t, store.CreateObject(ctx, "test-2", strings.NewReader("A")), nil)
-	assertError(t, store.CreateObject(ctx, "test-3", strings.NewReader("BC")), nil)
+	assert.OK(t, store.CreateObject(ctx, "test-1", strings.NewReader("")))
+	assert.OK(t, store.CreateObject(ctx, "test-2", strings.NewReader("A")))
+	assert.OK(t, store.CreateObject(ctx, "test-3", strings.NewReader("BC")))
 
-	objects := assertItems(t, store.ListObjects(ctx, "."))
+	objects := readValues(t, store.ListObjects(ctx, "."))
 	clearCreatedAt(objects)
 	sortObjectInfo(objects)
 
-	assertEqualAll(t, objects, []object.Info{
+	assert.EqualAll(t, objects, []object.Info{
 		{Name: "test-1", Size: 0},
 		{Name: "test-2", Size: 1},
 		{Name: "test-3", Size: 2},
@@ -126,58 +127,58 @@ func testObjectStoreCreateAndList(t *testing.T, ctx context.Context, store objec
 }
 
 func testObjectStoreCreateAndRead(t *testing.T, ctx context.Context, store object.Store) {
-	assertError(t, store.CreateObject(ctx, "test-1", strings.NewReader("")), nil)
-	assertError(t, store.CreateObject(ctx, "test-2", strings.NewReader("A")), nil)
-	assertError(t, store.CreateObject(ctx, "test-3", strings.NewReader("BC")), nil)
+	assert.OK(t, store.CreateObject(ctx, "test-1", strings.NewReader("")))
+	assert.OK(t, store.CreateObject(ctx, "test-2", strings.NewReader("A")))
+	assert.OK(t, store.CreateObject(ctx, "test-3", strings.NewReader("BC")))
 
 	test1, err := store.ReadObject(ctx, "test-1")
-	assertError(t, err, nil)
-	assertEqual(t, string(assertReadAll(t, test1)), "")
+	assert.OK(t, err)
+	assert.Equal(t, string(readBytes(t, test1)), "")
 
 	test2, err := store.ReadObject(ctx, "test-2")
-	assertError(t, err, nil)
-	assertEqual(t, string(assertReadAll(t, test2)), "A")
+	assert.OK(t, err)
+	assert.Equal(t, string(readBytes(t, test2)), "A")
 
 	test3, err := store.ReadObject(ctx, "test-3")
-	assertError(t, err, nil)
-	assertEqual(t, string(assertReadAll(t, test3)), "BC")
+	assert.OK(t, err)
+	assert.Equal(t, string(readBytes(t, test3)), "BC")
 }
 
 func testObjectStoreDeleteAndList(t *testing.T, ctx context.Context, store object.Store) {
-	assertError(t, store.CreateObject(ctx, "test-1", strings.NewReader("")), nil)
-	assertError(t, store.CreateObject(ctx, "test-2", strings.NewReader("A")), nil)
-	assertError(t, store.CreateObject(ctx, "test-3", strings.NewReader("BC")), nil)
-	assertError(t, store.DeleteObject(ctx, "test-2"), nil)
+	assert.OK(t, store.CreateObject(ctx, "test-1", strings.NewReader("")))
+	assert.OK(t, store.CreateObject(ctx, "test-2", strings.NewReader("A")))
+	assert.OK(t, store.CreateObject(ctx, "test-3", strings.NewReader("BC")))
+	assert.OK(t, store.DeleteObject(ctx, "test-2"))
 
-	objects := assertItems(t, store.ListObjects(ctx, "."))
+	objects := readValues(t, store.ListObjects(ctx, "."))
 	clearCreatedAt(objects)
 	sortObjectInfo(objects)
 
-	assertEqualAll(t, objects, []object.Info{
+	assert.EqualAll(t, objects, []object.Info{
 		{Name: "test-1", Size: 0},
 		{Name: "test-3", Size: 2},
 	})
 }
 
 func testObjectStoreListWhileCreate(t *testing.T, ctx context.Context, store object.Store) {
-	assertError(t, store.CreateObject(ctx, "test-1", strings.NewReader("")), nil)
-	assertError(t, store.CreateObject(ctx, "test-2", strings.NewReader("A")), nil)
+	assert.OK(t, store.CreateObject(ctx, "test-1", strings.NewReader("")))
+	assert.OK(t, store.CreateObject(ctx, "test-2", strings.NewReader("A")))
 
 	r, w := io.Pipe()
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		assertError(t, store.CreateObject(ctx, "test-3", r), nil)
+		assert.OK(t, store.CreateObject(ctx, "test-3", r))
 	}()
 
 	io.WriteString(w, "H")
 
-	beforeCreateObject := assertItems(t, store.ListObjects(ctx, "."))
+	beforeCreateObject := readValues(t, store.ListObjects(ctx, "."))
 	clearCreatedAt(beforeCreateObject)
 	sortObjectInfo(beforeCreateObject)
 
-	assertEqualAll(t, beforeCreateObject, []object.Info{
+	assert.EqualAll(t, beforeCreateObject, []object.Info{
 		{Name: "test-1", Size: 0},
 		{Name: "test-2", Size: 1},
 	})
@@ -186,54 +187,31 @@ func testObjectStoreListWhileCreate(t *testing.T, ctx context.Context, store obj
 	w.Close()
 	<-done
 
-	afterCreateObject := assertItems(t, store.ListObjects(ctx, "."))
+	afterCreateObject := readValues(t, store.ListObjects(ctx, "."))
 	clearCreatedAt(afterCreateObject)
 	sortObjectInfo(afterCreateObject)
 
-	assertEqualAll(t, afterCreateObject, []object.Info{
+	assert.EqualAll(t, afterCreateObject, []object.Info{
 		{Name: "test-1", Size: 0},
 		{Name: "test-2", Size: 1},
 		{Name: "test-3", Size: 12},
 	})
 }
 
-func assertItems[T any](t *testing.T, iter object.Iter[T]) []T {
+func readBytes(t *testing.T, r io.ReadCloser) []byte {
 	t.Helper()
-	items, err := object.Items(iter)
-	assertError(t, err, nil)
-	return items
-}
-
-func assertReadAll(t *testing.T, r io.ReadCloser) []byte {
 	defer r.Close()
 	b, err := io.ReadAll(r)
-	assertError(t, err, nil)
+	assert.OK(t, err)
 	return b
 }
 
-func assertEqual[T comparable](t *testing.T, got, want T) {
+func readValues[T any](t *testing.T, r stream.ReadCloser[T]) []T {
 	t.Helper()
-	if got != want {
-		t.Fatalf("items mismatch: want=%+v got=%+v", want, got)
-	}
-}
-
-func assertEqualAll[T comparable](t *testing.T, got, want []T) {
-	if len(got) != len(want) {
-		t.Fatalf("number of items mismatch: want=%d got=%d", len(want), len(got))
-	}
-	for i := range got {
-		if got[i] != want[i] {
-			t.Fatalf("items at index %d mismatch: want=%+v got=%+v", i, want[i], got[i])
-		}
-	}
-}
-
-func assertError(t *testing.T, got, want error) {
-	t.Helper()
-	if !errors.Is(got, want) {
-		t.Fatal(got)
-	}
+	defer r.Close()
+	items, err := stream.ReadAll[T](r)
+	assert.OK(t, err)
+	return items
 }
 
 func clearCreatedAt(objects []object.Info) {

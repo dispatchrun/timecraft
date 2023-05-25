@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/object"
+	"github.com/stealthrocket/timecraft/internal/stream"
 )
 
 type ModuleInfo struct {
@@ -57,8 +58,8 @@ func (store *Store) ReadModule(ctx context.Context, id Hash) ([]byte, error) {
 	return b[:n], err
 }
 
-func (store *Store) ListModules(ctx context.Context) object.Iter[ModuleInfo] {
-	return object.ConvertIter(store.objects.ListObjects(ctx, "modules"), func(info object.Info) (ModuleInfo, error) {
+func (store *Store) ListModules(ctx context.Context) stream.Reader[ModuleInfo] {
+	return convert(store.objects.ListObjects(ctx, "modules"), func(info object.Info) (ModuleInfo, error) {
 		hash := path.Base(info.Name)
 		algorithm, digest, ok := strings.Cut(hash, ":")
 		if !ok {
@@ -86,8 +87,8 @@ func (store *Store) DeleteLogSegment(ctx context.Context, processID Hash, segmen
 	return store.objects.DeleteObject(ctx, store.logKey(processID, segmentNumber))
 }
 
-func (store *Store) ListLogSegments(ctx context.Context, processID Hash) object.Iter[LogSegmentInfo] {
-	return object.ConvertIter(store.objects.ListObjects(ctx, "logs/"+processID.String()), func(info object.Info) (LogSegmentInfo, error) {
+func (store *Store) ListLogSegments(ctx context.Context, processID Hash) stream.Reader[LogSegmentInfo] {
+	return convert(store.objects.ListObjects(ctx, "logs/"+processID.String()), func(info object.Info) (LogSegmentInfo, error) {
 		number := path.Base(info.Name)
 		n, err := strconv.ParseInt(number, 16, 32)
 		if err != nil || n < 0 {
@@ -112,4 +113,45 @@ func (store *Store) logKey(processID Hash, segmentNumber int) string {
 
 func (store *Store) moduleKey(id Hash) string {
 	return fmt.Sprintf("modules/%s", id)
+}
+
+func convert[To, From any](base stream.ReadCloser[From], conv func(From) (To, error)) stream.ReadCloser[To] {
+	return &convertReadCloser[To, From]{base: base, conv: conv}
+}
+
+type convertReadCloser[To, From any] struct {
+	base stream.ReadCloser[From]
+	from []From
+	conv func(From) (To, error)
+}
+
+func (r *convertReadCloser[To, From]) Close() error {
+	return r.base.Close()
+}
+
+func (r *convertReadCloser[To, From]) Read(items []To) (n int, err error) {
+	for n < len(items) {
+		if i := len(items) - n; cap(r.from) <= i {
+			r.from = r.from[:i]
+		} else {
+			r.from = make([]From, i)
+		}
+
+		rn, err := r.base.Read(r.from)
+
+		for _, from := range r.from[:rn] {
+			to, err := r.conv(from)
+			if err != nil {
+				r.base.Close()
+				return n, err
+			}
+			items[n] = to
+			n++
+		}
+
+		if err != nil {
+			return n, err
+		}
+	}
+	return n, nil
 }

@@ -27,6 +27,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/stealthrocket/timecraft/internal/stream"
 )
 
 var (
@@ -65,7 +67,7 @@ type Store interface {
 	//
 	// Objects that are being created by a call to CreateObject are not visible
 	// until the creation completed.
-	ListObjects(ctx context.Context, prefix string) Iter[Info]
+	ListObjects(ctx context.Context, prefix string) stream.ReadCloser[Info]
 
 	// Deletes and object from the store.
 	//
@@ -100,23 +102,12 @@ func (emptyStore) StatObject(ctx context.Context, name string) (Info, error) {
 	return Info{}, ErrNotExist
 }
 
-func (emptyStore) ListObjects(ctx context.Context, prefix string) Iter[Info] {
-	return EmptyIter[Info]()
+func (emptyStore) ListObjects(ctx context.Context, prefix string) stream.ReadCloser[Info] {
+	return emptyInfoReader{}
 }
 
 func (emptyStore) DeleteObject(ctx context.Context, name string) error {
 	return nil
-}
-
-// DirOption represents options which may be applied when constructing an object
-// store from a local directory.
-type DirOption func(*dirStore)
-
-// ReadDirBufferSize configures the step size when reading directory entries.
-//
-// Default to 20.
-func ReadDirBufferSize(n int) DirOption {
-	return DirOption(func(d *dirStore) { d.readDirBufferSize = n })
 }
 
 // DirStore constructs an object store from a directory entry at the given path.
@@ -125,27 +116,17 @@ func ReadDirBufferSize(n int) DirOption {
 // the store from a change of the current working directory.
 //
 // The directory is not created if it does not exist.
-func DirStore(path string, opts ...DirOption) (Store, error) {
+func DirStore(path string) (Store, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
 	}
-	d := &dirStore{
-		root:              absPath,
-		readDirBufferSize: 20,
-	}
-	for _, opt := range opts {
-		opt(d)
-	}
-	return d, nil
+	return dirStore(absPath), nil
 }
 
-type dirStore struct {
-	root              string
-	readDirBufferSize int
-}
+type dirStore string
 
-func (store *dirStore) CreateObject(ctx context.Context, name string, data io.Reader) error {
+func (store dirStore) CreateObject(ctx context.Context, name string, data io.Reader) error {
 	filePath, err := store.joinPath(name)
 	if err != nil {
 		return err
@@ -174,7 +155,7 @@ func (store *dirStore) CreateObject(ctx context.Context, name string, data io.Re
 	return nil
 }
 
-func (store *dirStore) ReadObject(ctx context.Context, name string) (io.ReadCloser, error) {
+func (store dirStore) ReadObject(ctx context.Context, name string) (io.ReadCloser, error) {
 	path, err := store.joinPath(name)
 	if err != nil {
 		return nil, err
@@ -186,7 +167,7 @@ func (store *dirStore) ReadObject(ctx context.Context, name string) (io.ReadClos
 	return file, nil
 }
 
-func (store *dirStore) StatObject(ctx context.Context, name string) (Info, error) {
+func (store dirStore) StatObject(ctx context.Context, name string) (Info, error) {
 	path, err := store.joinPath(name)
 	if err != nil {
 		return Info{}, err
@@ -203,29 +184,26 @@ func (store *dirStore) StatObject(ctx context.Context, name string) (Info, error
 	return info, nil
 }
 
-func (store *dirStore) ListObjects(ctx context.Context, prefix string) Iter[Info] {
+func (store dirStore) ListObjects(ctx context.Context, prefix string) stream.ReadCloser[Info] {
 	if prefix != "." && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
 	path, err := store.joinPath(prefix)
 	if err != nil {
-		return ErrorIter[Info](err)
+		return &errorInfoReader{err: err}
 	}
 	dir, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return EmptyIter[Info]()
+			return emptyInfoReader{}
+		} else {
+			return &errorInfoReader{err: err}
 		}
-		return ErrorIter[Info](err)
 	}
-	return &dirIter{
-		dir:  dir,
-		path: filepath.ToSlash(prefix),
-		n:    store.readDirBufferSize,
-	}
+	return &dirReader{dir: dir, path: filepath.ToSlash(prefix)}
 }
 
-func (store *dirStore) DeleteObject(ctx context.Context, name string) error {
+func (store dirStore) DeleteObject(ctx context.Context, name string) error {
 	path, err := store.joinPath(name)
 	if err != nil {
 		return err
@@ -239,42 +217,28 @@ func (store *dirStore) DeleteObject(ctx context.Context, name string) error {
 	return nil
 }
 
-func (store *dirStore) joinPath(name string) (string, error) {
+func (store dirStore) joinPath(name string) (string, error) {
 	if !fs.ValidPath(name) {
 		return "", fmt.Errorf("invalid object name: %q", name)
 	}
-	return filepath.Join(store.root, filepath.FromSlash(name)), nil
+	return filepath.Join(string(store), filepath.FromSlash(name)), nil
 }
 
-type dirIter struct {
+type dirReader struct {
 	dir  *os.File
-	next []fs.DirEntry
 	path string
-	info Info
-	err  error
-	n    int
 }
 
-func (it *dirIter) Close() error {
-	it.dir.Close()
-	it.next = nil
-	return it.err
+func (r *dirReader) Close() error {
+	r.dir.Close()
+	return nil
 }
 
-func (it *dirIter) Next() bool {
-	for {
-		if it.err != nil {
-			return false
-		}
+func (r *dirReader) Read(items []Info) (n int, err error) {
+	for n < len(items) {
+		dirents, err := r.dir.ReadDir(len(items) - n)
 
-		if it.dir == nil {
-			return false
-		}
-
-		for len(it.next) > 0 {
-			dirent := it.next[0]
-			it.next = it.next[1:]
-
+		for _, dirent := range dirents {
 			if dirent.IsDir() {
 				continue
 			}
@@ -286,30 +250,31 @@ func (it *dirIter) Next() bool {
 
 			info, err := dirent.Info()
 			if err != nil {
-				it.err = err
-				return false
+				r.dir.Close()
+				return n, err
 			}
 
-			it.info.Name = path.Join(it.path, name)
-			it.info.Size = info.Size()
-			it.info.CreatedAt = info.ModTime()
-			return true
+			items[n] = Info{
+				Name:      path.Join(r.path, name),
+				Size:      info.Size(),
+				CreatedAt: info.ModTime(),
+			}
+			n++
 		}
 
-		entries, err := it.dir.ReadDir(it.n)
-		if len(entries) > 0 {
-			it.next = entries
-		} else {
-			if err == io.EOF {
-				err = nil
-			}
-			it.Close()
-			it.err = err
-			return false
+		if err != nil {
+			return n, err
 		}
 	}
+	return n, nil
 }
 
-func (it *dirIter) Item() Info {
-	return it.info
-}
+type emptyInfoReader struct{}
+
+func (emptyInfoReader) Close() error             { return nil }
+func (emptyInfoReader) Read([]Info) (int, error) { return 0, io.EOF }
+
+type errorInfoReader struct{ err error }
+
+func (r *errorInfoReader) Close() error             { return nil }
+func (r *errorInfoReader) Read([]Info) (int, error) { return 0, r.err }
