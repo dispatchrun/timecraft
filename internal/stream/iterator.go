@@ -45,11 +45,18 @@ func (it *Iterator[T]) Next() bool {
 	if it.err != nil {
 		return false
 	}
-	n, err := it.base.Read(it.buf[:])
-	it.err = err
-	it.off = 0
-	it.len = n
-	return n > 0
+	for {
+		n, err := it.base.Read(it.buf[:])
+		it.err = err
+		it.off = 0
+		it.len = n
+		if n > 0 {
+			return true
+		}
+		if err != nil {
+			return false
+		}
+	}
 }
 
 func (it *Iterator[T]) Value() T {
