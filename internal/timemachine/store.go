@@ -210,12 +210,9 @@ func (w *logSegmentWriter) Close() error {
 }
 
 func (store *Store) ListLogSegments(ctx context.Context, processID format.UUID) stream.Reader[LogSegmentInfo] {
-	return convert(store.objects.ListObjects(ctx, "log/"+processID.String()), func(info object.Info) (LogSegmentInfo, error) {
-		baseName := path.Base(info.Name)
-		if baseName == "manifest.json" {
-			return LogSegmentInfo{}, errSkip
-		}
-		n, err := strconv.ParseInt(baseName, 16, 32)
+	return convert(store.objects.ListObjects(ctx, "log/"+processID.String()+"/data"), func(info object.Info) (LogSegmentInfo, error) {
+		number := path.Base(info.Name)
+		n, err := strconv.ParseInt(number, 16, 32)
 		if err != nil || n < 0 {
 			return LogSegmentInfo{}, fmt.Errorf("invalid log segment entry: %q", info.Name)
 		}
@@ -250,7 +247,7 @@ func (store *Store) ReadLogSegment(ctx context.Context, processID format.UUID, s
 }
 
 func (store *Store) logKey(processID format.UUID, segmentNumber int) string {
-	return fmt.Sprintf("log/%s/%08X", processID, segmentNumber)
+	return fmt.Sprintf("log/%s/data/%08X", processID, segmentNumber)
 }
 
 func (store *Store) manifestKey(processID format.UUID) string {
@@ -260,8 +257,6 @@ func (store *Store) manifestKey(processID format.UUID) string {
 func convert[To, From any](base stream.ReadCloser[From], conv func(From) (To, error)) stream.ReadCloser[To] {
 	return &convertReadCloser[To, From]{base: base, conv: conv}
 }
-
-var errSkip = errors.New("skip")
 
 type convertReadCloser[To, From any] struct {
 	base stream.ReadCloser[From]
@@ -286,9 +281,6 @@ func (r *convertReadCloser[To, From]) Read(items []To) (n int, err error) {
 		for _, from := range r.from[:rn] {
 			to, err := r.conv(from)
 			if err != nil {
-				if err == errSkip {
-					continue
-				}
 				r.base.Close()
 				return n, err
 			}
