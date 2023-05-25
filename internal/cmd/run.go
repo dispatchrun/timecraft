@@ -158,7 +158,9 @@ func run(ctx context.Context, args []string) error {
 		processID := uuid.New()
 		startTime := time.Now()
 
-		module, err := timestore.CreateModule(ctx, format.Module(wasmCode))
+		module, err := timestore.CreateModule(ctx, &format.Module{
+			Code: wasmCode,
+		})
 		if err != nil {
 			return err
 		}
