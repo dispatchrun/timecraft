@@ -6,15 +6,6 @@ namespace logsegment;
 table Runtime {
  runtime:string (required);
  version:string (required);
- functions:[Function];
-}
-
-// Function represents a function from a host module.
-table Function {
- module:string (required);
- name:string (required);
- param_count: uint;
- result_count: uint;
 }
 
 // Process contains information about the process that the log was recorded for.

@@ -90,29 +90,6 @@ func replay(ctx context.Context, args []string) error {
 	}
 	defer wasmModule.Close(ctx)
 
-	var functions timemachine.FunctionIndex
-	importedFunctions := wasmModule.ImportedFunctions()
-	for _, f := range importedFunctions {
-		moduleName, functionName, isImport := f.Import()
-		if !isImport {
-			continue
-		}
-		functions.Add(timemachine.Function{
-			Module:      moduleName,
-			Name:        functionName,
-			ParamCount:  len(f.ParamTypes()),
-			ResultCount: len(f.ResultTypes()),
-		})
-	}
-	if len(logHeader.Runtime.Functions) != len(functions.Functions()) {
-		return fmt.Errorf("imported functions mismatch")
-	}
-	for i, fn := range functions.Functions() {
-		if fn != logHeader.Runtime.Functions[i] {
-			return fmt.Errorf("imported functions mismatch")
-		}
-	}
-
 	records := timemachine.NewLogRecordReader(logReader)
 
 	replay := wasicall.NewReplay(records)
