@@ -35,7 +35,7 @@ func NewStore(objects object.Store) *Store {
 	return &Store{objects: objects}
 }
 
-func (store *Store) CreateModule(ctx context.Context, module format.Module) (*format.Descriptor, error) {
+func (store *Store) CreateModule(ctx context.Context, module *format.Module) (*format.Descriptor, error) {
 	return store.createObject(ctx, module)
 }
 
@@ -51,10 +51,9 @@ func (store *Store) CreateProcess(ctx context.Context, process *format.Process) 
 	return store.createObject(ctx, process)
 }
 
-func (store *Store) LookupModule(ctx context.Context, hash format.Hash) (format.Module, error) {
-	mod := format.Module{}
-	err := store.lookupObject(ctx, hash, &mod)
-	return mod, err
+func (store *Store) LookupModule(ctx context.Context, hash format.Hash) (*format.Module, error) {
+	module := new(format.Module)
+	return module, store.lookupObject(ctx, hash, module)
 }
 
 func (store *Store) LookupRuntime(ctx context.Context, hash format.Hash) (*format.Runtime, error) {
@@ -70,6 +69,10 @@ func (store *Store) LookupConfig(ctx context.Context, hash format.Hash) (*format
 func (store *Store) LookupProcess(ctx context.Context, hash format.Hash) (*format.Process, error) {
 	process := new(format.Process)
 	return process, store.lookupObject(ctx, hash, process)
+}
+
+func (store *Store) LookupDescriptor(ctx context.Context, hash format.Hash) (*format.Descriptor, error) {
+	return store.lookupDescriptor(ctx, store.descriptorKey(hash))
 }
 
 func errorCreateObject(hash format.Hash, value format.Resource, err error) error {

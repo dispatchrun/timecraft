@@ -93,7 +93,7 @@ func replay(ctx context.Context, args []string) error {
 	runtime := wazero.NewRuntime(ctx)
 	defer runtime.Close(ctx)
 
-	compiledModule, err := runtime.CompileModule(ctx, module)
+	compiledModule, err := runtime.CompileModule(ctx, module.Code)
 	if err != nil {
 		return err
 	}

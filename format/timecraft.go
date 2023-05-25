@@ -94,18 +94,20 @@ func (d *Descriptor) UnmarshalResource(b []byte) error {
 	return jsonDecode(b, d)
 }
 
-type Module []byte
+type Module struct {
+	Code []byte
+}
 
-func (m Module) ContentType() MediaType {
+func (m *Module) ContentType() MediaType {
 	return TypeTimecraftModule
 }
 
-func (m Module) MarshalResource() ([]byte, error) {
-	return ([]byte)(m), nil
+func (m *Module) MarshalResource() ([]byte, error) {
+	return m.Code, nil
 }
 
 func (m *Module) UnmarshalResource(b []byte) error {
-	*m = Module(b)
+	m.Code = b
 	return nil
 }
 
@@ -194,7 +196,7 @@ func (m *Manifest) UnmarshalResource(b []byte) error {
 
 var (
 	_ ResourceMarshaler = (*Descriptor)(nil)
-	_ ResourceMarshaler = (Module)(nil)
+	_ ResourceMarshaler = (*Module)(nil)
 	_ ResourceMarshaler = (*Runtime)(nil)
 	_ ResourceMarshaler = (*Config)(nil)
 	_ ResourceMarshaler = (*Manifest)(nil)
