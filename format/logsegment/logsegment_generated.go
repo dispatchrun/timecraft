@@ -8,316 +8,6 @@ import (
 	types "github.com/stealthrocket/timecraft/format/types"
 )
 
-type Runtime struct {
-	_tab flatbuffers.Table
-}
-
-func GetRootAsRuntime(buf []byte, offset flatbuffers.UOffsetT) *Runtime {
-	n := flatbuffers.GetUOffsetT(buf[offset:])
-	x := &Runtime{}
-	x.Init(buf, n+offset)
-	return x
-}
-
-func GetSizePrefixedRootAsRuntime(buf []byte, offset flatbuffers.UOffsetT) *Runtime {
-	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
-	x := &Runtime{}
-	x.Init(buf, n+offset+flatbuffers.SizeUint32)
-	return x
-}
-
-func (rcv *Runtime) Init(buf []byte, i flatbuffers.UOffsetT) {
-	rcv._tab.Bytes = buf
-	rcv._tab.Pos = i
-}
-
-func (rcv *Runtime) Table() flatbuffers.Table {
-	return rcv._tab
-}
-
-func (rcv *Runtime) Runtime() []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		return rcv._tab.ByteVector(o + rcv._tab.Pos)
-	}
-	return nil
-}
-
-func (rcv *Runtime) Version() []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		return rcv._tab.ByteVector(o + rcv._tab.Pos)
-	}
-	return nil
-}
-
-func RuntimeStart(builder *flatbuffers.Builder) {
-	builder.StartObject(2)
-}
-func RuntimeAddRuntime(builder *flatbuffers.Builder, runtime flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(runtime), 0)
-}
-func RuntimeAddVersion(builder *flatbuffers.Builder, version flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(1, flatbuffers.UOffsetT(version), 0)
-}
-func RuntimeEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
-	return builder.EndObject()
-}
-
-type Process struct {
-	_tab flatbuffers.Table
-}
-
-func GetRootAsProcess(buf []byte, offset flatbuffers.UOffsetT) *Process {
-	n := flatbuffers.GetUOffsetT(buf[offset:])
-	x := &Process{}
-	x.Init(buf, n+offset)
-	return x
-}
-
-func GetSizePrefixedRootAsProcess(buf []byte, offset flatbuffers.UOffsetT) *Process {
-	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
-	x := &Process{}
-	x.Init(buf, n+offset+flatbuffers.SizeUint32)
-	return x
-}
-
-func (rcv *Process) Init(buf []byte, i flatbuffers.UOffsetT) {
-	rcv._tab.Bytes = buf
-	rcv._tab.Pos = i
-}
-
-func (rcv *Process) Table() flatbuffers.Table {
-	return rcv._tab
-}
-
-func (rcv *Process) Id(obj *types.Hash) *types.Hash {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		x := rcv._tab.Indirect(o + rcv._tab.Pos)
-		if obj == nil {
-			obj = new(types.Hash)
-		}
-		obj.Init(rcv._tab.Bytes, x)
-		return obj
-	}
-	return nil
-}
-
-func (rcv *Process) Image(obj *types.Hash) *types.Hash {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		x := rcv._tab.Indirect(o + rcv._tab.Pos)
-		if obj == nil {
-			obj = new(types.Hash)
-		}
-		obj.Init(rcv._tab.Bytes, x)
-		return obj
-	}
-	return nil
-}
-
-func (rcv *Process) UnixStartTime() int64 {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
-	if o != 0 {
-		return rcv._tab.GetInt64(o + rcv._tab.Pos)
-	}
-	return 0
-}
-
-func (rcv *Process) MutateUnixStartTime(n int64) bool {
-	return rcv._tab.MutateInt64Slot(8, n)
-}
-
-func (rcv *Process) Arguments(j int) []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.ByteVector(a + flatbuffers.UOffsetT(j*4))
-	}
-	return nil
-}
-
-func (rcv *Process) ArgumentsLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *Process) Environment(j int) []byte {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
-	if o != 0 {
-		a := rcv._tab.Vector(o)
-		return rcv._tab.ByteVector(a + flatbuffers.UOffsetT(j*4))
-	}
-	return nil
-}
-
-func (rcv *Process) EnvironmentLength() int {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
-	if o != 0 {
-		return rcv._tab.VectorLen(o)
-	}
-	return 0
-}
-
-func (rcv *Process) ParentProcessId(obj *types.Hash) *types.Hash {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
-	if o != 0 {
-		x := rcv._tab.Indirect(o + rcv._tab.Pos)
-		if obj == nil {
-			obj = new(types.Hash)
-		}
-		obj.Init(rcv._tab.Bytes, x)
-		return obj
-	}
-	return nil
-}
-
-func (rcv *Process) ParentForkOffset() int64 {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(16))
-	if o != 0 {
-		return rcv._tab.GetInt64(o + rcv._tab.Pos)
-	}
-	return 0
-}
-
-func (rcv *Process) MutateParentForkOffset(n int64) bool {
-	return rcv._tab.MutateInt64Slot(16, n)
-}
-
-func ProcessStart(builder *flatbuffers.Builder) {
-	builder.StartObject(7)
-}
-func ProcessAddId(builder *flatbuffers.Builder, id flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(id), 0)
-}
-func ProcessAddImage(builder *flatbuffers.Builder, image flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(1, flatbuffers.UOffsetT(image), 0)
-}
-func ProcessAddUnixStartTime(builder *flatbuffers.Builder, unixStartTime int64) {
-	builder.PrependInt64Slot(2, unixStartTime, 0)
-}
-func ProcessAddArguments(builder *flatbuffers.Builder, arguments flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(3, flatbuffers.UOffsetT(arguments), 0)
-}
-func ProcessStartArgumentsVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(4, numElems, 4)
-}
-func ProcessAddEnvironment(builder *flatbuffers.Builder, environment flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(4, flatbuffers.UOffsetT(environment), 0)
-}
-func ProcessStartEnvironmentVector(builder *flatbuffers.Builder, numElems int) flatbuffers.UOffsetT {
-	return builder.StartVector(4, numElems, 4)
-}
-func ProcessAddParentProcessId(builder *flatbuffers.Builder, parentProcessId flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(5, flatbuffers.UOffsetT(parentProcessId), 0)
-}
-func ProcessAddParentForkOffset(builder *flatbuffers.Builder, parentForkOffset int64) {
-	builder.PrependInt64Slot(6, parentForkOffset, 0)
-}
-func ProcessEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
-	return builder.EndObject()
-}
-
-type LogHeader struct {
-	_tab flatbuffers.Table
-}
-
-func GetRootAsLogHeader(buf []byte, offset flatbuffers.UOffsetT) *LogHeader {
-	n := flatbuffers.GetUOffsetT(buf[offset:])
-	x := &LogHeader{}
-	x.Init(buf, n+offset)
-	return x
-}
-
-func GetSizePrefixedRootAsLogHeader(buf []byte, offset flatbuffers.UOffsetT) *LogHeader {
-	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
-	x := &LogHeader{}
-	x.Init(buf, n+offset+flatbuffers.SizeUint32)
-	return x
-}
-
-func (rcv *LogHeader) Init(buf []byte, i flatbuffers.UOffsetT) {
-	rcv._tab.Bytes = buf
-	rcv._tab.Pos = i
-}
-
-func (rcv *LogHeader) Table() flatbuffers.Table {
-	return rcv._tab
-}
-
-func (rcv *LogHeader) Runtime(obj *Runtime) *Runtime {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(4))
-	if o != 0 {
-		x := rcv._tab.Indirect(o + rcv._tab.Pos)
-		if obj == nil {
-			obj = new(Runtime)
-		}
-		obj.Init(rcv._tab.Bytes, x)
-		return obj
-	}
-	return nil
-}
-
-func (rcv *LogHeader) Process(obj *Process) *Process {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(6))
-	if o != 0 {
-		x := rcv._tab.Indirect(o + rcv._tab.Pos)
-		if obj == nil {
-			obj = new(Process)
-		}
-		obj.Init(rcv._tab.Bytes, x)
-		return obj
-	}
-	return nil
-}
-
-func (rcv *LogHeader) Segment() uint32 {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
-	if o != 0 {
-		return rcv._tab.GetUint32(o + rcv._tab.Pos)
-	}
-	return 0
-}
-
-func (rcv *LogHeader) MutateSegment(n uint32) bool {
-	return rcv._tab.MutateUint32Slot(8, n)
-}
-
-func (rcv *LogHeader) Compression() types.Compression {
-	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
-	if o != 0 {
-		return types.Compression(rcv._tab.GetUint32(o + rcv._tab.Pos))
-	}
-	return 0
-}
-
-func (rcv *LogHeader) MutateCompression(n types.Compression) bool {
-	return rcv._tab.MutateUint32Slot(10, uint32(n))
-}
-
-func LogHeaderStart(builder *flatbuffers.Builder) {
-	builder.StartObject(4)
-}
-func LogHeaderAddRuntime(builder *flatbuffers.Builder, runtime flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(0, flatbuffers.UOffsetT(runtime), 0)
-}
-func LogHeaderAddProcess(builder *flatbuffers.Builder, process flatbuffers.UOffsetT) {
-	builder.PrependUOffsetTSlot(1, flatbuffers.UOffsetT(process), 0)
-}
-func LogHeaderAddSegment(builder *flatbuffers.Builder, segment uint32) {
-	builder.PrependUint32Slot(2, segment, 0)
-}
-func LogHeaderAddCompression(builder *flatbuffers.Builder, compression types.Compression) {
-	builder.PrependUint32Slot(3, uint32(compression), 0)
-}
-func LogHeaderEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
-	return builder.EndObject()
-}
-
 type RecordBatch struct {
 	_tab flatbuffers.Table
 }
@@ -417,8 +107,20 @@ func (rcv *RecordBatch) MutateChecksum(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(14, n)
 }
 
+func (rcv *RecordBatch) Compression() types.Compression {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(16))
+	if o != 0 {
+		return types.Compression(rcv._tab.GetUint32(o + rcv._tab.Pos))
+	}
+	return 0
+}
+
+func (rcv *RecordBatch) MutateCompression(n types.Compression) bool {
+	return rcv._tab.MutateUint32Slot(16, uint32(n))
+}
+
 func RecordBatchStart(builder *flatbuffers.Builder) {
-	builder.StartObject(6)
+	builder.StartObject(7)
 }
 func RecordBatchAddFirstOffset(builder *flatbuffers.Builder, firstOffset int64) {
 	builder.PrependInt64Slot(0, firstOffset, 0)
@@ -437,6 +139,9 @@ func RecordBatchAddNumRecords(builder *flatbuffers.Builder, numRecords uint32) {
 }
 func RecordBatchAddChecksum(builder *flatbuffers.Builder, checksum uint32) {
 	builder.PrependUint32Slot(5, checksum, 0)
+}
+func RecordBatchAddCompression(builder *flatbuffers.Builder, compression types.Compression) {
+	builder.PrependUint32Slot(6, uint32(compression), 0)
 }
 func RecordBatchEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

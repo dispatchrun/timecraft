@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/stealthrocket/timecraft/internal/buffer"
 	"github.com/stealthrocket/timecraft/internal/stream"
@@ -15,29 +16,25 @@ const maxFrameSize = (1 * 1024 * 1024) - 4
 var frameBufferPool buffer.Pool
 
 // LogReader instances allow programs to read the content of a record log.
-//
-// The LogReader type has two main methods, ReadLogHeader and ReadRecordBatch.
-// ReadLogHeader should be called first to load the header needed to read
-// log records. ReadRecordBatch may be called multiple times until io.EOF is
-// returned to scan through the log.
 type LogReader struct {
 	input      *bufio.Reader
 	bufferSize int
-
+	startTime  time.Time
 	batch      RecordBatch
 	batchFrame *buffer.Buffer
 }
 
 // NewLogReader construct a new log reader consuming input from the given
 // io.Reader.
-func NewLogReader(input io.Reader) *LogReader {
-	return NewLogReaderSize(input, buffer.DefaultSize)
+func NewLogReader(input io.Reader, startTime time.Time) *LogReader {
+	return NewLogReaderSize(input, startTime, buffer.DefaultSize)
 }
 
 // NewLogReaderSize is like NewLogReader but it allows the program to configure
 // the read buffer size.
-func NewLogReaderSize(input io.Reader, bufferSize int) *LogReader {
+func NewLogReaderSize(input io.Reader, startTime time.Time, bufferSize int) *LogReader {
 	return &LogReader{
+		startTime:  startTime,
 		input:      bufio.NewReaderSize(input, 64*1024),
 		bufferSize: buffer.Align(bufferSize, buffer.DefaultSize),
 	}
@@ -46,30 +43,14 @@ func NewLogReaderSize(input io.Reader, bufferSize int) *LogReader {
 // Close closes the log reader.
 func (r *LogReader) Close() error {
 	buffer.Release(&r.batchFrame, &frameBufferPool)
-	r.batch.Reset(nil, nil, nil)
+	r.batch.Reset(r.startTime, nil, nil)
 	return nil
-}
-
-// ReadLogHeader reads and returns the log header from r.
-//
-// The log header is always located at the first byte of the underlying segment.
-//
-// The method returns the log header that was read, along with the number of
-// bytes that it spanned over. If the log header could not be read, a non-nil
-// error is returned describing the reason why.
-func (r *LogReader) ReadLogHeader() (*Header, error) {
-	f, err := r.readFrame()
-	if err != nil {
-		return nil, err
-	}
-	defer frameBufferPool.Put(f)
-	return NewHeader(f.Data)
 }
 
 // ReadRecordBatch reads the next record batch.
 //
 // The RecordBatch is only valid until the next call to ReadRecordBatch.
-func (r *LogReader) ReadRecordBatch(header *Header) (*RecordBatch, error) {
+func (r *LogReader) ReadRecordBatch() (*RecordBatch, error) {
 	if r.batch.reader.N > 0 {
 		if _, err := io.Copy(io.Discard, &r.batch.reader); err != nil {
 			return nil, err
@@ -81,7 +62,7 @@ func (r *LogReader) ReadRecordBatch(header *Header) (*RecordBatch, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.batch.Reset(header, r.batchFrame.Data, r.input)
+	r.batch.Reset(r.startTime, r.batchFrame.Data, r.input)
 	return &r.batch, nil
 }
 
@@ -139,7 +120,6 @@ func (r *LogReader) readFrame() (*buffer.Buffer, error) {
 // via the Record method.
 type LogRecordReader struct {
 	reader *LogReader
-	header *Header
 	batch  *RecordBatch
 }
 
@@ -153,16 +133,9 @@ func NewLogRecordReader(r *LogReader) *LogRecordReader {
 // The record values share memory buffer with the reader, they remain valid
 // until the next call to Read.
 func (r *LogRecordReader) Read(records []Record) (int, error) {
-	if r.header == nil {
-		h, err := r.reader.ReadLogHeader()
-		if err != nil {
-			return 0, err
-		}
-		r.header = h
-	}
 	for {
 		if r.batch == nil {
-			b, err := r.reader.ReadRecordBatch(r.header)
+			b, err := r.reader.ReadRecordBatch()
 			if err != nil {
 				return 0, err
 			}
@@ -185,11 +158,6 @@ var (
 )
 
 // LogWriter supports writing log segments to an io.Writer.
-//
-// The type has two main methods, WriteLogHeader and WriteRecordBatch.
-// The former must be called first and only once to write the log header and
-// initialize the state of the writer, zero or more record batches may then
-// be written to the log after that.
 type LogWriter struct {
 	output io.Writer
 	// When writing to the underlying io.Writer causes an error, we stop
@@ -205,24 +173,9 @@ func NewLogWriter(output io.Writer) *LogWriter {
 
 // Reset resets the state of the log writer to produce to output to the given
 // io.Writer.
-//
-// WriteLogHeader should be called again after resetting the writer.
 func (w *LogWriter) Reset(output io.Writer) {
 	w.output = output
 	w.stickyErr = nil
-}
-
-// WriteLogHeader writes the log header. The method must be called before any
-// records are written to the log via calls to WriteRecordBatch.
-func (w *LogWriter) WriteLogHeader(header *HeaderBuilder) error {
-	if w.stickyErr != nil {
-		return w.stickyErr
-	}
-	if _, err := w.output.Write(header.Bytes()); err != nil {
-		w.stickyErr = err
-		return err
-	}
-	return nil
 }
 
 // WriteRecordBatch writes a record batch to the log. The method returns
@@ -245,7 +198,6 @@ func (w *LogWriter) WriteRecordBatch(batch *RecordBatchBuilder) error {
 // configurable size before flushing the batch to the log.
 type LogRecordWriter struct {
 	*LogWriter
-
 	batchSize   int
 	compression Compression
 	firstOffset int64

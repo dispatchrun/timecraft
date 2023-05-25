@@ -132,12 +132,12 @@ func (store dirStore) CreateObject(ctx context.Context, name string, data io.Rea
 		return err
 	}
 
-	dirPath := filepath.Dir(filePath)
+	dirPath, fileName := filepath.Split(filePath)
 	if err := os.MkdirAll(dirPath, 0777); err != nil {
 		return err
 	}
 
-	file, err := os.CreateTemp(dirPath, "."+name+".*")
+	file, err := os.CreateTemp(dirPath, "."+fileName+".*")
 	if err != nil {
 		return err
 	}
