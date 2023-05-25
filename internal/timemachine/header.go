@@ -2,7 +2,6 @@ package timemachine
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"time"
 
@@ -29,9 +28,8 @@ type Header struct {
 }
 
 type Runtime struct {
-	Runtime   string
-	Version   string
-	Functions []Function
+	Runtime string
+	Version string
 }
 
 type Process struct {
@@ -54,20 +52,6 @@ func NewHeader(b []byte) (*Header, error) {
 	}
 	h.Runtime.Runtime = string(runtime.Runtime())
 	h.Runtime.Version = string(runtime.Version())
-	h.Runtime.Functions = make([]Function, runtime.FunctionsLength())
-
-	for i := range h.Runtime.Functions {
-		f := logsegment.Function{}
-		if !runtime.Functions(&f, i) {
-			return nil, fmt.Errorf("missing runtime function in log header: expected %d but could not load function at index %d", len(h.Runtime.Functions), i)
-		}
-		h.Runtime.Functions[i] = Function{
-			Module:      string(f.Module()),
-			Name:        string(f.Name()),
-			ParamCount:  int(f.ParamCount()),
-			ResultCount: int(f.ResultCount()),
-		}
-	}
 
 	var hash types.Hash
 	var process logsegment.Process
@@ -209,33 +193,11 @@ func (b *HeaderBuilder) build() {
 		paramCount, resultCount uint32
 	}
 
-	functionOffsets := make([]function, len(b.runtime.Functions))
-	for i, fn := range b.runtime.Functions {
-		functionOffsets[i] = function{
-			module:      b.builder.CreateSharedString(fn.Module),
-			name:        b.builder.CreateString(fn.Name),
-			paramCount:  uint32(fn.ParamCount),
-			resultCount: uint32(fn.ResultCount),
-		}
-	}
-
-	functionsOffset := b.prependObjectVector(len(functionOffsets),
-		func(i int) flatbuffers.UOffsetT {
-			logsegment.FunctionStart(b.builder)
-			logsegment.FunctionAddModule(b.builder, functionOffsets[i].module)
-			logsegment.FunctionAddName(b.builder, functionOffsets[i].name)
-			logsegment.FunctionAddParamCount(b.builder, functionOffsets[i].paramCount)
-			logsegment.FunctionAddResultCount(b.builder, functionOffsets[i].resultCount)
-			return logsegment.FunctionEnd(b.builder)
-		},
-	)
-
 	runtimeNameOffset := b.builder.CreateString(b.runtime.Runtime)
 	runtimeVersionOffset := b.builder.CreateString(b.runtime.Version)
 	logsegment.RuntimeStart(b.builder)
 	logsegment.RuntimeAddRuntime(b.builder, runtimeNameOffset)
 	logsegment.RuntimeAddVersion(b.builder, runtimeVersionOffset)
-	logsegment.RuntimeAddFunctions(b.builder, functionsOffset)
 	runtimeOffset := logsegment.RuntimeEnd(b.builder)
 
 	logsegment.LogHeaderStart(b.builder)
@@ -243,7 +205,7 @@ func (b *HeaderBuilder) build() {
 	logsegment.LogHeaderAddProcess(b.builder, processOffset)
 	logsegment.LogHeaderAddSegment(b.builder, b.segment)
 	logsegment.LogHeaderAddCompression(b.builder, b.compression)
-	logsegment.FinishSizePrefixedLogHeaderBuffer(b.builder, logsegment.LogHeaderEnd(b.builder))
+	b.builder.FinishSizePrefixed(logsegment.LogHeaderEnd(b.builder))
 }
 
 func (b *HeaderBuilder) prependHash(hash Hash) flatbuffers.UOffsetT {

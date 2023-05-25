@@ -1,7 +1,6 @@
 package timemachine
 
 import (
-	"fmt"
 	"io"
 	"time"
 
@@ -13,22 +12,20 @@ import (
 // Record is a read-only record from the log.
 type Record struct {
 	startTime time.Time
-	functions []Function
 	record    logsegment.Record
 }
 
 // MakeRecord creates a record from a buffer.
 //
 // The buffer must live as long as the record.
-func MakeRecord(startTime time.Time, functions []Function, buffer []byte) (r Record) {
-	r.Reset(startTime, functions, buffer)
+func MakeRecord(startTime time.Time, buffer []byte) (r Record) {
+	r.Reset(startTime, buffer)
 	return
 }
 
 // Reset resets a record.
-func (r *Record) Reset(startTime time.Time, functions []Function, buffer []byte) {
+func (r *Record) Reset(startTime time.Time, buffer []byte) {
 	r.startTime = startTime
-	r.functions = functions
 	r.record = *logsegment.GetSizePrefixedRootAsRecord(buffer, 0)
 }
 
@@ -40,15 +37,6 @@ func (r *Record) Timestamp() time.Time {
 // FunctionID is the record's associated function ID.
 func (r *Record) FunctionID() int {
 	return int(r.record.FunctionId())
-}
-
-// Function is the record's associated function.
-func (r *Record) Function() (Function, error) {
-	id := r.FunctionID()
-	if id >= len(r.functions) {
-		return Function{}, fmt.Errorf("invalid function %d", id)
-	}
-	return r.functions[id], nil
 }
 
 // FunctionCall returns the function call details.
@@ -131,5 +119,5 @@ func (b *RecordBuilder) build() {
 	logsegment.RecordAddTimestamp(b.builder, b.timestamp)
 	logsegment.RecordAddFunctionId(b.builder, b.functionID)
 	logsegment.RecordAddFunctionCall(b.builder, functionCall)
-	logsegment.FinishSizePrefixedRecordBuffer(b.builder, logsegment.RecordEnd(b.builder))
+	b.builder.FinishSizePrefixed(logsegment.RecordEnd(b.builder))
 }

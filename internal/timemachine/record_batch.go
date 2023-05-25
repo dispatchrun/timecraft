@@ -121,7 +121,6 @@ func (b *RecordBatch) Read(records []Record) (int, error) {
 		return 0, err
 	}
 	startTime := b.header.Process.StartTime
-	functions := b.header.Runtime.Functions
 	var n int
 	for n = range records {
 		if b.offset == uint32(len(batch)) {
@@ -134,7 +133,7 @@ func (b *RecordBatch) Read(records []Record) (int, error) {
 		if b.offset+size < b.offset || b.offset+size > uint32(len(batch)) {
 			return n, fmt.Errorf("cannot read record at [%d:%d+%d] as records buffer is length %d: %w", b.offset, b.offset, size, len(batch), io.ErrUnexpectedEOF)
 		}
-		records[n] = MakeRecord(startTime, functions, batch[b.offset:b.offset+size+4])
+		records[n] = MakeRecord(startTime, batch[b.offset:b.offset+size+4])
 		b.offset += size + 4
 	}
 	return n, nil
@@ -277,5 +276,5 @@ func (b *RecordBatchBuilder) build() {
 	logsegment.RecordBatchAddUncompressedSize(b.builder, uint32(len(b.uncompressed)))
 	logsegment.RecordBatchAddChecksum(b.builder, checksum(b.records))
 	logsegment.RecordBatchAddNumRecords(b.builder, b.recordCount)
-	logsegment.FinishSizePrefixedRecordBatchBuffer(b.builder, logsegment.RecordBatchEnd(b.builder))
+	b.builder.FinishSizePrefixed(logsegment.RecordBatchEnd(b.builder))
 }

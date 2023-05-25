@@ -167,26 +167,10 @@ func run(ctx context.Context, args []string) error {
 		defer logSegment.Close()
 		logWriter := timemachine.NewLogWriter(logSegment)
 
-		var functions timemachine.FunctionIndex
-		importedFunctions := wasmModule.ImportedFunctions()
-		for _, f := range importedFunctions {
-			moduleName, functionName, isImport := f.Import()
-			if !isImport {
-				continue
-			}
-			functions.Add(timemachine.Function{
-				Module:      moduleName,
-				Name:        functionName,
-				ParamCount:  len(f.ParamTypes()),
-				ResultCount: len(f.ResultTypes()),
-			})
-		}
-
 		var header timemachine.HeaderBuilder
 		header.SetRuntime(timemachine.Runtime{
-			Runtime:   "timecraft",
-			Version:   version,
-			Functions: functions.Functions(),
+			Runtime: "timecraft",
+			Version: version,
 		})
 		startTime := time.Now()
 		header.SetProcess(timemachine.Process{
