@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,90 +18,53 @@ import (
 	"github.com/tetratelabs/wazero"
 )
 
-func runUsage() {
-	fmt.Print(`timecraft run - Run a WebAssembly module
+const runUsage = `
+Usage:	timecraft run [options] [--] <module> [args...]
 
-USAGE:
-   timecraft run [OPTIONS]... <MODULE> [--] [ARGS]...
-
-ARGS:
-   <MODULE>
-      The path of the WebAssembly module to run
-
-   [ARGS]...
-      Arguments to pass to the module
-
-OPTIONS:
-   --compression <TYPE>
-      Compression to use when writing the log, either {snappy, zstd,
-      none}. Default is zstd
-
-   --batch-size <NUM>
-      Number of records to accumulate in a batch before writing to
-      the log. Default is 1024
-
-   --dir <DIR>
-      Grant access to the specified host directory
-
-   --listen <ADDR>
-      Grant access to a socket listening on the specified address
-
-   --dial <ADDR>
-      Grant access to a socket connected to the specified address
-
-   --env <NAME=VAL>
-      Pass an environment variable to the module
-
-   --record
-      Enable recording of the module execution
-
-   --sockets <NAME>
-      Enable a sockets extension, either {none, auto, path_open,
-      wasmedgev1, wasmedgev2}. Default is auto
-
-   --store <PATH>
-      Path to the directory where the timecraft object store is available
-      (default to ~/.timecraft)
-
-   --trace
-      Enable logging of system calls (like strace)
-
-   -h, --help
-      Show this usage information
-`)
-}
+Options:
+   -B, --batch-size size    Number of records written per batch (default to 4096)
+   -C, --compression type   Compression to use when writing records, either snappy or zstd (default to zstd)
+   -D, --dial addr          Expose a socket connected to the specified address
+   -d, --dir path           Expose the directory to the guest module
+   -e, --env name=value     Pass an environment variable to the guest module
+   -h, --help               Show this usage information
+   -L, --listen addr        Expose a socket listening on the specified address
+   -S, --sockets extension  Enable a sockets extension, one of none, auto, path_open, wasmedgev1, wasmedgev2 (default to to auto)
+       --store path         Path to the timecraft object store (default to ~/.timecraft)
+   -R, --record             Enable recording of the guest module execution
+   -T, --trace              Enable strace-like logging of host function calls
+`
 
 func run(ctx context.Context, args []string) error {
-	flagSet := flag.NewFlagSet("timecraft run", flag.ExitOnError)
-	flagSet.Usage = runUsage
-
 	var (
 		envs        stringList
 		dirs        stringList
 		listens     stringList
 		dials       stringList
-		batchSize   int
-		compression string
-		sockets     string
-		store       string
-		record      bool
-		trace       bool
+		batchSize   = 4096
+		compression = "zstd"
+		sockets     = "auto"
+		store       = "~/.timecraft"
+		record      = false
+		trace       = false
 	)
-	flagSet.Var(&envs, "env", "")
-	flagSet.Var(&dirs, "dir", "")
-	flagSet.Var(&listens, "listen", "")
-	flagSet.Var(&dials, "dial", "")
-	flagSet.StringVar(&compression, "compression", "zstd", "")
-	flagSet.StringVar(&sockets, "sockets", "auto", "")
-	flagSet.StringVar(&store, "store", "~/.timecraft", "")
-	flagSet.BoolVar(&trace, "trace", false, "")
-	flagSet.BoolVar(&record, "record", false, "")
-	flagSet.IntVar(&batchSize, "batch-size", 4096, "")
+
+	flagSet := newFlagSet("timecraft run", runUsage)
+	customVar(flagSet, &envs, "e", "env")
+	customVar(flagSet, &dirs, "d", "dir")
+	customVar(flagSet, &listens, "L", "listen")
+	customVar(flagSet, &dials, "D", "dial")
+	stringVar(flagSet, &compression, "C", "compression")
+	stringVar(flagSet, &sockets, "S", "sockets")
+	stringVar(flagSet, &store, "", "store")
+	boolVar(flagSet, &trace, "T", "trace")
+	boolVar(flagSet, &record, "R", "record")
+	intVar(flagSet, &batchSize, "B", "batch-size")
 	flagSet.Parse(args)
 
-	args = flagSet.Args()
-	if len(args) == 0 {
-		runUsage()
+	if args = flagSet.Args(); len(args) == 0 {
+		fmt.Println(`timecraft run: missing "--" separator before the module path`)
+		flagSet.Usage()
 		return ExitCode(1)
 	}
 
@@ -116,11 +78,6 @@ func run(ctx context.Context, args []string) error {
 	wasmCode, err := os.ReadFile(wasmPath)
 	if err != nil {
 		return fmt.Errorf("could not read WASM file '%s': %w", wasmPath, err)
-	}
-
-	args = args[1:]
-	if len(args) > 0 && args[0] == "--" {
-		args = args[1:]
 	}
 
 	runtime := wazero.NewRuntime(ctx)
@@ -166,7 +123,7 @@ func run(ctx context.Context, args []string) error {
 		}
 
 		runtime, err := timestore.CreateRuntime(ctx, &format.Runtime{
-			Version: version,
+			Version: currentVersion(),
 		})
 		if err != nil {
 			return err
@@ -216,7 +173,7 @@ func run(ctx context.Context, args []string) error {
 			})
 		})
 
-		defer fmt.Println(processID)
+		fmt.Println("timecraft run:", processID)
 	}
 
 	var system wasi.System

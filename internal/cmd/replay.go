@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"flag"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -14,48 +13,32 @@ import (
 	"github.com/tetratelabs/wazero"
 )
 
-func replayUsage() {
-	fmt.Print(`timecraft replay - Replay a recorded trace of execution
+const replayUsage = `
+Usage:	timecraft replay [options] <process id>
 
-USAGE:
-   timecraft replay [OPTIONS]... <ID>
-
-ARGS:
-   <LOG>
-      The path of the log that contains the recorded trace of execution
-
-   <MODULE>
-      The path of the WebAssembly module to run the replay against
-
-OPTIONS:
-   -h, --help
-      Show this usage information
-
-   --store <PATH>
-      Path to the directory where the timecraft object store is available
-      (default to ~/.timecraft)
-`)
-}
+Options:
+   -h, --help        Show this usage information
+       --store path  Path to the timecraft object store (default to ~/.timecraft)
+`
 
 func replay(ctx context.Context, args []string) error {
 	var (
-		store string
+		store = "~/.timecraft"
 	)
 
-	flagSet := flag.NewFlagSet("timecraft run", flag.ExitOnError)
-	flagSet.Usage = replayUsage
-	flagSet.StringVar(&store, "store", "~/.timecraft", "")
+	flagSet := newFlagSet("timecraft replay", replayUsage)
+	flagSet.StringVar(&store, "store", store, "")
 	flagSet.Parse(args)
 
 	args = flagSet.Args()
 	if len(args) != 1 {
-		replayUsage()
+		flagSet.Usage()
 		return ExitCode(1)
 	}
 
 	processID, err := uuid.Parse(args[0])
 	if err != nil {
-		replayUsage()
+		flagSet.Usage()
 		return err
 	}
 
