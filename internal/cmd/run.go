@@ -23,23 +23,21 @@ const runUsage = `
 Usage:	timecraft run [options] [--] <module> [args...]
 
 Options:
-   -B, --batch-size size    Number of records written per batch (default to 4096)
-   -C, --compression type   Compression to use when writing records, either snappy or zstd (default to zstd)
-   -D, --dial addr          Expose a socket connected to the specified address
-   -d, --dir path           Expose the directory to the guest module
-   -e, --env name=value     Pass an environment variable to the guest module
-   -h, --help               Show this usage information
-   -L, --listen addr        Expose a socket listening on the specified address
-   -S, --sockets extension  Enable a sockets extension, one of none, auto, path_open, wasmedgev1, wasmedgev2 (default to auto)
-   -R, --record             Enable recording of the guest module execution
-   -r, --registry path      Path to the timecraft registry (default to ~/.timecraft)
-   -T, --trace              Enable strace-like logging of host function calls
+   -D, --dial addr                Expose a socket connected to the specified address
+   -e, --env name=value           Pass an environment variable to the guest module
+   -h, --help                     Show this usage information
+   -L, --listen addr              Expose a socket listening on the specified address
+   -S, --sockets extension        Enable a sockets extension, one of none, auto, path_open, wasmedgev1, wasmedgev2 (default to auto)
+   -R, --record                   Enable recording of the guest module execution
+       --record-batch-size size   Number of records written per batch (default to 4096)
+       --record-compression type  Compression to use when writing records, either snappy or zstd (default to zstd)
+   -r, --registry path            Path to the timecraft registry (default to ~/.timecraft)
+   -T, --trace                    Enable strace-like logging of host function calls
 `
 
 func run(ctx context.Context, args []string) error {
 	var (
 		envs         stringList
-		dirs         stringList
 		listens      stringList
 		dials        stringList
 		batchSize    = 4096
@@ -52,7 +50,6 @@ func run(ctx context.Context, args []string) error {
 
 	flagSet := newFlagSet("timecraft run", runUsage)
 	customVar(flagSet, &envs, "e", "env")
-	customVar(flagSet, &dirs, "d", "dir")
 	customVar(flagSet, &listens, "L", "listen")
 	customVar(flagSet, &dials, "D", "dial")
 	stringVar(flagSet, &compression, "C", "compression")
@@ -92,7 +89,7 @@ func run(ctx context.Context, args []string) error {
 		WithName(wasmName).
 		WithArgs(args...).
 		WithEnv(envs...).
-		WithDirs(dirs...).
+		WithDirs("/").
 		WithListens(listens...).
 		WithDials(dials...).
 		WithSocketsExtension(sockets, wasmModule).
