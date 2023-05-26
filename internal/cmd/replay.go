@@ -18,17 +18,17 @@ const replayUsage = `
 Usage:	timecraft replay [options] <process id>
 
 Options:
-   -h, --help        Show this usage information
-       --store path  Path to the timecraft object store (default to ~/.timecraft)
+   -h, --help           Show this usage information
+   -r, --registry path  Path to the timecraft registry (default to ~/.timecraft)
 `
 
 func replay(ctx context.Context, args []string) error {
 	var (
-		store = "~/.timecraft"
+		registryPath = "~/.timecraft"
 	)
 
 	flagSet := newFlagSet("timecraft replay", replayUsage)
-	flagSet.StringVar(&store, "store", store, "")
+	stringVar(flagSet, &registryPath, "r", "registry")
 	flagSet.Parse(args)
 
 	args = flagSet.Args()
@@ -41,29 +41,29 @@ func replay(ctx context.Context, args []string) error {
 		return errors.New(`malformed process id passed as argument (not a UUID)`)
 	}
 
-	timestore, err := openStore(store)
+	registry, err := openRegistry(registryPath)
 	if err != nil {
 		return err
 	}
 
-	manifest, err := timestore.LookupLogManifest(ctx, processID)
+	manifest, err := registry.LookupLogManifest(ctx, processID)
 	if err != nil {
 		return err
 	}
-	process, err := timestore.LookupProcess(ctx, manifest.Process.Digest)
+	process, err := registry.LookupProcess(ctx, manifest.Process.Digest)
 	if err != nil {
 		return err
 	}
-	config, err := timestore.LookupConfig(ctx, process.Config.Digest)
+	config, err := registry.LookupConfig(ctx, process.Config.Digest)
 	if err != nil {
 		return err
 	}
-	module, err := timestore.LookupModule(ctx, config.Modules[0].Digest)
+	module, err := registry.LookupModule(ctx, config.Modules[0].Digest)
 	if err != nil {
 		return err
 	}
 
-	logSegment, err := timestore.ReadLogSegment(ctx, processID, 0)
+	logSegment, err := registry.ReadLogSegment(ctx, processID, 0)
 	if err != nil {
 		return err
 	}

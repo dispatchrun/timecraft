@@ -108,7 +108,7 @@ func (s *stringList) Set(value string) error {
 	return nil
 }
 
-func createStore(path string) (*timemachine.Store, error) {
+func createRegistry(path string) (*timemachine.Registry, error) {
 	path, err := resolvePath(path)
 	if err != nil {
 		return nil, err
@@ -118,10 +118,10 @@ func createStore(path string) (*timemachine.Store, error) {
 			return nil, err
 		}
 	}
-	return openStore(path)
+	return openRegistry(path)
 }
 
-func openStore(path string) (*timemachine.Store, error) {
+func openRegistry(path string) (*timemachine.Registry, error) {
 	path, err := resolvePath(path)
 	if err != nil {
 		return nil, err
@@ -130,7 +130,7 @@ func openStore(path string) (*timemachine.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return timemachine.NewStore(dir), nil
+	return timemachine.NewRegistry(dir), nil
 }
 
 func resolvePath(path string) (string, error) {

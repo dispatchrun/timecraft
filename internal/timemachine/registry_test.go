@@ -14,31 +14,31 @@ import (
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 )
 
-func TestStore(t *testing.T) {
+func TestRegistry(t *testing.T) {
 	t.Run("CreateAndLookup", func(t *testing.T) {
 		dir, err := object.DirStore(t.TempDir())
 		if err != nil {
 			t.Fatal(err)
 		}
-		store := timemachine.NewStore(dir)
+		reg := timemachine.NewRegistry(dir)
 
-		testStoreCreateAndLookup(t, store,
-			(*timemachine.Store).CreateModule,
-			(*timemachine.Store).LookupModule,
+		testRegistryCreateAndLookup(t, reg,
+			(*timemachine.Registry).CreateModule,
+			(*timemachine.Registry).LookupModule,
 			&format.Module{
 				Code: []byte("1234567890"),
 			})
 
-		testStoreCreateAndLookup(t, store,
-			(*timemachine.Store).CreateRuntime,
-			(*timemachine.Store).LookupRuntime,
+		testRegistryCreateAndLookup(t, reg,
+			(*timemachine.Registry).CreateRuntime,
+			(*timemachine.Registry).LookupRuntime,
 			&format.Runtime{
 				Version: "timecraft v0.0.1",
 			})
 
-		testStoreCreateAndLookup(t, store,
-			(*timemachine.Store).CreateConfig,
-			(*timemachine.Store).LookupConfig,
+		testRegistryCreateAndLookup(t, reg,
+			(*timemachine.Registry).CreateConfig,
+			(*timemachine.Registry).LookupConfig,
 			&format.Config{
 				Runtime: &format.Descriptor{
 					MediaType: format.TypeTimecraftRuntime,
@@ -59,9 +59,9 @@ func TestStore(t *testing.T) {
 				},
 			})
 
-		testStoreCreateAndLookup(t, store,
-			(*timemachine.Store).CreateProcess,
-			(*timemachine.Store).LookupProcess,
+		testRegistryCreateAndLookup(t, reg,
+			(*timemachine.Registry).CreateProcess,
+			(*timemachine.Registry).LookupProcess,
 			&format.Process{
 				ID:        uuid.New(),
 				StartTime: time.Unix(1685053878, 0),
@@ -79,22 +79,22 @@ type resource interface {
 	format.ResourceUnmarshaler
 }
 
-type createMethod[T any] func(*timemachine.Store, context.Context, T) (*format.Descriptor, error)
+type createMethod[T any] func(*timemachine.Registry, context.Context, T) (*format.Descriptor, error)
 
-type lookupMethod[T any] func(*timemachine.Store, context.Context, format.Hash) (T, error)
+type lookupMethod[T any] func(*timemachine.Registry, context.Context, format.Hash) (T, error)
 
-func testStoreCreateAndLookup[T resource](t *testing.T, store *timemachine.Store, create createMethod[T], lookup lookupMethod[T], want T) {
+func testRegistryCreateAndLookup[T resource](t *testing.T, reg *timemachine.Registry, create createMethod[T], lookup lookupMethod[T], want T) {
 	t.Run(reflect.TypeOf(want).Elem().String(), func(t *testing.T) {
 		ctx := context.Background()
 
-		d1, err := create(store, ctx, want)
+		d1, err := create(reg, ctx, want)
 		assert.OK(t, err)
 
-		d2, err := store.LookupDescriptor(ctx, d1.Digest)
+		d2, err := reg.LookupDescriptor(ctx, d1.Digest)
 		assert.OK(t, err)
 		assert.DeepEqual(t, d1, d2)
 
-		got, err := lookup(store, ctx, d1.Digest)
+		got, err := lookup(reg, ctx, d1.Digest)
 		assert.OK(t, err)
 		assert.DeepEqual(t, got, want)
 	})
