@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"time"
 
 	"github.com/google/pprof/profile"
@@ -267,21 +266,9 @@ func writeProfile(profileName, path string, prof *profile.Profile) {
 		File: "module.wasm",
 	}}
 
-	f, err := os.Create(path)
-	if err != nil {
-		fmt.Printf("error: %s\n", err)
-		return
-	}
-	defer f.Close()
-
-	w := &writeCounter{
-		writer: f,
-	}
-
-	if err := prof.Write(w); err != nil {
-		fmt.Printf("error: %s\n", err)
-		return
-	}
-
 	fmt.Printf("writing %s profile:\t%s\n", profileName, path)
+
+	if err := wzprof.WriteProfile(path, prof); err != nil {
+		fmt.Printf("ERR: %s\n", err)
+	}
 }
