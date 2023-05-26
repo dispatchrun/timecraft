@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -63,9 +64,7 @@ func run(ctx context.Context, args []string) error {
 	flagSet.Parse(args)
 
 	if args = flagSet.Args(); len(args) == 0 {
-		fmt.Println(`timecraft run: missing "--" separator before the module path`)
-		flagSet.Usage()
-		return ExitCode(1)
+		return errors.New(`missing "--" separator before the module path`)
 	}
 
 	timestore, err := createStore(store)
@@ -77,7 +76,7 @@ func run(ctx context.Context, args []string) error {
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
 	if err != nil {
-		return fmt.Errorf("could not read WASM file '%s': %w", wasmPath, err)
+		return fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
 	}
 
 	runtime := wazero.NewRuntime(ctx)

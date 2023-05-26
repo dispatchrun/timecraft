@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -32,14 +33,12 @@ func replay(ctx context.Context, args []string) error {
 
 	args = flagSet.Args()
 	if len(args) != 1 {
-		flagSet.Usage()
-		return ExitCode(1)
+		return errors.New(`expected exactly one process id as argument`)
 	}
 
 	processID, err := uuid.Parse(args[0])
 	if err != nil {
-		flagSet.Usage()
-		return err
+		return errors.New(`malformed process id passed as argument (not a UUID)`)
 	}
 
 	timestore, err := openStore(store)

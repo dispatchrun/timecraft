@@ -64,7 +64,7 @@ type command struct {
 }
 
 // Root is the timecraft entrypoint.
-func Root(ctx context.Context, args []string) error {
+func Root(ctx context.Context, args []string) (err error) {
 	flagSet := newFlagSet("timecraft", helpUsage)
 	flagSet.Parse(args)
 
@@ -73,18 +73,28 @@ func Root(ctx context.Context, args []string) error {
 		return ExitCode(1)
 	}
 
-	switch cmd, args := args[0], args[1:]; cmd {
+	cmd, args := args[0], args[1:]
+	switch cmd {
 	case "help":
-		return help(ctx, args)
+		err = help(ctx, args)
 	case "run":
-		return run(ctx, args)
+		err = run(ctx, args)
 	case "replay":
-		return replay(ctx, args)
+		err = replay(ctx, args)
 	case "version":
-		return version(ctx, args)
+		err = version(ctx, args)
 	default:
-		return unknown(ctx, cmd)
+		err = unknown(ctx, cmd)
 	}
+
+	switch err.(type) {
+	case nil:
+	case ExitCode:
+	default:
+		fmt.Printf("timecraft %s: %s", cmd, err)
+		err = ExitCode(1)
+	}
+	return err
 }
 
 type stringList []string
