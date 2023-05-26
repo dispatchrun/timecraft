@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"time"
 
@@ -150,39 +151,17 @@ func prof(ctx context.Context, args []string) error {
 	}
 	defer compiledModule.Close(ctx)
 
-	// TODO: this needs to happen when we cross the start time
-	records.start()
-
 	replay := wasicall.NewReplay(records)
 	defer replay.Close(ctx)
 
-	fallback := wasicall.NewObserver(nil, func(ctx context.Context, s wasicall.Syscall) {
-		panic(fmt.Sprintf("system call made after log EOF: %s", s.ID()))
-	}, nil)
-	system := wasicall.NewFallbackSystem(replay, fallback)
+	system := wasicall.NewFallbackSystem(replay, wasicall.NewExitSystem(0))
 
 	// TODO: need to figure this out dynamically:
 	hostModule := wasi_snapshot_preview1.NewHostModule(wasi_snapshot_preview1.WasmEdgeV2)
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
-	guestModuleInstance, err := runtime.InstantiateModule(ctx, compiledModule, wazero.NewModuleConfig().
-		WithStartFunctions())
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithCancelCause(ctx)
-	go func() {
-		_, err := guestModuleInstance.ExportedFunction("_start").Call(ctx)
-		if err != nil {
-			// TODO: the replay should exit with a proper wazero exit error
-			// so it does not crash when it reaches the end
-			//fmt.Println("ERR:", err)
-		}
-		cancel(err)
-	}()
-	<-ctx.Done()
-	return guestModuleInstance.Close(ctx)
+	return exec(ctx, runtime, compiledModule)
 }
 
 type recordProfiler struct {
@@ -207,9 +186,9 @@ func (r *recordProfiler) Read(records []timemachine.Record) (int, error) {
 	if len(records) == 0 {
 		return 0, nil
 	}
-	// if r.stopped {
-	// 	return 0, io.EOF
-	// }
+	if r.stopped {
+		return 0, io.EOF
+	}
 	n, err := r.records.Read(records[:1])
 	if n > 0 {
 		r.currentTime = records[0].Timestamp()

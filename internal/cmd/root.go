@@ -98,7 +98,7 @@ func Root(ctx context.Context, args []string) int {
 	case ExitCode:
 		return int(e)
 	default:
-		fmt.Printf("timecraft %s: %s\n", cmd, err)
+		fmt.Fprintf(os.Stderr, "ERR: timecraft %s: %s\n", cmd, err)
 		return 1
 	}
 }

@@ -96,19 +96,5 @@ func replay(ctx context.Context, args []string) error {
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
-	guestModuleInstance, err := runtime.InstantiateModule(ctx, compiledModule, wazero.NewModuleConfig().
-		WithStartFunctions())
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithCancelCause(ctx)
-	go func() {
-		_, err := guestModuleInstance.ExportedFunction("_start").Call(ctx)
-		if err != nil {
-			fmt.Println("ERR:", err)
-		}
-		cancel(err)
-	}()
-	<-ctx.Done()
-	return guestModuleInstance.Close(ctx)
+	return exec(ctx, runtime, compiledModule)
 }
