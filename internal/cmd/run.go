@@ -52,12 +52,12 @@ func run(ctx context.Context, args []string) error {
 	customVar(flagSet, &envs, "e", "env")
 	customVar(flagSet, &listens, "L", "listen")
 	customVar(flagSet, &dials, "D", "dial")
-	stringVar(flagSet, &compression, "C", "compression")
 	stringVar(flagSet, &sockets, "S", "sockets")
 	stringVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
 	boolVar(flagSet, &record, "R", "record")
-	intVar(flagSet, &batchSize, "B", "batch-size")
+	intVar(flagSet, &batchSize, "", "record-batch-size")
+	stringVar(flagSet, &compression, "", "record-compression")
 	flagSet.Parse(args)
 
 	if args = flagSet.Args(); len(args) == 0 {
