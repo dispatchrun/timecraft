@@ -27,52 +27,52 @@ type LogSegmentInfo struct {
 	CreatedAt time.Time
 }
 
-type Store struct {
+type Registry struct {
 	objects object.Store
 }
 
-func NewStore(objects object.Store) *Store {
-	return &Store{objects: objects}
+func NewRegistry(objects object.Store) *Registry {
+	return &Registry{objects: objects}
 }
 
-func (store *Store) CreateModule(ctx context.Context, module *format.Module) (*format.Descriptor, error) {
-	return store.createObject(ctx, module)
+func (reg *Registry) CreateModule(ctx context.Context, module *format.Module) (*format.Descriptor, error) {
+	return reg.createObject(ctx, module)
 }
 
-func (store *Store) CreateRuntime(ctx context.Context, runtime *format.Runtime) (*format.Descriptor, error) {
-	return store.createObject(ctx, runtime)
+func (reg *Registry) CreateRuntime(ctx context.Context, runtime *format.Runtime) (*format.Descriptor, error) {
+	return reg.createObject(ctx, runtime)
 }
 
-func (store *Store) CreateConfig(ctx context.Context, config *format.Config) (*format.Descriptor, error) {
-	return store.createObject(ctx, config)
+func (reg *Registry) CreateConfig(ctx context.Context, config *format.Config) (*format.Descriptor, error) {
+	return reg.createObject(ctx, config)
 }
 
-func (store *Store) CreateProcess(ctx context.Context, process *format.Process) (*format.Descriptor, error) {
-	return store.createObject(ctx, process)
+func (reg *Registry) CreateProcess(ctx context.Context, process *format.Process) (*format.Descriptor, error) {
+	return reg.createObject(ctx, process)
 }
 
-func (store *Store) LookupModule(ctx context.Context, hash format.Hash) (*format.Module, error) {
+func (reg *Registry) LookupModule(ctx context.Context, hash format.Hash) (*format.Module, error) {
 	module := new(format.Module)
-	return module, store.lookupObject(ctx, hash, module)
+	return module, reg.lookupObject(ctx, hash, module)
 }
 
-func (store *Store) LookupRuntime(ctx context.Context, hash format.Hash) (*format.Runtime, error) {
+func (reg *Registry) LookupRuntime(ctx context.Context, hash format.Hash) (*format.Runtime, error) {
 	runtime := new(format.Runtime)
-	return runtime, store.lookupObject(ctx, hash, runtime)
+	return runtime, reg.lookupObject(ctx, hash, runtime)
 }
 
-func (store *Store) LookupConfig(ctx context.Context, hash format.Hash) (*format.Config, error) {
+func (reg *Registry) LookupConfig(ctx context.Context, hash format.Hash) (*format.Config, error) {
 	config := new(format.Config)
-	return config, store.lookupObject(ctx, hash, config)
+	return config, reg.lookupObject(ctx, hash, config)
 }
 
-func (store *Store) LookupProcess(ctx context.Context, hash format.Hash) (*format.Process, error) {
+func (reg *Registry) LookupProcess(ctx context.Context, hash format.Hash) (*format.Process, error) {
 	process := new(format.Process)
-	return process, store.lookupObject(ctx, hash, process)
+	return process, reg.lookupObject(ctx, hash, process)
 }
 
-func (store *Store) LookupDescriptor(ctx context.Context, hash format.Hash) (*format.Descriptor, error) {
-	return store.lookupDescriptor(ctx, store.descriptorKey(hash))
+func (reg *Registry) LookupDescriptor(ctx context.Context, hash format.Hash) (*format.Descriptor, error) {
+	return reg.lookupDescriptor(ctx, reg.descriptorKey(hash))
 }
 
 func errorCreateObject(hash format.Hash, value format.Resource, err error) error {
@@ -91,16 +91,16 @@ func errorLookupDescriptor(hash format.Hash, err error) error {
 	return fmt.Errorf("lookup descriptor: %s: %w", hash, err)
 }
 
-func (store *Store) createObject(ctx context.Context, value format.ResourceMarshaler) (*format.Descriptor, error) {
+func (reg *Registry) createObject(ctx context.Context, value format.ResourceMarshaler) (*format.Descriptor, error) {
 	b, err := value.MarshalResource()
 	if err != nil {
 		return nil, err
 	}
 	hash := SHA256(b)
-	name := store.objectKey(hash)
-	desc := store.descriptorKey(hash)
+	name := reg.objectKey(hash)
+	desc := reg.descriptorKey(hash)
 
-	descriptor, err := store.lookupDescriptor(ctx, desc)
+	descriptor, err := reg.lookupDescriptor(ctx, desc)
 	if err == nil {
 		return descriptor, nil
 	}
@@ -118,27 +118,27 @@ func (store *Store) createObject(ctx context.Context, value format.ResourceMarsh
 		return nil, errorCreateObject(hash, value, err)
 	}
 
-	if err := store.objects.CreateObject(ctx, desc, bytes.NewReader(d)); err != nil {
+	if err := reg.objects.CreateObject(ctx, desc, bytes.NewReader(d)); err != nil {
 		return nil, errorCreateObject(hash, value, err)
 	}
-	if err := store.objects.CreateObject(ctx, name, bytes.NewReader(b)); err != nil {
+	if err := reg.objects.CreateObject(ctx, name, bytes.NewReader(b)); err != nil {
 		return nil, errorCreateObject(hash, value, err)
 	}
 	return descriptor, nil
 }
 
-func (store *Store) deleteObject(ctx context.Context, hash format.Hash) error {
-	if err := store.objects.DeleteObject(ctx, store.objectKey(hash)); err != nil {
+func (reg *Registry) deleteObject(ctx context.Context, hash format.Hash) error {
+	if err := reg.objects.DeleteObject(ctx, reg.objectKey(hash)); err != nil {
 		return errorDeleteObject(hash, err)
 	}
-	if err := store.objects.DeleteObject(ctx, store.descriptorKey(hash)); err != nil {
+	if err := reg.objects.DeleteObject(ctx, reg.descriptorKey(hash)); err != nil {
 		return errorDeleteObject(hash, err)
 	}
 	return nil
 }
 
-func (store *Store) lookupDescriptor(ctx context.Context, key string) (*format.Descriptor, error) {
-	r, err := store.objects.ReadObject(ctx, key)
+func (reg *Registry) lookupDescriptor(ctx context.Context, key string) (*format.Descriptor, error) {
+	r, err := reg.objects.ReadObject(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +154,8 @@ func (store *Store) lookupDescriptor(ctx context.Context, key string) (*format.D
 	return descriptor, nil
 }
 
-func (store *Store) lookupObject(ctx context.Context, hash format.Hash, value format.ResourceUnmarshaler) error {
-	r, err := store.objects.ReadObject(ctx, store.objectKey(hash))
+func (reg *Registry) lookupObject(ctx context.Context, hash format.Hash, value format.ResourceUnmarshaler) error {
+	r, err := reg.objects.ReadObject(ctx, reg.objectKey(hash))
 	if err != nil {
 		return errorLookupObject(hash, value, err)
 	}
@@ -170,29 +170,29 @@ func (store *Store) lookupObject(ctx context.Context, hash format.Hash, value fo
 	return nil
 }
 
-func (store *Store) descriptorKey(hash format.Hash) string {
+func (reg *Registry) descriptorKey(hash format.Hash) string {
 	return "obj/" + hash.String() + "/descriptor.json"
 }
 
-func (store *Store) objectKey(hash format.Hash) string {
+func (reg *Registry) objectKey(hash format.Hash) string {
 	return "obj/" + hash.String() + "/content"
 }
 
-func (store *Store) CreateLogManifest(ctx context.Context, processID format.UUID, manifest *format.Manifest) error {
+func (reg *Registry) CreateLogManifest(ctx context.Context, processID format.UUID, manifest *format.Manifest) error {
 	b, err := manifest.MarshalResource()
 	if err != nil {
 		return err
 	}
-	return store.objects.CreateObject(ctx, store.manifestKey(processID), bytes.NewReader(b))
+	return reg.objects.CreateObject(ctx, reg.manifestKey(processID), bytes.NewReader(b))
 }
 
-func (store *Store) CreateLogSegment(ctx context.Context, processID format.UUID, segmentNumber int) (io.WriteCloser, error) {
+func (reg *Registry) CreateLogSegment(ctx context.Context, processID format.UUID, segmentNumber int) (io.WriteCloser, error) {
 	r, w := io.Pipe()
-	name := store.logKey(processID, segmentNumber)
+	name := reg.logKey(processID, segmentNumber)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		r.CloseWithError(store.objects.CreateObject(ctx, name, r))
+		r.CloseWithError(reg.objects.CreateObject(ctx, name, r))
 	}()
 	return &logSegmentWriter{writer: w, done: done}, nil
 }
@@ -212,8 +212,8 @@ func (w *logSegmentWriter) Close() error {
 	return err
 }
 
-func (store *Store) ListLogSegments(ctx context.Context, processID format.UUID) stream.Reader[LogSegmentInfo] {
-	return convert(store.objects.ListObjects(ctx, "log/"+processID.String()+"/data"), func(info object.Info) (LogSegmentInfo, error) {
+func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID) stream.Reader[LogSegmentInfo] {
+	return convert(reg.objects.ListObjects(ctx, "log/"+processID.String()+"/data"), func(info object.Info) (LogSegmentInfo, error) {
 		number := path.Base(info.Name)
 		n, err := strconv.ParseInt(number, 16, 32)
 		if err != nil || n < 0 {
@@ -228,8 +228,8 @@ func (store *Store) ListLogSegments(ctx context.Context, processID format.UUID) 
 	})
 }
 
-func (store *Store) LookupLogManifest(ctx context.Context, processID format.UUID) (*format.Manifest, error) {
-	r, err := store.objects.ReadObject(ctx, store.manifestKey(processID))
+func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUID) (*format.Manifest, error) {
+	r, err := reg.objects.ReadObject(ctx, reg.manifestKey(processID))
 	if err != nil {
 		return nil, err
 	}
@@ -245,15 +245,15 @@ func (store *Store) LookupLogManifest(ctx context.Context, processID format.UUID
 	return m, nil
 }
 
-func (store *Store) ReadLogSegment(ctx context.Context, processID format.UUID, segmentNumber int) (io.ReadCloser, error) {
-	return store.objects.ReadObject(ctx, store.logKey(processID, segmentNumber))
+func (reg *Registry) ReadLogSegment(ctx context.Context, processID format.UUID, segmentNumber int) (io.ReadCloser, error) {
+	return reg.objects.ReadObject(ctx, reg.logKey(processID, segmentNumber))
 }
 
-func (store *Store) logKey(processID format.UUID, segmentNumber int) string {
+func (reg *Registry) logKey(processID format.UUID, segmentNumber int) string {
 	return fmt.Sprintf("log/%s/data/%08X", processID, segmentNumber)
 }
 
-func (store *Store) manifestKey(processID format.UUID) string {
+func (reg *Registry) manifestKey(processID format.UUID) string {
 	return fmt.Sprintf("log/%s/manifest.json", processID)
 }
 

@@ -31,23 +31,23 @@ Options:
    -h, --help               Show this usage information
    -L, --listen addr        Expose a socket listening on the specified address
    -S, --sockets extension  Enable a sockets extension, one of none, auto, path_open, wasmedgev1, wasmedgev2 (default to auto)
-       --store path         Path to the timecraft object store (default to ~/.timecraft)
    -R, --record             Enable recording of the guest module execution
+   -r, --registry path      Path to the timecraft registry (default to ~/.timecraft)
    -T, --trace              Enable strace-like logging of host function calls
 `
 
 func run(ctx context.Context, args []string) error {
 	var (
-		envs        stringList
-		dirs        stringList
-		listens     stringList
-		dials       stringList
-		batchSize   = 4096
-		compression = "zstd"
-		sockets     = "auto"
-		store       = "~/.timecraft"
-		record      = false
-		trace       = false
+		envs         stringList
+		dirs         stringList
+		listens      stringList
+		dials        stringList
+		batchSize    = 4096
+		compression  = "zstd"
+		sockets      = "auto"
+		registryPath = "~/.timecraft"
+		record       = false
+		trace        = false
 	)
 
 	flagSet := newFlagSet("timecraft run", runUsage)
@@ -57,7 +57,7 @@ func run(ctx context.Context, args []string) error {
 	customVar(flagSet, &dials, "D", "dial")
 	stringVar(flagSet, &compression, "C", "compression")
 	stringVar(flagSet, &sockets, "S", "sockets")
-	stringVar(flagSet, &store, "", "store")
+	stringVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
 	boolVar(flagSet, &record, "R", "record")
 	intVar(flagSet, &batchSize, "B", "batch-size")
@@ -67,7 +67,7 @@ func run(ctx context.Context, args []string) error {
 		return errors.New(`missing "--" separator before the module path`)
 	}
 
-	timestore, err := createStore(store)
+	registry, err := createRegistry(registryPath)
 	if err != nil {
 		return err
 	}
@@ -114,21 +114,21 @@ func run(ctx context.Context, args []string) error {
 		processID := uuid.New()
 		startTime := time.Now()
 
-		module, err := timestore.CreateModule(ctx, &format.Module{
+		module, err := registry.CreateModule(ctx, &format.Module{
 			Code: wasmCode,
 		})
 		if err != nil {
 			return err
 		}
 
-		runtime, err := timestore.CreateRuntime(ctx, &format.Runtime{
+		runtime, err := registry.CreateRuntime(ctx, &format.Runtime{
 			Version: currentVersion(),
 		})
 		if err != nil {
 			return err
 		}
 
-		config, err := timestore.CreateConfig(ctx, &format.Config{
+		config, err := registry.CreateConfig(ctx, &format.Config{
 			Runtime: runtime,
 			Modules: []*format.Descriptor{module},
 			Args:    append([]string{wasmName}, args...),
@@ -138,7 +138,7 @@ func run(ctx context.Context, args []string) error {
 			return err
 		}
 
-		process, err := timestore.CreateProcess(ctx, &format.Process{
+		process, err := registry.CreateProcess(ctx, &format.Process{
 			ID:        processID,
 			StartTime: startTime,
 			Config:    config,
@@ -147,14 +147,14 @@ func run(ctx context.Context, args []string) error {
 			return err
 		}
 
-		if err := timestore.CreateLogManifest(ctx, processID, &format.Manifest{
+		if err := registry.CreateLogManifest(ctx, processID, &format.Manifest{
 			Process:   process,
 			StartTime: startTime,
 		}); err != nil {
 			return err
 		}
 
-		logSegment, err := timestore.CreateLogSegment(ctx, processID, 0)
+		logSegment, err := registry.CreateLogSegment(ctx, processID, 0)
 		if err != nil {
 			return err
 		}
