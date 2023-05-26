@@ -1,17 +1,31 @@
 package cmd
 
+// Notes on program structure
+// --------------------------
+//
+// Timecraft uses subcommands to invoke specific functionalities of the program.
+// Each subcommand is implemented by a function named after the command, in a
+// file of the same name (e.g. the "help" command is implemented by the help
+// function in help.go).
+//
+// The usage message for each command is declared by a constant starting with
+// the command name and followed by the suffix "Usage". For example, the usage
+// message for the "help" command is declared by the constant helpUsage.
+//
+// The usage message contains a "Usage:	timecraft <command>" section presenting
+// the structure of the command. Note the tabulation separating "Usage:" and
+// "timecraft".
+
 import (
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
-	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/user"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 
 	"github.com/stealthrocket/timecraft/internal/object"
@@ -26,70 +40,61 @@ func (e ExitCode) Error() string {
 	return fmt.Sprintf("exit: %d", e)
 }
 
-var version = "devel"
+const rootUsage = `timecraft - WebAssembly Time Machine
 
-func init() {
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "(devel)" {
-		version = info.Main.Version
-	}
-}
+timecraft is a WebAssembly runtime that provides advanced capabilities to the
+applications it runs, such as creating records of the program execution which
+are later replayable.
 
-func rootUsage() {
-	fmt.Print(`timecraft - A time machine for production
+Example:
 
-USAGE:
-   timecraft [OPTIONS]... <COMMAND> [ARGS]...
+   $ timecraft run --record -- app.wasm
+   timecraft run: f6e9acbc-0543-47df-9413-b99f569cfa3b
+   ...
 
-COMMANDS:
-   run     Run a WebAssembly module, and optionally trace execution
-   replay  Replay a recorded trace of execution
+   $ timecraft replay f6e9acbc-0543-47df-9413-b99f569cfa3b
+   ...
 
-OPTIONS:
-   --pprof-addr <ADDR>
-      Start a pprof server listening on the specified address
+For a list of commands available, run 'timecraft help'.`
 
-   -v, --version
-      Print the version and exit
-
-   -h, --help
-      Show this usage information
-`)
+type command struct {
+	name     string
+	usage    string
+	function func(context.Context, []string) error
 }
 
 // Root is the timecraft entrypoint.
-func Root(ctx context.Context, args []string) error {
-	flagSet := flag.NewFlagSet("timecraft", flag.ExitOnError)
-	flagSet.Usage = rootUsage
-
-	pprofAddr := flagSet.String("pprof-addr", "", "")
-	v := flagSet.Bool("version", false, "")
-	flagSet.BoolVar(v, "v", false, "")
-
+func Root(ctx context.Context, args []string) (err error) {
+	flagSet := newFlagSet("timecraft", helpUsage)
 	flagSet.Parse(args)
 
-	if *v {
-		fmt.Println("timecraft", version)
-		os.Exit(0)
+	if args = flagSet.Args(); len(args) == 0 {
+		fmt.Println(rootUsage)
+		return ExitCode(1)
 	}
 
-	args = flagSet.Args()
-	if len(args) == 0 {
-		rootUsage()
-		os.Exit(1)
-	}
-
-	if *pprofAddr != "" {
-		go http.ListenAndServe(*pprofAddr, nil)
-	}
-
-	switch args[0] {
+	cmd, args := args[0], args[1:]
+	switch cmd {
+	case "help":
+		err = help(ctx, args)
 	case "run":
-		return run(ctx, args[1:])
+		err = run(ctx, args)
 	case "replay":
-		return replay(ctx, args[1:])
+		err = replay(ctx, args)
+	case "version":
+		err = version(ctx, args)
 	default:
-		return fmt.Errorf("invalid command %q", args[0])
+		err = unknown(ctx, cmd)
 	}
+
+	switch err.(type) {
+	case nil:
+	case ExitCode:
+	default:
+		fmt.Printf("timecraft %s: %s", cmd, err)
+		err = ExitCode(1)
+	}
+	return err
 }
 
 type stringList []string
@@ -137,4 +142,46 @@ func resolvePath(path string) (string, error) {
 		path = filepath.Join(u.HomeDir, path[1:])
 	}
 	return path, nil
+}
+
+func newFlagSet(cmd, usage string) *flag.FlagSet {
+	flagSet := flag.NewFlagSet(cmd, flag.ExitOnError)
+	flagSet.Usage = func() { fmt.Println(usage) }
+	return flagSet
+}
+
+func customVar(f *flag.FlagSet, dst flag.Value, short, long string) {
+	if short != "" {
+		f.Var(dst, short, "")
+	}
+	if long != "" {
+		f.Var(dst, long, "")
+	}
+}
+
+func stringVar(f *flag.FlagSet, dst *string, short, long string) {
+	if short != "" {
+		f.StringVar(dst, short, *dst, "")
+	}
+	if long != "" {
+		f.StringVar(dst, long, *dst, "")
+	}
+}
+
+func boolVar(f *flag.FlagSet, dst *bool, short, long string) {
+	if short != "" {
+		f.BoolVar(dst, short, *dst, "")
+	}
+	if long != "" {
+		f.BoolVar(dst, long, *dst, "")
+	}
+}
+
+func intVar(f *flag.FlagSet, dst *int, short, long string) {
+	if short != "" {
+		f.IntVar(dst, short, *dst, "")
+	}
+	if long != "" {
+		f.IntVar(dst, long, *dst, "")
+	}
 }
