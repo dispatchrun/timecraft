@@ -42,7 +42,7 @@ func (e ExitCode) Error() string {
 
 const rootUsage = `timecraft - WebAssembly Time Machine
 
-timecraft is a WebAssembly runtime which provides advanced capabilities to the
+timecraft is a WebAssembly runtime that provides advanced capabilities to the
 applications it runs, such as creating records of the program execution which
 are later replayable.
 
