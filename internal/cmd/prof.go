@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"time"
 
@@ -243,17 +242,6 @@ func (r *recordProfiler) stop() {
 		r.cpuProfile = r.cpu.StopProfile(r.sampleRate, r.symbols)
 		r.memProfile = r.mem.NewProfile(r.sampleRate, r.symbols)
 	}
-}
-
-type writeCounter struct {
-	writer io.Writer
-	nbytes uint64
-}
-
-func (w *writeCounter) Write(b []byte) (int, error) {
-	n, err := w.writer.Write(b)
-	w.nbytes += uint64(n)
-	return n, err
 }
 
 func writeProfile(profileName, path string, prof *profile.Profile) {
