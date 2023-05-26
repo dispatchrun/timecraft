@@ -29,7 +29,7 @@ Options:
    -e, --env name=value     Pass an environment variable to the guest module
    -h, --help               Show this usage information
    -L, --listen addr        Expose a socket listening on the specified address
-   -S, --sockets extension  Enable a sockets extension, one of none, auto, path_open, wasmedgev1, wasmedgev2 (default to to auto)
+   -S, --sockets extension  Enable a sockets extension, one of none, auto, path_open, wasmedgev1, wasmedgev2 (default to auto)
        --store path         Path to the timecraft object store (default to ~/.timecraft)
    -R, --record             Enable recording of the guest module execution
    -T, --trace              Enable strace-like logging of host function calls
