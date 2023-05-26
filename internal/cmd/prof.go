@@ -136,10 +136,8 @@ func prof(ctx context.Context, args []string) error {
 	ctx = context.WithValue(ctx,
 		experimental.FunctionListenerFactoryKey{},
 		experimental.MultiFunctionListenerFactory(
-			records.cpu,
-			records.mem,
-			//wzprof.Flag(&records.started, records.cpu),
-			//wzprof.Flag(&records.started, records.mem),
+			wzprof.Flag(&records.started, records.cpu),
+			wzprof.Flag(&records.started, records.mem),
 		),
 	)
 
