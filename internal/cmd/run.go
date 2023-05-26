@@ -60,7 +60,10 @@ func run(ctx context.Context, args []string) error {
 	intVar(flagSet, &batchSize, "B", "batch-size")
 	flagSet.Parse(args)
 
-	if args = flagSet.Args(); len(args) == 0 {
+	envs = append(os.Environ(), envs...)
+	args = flagSet.Args()
+
+	if len(args) == 0 {
 		return errors.New(`missing "--" separator before the module path`)
 	}
 
