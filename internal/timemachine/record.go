@@ -29,9 +29,15 @@ func (r *Record) Reset(startTime time.Time, buffer []byte) {
 	r.record = *logsegment.GetSizePrefixedRootAsRecord(buffer, 0)
 }
 
-// Timestamp is the record timestamp.
-func (r *Record) Timestamp() time.Time {
-	return r.startTime.Add(time.Duration(r.record.Timestamp()))
+// Time is the record timestamp as a time.Time value (adjusted from
+// the process start time).
+func (r *Record) Time() time.Time {
+	return r.startTime.Add(time.Duration(r.Timestamp()))
+}
+
+// Timestamp is the monontonic timestamp encoded in the record.
+func (r *Record) Timestamp() int64 {
+	return r.record.Timestamp()
 }
 
 // FunctionID is the record's associated function ID.

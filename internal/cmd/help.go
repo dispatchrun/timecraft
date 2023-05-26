@@ -32,6 +32,8 @@ func help(ctx context.Context, args []string) error {
 	switch cmd {
 	case "help", "":
 		msg = helpUsage
+	case "prof":
+		msg = profUsage
 	case "run":
 		msg = runUsage
 	case "replay":

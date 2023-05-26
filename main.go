@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,15 +10,6 @@ import (
 )
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-
-	switch err := cmd.Root(ctx, os.Args[1:]).(type) {
-	case nil:
-	case cmd.ExitCode:
-		os.Exit(int(err))
-	default:
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
+	ctx, _ := signal.NotifyContext(context.Background(), syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	os.Exit(cmd.Root(ctx, os.Args[1:]))
 }

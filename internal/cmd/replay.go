@@ -104,6 +104,9 @@ func replay(ctx context.Context, args []string) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	go func() {
 		_, err := guestModuleInstance.ExportedFunction("_start").Call(ctx)
+		if err != nil {
+			fmt.Println("ERR:", err)
+		}
 		cancel(err)
 	}()
 	<-ctx.Done()
