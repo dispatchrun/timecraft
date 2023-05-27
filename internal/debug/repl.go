@@ -36,6 +36,8 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 		r.println("FunctionCallBefore:", e.Function.DebugName())
 	case *FunctionCallAfter:
 		r.println("FunctionCallAfter:", e.Function.DebugName())
+	case *FunctionCallAbort:
+		r.println("FunctionCallAbort:", e.Function.DebugName(), e.Error)
 	case *WASICallBefore:
 		r.println("WASICallBefore:", e.Syscall.ID().String())
 	case *WASICallAfter:
