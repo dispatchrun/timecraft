@@ -15,6 +15,12 @@ import (
 	"github.com/stealthrocket/timecraft/internal/stream"
 )
 
+var (
+	// ErrNoRecords is an error returned when no log records could be found for
+	// a given process id.
+	ErrNoLogRecords = errors.New("process has no records")
+)
+
 type ModuleInfo struct {
 	ID        Hash
 	Size      int64
@@ -231,6 +237,9 @@ func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID)
 func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUID) (*format.Manifest, error) {
 	r, err := reg.objects.ReadObject(ctx, reg.manifestKey(processID))
 	if err != nil {
+		if errors.Is(err, object.ErrNotExist) {
+			err = fmt.Errorf("%w: %s", ErrNoLogRecords, processID)
+		}
 		return nil, err
 	}
 	defer r.Close()
@@ -246,7 +255,13 @@ func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUI
 }
 
 func (reg *Registry) ReadLogSegment(ctx context.Context, processID format.UUID, segmentNumber int) (io.ReadCloser, error) {
-	return reg.objects.ReadObject(ctx, reg.logKey(processID, segmentNumber))
+	r, err := reg.objects.ReadObject(ctx, reg.logKey(processID, segmentNumber))
+	if err != nil {
+		if errors.Is(err, object.ErrNotExist) {
+			err = fmt.Errorf("%w: %s", ErrNoLogRecords, processID)
+		}
+	}
+	return r, err
 }
 
 func (reg *Registry) logKey(processID format.UUID, segmentNumber int) string {
