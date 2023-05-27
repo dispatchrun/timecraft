@@ -33,6 +33,8 @@ func help(ctx context.Context, args []string) error {
 	}
 
 	switch cmd {
+	case "get":
+		msg = getUsage
 	case "help", "":
 		msg = helpUsage
 	case "profile":

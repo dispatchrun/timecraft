@@ -78,6 +78,8 @@ func Root(ctx context.Context, args ...string) int {
 	var err error
 	cmd, args := args[0], args[1:]
 	switch cmd {
+	case "get":
+		err = get(ctx, args)
 	case "help":
 		err = help(ctx, args)
 	case "profile":
@@ -122,6 +124,22 @@ func (ts *timestamp) Set(value string) error {
 	return nil
 }
 
+type outputFormat string
+
+func (o outputFormat) String() string {
+	return string(o)
+}
+
+func (o *outputFormat) Set(value string) error {
+	switch value {
+	case "text", "json", "yaml":
+		*o = outputFormat(value)
+		return nil
+	default:
+		return fmt.Errorf("unsupported output format: %q", value)
+	}
+}
+
 type stringList []string
 
 func (s stringList) String() string {
@@ -151,11 +169,14 @@ func openRegistry(path string) (*timemachine.Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir, err := object.DirStore(path)
+	store, err := object.DirStore(path)
 	if err != nil {
 		return nil, err
 	}
-	return timemachine.NewRegistry(dir), nil
+	registry := &timemachine.Registry{
+		Store: store,
+	}
+	return registry, nil
 }
 
 func resolvePath(path string) (string, error) {

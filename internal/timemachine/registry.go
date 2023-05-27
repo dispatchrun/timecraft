@@ -3,12 +3,17 @@ package timemachine
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"path"
 	"strconv"
+	"strings"
 	"time"
+
+	"golang.org/x/exp/slices"
 
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
@@ -21,40 +26,56 @@ var (
 	ErrNoLogRecords = errors.New("process has no records")
 )
 
-type ModuleInfo struct {
-	ID        Hash
-	Size      int64
-	CreatedAt time.Time
+type TimeRange struct {
+	Start, End time.Time
 }
 
-type LogSegmentInfo struct {
+func Between(then, now time.Time) TimeRange {
+	return TimeRange{Start: then, End: now}
+}
+
+func Since(then time.Time) TimeRange {
+	return Between(then, time.Now().In(then.Location()))
+}
+
+func Until(now time.Time) TimeRange {
+	return Between(time.Unix(0, 0).In(now.Location()), now)
+}
+
+func (tr TimeRange) Duration() time.Duration {
+	return tr.End.Sub(tr.Start)
+}
+
+type LogSegment struct {
 	Number    int
 	Size      int64
 	CreatedAt time.Time
 }
 
 type Registry struct {
-	objects object.Store
+	// The object store that the registry uses to load and store data.
+	Store object.Store
+	// List of tags that are added to every object created by this registry.
+	CreateTags []object.Tag
+	// List of tags that are added to every query selecting objects from this
+	// registry.
+	SelectTags []object.Tag
 }
 
-func NewRegistry(objects object.Store) *Registry {
-	return &Registry{objects: objects}
+func (reg *Registry) CreateModule(ctx context.Context, module *format.Module, tags ...object.Tag) (*format.Descriptor, error) {
+	return reg.createObject(ctx, module, tags)
 }
 
-func (reg *Registry) CreateModule(ctx context.Context, module *format.Module) (*format.Descriptor, error) {
-	return reg.createObject(ctx, module)
+func (reg *Registry) CreateRuntime(ctx context.Context, runtime *format.Runtime, tags ...object.Tag) (*format.Descriptor, error) {
+	return reg.createObject(ctx, runtime, tags)
 }
 
-func (reg *Registry) CreateRuntime(ctx context.Context, runtime *format.Runtime) (*format.Descriptor, error) {
-	return reg.createObject(ctx, runtime)
+func (reg *Registry) CreateConfig(ctx context.Context, config *format.Config, tags ...object.Tag) (*format.Descriptor, error) {
+	return reg.createObject(ctx, config, tags)
 }
 
-func (reg *Registry) CreateConfig(ctx context.Context, config *format.Config) (*format.Descriptor, error) {
-	return reg.createObject(ctx, config)
-}
-
-func (reg *Registry) CreateProcess(ctx context.Context, process *format.Process) (*format.Descriptor, error) {
-	return reg.createObject(ctx, process)
+func (reg *Registry) CreateProcess(ctx context.Context, process *format.Process, tags ...object.Tag) (*format.Descriptor, error) {
+	return reg.createObject(ctx, process, tags)
 }
 
 func (reg *Registry) LookupModule(ctx context.Context, hash format.Hash) (*format.Module, error) {
@@ -77,8 +98,24 @@ func (reg *Registry) LookupProcess(ctx context.Context, hash format.Hash) (*form
 	return process, reg.lookupObject(ctx, hash, process)
 }
 
-func (reg *Registry) LookupDescriptor(ctx context.Context, hash format.Hash) (*format.Descriptor, error) {
-	return reg.lookupDescriptor(ctx, reg.descriptorKey(hash))
+func (reg *Registry) ListModules(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
+	return reg.listObjects(ctx, "module", timeRange, tags)
+}
+
+func (reg *Registry) ListRuntimes(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
+	return reg.listObjects(ctx, "runtime", timeRange, tags)
+}
+
+func (reg *Registry) ListConfigs(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
+	return reg.listObjects(ctx, "config", timeRange, tags)
+}
+
+func (reg *Registry) ListProcesses(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
+	return reg.listObjects(ctx, "process", timeRange, tags)
+}
+
+func (reg *Registry) ListResources(ctx context.Context, resourceType string, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
+	return reg.listObjects(ctx, resourceType, timeRange, tags)
 }
 
 func errorCreateObject(hash format.Hash, value format.Resource, err error) error {
@@ -89,65 +126,108 @@ func errorLookupObject(hash format.Hash, value format.Resource, err error) error
 	return fmt.Errorf("lookup object: %s: %s: %w", hash, value.ContentType(), err)
 }
 
-func errorLookupDescriptor(hash format.Hash, value format.Resource, err error) error {
-	return fmt.Errorf("lookup descriptor: %s: %s: %w", hash, value.ContentType(), err)
+func errorListObjects(mediaType format.MediaType, err error) error {
+	return fmt.Errorf("list objects: %s: %w", mediaType, err)
 }
 
-func (reg *Registry) createObject(ctx context.Context, value format.ResourceMarshaler) (*format.Descriptor, error) {
+func resourceTypeOf(mediaType format.MediaType) string {
+	const prefix = "application/vnd.timecraft."
+	if strings.HasPrefix(string(mediaType), prefix) {
+		s, _, _ := strings.Cut(string(mediaType[len(prefix):]), ".")
+		return s
+	}
+	return "unknown"
+}
+
+func appendTagFilters(filters []object.Filter, tags []object.Tag) []object.Filter {
+	for _, tag := range tags {
+		filters = append(filters, object.MATCH(tag.Name, tag.Value))
+	}
+	return filters
+}
+
+func assignTags(annotations map[string]string, tags []object.Tag) {
+	for _, tag := range tags {
+		annotations[tag.Name] = tag.Value
+	}
+}
+
+func makeTags(annotations map[string]string) []object.Tag {
+	tags := make([]object.Tag, 0, len(annotations))
+	for name, value := range annotations {
+		tags = append(tags, object.Tag{
+			Name:  name,
+			Value: value,
+		})
+	}
+	slices.SortFunc(tags, func(t1, t2 object.Tag) bool {
+		return t1.Name < t2.Name
+	})
+	return tags
+}
+
+func sha256Hash(data []byte, tags []object.Tag) format.Hash {
+	buf := object.AppendTags(make([]byte, 0, 256), tags...)
+	sha := sha256.New()
+	sha.Write(data)
+	sha.Write(buf)
+	return format.Hash{
+		Algorithm: "sha256",
+		Digest:    hex.EncodeToString(sha.Sum(nil)),
+	}
+}
+
+func (reg *Registry) createObject(ctx context.Context, value format.ResourceMarshaler, extraTags []object.Tag) (*format.Descriptor, error) {
 	b, err := value.MarshalResource()
 	if err != nil {
 		return nil, err
 	}
-	hash := SHA256(b)
+	mediaType := value.ContentType()
+
+	annotations := make(map[string]string, 1+len(extraTags)+len(reg.CreateTags))
+	assignTags(annotations, reg.CreateTags)
+	assignTags(annotations, extraTags)
+	assignTags(annotations, []object.Tag{
+		{
+			Name:  "timecraft.object.media-type",
+			Value: mediaType.String(),
+		},
+		{
+			Name:  "timecraft.object.created-at",
+			Value: time.Now().UTC().Format(time.RFC3339),
+		},
+		{
+			Name:  "timecraft.object.resource-type",
+			Value: resourceTypeOf(mediaType),
+		},
+	})
+
+	tags := makeTags(annotations)
+	hash := sha256Hash(b, tags)
 	name := reg.objectKey(hash)
-	desc := reg.descriptorKey(hash)
-
-	descriptor, err := reg.lookupDescriptor(ctx, desc)
-	if err == nil {
-		return descriptor, nil
-	}
-	if !errors.Is(err, object.ErrNotExist) {
-		return nil, errorLookupDescriptor(hash, value, err)
+	desc := &format.Descriptor{
+		MediaType:   mediaType,
+		Digest:      hash,
+		Size:        int64(len(b)),
+		Annotations: annotations,
 	}
 
-	descriptor = &format.Descriptor{
-		MediaType: value.ContentType(),
-		Digest:    hash,
-		Size:      int64(len(b)),
+	if _, err := reg.Store.StatObject(ctx, name); err != nil {
+		if !errors.Is(err, object.ErrNotExist) {
+			return nil, errorCreateObject(hash, value, err)
+		}
+	} else {
+		return desc, nil
 	}
-	d, err := descriptor.MarshalResource()
-	if err != nil {
+
+	if err := reg.Store.CreateObject(ctx, name, bytes.NewReader(b), tags...); err != nil {
 		return nil, errorCreateObject(hash, value, err)
 	}
-
-	if err := reg.objects.CreateObject(ctx, desc, bytes.NewReader(d)); err != nil {
-		return nil, errorCreateObject(hash, value, err)
-	}
-	if err := reg.objects.CreateObject(ctx, name, bytes.NewReader(b)); err != nil {
-		return nil, errorCreateObject(hash, value, err)
-	}
-	return descriptor, nil
-}
-
-func (reg *Registry) lookupDescriptor(ctx context.Context, key string) (*format.Descriptor, error) {
-	r, err := reg.objects.ReadObject(ctx, key)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
-	b, err := io.ReadAll(r)
-	if err != nil {
-		return nil, err
-	}
-	descriptor := new(format.Descriptor)
-	if err := descriptor.UnmarshalResource(b); err != nil {
-		return nil, err
-	}
-	return descriptor, nil
+	return desc, nil
 }
 
 func (reg *Registry) lookupObject(ctx context.Context, hash format.Hash, value format.ResourceUnmarshaler) error {
-	r, err := reg.objects.ReadObject(ctx, reg.objectKey(hash))
+	r, err := reg.Store.ReadObject(ctx, reg.objectKey(hash))
 	if err != nil {
 		return errorLookupObject(hash, value, err)
 	}
@@ -162,12 +242,44 @@ func (reg *Registry) lookupObject(ctx context.Context, hash format.Hash, value f
 	return nil
 }
 
-func (reg *Registry) descriptorKey(hash format.Hash) string {
-	return "obj/" + hash.String() + "/descriptor.json"
+func (reg *Registry) listObjects(ctx context.Context, resourceType string, timeRange TimeRange, matchTags []object.Tag) stream.ReadCloser[*format.Descriptor] {
+	if !timeRange.Start.IsZero() {
+		timeRange.Start = timeRange.Start.Add(-1)
+	}
+
+	filters := []object.Filter{
+		object.MATCH("timecraft.object.resource-type", resourceType),
+		object.AFTER(timeRange.Start),
+		object.BEFORE(timeRange.End),
+	}
+	filters = appendTagFilters(filters, reg.SelectTags)
+	filters = appendTagFilters(filters, matchTags)
+
+	reader := reg.Store.ListObjects(ctx, "obj/", filters...)
+	return convert(reader, func(info object.Info) (*format.Descriptor, error) {
+		m, ok := info.Lookup("timecraft.object.media-type")
+		if !ok {
+			m = "application/octet-stream"
+		}
+		mediaType := format.MediaType(m)
+		hash, err := format.ParseHash(path.Base(info.Name))
+		if err != nil {
+			return nil, errorListObjects(mediaType, err)
+		}
+		desc := &format.Descriptor{
+			MediaType:   mediaType,
+			Digest:      hash,
+			Size:        info.Size,
+			Annotations: make(map[string]string, len(info.Tags)),
+		}
+		assignTags(desc.Annotations, info.Tags)
+		delete(desc.Annotations, "timecraft.object.media-type")
+		return desc, nil
+	})
 }
 
 func (reg *Registry) objectKey(hash format.Hash) string {
-	return "obj/" + hash.String() + "/content"
+	return "obj/" + hash.String()
 }
 
 func (reg *Registry) CreateLogManifest(ctx context.Context, processID format.UUID, manifest *format.Manifest) error {
@@ -175,7 +287,7 @@ func (reg *Registry) CreateLogManifest(ctx context.Context, processID format.UUI
 	if err != nil {
 		return err
 	}
-	return reg.objects.CreateObject(ctx, reg.manifestKey(processID), bytes.NewReader(b))
+	return reg.Store.CreateObject(ctx, reg.manifestKey(processID), bytes.NewReader(b))
 }
 
 func (reg *Registry) CreateLogSegment(ctx context.Context, processID format.UUID, segmentNumber int) (io.WriteCloser, error) {
@@ -184,7 +296,7 @@ func (reg *Registry) CreateLogSegment(ctx context.Context, processID format.UUID
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		r.CloseWithError(reg.objects.CreateObject(ctx, name, r))
+		r.CloseWithError(reg.Store.CreateObject(ctx, name, r))
 	}()
 	return &logSegmentWriter{writer: w, done: done}, nil
 }
@@ -204,14 +316,15 @@ func (w *logSegmentWriter) Close() error {
 	return err
 }
 
-func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID) stream.Reader[LogSegmentInfo] {
-	return convert(reg.objects.ListObjects(ctx, "log/"+processID.String()+"/data"), func(info object.Info) (LogSegmentInfo, error) {
+func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID) stream.Reader[LogSegment] {
+	reader := reg.Store.ListObjects(ctx, "log/"+processID.String()+"/data")
+	return convert(reader, func(info object.Info) (LogSegment, error) {
 		number := path.Base(info.Name)
 		n, err := strconv.ParseInt(number, 16, 32)
 		if err != nil || n < 0 {
-			return LogSegmentInfo{}, fmt.Errorf("invalid log segment entry: %q", info.Name)
+			return LogSegment{}, fmt.Errorf("invalid log segment entry: %q", info.Name)
 		}
-		segment := LogSegmentInfo{
+		segment := LogSegment{
 			Number:    int(n),
 			Size:      info.Size,
 			CreatedAt: info.CreatedAt,
@@ -221,7 +334,7 @@ func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID)
 }
 
 func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUID) (*format.Manifest, error) {
-	r, err := reg.objects.ReadObject(ctx, reg.manifestKey(processID))
+	r, err := reg.Store.ReadObject(ctx, reg.manifestKey(processID))
 	if err != nil {
 		if errors.Is(err, object.ErrNotExist) {
 			err = fmt.Errorf("%w: %s", ErrNoLogRecords, processID)
@@ -241,7 +354,7 @@ func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUI
 }
 
 func (reg *Registry) ReadLogSegment(ctx context.Context, processID format.UUID, segmentNumber int) (io.ReadCloser, error) {
-	r, err := reg.objects.ReadObject(ctx, reg.logKey(processID, segmentNumber))
+	r, err := reg.Store.ReadObject(ctx, reg.logKey(processID, segmentNumber))
 	if err != nil {
 		if errors.Is(err, object.ErrNotExist) {
 			err = fmt.Errorf("%w: %s", ErrNoLogRecords, processID)
@@ -259,42 +372,5 @@ func (reg *Registry) manifestKey(processID format.UUID) string {
 }
 
 func convert[To, From any](base stream.ReadCloser[From], conv func(From) (To, error)) stream.ReadCloser[To] {
-	return &convertReadCloser[To, From]{base: base, conv: conv}
-}
-
-type convertReadCloser[To, From any] struct {
-	base stream.ReadCloser[From]
-	from []From
-	conv func(From) (To, error)
-}
-
-func (r *convertReadCloser[To, From]) Close() error {
-	return r.base.Close()
-}
-
-func (r *convertReadCloser[To, From]) Read(items []To) (n int, err error) {
-	for n < len(items) {
-		if i := len(items) - n; cap(r.from) <= i {
-			r.from = r.from[:i]
-		} else {
-			r.from = make([]From, i)
-		}
-
-		rn, err := r.base.Read(r.from)
-
-		for _, from := range r.from[:rn] {
-			to, err := r.conv(from)
-			if err != nil {
-				r.base.Close()
-				return n, err
-			}
-			items[n] = to
-			n++
-		}
-
-		if err != nil {
-			return n, err
-		}
-	}
-	return n, nil
+	return stream.NewReadCloser(stream.ConvertReader[To, From](base, conv), base)
 }

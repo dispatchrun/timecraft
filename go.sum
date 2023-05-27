@@ -12,8 +12,6 @@ github.com/stealthrocket/wasi-go v0.1.1 h1:9Q9zpKWItoObGjNG5kkllzHx1sksiq/MKfuYd
 github.com/stealthrocket/wasi-go v0.1.1/go.mod h1:LBhZHvAroNNQTejkVTMJZ01ssj3jXF+3Lkbru4cTzGQ=
 github.com/stealthrocket/wazergo v0.19.0 h1:0ZBya2fBURvV+I2hGl0vcuQ8dgoUvllxQ7aYlZSA5nI=
 github.com/stealthrocket/wazergo v0.19.0/go.mod h1:riI0hxw4ndZA5e6z7PesHg2BtTftcZaMxRcoiGGipTs=
-github.com/stealthrocket/wzprof v0.1.4 h1:Yb/JHAQIpzCrpr/Nw/rgZxqqTigW2HT8SKNs6SLGFV4=
-github.com/stealthrocket/wzprof v0.1.4/go.mod h1:lUNsjcNEjviNBV8+MhOGGNBI/SQa7miJQaoXOTgRRok=
 github.com/stealthrocket/wzprof v0.1.5-0.20230526193557-ec6e2ad60848 h1:gNZnxEbv7OgKkGvRU4PtGDZpzls81FV0IYoUW3I46l0=
 github.com/stealthrocket/wzprof v0.1.5-0.20230526193557-ec6e2ad60848/go.mod h1:hqLzj5iDSncc6rlPMhC51O642AkaC+dWVPNNalZdlCY=
 github.com/tetratelabs/wazero v1.1.1-0.20230522055633-256b7a4bf970 h1:X5OOeHRjoLA8XhVc7biEbh1/hnTzpYpPn7HuyarMslQ=
@@ -22,3 +20,6 @@ golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1 h1:k/i9J1pBpvlfR+9QsetwPyERs
 golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1/go.mod h1:V1LtkGg67GoY2N1AnLN78QLrzxkLyJw7RJb1gzOOz9w=
 golang.org/x/sys v0.8.0 h1:EBmGv8NaZBZTWvrbjNoL6HVt+IVy3QDQpJs7VRIw3tU=
 golang.org/x/sys v0.8.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
+gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
+gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
