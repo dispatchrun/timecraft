@@ -36,7 +36,7 @@ func (c *Codec) DecodeArgsSizesGet(buffer []byte) (argCount, stringBytes int, er
 	if argCount, buffer, err = decodeInt(buffer); err != nil {
 		return
 	}
-	stringBytes, buffer, err = decodeInt(buffer)
+	stringBytes, _, err = decodeInt(buffer)
 	return
 }
 
@@ -49,7 +49,7 @@ func (c *Codec) DecodeArgsGet(buffer []byte, args []string) (_ []string, errno E
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	args, buffer, err = decodeStrings(buffer, args)
+	args, _, err = decodeStrings(buffer, args)
 	return args, errno, err
 }
 
@@ -66,7 +66,7 @@ func (c *Codec) DecodeEnvironSizesGet(buffer []byte) (envCount, stringBytes int,
 	if envCount, buffer, err = decodeInt(buffer); err != nil {
 		return
 	}
-	stringBytes, buffer, err = decodeInt(buffer)
+	stringBytes, _, err = decodeInt(buffer)
 	return
 }
 
@@ -79,7 +79,7 @@ func (c *Codec) DecodeEnvironGet(buffer []byte, env []string) (_ []string, errno
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	env, buffer, err = decodeStrings(buffer, env)
+	env, _, err = decodeStrings(buffer, env)
 	return env, errno, err
 }
 
@@ -96,7 +96,7 @@ func (c *Codec) DecodeClockResGet(buffer []byte) (id ClockID, timestamp Timestam
 	if id, buffer, err = decodeClockID(buffer); err != nil {
 		return
 	}
-	timestamp, buffer, err = decodeTimestamp(buffer)
+	timestamp, _, err = decodeTimestamp(buffer)
 	return
 }
 
@@ -117,7 +117,7 @@ func (c *Codec) DecodeClockTimeGet(buffer []byte) (id ClockID, precision Timesta
 	if precision, buffer, err = decodeTimestamp(buffer); err != nil {
 		return
 	}
-	timestamp, buffer, err = decodeTimestamp(buffer)
+	timestamp, _, err = decodeTimestamp(buffer)
 	return
 }
 
@@ -142,7 +142,7 @@ func (c *Codec) DecodeFDAdvise(buffer []byte) (fd FD, offset FileSize, length Fi
 	if length, buffer, err = decodeFileSize(buffer); err != nil {
 		return
 	}
-	advice, buffer, err = decodeAdvice(buffer)
+	advice, _, err = decodeAdvice(buffer)
 	return
 }
 
@@ -163,7 +163,7 @@ func (c *Codec) DecodeFDAllocate(buffer []byte) (fd FD, offset FileSize, length 
 	if offset, buffer, err = decodeFileSize(buffer); err != nil {
 		return
 	}
-	length, buffer, err = decodeFileSize(buffer)
+	length, _, err = decodeFileSize(buffer)
 	return
 }
 
@@ -176,7 +176,7 @@ func (c *Codec) DecodeFDClose(buffer []byte) (fd FD, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	fd, buffer, err = decodeFD(buffer)
+	fd, _, err = decodeFD(buffer)
 	return
 }
 
@@ -189,7 +189,7 @@ func (c *Codec) DecodeFDDataSync(buffer []byte) (fd FD, errno Errno, err error) 
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	fd, buffer, err = decodeFD(buffer)
+	fd, _, err = decodeFD(buffer)
 	return
 }
 
@@ -206,7 +206,7 @@ func (c *Codec) DecodeFDStatGet(buffer []byte) (fd FD, stat FDStat, errno Errno,
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	stat, buffer, err = decodeFDStat(buffer)
+	stat, _, err = decodeFDStat(buffer)
 	return
 }
 
@@ -223,7 +223,7 @@ func (c *Codec) DecodeFDStatSetFlags(buffer []byte) (fd FD, flags FDFlags, errno
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	flags, buffer, err = decodeFDFlags(buffer)
+	flags, _, err = decodeFDFlags(buffer)
 	return
 }
 
@@ -244,7 +244,7 @@ func (c *Codec) DecodeFDStatSetRights(buffer []byte) (fd FD, rightsBase, rightsI
 	if rightsBase, buffer, err = decodeRights(buffer); err != nil {
 		return
 	}
-	rightsInheriting, buffer, err = decodeRights(buffer)
+	rightsInheriting, _, err = decodeRights(buffer)
 	return
 }
 
@@ -261,7 +261,7 @@ func (c *Codec) DecodeFDFileStatGet(buffer []byte) (fd FD, stat FileStat, errno 
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	stat, buffer, err = decodeFileStat(buffer)
+	stat, _, err = decodeFileStat(buffer)
 	return
 }
 
@@ -278,7 +278,7 @@ func (c *Codec) DecodeFDFileStatSetSize(buffer []byte) (fd FD, size FileSize, er
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	size, buffer, err = decodeFileSize(buffer)
+	size, _, err = decodeFileSize(buffer)
 	return
 }
 
@@ -303,7 +303,7 @@ func (c *Codec) DecodeFDFileStatSetTimes(buffer []byte) (fd FD, accessTime, modi
 	if modifyTime, buffer, err = decodeTimestamp(buffer); err != nil {
 		return
 	}
-	flags, buffer, err = decodeFSTFlags(buffer)
+	flags, _, err = decodeFSTFlags(buffer)
 	return
 }
 
@@ -328,7 +328,7 @@ func (c *Codec) DecodeFDPread(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, 
 	if offset, buffer, err = decodeFileSize(buffer); err != nil {
 		return
 	}
-	size, buffer, err = decodeSize(buffer)
+	size, _, err = decodeSize(buffer)
 	return fd, iovecs, offset, size, errno, err
 }
 
@@ -345,7 +345,7 @@ func (c *Codec) DecodeFDPreStatGet(buffer []byte) (fd FD, stat PreStat, errno Er
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	stat, buffer, err = decodePreStat(buffer)
+	stat, _, err = decodePreStat(buffer)
 	return
 }
 
@@ -362,7 +362,7 @@ func (c *Codec) DecodeFDPreStatDirName(buffer []byte) (fd FD, name string, errno
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	name, buffer, err = decodeString(buffer)
+	name, _, err = decodeString(buffer)
 	return
 }
 
@@ -387,7 +387,7 @@ func (c *Codec) DecodeFDPwrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec,
 	if offset, buffer, err = decodeFileSize(buffer); err != nil {
 		return
 	}
-	size, buffer, err = decodeSize(buffer)
+	size, _, err = decodeSize(buffer)
 	return fd, iovecs, offset, size, errno, err
 }
 
@@ -408,7 +408,7 @@ func (c *Codec) DecodeFDRead(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, s
 	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
 		return
 	}
-	size, buffer, err = decodeSize(buffer)
+	size, _, err = decodeSize(buffer)
 	return fd, iovecs, size, errno, err
 }
 
@@ -437,7 +437,7 @@ func (c *Codec) DecodeFDReadDir(buffer []byte, entries []DirEntry) (fd FD, _ []D
 	if bufferSizeBytes, buffer, err = decodeInt(buffer); err != nil {
 		return
 	}
-	count, buffer, err = decodeInt(buffer)
+	count, _, err = decodeInt(buffer)
 	return fd, entries, cookie, bufferSizeBytes, count, errno, err
 }
 
@@ -454,7 +454,7 @@ func (c *Codec) DecodeFDRenumber(buffer []byte) (from, to FD, errno Errno, err e
 	if from, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	to, buffer, err = decodeFD(buffer)
+	to, _, err = decodeFD(buffer)
 	return
 }
 
@@ -479,7 +479,7 @@ func (c *Codec) DecodeFDSeek(buffer []byte) (fd FD, seekOffset FileDelta, whence
 	if whence, buffer, err = decodeWhence(buffer); err != nil {
 		return
 	}
-	offset, buffer, err = decodeFileSize(buffer)
+	offset, _, err = decodeFileSize(buffer)
 	return
 }
 
@@ -492,7 +492,7 @@ func (c *Codec) DecodeFDSync(buffer []byte) (fd FD, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	fd, buffer, err = decodeFD(buffer)
+	fd, _, err = decodeFD(buffer)
 	return
 }
 
@@ -509,7 +509,7 @@ func (c *Codec) DecodeFDTell(buffer []byte) (fd FD, offset FileSize, errno Errno
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	offset, buffer, err = decodeFileSize(buffer)
+	offset, _, err = decodeFileSize(buffer)
 	return
 }
 
@@ -530,7 +530,7 @@ func (c *Codec) DecodeFDWrite(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, 
 	if iovecs, buffer, err = decodeIOVecs(buffer, iovecs); err != nil {
 		return
 	}
-	size, buffer, err = decodeSize(buffer)
+	size, _, err = decodeSize(buffer)
 	return fd, iovecs, size, errno, err
 }
 
@@ -547,7 +547,7 @@ func (c *Codec) DecodePathCreateDirectory(buffer []byte) (fd FD, path string, er
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	path, buffer, err = decodeString(buffer)
+	path, _, err = decodeString(buffer)
 	return
 }
 
@@ -572,7 +572,7 @@ func (c *Codec) DecodePathFileStatGet(buffer []byte) (fd FD, lookupFlags LookupF
 	if path, buffer, err = decodeString(buffer); err != nil {
 		return
 	}
-	fileStat, buffer, err = decodeFileStat(buffer)
+	fileStat, _, err = decodeFileStat(buffer)
 	return
 }
 
@@ -605,7 +605,7 @@ func (c *Codec) DecodePathFileStatSetTimes(buffer []byte) (fd FD, lookupFlags Lo
 	if modifyTime, buffer, err = decodeTimestamp(buffer); err != nil {
 		return
 	}
-	flags, buffer, err = decodeFSTFlags(buffer)
+	flags, _, err = decodeFSTFlags(buffer)
 	return
 }
 
@@ -634,7 +634,7 @@ func (c *Codec) DecodePathLink(buffer []byte) (oldFD FD, oldFlags LookupFlags, o
 	if newFD, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	newPath, buffer, err = decodeString(buffer)
+	newPath, _, err = decodeString(buffer)
 	return
 }
 
@@ -672,7 +672,7 @@ func (c *Codec) DecodePathOpen(buffer []byte) (fd FD, dirFlags LookupFlags, path
 	if rightsInheriting, buffer, err = decodeRights(buffer); err != nil {
 		return
 	}
-	fdFlags, buffer, err = decodeFDFlags(buffer)
+	fdFlags, _, err = decodeFDFlags(buffer)
 	return
 }
 
@@ -693,7 +693,7 @@ func (c *Codec) DecodePathReadLink(buffer []byte) (fd FD, path string, output []
 	if path, buffer, err = decodeString(buffer); err != nil {
 		return
 	}
-	output, buffer, err = decodeBytes(buffer)
+	output, _, err = decodeBytes(buffer)
 	return
 }
 
@@ -710,7 +710,7 @@ func (c *Codec) DecodePathRemoveDirectory(buffer []byte) (fd FD, path string, er
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	path, buffer, err = decodeString(buffer)
+	path, _, err = decodeString(buffer)
 	return
 }
 
@@ -735,7 +735,7 @@ func (c *Codec) DecodePathRename(buffer []byte) (fd FD, oldPath string, newFD FD
 	if newFD, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	newPath, buffer, err = decodeString(buffer)
+	newPath, _, err = decodeString(buffer)
 	return
 }
 
@@ -753,7 +753,7 @@ func (c *Codec) DecodePathSymlink(buffer []byte) (oldPath string, fd FD, newPath
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	newPath, buffer, err = decodeString(buffer)
+	newPath, _, err = decodeString(buffer)
 	return
 }
 
@@ -770,7 +770,7 @@ func (c *Codec) DecodePathUnlinkFile(buffer []byte) (fd FD, path string, errno E
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	path, buffer, err = decodeString(buffer)
+	path, _, err = decodeString(buffer)
 	return
 }
 
@@ -787,7 +787,7 @@ func (c *Codec) DecodePollOneOff(buffer []byte, subscriptions []Subscription, ev
 	if subscriptions, buffer, err = decodeSubscriptions(buffer, subscriptions); err != nil {
 		return
 	}
-	if events, buffer, err = decodeEvents(buffer, events); err != nil {
+	if events, _, err = decodeEvents(buffer, events); err != nil {
 		return
 	}
 	return subscriptions, events, errno, err
@@ -802,7 +802,7 @@ func (c *Codec) DecodeProcExit(buffer []byte) (exitCode ExitCode, errno Errno, e
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	exitCode, buffer, err = decodeExitCode(buffer)
+	exitCode, _, err = decodeExitCode(buffer)
 	return
 }
 
@@ -815,7 +815,7 @@ func (c *Codec) DecodeProcRaise(buffer []byte) (signal Signal, errno Errno, err 
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	signal, buffer, err = decodeSignal(buffer)
+	signal, _, err = decodeSignal(buffer)
 	return
 }
 
@@ -824,7 +824,7 @@ func (c *Codec) EncodeSchedYield(buffer []byte, errno Errno) []byte {
 }
 
 func (c *Codec) DecodeSchedYield(buffer []byte) (errno Errno, err error) {
-	errno, buffer, err = decodeErrno(buffer)
+	errno, _, err = decodeErrno(buffer)
 	return
 }
 
@@ -838,7 +838,7 @@ func (c *Codec) DecodeRandomGet(buffer []byte) (result []byte, errno Errno, err 
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
-	result, buffer, err = decodeBytes(buffer)
+	result, _, err = decodeBytes(buffer)
 	return
 }
 
@@ -859,7 +859,7 @@ func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD,
 	if flags, buffer, err = decodeFDFlags(buffer); err != nil {
 		return
 	}
-	newfd, buffer, err = decodeFD(buffer)
+	newfd, _, err = decodeFD(buffer)
 	return
 }
 
@@ -888,7 +888,7 @@ func (c *Codec) DecodeSockRecv(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec,
 	if size, buffer, err = decodeSize(buffer); err != nil {
 		return
 	}
-	oflags, buffer, err = decodeROFlags(buffer)
+	oflags, _, err = decodeROFlags(buffer)
 	return fd, iovecs, iflags, size, oflags, errno, err
 }
 
@@ -913,7 +913,7 @@ func (c *Codec) DecodeSockSend(buffer []byte) (fd FD, iovecs []IOVec, flags SIFl
 	if flags, buffer, err = decodeSIFlags(buffer); err != nil {
 		return
 	}
-	size, buffer, err = decodeSize(buffer)
+	size, _, err = decodeSize(buffer)
 	return fd, iovecs, flags, size, errno, err
 }
 
@@ -930,7 +930,7 @@ func (c *Codec) DecodeSockShutdown(buffer []byte) (fd FD, flags SDFlags, errno E
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	flags, buffer, err = decodeSDFlags(buffer)
+	flags, _, err = decodeSDFlags(buffer)
 	return
 }
 
@@ -963,7 +963,7 @@ func (c *Codec) DecodeSockOpen(buffer []byte) (family ProtocolFamily, socketType
 	if rightsInheriting, buffer, err = decodeRights(buffer); err != nil {
 		return
 	}
-	fd, buffer, err = decodeFD(buffer)
+	fd, _, err = decodeFD(buffer)
 	return
 }
 
@@ -980,7 +980,7 @@ func (c *Codec) DecodeSockBind(buffer []byte) (fd FD, addr SocketAddress, errno 
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	addr, buffer, err = decodeAddr(buffer)
+	addr, _, err = decodeAddr(buffer)
 	return
 }
 
@@ -997,7 +997,7 @@ func (c *Codec) DecodeSockConnect(buffer []byte) (fd FD, addr SocketAddress, err
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	addr, buffer, err = decodeAddr(buffer)
+	addr, _, err = decodeAddr(buffer)
 	return
 }
 
@@ -1014,7 +1014,7 @@ func (c *Codec) DecodeSockListen(buffer []byte) (fd FD, backlog int, errno Errno
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	backlog, buffer, err = decodeInt(buffer)
+	backlog, _, err = decodeInt(buffer)
 	return
 }
 
@@ -1043,7 +1043,7 @@ func (c *Codec) DecodeSockSendTo(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVe
 	if addr, buffer, err = decodeAddr(buffer); err != nil {
 		return
 	}
-	size, buffer, err = decodeSize(buffer)
+	size, _, err = decodeSize(buffer)
 	return fd, iovecs, iflags, addr, size, errno, err
 }
 
@@ -1076,7 +1076,7 @@ func (c *Codec) DecodeSockRecvFrom(buffer []byte, iovecs []IOVec) (fd FD, _ []IO
 	if oflags, buffer, err = decodeROFlags(buffer); err != nil {
 		return
 	}
-	addr, buffer, err = decodeAddr(buffer)
+	addr, _, err = decodeAddr(buffer)
 	return fd, iovecs, iflags, size, oflags, addr, errno, err
 }
 
@@ -1101,7 +1101,7 @@ func (c *Codec) DecodeSockGetOptInt(buffer []byte) (fd FD, level SocketOptionLev
 	if option, buffer, err = decodeSocketOption(buffer); err != nil {
 		return
 	}
-	value, buffer, err = decodeInt(buffer)
+	value, _, err = decodeInt(buffer)
 	return
 }
 
@@ -1126,7 +1126,7 @@ func (c *Codec) DecodeSockSetOptInt(buffer []byte) (fd FD, level SocketOptionLev
 	if option, buffer, err = decodeSocketOption(buffer); err != nil {
 		return
 	}
-	value, buffer, err = decodeInt(buffer)
+	value, _, err = decodeInt(buffer)
 	return
 }
 
@@ -1143,7 +1143,7 @@ func (c *Codec) DecodeSockLocalAddress(buffer []byte) (fd FD, addr SocketAddress
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	addr, buffer, err = decodeAddr(buffer)
+	addr, _, err = decodeAddr(buffer)
 	return
 }
 
@@ -1160,7 +1160,7 @@ func (c *Codec) DecodeSockPeerAddress(buffer []byte) (fd FD, addr SocketAddress,
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	addr, buffer, err = decodeAddr(buffer)
+	addr, _, err = decodeAddr(buffer)
 	return
 }
 
@@ -1628,9 +1628,7 @@ func decodePreStat(buffer []byte) (stat PreStat, _ []byte, err error) {
 	if stat.Type, buffer, err = decodePreOpenType(buffer); err != nil {
 		return
 	}
-	if stat.PreStatDir.NameLength, buffer, err = decodeSize(buffer); err != nil {
-		return
-	}
+	stat.PreStatDir.NameLength, _, err = decodeSize(buffer)
 	return
 }
 
@@ -1652,9 +1650,7 @@ func decodeFDStat(buffer []byte) (stat FDStat, _ []byte, err error) {
 	if stat.RightsBase, buffer, err = decodeRights(buffer); err != nil {
 		return
 	}
-	if stat.RightsInheriting, buffer, err = decodeRights(buffer); err != nil {
-		return
-	}
+	stat.RightsInheriting, _, err = decodeRights(buffer)
 	return
 }
 
@@ -1691,7 +1687,7 @@ func decodeFileStat(buffer []byte) (stat FileStat, _ []byte, err error) {
 	if stat.ModifyTime, buffer, err = decodeTimestamp(buffer); err != nil {
 		return
 	}
-	stat.ChangeTime, buffer, err = decodeTimestamp(buffer)
+	stat.ChangeTime, _, err = decodeTimestamp(buffer)
 	return
 }
 

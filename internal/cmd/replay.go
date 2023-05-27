@@ -34,7 +34,7 @@ func replay(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft replay", replayUsage)
 	stringVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
-	flagSet.Parse(args)
+	parseFlags(flagSet, args)
 
 	args = flagSet.Args()
 	if len(args) != 1 {

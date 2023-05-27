@@ -15,15 +15,20 @@ Options:
 
 func version(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft version", versionUsage)
-	flagSet.Parse(args)
+	parseFlags(flagSet, args)
 	fmt.Printf("timecraft %s\n", currentVersion())
 	return nil
 }
 
 func currentVersion() string {
 	version := "devel"
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "(devel)" {
-		version = info.Main.Version
+	if info, ok := debug.ReadBuildInfo(); ok {
+		switch info.Main.Version {
+		case "":
+		case "(devel)":
+		default:
+			version = info.Main.Version
+		}
 	}
 	return version
 }

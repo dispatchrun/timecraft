@@ -15,6 +15,12 @@ import (
 	"github.com/stealthrocket/timecraft/internal/stream"
 )
 
+var (
+	// ErrNoRecords is an error returned when no log records could be found for
+	// a given process id.
+	ErrNoLogRecords = errors.New("process has no records")
+)
+
 type ModuleInfo struct {
 	ID        Hash
 	Size      int64
@@ -79,16 +85,12 @@ func errorCreateObject(hash format.Hash, value format.Resource, err error) error
 	return fmt.Errorf("create object: %s: %s: %w", hash, value.ContentType(), err)
 }
 
-func errorDeleteObject(hash format.Hash, err error) error {
-	return fmt.Errorf("delete object: %s: %w", hash, err)
-}
-
 func errorLookupObject(hash format.Hash, value format.Resource, err error) error {
 	return fmt.Errorf("lookup object: %s: %s: %w", hash, value.ContentType(), err)
 }
 
-func errorLookupDescriptor(hash format.Hash, err error) error {
-	return fmt.Errorf("lookup descriptor: %s: %w", hash, err)
+func errorLookupDescriptor(hash format.Hash, value format.Resource, err error) error {
+	return fmt.Errorf("lookup descriptor: %s: %s: %w", hash, value.ContentType(), err)
 }
 
 func (reg *Registry) createObject(ctx context.Context, value format.ResourceMarshaler) (*format.Descriptor, error) {
@@ -105,7 +107,7 @@ func (reg *Registry) createObject(ctx context.Context, value format.ResourceMars
 		return descriptor, nil
 	}
 	if !errors.Is(err, object.ErrNotExist) {
-		return nil, errorCreateObject(hash, value, err)
+		return nil, errorLookupDescriptor(hash, value, err)
 	}
 
 	descriptor = &format.Descriptor{
@@ -125,16 +127,6 @@ func (reg *Registry) createObject(ctx context.Context, value format.ResourceMars
 		return nil, errorCreateObject(hash, value, err)
 	}
 	return descriptor, nil
-}
-
-func (reg *Registry) deleteObject(ctx context.Context, hash format.Hash) error {
-	if err := reg.objects.DeleteObject(ctx, reg.objectKey(hash)); err != nil {
-		return errorDeleteObject(hash, err)
-	}
-	if err := reg.objects.DeleteObject(ctx, reg.descriptorKey(hash)); err != nil {
-		return errorDeleteObject(hash, err)
-	}
-	return nil
 }
 
 func (reg *Registry) lookupDescriptor(ctx context.Context, key string) (*format.Descriptor, error) {
@@ -231,6 +223,9 @@ func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID)
 func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUID) (*format.Manifest, error) {
 	r, err := reg.objects.ReadObject(ctx, reg.manifestKey(processID))
 	if err != nil {
+		if errors.Is(err, object.ErrNotExist) {
+			err = fmt.Errorf("%w: %s", ErrNoLogRecords, processID)
+		}
 		return nil, err
 	}
 	defer r.Close()
@@ -246,7 +241,13 @@ func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUI
 }
 
 func (reg *Registry) ReadLogSegment(ctx context.Context, processID format.UUID, segmentNumber int) (io.ReadCloser, error) {
-	return reg.objects.ReadObject(ctx, reg.logKey(processID, segmentNumber))
+	r, err := reg.objects.ReadObject(ctx, reg.logKey(processID, segmentNumber))
+	if err != nil {
+		if errors.Is(err, object.ErrNotExist) {
+			err = fmt.Errorf("%w: %s", ErrNoLogRecords, processID)
+		}
+	}
+	return r, err
 }
 
 func (reg *Registry) logKey(processID format.UUID, segmentNumber int) string {

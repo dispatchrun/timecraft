@@ -32,7 +32,7 @@ import (
 )
 
 var (
-	// ErrNotExist is an error value which may be tested aginst to determine
+	// ErrNotExist is an error value which may be tested against to determine
 	// whether a method invocation from a Store instance failed due to being
 	// called on an object which did not exist.
 	ErrNotExist = fs.ErrNotExist

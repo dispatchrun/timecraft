@@ -69,7 +69,7 @@ func profile(ctx context.Context, args []string) error {
 	stringVar(flagSet, &cpuProfile, "cpuprofile")
 	stringVar(flagSet, &memProfile, "memprofile")
 	stringVar(flagSet, &registryPath, "r", "registry")
-	flagSet.Parse(args)
+	parseFlags(flagSet, args)
 
 	if time.Time(startTime).IsZero() {
 		startTime = timestamp(time.Unix(0, 0))

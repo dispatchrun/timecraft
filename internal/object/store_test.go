@@ -36,7 +36,7 @@ func testObjectStore(t *testing.T, newStore func(*testing.T) (object.Store, func
 		},
 
 		{
-			scenario: "deleting non existing objects from an emtpy store",
+			scenario: "deleting non existing objects from an empty store",
 			function: testObjectStoreDeleteEmpty,
 		},
 
@@ -172,7 +172,8 @@ func testObjectStoreListWhileCreate(t *testing.T, ctx context.Context, store obj
 		assert.OK(t, store.CreateObject(ctx, "test-3", r))
 	}()
 
-	io.WriteString(w, "H")
+	_, err := io.WriteString(w, "H")
+	assert.OK(t, err)
 
 	beforeCreateObject := readValues(t, store.ListObjects(ctx, "."))
 	clearCreatedAt(beforeCreateObject)
@@ -183,8 +184,9 @@ func testObjectStoreListWhileCreate(t *testing.T, ctx context.Context, store obj
 		{Name: "test-2", Size: 1},
 	})
 
-	io.WriteString(w, "ello World!")
-	w.Close()
+	_, err = io.WriteString(w, "ello World!")
+	assert.OK(t, err)
+	assert.OK(t, w.Close())
 	<-done
 
 	afterCreateObject := readValues(t, store.ListObjects(ctx, "."))
