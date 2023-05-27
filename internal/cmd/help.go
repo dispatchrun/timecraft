@@ -13,7 +13,7 @@ Runtime Commands:
    replay   Replay a recorded trace of execution
 
 Debugging Commands:
-   prof     Generate performance profile from execution records
+   profile  Generate performance profile from execution records
 
 Other Commands:
    help     Show usage information about timecraft commands
@@ -35,8 +35,8 @@ func help(ctx context.Context, args []string) error {
 	switch cmd {
 	case "help", "":
 		msg = helpUsage
-	case "prof":
-		msg = profUsage
+	case "profile":
+		msg = profileUsage
 	case "run":
 		msg = runUsage
 	case "replay":

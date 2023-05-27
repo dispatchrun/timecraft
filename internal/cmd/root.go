@@ -80,8 +80,8 @@ func Root(ctx context.Context, args []string) int {
 	switch cmd {
 	case "help":
 		err = help(ctx, args)
-	case "prof":
-		err = prof(ctx, args)
+	case "profile":
+		err = profile(ctx, args)
 	case "run":
 		err = run(ctx, args)
 	case "replay":
