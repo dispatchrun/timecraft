@@ -28,10 +28,10 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 		return
 	}
 	switch e := event.(type) {
-	case *ModuleCallBefore:
-		r.println("ModuleCallBefore")
-	case *ModuleCallAfter:
-		r.println("ModuleCallAfter")
+	case *ModuleBefore:
+		r.println("ModuleBefore")
+	case *ModuleAfter:
+		r.println("ModuleAfter")
 	case *FunctionCallBefore:
 		r.println("FunctionCallBefore:", e.Function.DebugName())
 	case *FunctionCallAfter:

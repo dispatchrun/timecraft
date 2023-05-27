@@ -11,15 +11,15 @@ type Event interface {
 	event()
 }
 
-// ModuleCallBefore is called before a module is started.
-type ModuleCallBefore struct{}
+// ModuleBefore is an event that's triggered before a module is executed.
+type ModuleBefore struct{}
 
-func (*ModuleCallBefore) event() {}
+func (*ModuleBefore) event() {}
 
-// ModuleCallAfter is called after a module is started.
-type ModuleCallAfter struct{}
+// ModuleAfter is an event that's triggered after a module has been executed.
+type ModuleAfter struct{}
 
-func (*ModuleCallAfter) event() {}
+func (*ModuleAfter) event() {}
 
 // FunctionCallBefore is an event that's triggered before a function is
 // called in a WebAssembly module.
@@ -52,16 +52,16 @@ type FunctionCallAbort struct {
 
 func (*FunctionCallAbort) event() {}
 
-// WASICallBefore is an event that's triggered before a WASI
-// host function is called.
+// WASICallBefore is an event that's triggered before a WASI host function is
+// called in a WebAssembly module.
 type WASICallBefore struct {
 	wasicall.Syscall
 }
 
 func (*WASICallBefore) event() {}
 
-// WASICallAfter is an event that's triggered after a WASI
-// host function is called.
+// WASICallAfter is an event that's triggered before a WASI host function is
+// called in a WebAssembly module.
 type WASICallAfter struct {
 	wasicall.Syscall
 }
