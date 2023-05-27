@@ -60,7 +60,7 @@ func run(ctx context.Context, args []string) error {
 	boolVar(flagSet, &record, "R", "record")
 	intVar(flagSet, &batchSize, "record-batch-size")
 	stringVar(flagSet, &compression, "record-compression")
-	flagSet.Parse(args)
+	parseFlags(flagSet, args)
 
 	envs = append(os.Environ(), envs...)
 	args = flagSet.Args()

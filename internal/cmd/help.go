@@ -23,7 +23,7 @@ For a description of each command, run 'timecraft help <command>'.`
 
 func help(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft help", helpUsage)
-	flagSet.Parse(args)
+	parseFlags(flagSet, args)
 
 	var cmd string
 	var msg string

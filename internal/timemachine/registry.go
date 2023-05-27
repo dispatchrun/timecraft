@@ -85,16 +85,12 @@ func errorCreateObject(hash format.Hash, value format.Resource, err error) error
 	return fmt.Errorf("create object: %s: %s: %w", hash, value.ContentType(), err)
 }
 
-func errorDeleteObject(hash format.Hash, err error) error {
-	return fmt.Errorf("delete object: %s: %w", hash, err)
-}
-
 func errorLookupObject(hash format.Hash, value format.Resource, err error) error {
 	return fmt.Errorf("lookup object: %s: %s: %w", hash, value.ContentType(), err)
 }
 
-func errorLookupDescriptor(hash format.Hash, err error) error {
-	return fmt.Errorf("lookup descriptor: %s: %w", hash, err)
+func errorLookupDescriptor(hash format.Hash, value format.Resource, err error) error {
+	return fmt.Errorf("lookup descriptor: %s: %s: %w", hash, value.ContentType(), err)
 }
 
 func (reg *Registry) createObject(ctx context.Context, value format.ResourceMarshaler) (*format.Descriptor, error) {
@@ -111,7 +107,7 @@ func (reg *Registry) createObject(ctx context.Context, value format.ResourceMars
 		return descriptor, nil
 	}
 	if !errors.Is(err, object.ErrNotExist) {
-		return nil, errorCreateObject(hash, value, err)
+		return nil, errorLookupDescriptor(hash, value, err)
 	}
 
 	descriptor = &format.Descriptor{
@@ -131,16 +127,6 @@ func (reg *Registry) createObject(ctx context.Context, value format.ResourceMars
 		return nil, errorCreateObject(hash, value, err)
 	}
 	return descriptor, nil
-}
-
-func (reg *Registry) deleteObject(ctx context.Context, hash format.Hash) error {
-	if err := reg.objects.DeleteObject(ctx, reg.objectKey(hash)); err != nil {
-		return errorDeleteObject(hash, err)
-	}
-	if err := reg.objects.DeleteObject(ctx, reg.descriptorKey(hash)); err != nil {
-		return errorDeleteObject(hash, err)
-	}
-	return nil
 }
 
 func (reg *Registry) lookupDescriptor(ctx context.Context, key string) (*format.Descriptor, error) {

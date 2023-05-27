@@ -68,7 +68,7 @@ func init() {
 // Root is the timecraft entrypoint.
 func Root(ctx context.Context, args ...string) int {
 	flagSet := newFlagSet("timecraft", helpUsage)
-	flagSet.Parse(args)
+	parseFlags(flagSet, args)
 
 	if args = flagSet.Args(); len(args) == 0 {
 		fmt.Println(rootUsage)
@@ -173,6 +173,13 @@ func newFlagSet(cmd, usage string) *flag.FlagSet {
 	flagSet := flag.NewFlagSet(cmd, flag.ExitOnError)
 	flagSet.Usage = func() { fmt.Println(usage) }
 	return flagSet
+}
+
+func parseFlags(f *flag.FlagSet, args []string) {
+	// The flag set is consutrcted with ExitOnError, it should never error.
+	if err := f.Parse(args); err != nil {
+		panic(err)
+	}
 }
 
 func customVar(f *flag.FlagSet, dst flag.Value, name string, alias ...string) {
