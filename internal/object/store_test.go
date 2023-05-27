@@ -36,7 +36,7 @@ func testObjectStore(t *testing.T, newStore func(*testing.T) (object.Store, func
 		},
 
 		{
-			scenario: "deleting non existing objects from an emtpy store",
+			scenario: "deleting non existing objects from an empty store",
 			function: testObjectStoreDeleteEmpty,
 		},
 

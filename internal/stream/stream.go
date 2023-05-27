@@ -8,7 +8,7 @@ import "io"
 // of type T.
 type Reader[T any] interface {
 	// Reads values from the stream, returning the number of values read and any
-	// error that occured.
+	// error that occurred.
 	//
 	// The error is io.EOF when the end of the stream has been reached.
 	Read(values []T) (int, error)
@@ -62,7 +62,7 @@ func (r *nopCloser[T]) Close() error                 { return nil }
 func (r *nopCloser[T]) Read(values []T) (int, error) { return r.reader.Read(values) }
 
 // ReadAll reads all values from r and returns them as a slice, along with any
-// error that occured (other than io.EOF).
+// error that occurred (other than io.EOF).
 func ReadAll[T any](r Reader[T]) ([]T, error) {
 	values := make([]T, 0, 1)
 	for {

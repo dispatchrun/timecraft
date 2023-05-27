@@ -2,7 +2,7 @@ include "../types/types.fbs";
 
 namespace logsnapshot;
 
-// RecordRange represents the snapshot of mutations that occured over a
+// RecordRange represents the snapshot of mutations that occurred over a
 // range of log records.
 table RecordRange {
  // Unique identifier of the process that the range was snapshot was generated
@@ -26,10 +26,10 @@ table RecordRange {
  uncompressed_size:uint;
  // Compression algorithm used to encode the record range data sections.
  compression:types.Compression;
- // CRC32 cheksum of the record range data section (Castagnoli).
+ // CRC32 checksum of the record range data section (Castagnoli).
  checksum:uint;
  // Unique identifier for the OCI layer which records the file system mutations
- // that occured through the file range.
+ // that occurred through the file range.
  oci_layer:types.Hash;
  // List of files opened at the end the range.
  open_files:[OpenFile];

@@ -23,7 +23,7 @@ table RecordBatch {
  compression:types.Compression;
 }
 
-// The Record table holds metdata about the recording of a single host function
+// The Record table holds metadata about the recording of a single host function
 // call.
 table Record {
  // Monotonic timestamp relative to the process start time of the function
