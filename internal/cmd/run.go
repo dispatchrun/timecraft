@@ -17,7 +17,9 @@ import (
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
+
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/sys"
 )
 
 const runUsage = `
@@ -54,14 +56,14 @@ func run(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft run", runUsage)
 	customVar(flagSet, &envs, "e", "env")
 	customVar(flagSet, &listens, "L", "listen")
-	customVar(flagSet, &dials, "", "dial")
+	customVar(flagSet, &dials, "dial")
 	stringVar(flagSet, &sockets, "S", "sockets")
 	stringVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
 	boolVar(flagSet, &record, "R", "record")
 	boolVar(flagSet, &debugger, "d", "debug")
-	intVar(flagSet, &batchSize, "", "record-batch-size")
-	stringVar(flagSet, &compression, "", "record-compression")
+	intVar(flagSet, &batchSize, "record-batch-size")
+	stringVar(flagSet, &compression, "record-compression")
 	flagSet.Parse(args)
 
 	envs = append(os.Environ(), envs...)
@@ -196,18 +198,34 @@ func run(ctx context.Context, args []string) error {
 		system = debug.WASIListener(system, debugREPL)
 	}
 
-	instance, err := runtime.InstantiateModule(ctx, wasmModule, wazero.NewModuleConfig().
+	return exec(ctx, runtime, wasmModule)
+}
+
+func exec(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule) error {
+	module, err := runtime.InstantiateModule(ctx, compiledModule, wazero.NewModuleConfig().
 		WithStartFunctions())
 	if err != nil {
 		return err
 	}
+	defer module.Close(ctx)
+
 	ctx, cancel := context.WithCancelCause(ctx)
 	go func() {
-		_, err := instance.ExportedFunction("_start").Call(ctx)
+		_, err := module.ExportedFunction("_start").Call(ctx)
+		module.Close(ctx)
 		cancel(err)
 	}()
-	if <-ctx.Done(); ctx.Err() != nil {
-		fmt.Println()
+
+	<-ctx.Done()
+
+	switch err := context.Cause(ctx).(type) {
+	case nil:
+	case *sys.ExitError:
+		if exitCode := err.ExitCode(); exitCode != 0 {
+			return ExitCode(exitCode)
+		}
+	default:
+		return err
 	}
-	return instance.Close(ctx)
+	return nil
 }

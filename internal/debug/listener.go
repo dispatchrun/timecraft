@@ -48,7 +48,7 @@ type functionListenerFactory struct {
 	Listener
 }
 
-func (c *functionListenerFactory) NewListener(definition api.FunctionDefinition) experimental.FunctionListener {
+func (c *functionListenerFactory) NewFunctionListener(definition api.FunctionDefinition) experimental.FunctionListener {
 	return &functionListener{Listener: c.Listener}
 }
 
@@ -58,17 +58,22 @@ type functionListener struct {
 	// cached events
 	before FunctionCallBefore
 	after  FunctionCallAfter
+	abort  FunctionCallAbort
 }
 
-func (l *functionListener) Before(ctx context.Context, mod api.Module, def api.FunctionDefinition, paramValues []uint64, stackIterator experimental.StackIterator) context.Context {
-	l.before = FunctionCallBefore{mod, def, paramValues, stackIterator}
+func (l *functionListener) Before(ctx context.Context, mod api.Module, def api.FunctionDefinition, params []uint64, stackIterator experimental.StackIterator) {
+	l.before = FunctionCallBefore{mod, def, params, stackIterator}
 	l.Listener.OnEvent(ctx, &l.before)
-	return ctx
 }
 
-func (l *functionListener) After(ctx context.Context, mod api.Module, def api.FunctionDefinition, err error, resultValues []uint64) {
-	l.after = FunctionCallAfter{mod, def, resultValues}
+func (l *functionListener) After(ctx context.Context, mod api.Module, def api.FunctionDefinition, results []uint64) {
+	l.after = FunctionCallAfter{mod, def, results}
 	l.Listener.OnEvent(ctx, &l.after)
+}
+
+func (l *functionListener) Abort(ctx context.Context, mod api.Module, def api.FunctionDefinition, err error) {
+	l.abort = FunctionCallAbort{mod, def, err}
+	l.Listener.OnEvent(ctx, &l.abort)
 }
 
 // WASIListener wraps a wasi.System to generate WASICallBefore and

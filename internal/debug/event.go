@@ -42,6 +42,16 @@ type FunctionCallAfter struct {
 
 func (*FunctionCallAfter) event() {}
 
+// FunctionCallAbort is an event that's triggered when a function call is
+// aborted in a WebAssembly module.
+type FunctionCallAbort struct {
+	Module   api.Module
+	Function api.FunctionDefinition
+	Error    error
+}
+
+func (*FunctionCallAbort) event() {}
+
 // WASICallBefore is an event that's triggered before a WASI
 // host function is called.
 type WASICallBefore struct {

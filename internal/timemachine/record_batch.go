@@ -117,8 +117,7 @@ func (b *RecordBatch) Read(records []Record) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	var n int
-	for n = range records {
+	for n := range records {
 		if b.offset == uint32(len(batch)) {
 			return n, io.EOF
 		}
@@ -132,7 +131,7 @@ func (b *RecordBatch) Read(records []Record) (int, error) {
 		records[n] = MakeRecord(b.startTime, batch[b.offset:b.offset+size+4])
 		b.offset += size + 4
 	}
-	return n, nil
+	return len(records), nil
 }
 
 func (b *RecordBatch) readRecords() ([]byte, error) {
