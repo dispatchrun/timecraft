@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/google/uuid"
+	"github.com/stealthrocket/wasi-go"
 
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
@@ -20,15 +22,18 @@ Usage:	timecraft replay [options] <process id>
 Options:
    -h, --help           Show this usage information
    -r, --registry path  Path to the timecraft registry (default to ~/.timecraft)
+   -T, --trace          Enable strace-like logging of host function calls
 `
 
 func replay(ctx context.Context, args []string) error {
 	var (
 		registryPath = "~/.timecraft"
+		trace        = false
 	)
 
 	flagSet := newFlagSet("timecraft replay", replayUsage)
 	stringVar(flagSet, &registryPath, "r", "registry")
+	boolVar(flagSet, &trace, "T", "trace")
 	flagSet.Parse(args)
 
 	args = flagSet.Args()
@@ -89,7 +94,10 @@ func replay(ctx context.Context, args []string) error {
 	fallback := wasicall.NewObserver(nil, func(ctx context.Context, s wasicall.Syscall) {
 		panic(fmt.Sprintf("system call made after log EOF: %s", s.ID()))
 	}, nil)
-	system := wasicall.NewFallbackSystem(replay, fallback)
+	var system wasi.System = wasicall.NewFallbackSystem(replay, fallback)
+	if trace {
+		system = &wasi.Tracer{Writer: os.Stderr, System: system}
+	}
 
 	// TODO: need to figure this out dynamically:
 	hostModule := wasi_snapshot_preview1.NewHostModule(wasi_snapshot_preview1.WasmEdgeV2)
