@@ -16,6 +16,7 @@ concurrency:
 env:
   GOPRIVATE: github.com/stealthrocket
   GH_ACCESS_TOKEN: ${{ secrets.PRIVATE_ACCESS_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   spellcheck:
@@ -71,6 +72,6 @@ jobs:
         mkdir -p $HOME/gotip
         tar -C $HOME/gotip -xzf gotip.tar.gz
 
-    - run: git config --global url.https://$GH_ACCESS_TOKEN@github.com.insteadOf https://github.com
+    - run: git config --global url.https://$GITHUB_TOKEN@github.com.insteadOf https://github.com
     - run: make testdata GO=$HOME/gotip/bin/go
     - run: make test
