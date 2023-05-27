@@ -92,7 +92,7 @@ func run(ctx context.Context, args []string) error {
 
 	builder := imports.NewBuilder().
 		WithName(wasmName).
-		WithArgs(args...).
+		WithArgs(args[1:]...).
 		WithEnv(envs...).
 		WithDirs("/").
 		WithListens(listens...).
@@ -204,14 +204,16 @@ func exec(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.Com
 
 	<-ctx.Done()
 
-	switch err := context.Cause(ctx).(type) {
-	case nil:
-	case *sys.ExitError:
-		if exitCode := err.ExitCode(); exitCode != 0 {
-			return ExitCode(exitCode)
-		}
-	default:
-		return err
+	err = context.Cause(ctx)
+	switch err {
+	case context.Canceled, context.DeadlineExceeded:
+		err = nil
 	}
-	return nil
+
+	switch e := err.(type) {
+	case *sys.ExitError:
+		return ExitCode(e.ExitCode())
+	}
+
+	return err
 }

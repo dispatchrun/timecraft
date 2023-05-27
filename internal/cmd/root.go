@@ -66,7 +66,7 @@ func init() {
 }
 
 // Root is the timecraft entrypoint.
-func Root(ctx context.Context, args []string) int {
+func Root(ctx context.Context, args ...string) int {
 	flagSet := newFlagSet("timecraft", helpUsage)
 	flagSet.Parse(args)
 
