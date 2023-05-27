@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/google/uuid"
-
+	"github.com/stealthrocket/timecraft/internal/debug"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
+	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero"
@@ -20,15 +22,18 @@ Usage:	timecraft replay [options] <process id>
 Options:
    -h, --help           Show this usage information
    -r, --registry path  Path to the timecraft registry (default to ~/.timecraft)
+   -d, --debug          Start an interactive debugger
 `
 
 func replay(ctx context.Context, args []string) error {
 	var (
 		registryPath = "~/.timecraft"
+		debugger     = false
 	)
 
 	flagSet := newFlagSet("timecraft replay", replayUsage)
 	stringVar(flagSet, &registryPath, "r", "registry")
+	boolVar(flagSet, &debugger, "d", "debug")
 	flagSet.Parse(args)
 
 	args = flagSet.Args()
@@ -75,6 +80,12 @@ func replay(ctx context.Context, args []string) error {
 	runtime := wazero.NewRuntime(ctx)
 	defer runtime.Close(ctx)
 
+	var debugREPL *debug.REPL
+	if debugger {
+		debugREPL = debug.NewREPL(os.Stdin, os.Stdout)
+		ctx = debug.RegisterFunctionListener(ctx, debugREPL)
+	}
+
 	compiledModule, err := runtime.CompileModule(ctx, module.Code)
 	if err != nil {
 		return err
@@ -83,13 +94,17 @@ func replay(ctx context.Context, args []string) error {
 
 	records := timemachine.NewLogRecordReader(logReader)
 
-	replay := wasicall.NewReplay(records)
-	defer replay.Close(ctx)
+	var system wasi.System = wasicall.NewReplay(records)
+	defer system.Close(ctx)
+
+	if debugger {
+		system = debug.WASIListener(system, debugREPL)
+	}
 
 	fallback := wasicall.NewObserver(nil, func(ctx context.Context, s wasicall.Syscall) {
 		panic(fmt.Sprintf("system call made after log EOF: %s", s.ID()))
 	}, nil)
-	system := wasicall.NewFallbackSystem(replay, fallback)
+	system = wasicall.NewFallbackSystem(system, fallback)
 
 	// TODO: need to figure this out dynamically:
 	hostModule := wasi_snapshot_preview1.NewHostModule(wasi_snapshot_preview1.WasmEdgeV2)
