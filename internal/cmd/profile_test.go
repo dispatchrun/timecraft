@@ -14,6 +14,14 @@ func ExampleRoot_profileMissingID() {
 	// ERR: timecraft profile: expected exactly one process id as argument
 }
 
+func ExampleRoot_profileTooManyArgs() {
+	ctx := context.Background()
+
+	FAIL(cmd.Root(ctx, "profile", "1", "2", "3"))
+	// Output:
+	// ERR: timecraft profile: expected exactly one process id as argument
+}
+
 func ExampleRoot_profileInvalidID() {
 	ctx := context.Background()
 
