@@ -20,9 +20,9 @@ const replayUsage = `
 Usage:	timecraft replay [options] <process id>
 
 Options:
+   -d, --debug          Start an interactive debugger
    -h, --help           Show this usage information
    -r, --registry path  Path to the timecraft registry (default to ~/.timecraft)
-   -d, --debug          Start an interactive debugger
 `
 
 func replay(ctx context.Context, args []string) error {

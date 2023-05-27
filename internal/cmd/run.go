@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stealthrocket/timecraft/internal/debug"
 
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
@@ -23,7 +24,8 @@ const runUsage = `
 Usage:	timecraft run [options] [--] <module> [args...]
 
 Options:
-   -D, --dial addr                Expose a socket connected to the specified address
+   -d, --debug                    Start an interactive debugger
+       --dial addr                Expose a socket connected to the specified address
    -e, --env name=value           Pass an environment variable to the guest module
    -h, --help                     Show this usage information
    -L, --listen addr              Expose a socket listening on the specified address
@@ -46,16 +48,18 @@ func run(ctx context.Context, args []string) error {
 		registryPath = "~/.timecraft"
 		record       = false
 		trace        = false
+		debugger     = false
 	)
 
 	flagSet := newFlagSet("timecraft run", runUsage)
 	customVar(flagSet, &envs, "e", "env")
 	customVar(flagSet, &listens, "L", "listen")
-	customVar(flagSet, &dials, "D", "dial")
+	customVar(flagSet, &dials, "", "dial")
 	stringVar(flagSet, &sockets, "S", "sockets")
 	stringVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
 	boolVar(flagSet, &record, "R", "record")
+	boolVar(flagSet, &debugger, "d", "debug")
 	intVar(flagSet, &batchSize, "", "record-batch-size")
 	stringVar(flagSet, &compression, "", "record-compression")
 	flagSet.Parse(args)
@@ -81,6 +85,12 @@ func run(ctx context.Context, args []string) error {
 
 	runtime := wazero.NewRuntime(ctx)
 	defer runtime.Close(ctx)
+
+	var debugREPL *debug.REPL
+	if debugger {
+		debugREPL = debug.NewREPL(os.Stdin, os.Stdout)
+		ctx = debug.RegisterFunctionListener(ctx, debugREPL)
+	}
 
 	wasmModule, err := runtime.CompileModule(ctx, wasmCode)
 	if err != nil {
@@ -181,6 +191,10 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	defer system.Close(ctx)
+
+	if debugger {
+		system = debug.WASIListener(system, debugREPL)
+	}
 
 	instance, err := runtime.InstantiateModule(ctx, wasmModule, wazero.NewModuleConfig().
 		WithStartFunctions())
