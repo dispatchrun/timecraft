@@ -21,12 +21,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
+	"log"
 	_ "net/http/pprof"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
@@ -42,9 +45,9 @@ func (e ExitCode) Error() string {
 
 const rootUsage = `timecraft - WebAssembly Time Machine
 
-timecraft is a WebAssembly runtime that provides advanced capabilities to the
-applications it runs, such as creating records of the program execution which
-are later replayable.
+   timecraft is a WebAssembly runtime that provides advanced capabilities to the
+   applications it runs, such as creating records of the program execution which
+   are later replayable.
 
 Example:
 
@@ -57,26 +60,28 @@ Example:
 
 For a list of commands available, run 'timecraft help'.`
 
-type command struct {
-	name     string
-	usage    string
-	function func(context.Context, []string) error
+func init() {
+	// TODO: do something better with logs
+	log.SetOutput(io.Discard)
 }
 
 // Root is the timecraft entrypoint.
-func Root(ctx context.Context, args []string) (err error) {
+func Root(ctx context.Context, args []string) int {
 	flagSet := newFlagSet("timecraft", helpUsage)
 	flagSet.Parse(args)
 
 	if args = flagSet.Args(); len(args) == 0 {
 		fmt.Println(rootUsage)
-		return ExitCode(1)
+		return 1
 	}
 
+	var err error
 	cmd, args := args[0], args[1:]
 	switch cmd {
 	case "help":
 		err = help(ctx, args)
+	case "profile":
+		err = profile(ctx, args)
 	case "run":
 		err = run(ctx, args)
 	case "replay":
@@ -87,14 +92,34 @@ func Root(ctx context.Context, args []string) (err error) {
 		err = unknown(ctx, cmd)
 	}
 
-	switch err.(type) {
+	switch e := err.(type) {
 	case nil:
+		return 0
 	case ExitCode:
+		return int(e)
 	default:
-		fmt.Printf("timecraft %s: %s", cmd, err)
-		err = ExitCode(1)
+		fmt.Fprintf(os.Stderr, "ERR: timecraft %s: %s\n", cmd, err)
+		return 1
 	}
-	return err
+}
+
+type timestamp time.Time
+
+func (ts timestamp) String() string {
+	t := time.Time(ts)
+	if t.IsZero() {
+		return "start"
+	}
+	return t.Format(time.RFC3339)
+}
+
+func (ts *timestamp) Set(value string) error {
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return err
+	}
+	*ts = timestamp(t)
+	return nil
 }
 
 type stringList []string
@@ -150,38 +175,36 @@ func newFlagSet(cmd, usage string) *flag.FlagSet {
 	return flagSet
 }
 
-func customVar(f *flag.FlagSet, dst flag.Value, short, long string) {
-	if short != "" {
-		f.Var(dst, short, "")
-	}
-	if long != "" {
-		f.Var(dst, long, "")
+func customVar(f *flag.FlagSet, dst flag.Value, name string, alias ...string) {
+	f.Var(dst, name, "")
+	for _, name := range alias {
+		f.Var(dst, name, "")
 	}
 }
 
-func stringVar(f *flag.FlagSet, dst *string, short, long string) {
-	if short != "" {
-		f.StringVar(dst, short, *dst, "")
-	}
-	if long != "" {
-		f.StringVar(dst, long, *dst, "")
-	}
+func durationVar(f *flag.FlagSet, dst *time.Duration, name string, alias ...string) {
+	setFlagVar(f.DurationVar, dst, name, alias)
 }
 
-func boolVar(f *flag.FlagSet, dst *bool, short, long string) {
-	if short != "" {
-		f.BoolVar(dst, short, *dst, "")
-	}
-	if long != "" {
-		f.BoolVar(dst, long, *dst, "")
-	}
+func stringVar(f *flag.FlagSet, dst *string, name string, alias ...string) {
+	setFlagVar(f.StringVar, dst, name, alias)
 }
 
-func intVar(f *flag.FlagSet, dst *int, short, long string) {
-	if short != "" {
-		f.IntVar(dst, short, *dst, "")
-	}
-	if long != "" {
-		f.IntVar(dst, long, *dst, "")
+func boolVar(f *flag.FlagSet, dst *bool, name string, alias ...string) {
+	setFlagVar(f.BoolVar, dst, name, alias)
+}
+
+func intVar(f *flag.FlagSet, dst *int, name string, alias ...string) {
+	setFlagVar(f.IntVar, dst, name, alias)
+}
+
+func float64Var(f *flag.FlagSet, dst *float64, name string, alias ...string) {
+	setFlagVar(f.Float64Var, dst, name, alias)
+}
+
+func setFlagVar[T any](set func(*T, string, T, string), dst *T, name string, alias []string) {
+	set(dst, name, *dst, "")
+	for _, name := range alias {
+		set(dst, name, *dst, "")
 	}
 }

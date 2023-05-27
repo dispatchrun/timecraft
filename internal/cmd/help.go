@@ -12,6 +12,9 @@ Runtime Commands:
    run      Run a WebAssembly module, and optionally trace execution
    replay   Replay a recorded trace of execution
 
+Debugging Commands:
+   profile  Generate performance profile from execution records
+
 Other Commands:
    help     Show usage information about timecraft commands
    version  Show the timecraft version information
@@ -32,6 +35,8 @@ func help(ctx context.Context, args []string) error {
 	switch cmd {
 	case "help", "":
 		msg = helpUsage
+	case "profile":
+		msg = profileUsage
 	case "run":
 		msg = runUsage
 	case "replay":

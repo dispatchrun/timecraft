@@ -400,5 +400,5 @@ func (r *Reader) ReadSyscall() (time.Time, Syscall, error) {
 	default:
 		return time.Time{}, nil, fmt.Errorf("unknown syscall %d", record.FunctionID())
 	}
-	return record.Timestamp(), syscall, nil
+	return record.Time(), syscall, nil
 }

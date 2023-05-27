@@ -142,14 +142,10 @@ func (r *LogRecordReader) Read(records []Record) (int, error) {
 			r.batch = b
 		}
 		n, err := r.batch.Read(records)
-		if n > 0 {
+		if n > 0 || err != io.EOF {
 			return n, nil
 		}
-		if err != io.EOF {
-			return n, err
-		} else {
-			r.batch = nil
-		}
+		r.batch = nil
 	}
 }
 
