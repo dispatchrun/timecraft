@@ -4,8 +4,8 @@ package stream
 
 import "io"
 
-// Reader is an interface implemented by types that produce a stream of values
-// of type T.
+// Reader is an interface implemented by types that read a stream of values of
+// type T.
 type Reader[T any] interface {
 	// Reads values from the stream, returning the number of values read and any
 	// error that occurred.
@@ -76,6 +76,46 @@ func ReadAll[T any](r Reader[T]) ([]T, error) {
 				err = nil
 			}
 			return values, err
+		}
+	}
+}
+
+// Writeer is an interface implemented by types that write a stream of values of
+// type T.
+type Writer[T any] interface {
+	Write(values []T) (int, error)
+}
+
+// WriteCloser represents a closable stream of values of T.
+//
+// WriteClosers is like io.WriteCloser for values of any type.
+type WriteCloser[T any] interface {
+	Writer[T]
+	io.Closer
+}
+
+// Copy writes values read from r to w, returning the number of values written
+// and any error other than io.EOF.
+func Copy[T any](w Writer[T], r Reader[T]) (int64, error) {
+	b := make([]T, 20)
+	n := int64(0)
+
+	for {
+		rn, err := r.Read(b)
+
+		if rn > 0 {
+			wn, err := w.Write(b[:rn])
+			n += int64(wn)
+			if err != nil {
+				return n, err
+			}
+		}
+
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return n, err
 		}
 	}
 }

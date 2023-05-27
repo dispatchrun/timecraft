@@ -87,14 +87,10 @@ func testRegistryCreateAndLookup[T resource](t *testing.T, reg *timemachine.Regi
 	t.Run(reflect.TypeOf(want).Elem().String(), func(t *testing.T) {
 		ctx := context.Background()
 
-		d1, err := create(reg, ctx, want)
+		desc, err := create(reg, ctx, want)
 		assert.OK(t, err)
 
-		d2, err := reg.LookupDescriptor(ctx, d1.Digest)
-		assert.OK(t, err)
-		assert.DeepEqual(t, d1, d2)
-
-		got, err := lookup(reg, ctx, d1.Digest)
+		got, err := lookup(reg, ctx, desc.Digest)
 		assert.OK(t, err)
 		assert.DeepEqual(t, got, want)
 	})

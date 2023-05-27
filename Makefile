@@ -23,6 +23,9 @@ timecraft: go.mod $(timecraft.src.go)
 clean:
 	rm -f timecraft $(format.src.go) $(testdata.go.wasm)
 
+lint:
+	golangci-lint run ./...
+
 generate: flatbuffers
 
 flatbuffers: go.mod $(format.src.go)

@@ -1,22 +1,7 @@
 package object
 
-// Goals:
-// - can store webassembly module byte code (no duplicates)
-// - can store log segments
-// - can find logs of processes by id
-// - can be implemented by an object store (e.g. S3)
-// - can store snapshots of log segments
-//
-// Opportunities:
-// - could compact runtime configuration (no duplicates)
-//
-// Questions:
-// - how to represent runs which are mutable?
-//   * hash of manifest/metadata?
-//   * one layer per segment or one file per segment?
-// - should we rely more on the storage layer to model the log?
-
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,6 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/exp/slices"
+
+	"github.com/stealthrocket/timecraft/internal/object/query"
 	"github.com/stealthrocket/timecraft/internal/stream"
 )
 
@@ -42,6 +30,46 @@ var (
 	ErrReadOnly = errors.New("read only object store")
 )
 
+// Tag represents a name/value pair attached to an object.
+type Tag struct {
+	Name  string
+	Value string
+}
+
+func (t Tag) String() string {
+	return t.Name + "=" + t.Value
+}
+
+// Filter represents a predicate applicated to objects to determine whether they
+// are part of the result of a ListObject operation.
+type Filter = query.Filter[*Info]
+
+func AFTER(t time.Time) Filter { return query.After[*Info](t) }
+
+func BEFORE(t time.Time) Filter { return query.Before[*Info](t) }
+
+func MATCH(name, value string) Filter { return query.Match[*Info]{name, value} }
+
+func AND(f1, f2 Filter) Filter { return query.And[*Info]{f1, f2} }
+
+func OR(f1, f2 Filter) Filter { return query.Or[*Info]{f1, f2} }
+
+func NOT(f Filter) Filter { return query.Not[*Info]{f} }
+
+func validTag(tag Tag) bool {
+	return validTagName(tag.Name) && validTagValue(tag.Value)
+}
+
+func validTagName(name string) bool {
+	return name != "" &&
+		strings.IndexByte(name, '=') < 0 &&
+		strings.IndexByte(name, '\n') < 0
+}
+
+func validTagValue(value string) bool {
+	return strings.IndexByte(value, '\n') < 0
+}
+
 // Store is an interface abstracting an object storage layer.
 //
 // Once created, objects are immutable, the store does not need to offer a
@@ -54,7 +82,7 @@ type Store interface {
 	//
 	// The creation of objects is atomic, the store must be left unchanged if
 	// an error occurs that would cause the object to be only partially created.
-	CreateObject(ctx context.Context, name string, data io.Reader) error
+	CreateObject(ctx context.Context, name string, data io.Reader, tags ...Tag) error
 
 	// Reads an existing object from the store, returning a reader exposing its
 	// content.
@@ -67,7 +95,7 @@ type Store interface {
 	//
 	// Objects that are being created by a call to CreateObject are not visible
 	// until the creation completed.
-	ListObjects(ctx context.Context, prefix string) stream.ReadCloser[Info]
+	ListObjects(ctx context.Context, prefix string, filters ...Filter) stream.ReadCloser[Info]
 
 	// Deletes and object from the store.
 	//
@@ -82,6 +110,33 @@ type Info struct {
 	Name      string
 	Size      int64
 	CreatedAt time.Time
+	Tags      []Tag
+}
+
+func (info *Info) After(t time.Time) bool {
+	return info.CreatedAt.After(t)
+}
+
+func (info *Info) Before(t time.Time) bool {
+	return info.CreatedAt.Before(t)
+}
+
+func (info *Info) Match(name, value string) bool {
+	for _, tag := range info.Tags {
+		if tag.Name == name && tag.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+func (info *Info) Lookup(name string) (string, bool) {
+	for _, tag := range info.Tags {
+		if tag.Name == name {
+			return tag.Value, true
+		}
+	}
+	return "", false
 }
 
 // EmptyStore returns a Store instance representing an empty, read-only object
@@ -90,23 +145,23 @@ func EmptyStore() Store { return emptyStore{} }
 
 type emptyStore struct{}
 
-func (emptyStore) CreateObject(ctx context.Context, name string, data io.Reader) error {
+func (emptyStore) CreateObject(context.Context, string, io.Reader, ...Tag) error {
 	return ErrReadOnly
 }
 
-func (emptyStore) ReadObject(ctx context.Context, name string) (io.ReadCloser, error) {
+func (emptyStore) ReadObject(context.Context, string) (io.ReadCloser, error) {
 	return nil, ErrNotExist
 }
 
-func (emptyStore) StatObject(ctx context.Context, name string) (Info, error) {
+func (emptyStore) StatObject(context.Context, string) (Info, error) {
 	return Info{}, ErrNotExist
 }
 
-func (emptyStore) ListObjects(ctx context.Context, prefix string) stream.ReadCloser[Info] {
+func (emptyStore) ListObjects(context.Context, string, ...Filter) stream.ReadCloser[Info] {
 	return emptyInfoReader{}
 }
 
-func (emptyStore) DeleteObject(ctx context.Context, name string) error {
+func (emptyStore) DeleteObject(context.Context, string) error {
 	return nil
 }
 
@@ -126,32 +181,73 @@ func DirStore(path string) (Store, error) {
 
 type dirStore string
 
-func (store dirStore) CreateObject(ctx context.Context, name string, data io.Reader) error {
+func (store dirStore) CreateObject(ctx context.Context, name string, data io.Reader, tags ...Tag) error {
 	filePath, err := store.joinPath(name)
 	if err != nil {
 		return err
 	}
 
 	dirPath, fileName := filepath.Split(filePath)
+	if strings.HasPrefix(fileName, ".") {
+		return fmt.Errorf("object names cannot start with a dot: %s", name)
+	}
+
 	if err := os.MkdirAll(dirPath, 0777); err != nil {
 		return err
 	}
 
-	file, err := os.CreateTemp(dirPath, "."+fileName+".*")
+	success := false
+	if len(tags) > 0 {
+		tagsPath := filepath.Join(dirPath, ".tags", fileName)
+		tagsData := make([]byte, 0, 256)
+
+		for _, tag := range tags {
+			if !validTag(tag) {
+				return fmt.Errorf("invalid tag: %q=%q", tag.Name, tag.Value)
+			}
+			tagsData = append(tagsData, tag.Name...)
+			tagsData = append(tagsData, '=')
+			tagsData = append(tagsData, tag.Value...)
+			tagsData = append(tagsData, '\n')
+		}
+
+		if err := os.Mkdir(filepath.Join(dirPath, ".tags"), 0777); err != nil {
+			if !errors.Is(err, fs.ErrExist) {
+				return err
+			}
+		}
+		if err := os.WriteFile(tagsPath, tagsData, 0666); err != nil {
+			return err
+		}
+
+		defer func() {
+			if !success {
+				os.Remove(tagsPath)
+			}
+		}()
+	}
+
+	objectFile, err := os.CreateTemp(dirPath, "."+fileName+".*")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	tmpPath := file.Name()
+	defer objectFile.Close()
 
-	if _, err := io.Copy(file, data); err != nil {
-		os.Remove(tmpPath)
+	tmpPath := objectFile.Name()
+	defer func() {
+		if !success {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := io.Copy(objectFile, data); err != nil {
 		return err
 	}
 	if err := os.Rename(tmpPath, filePath); err != nil {
-		os.Remove(tmpPath)
 		return err
 	}
+
+	success = true
 	return nil
 }
 
@@ -172,7 +268,15 @@ func (store dirStore) StatObject(ctx context.Context, name string) (Info, error)
 	if err != nil {
 		return Info{}, err
 	}
-	stat, err := os.Stat(path)
+	stat, err := os.Lstat(path)
+	if err != nil {
+		return Info{}, err
+	}
+	if !stat.Mode().IsRegular() {
+		return Info{}, ErrNotExist
+	}
+	dir, base := filepath.Split(path)
+	tags, err := readTags(filepath.Join(dir, ".tags", base))
 	if err != nil {
 		return Info{}, err
 	}
@@ -180,11 +284,12 @@ func (store dirStore) StatObject(ctx context.Context, name string) (Info, error)
 		Name:      name,
 		Size:      stat.Size(),
 		CreatedAt: stat.ModTime(),
+		Tags:      tags,
 	}
 	return info, nil
 }
 
-func (store dirStore) ListObjects(ctx context.Context, prefix string) stream.ReadCloser[Info] {
+func (store dirStore) ListObjects(ctx context.Context, prefix string, filters ...Filter) stream.ReadCloser[Info] {
 	if prefix != "." && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
@@ -200,7 +305,12 @@ func (store dirStore) ListObjects(ctx context.Context, prefix string) stream.Rea
 			return &errorInfoReader{err: err}
 		}
 	}
-	return &dirReader{dir: dir, path: filepath.ToSlash(prefix)}
+	return &dirReader{
+		dir:     dir,
+		path:    path,
+		prefix:  prefix,
+		filters: slices.Clone(filters),
+	}
 }
 
 func (store dirStore) DeleteObject(ctx context.Context, name string) error {
@@ -224,9 +334,35 @@ func (store dirStore) joinPath(name string) (string, error) {
 	return filepath.Join(string(store), filepath.FromSlash(name)), nil
 }
 
+func readTags(path string) ([]Tag, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			err = nil
+		}
+		return nil, err
+	}
+	tags := make([]Tag, 0, 8)
+	nl := []byte{'\n'}
+	eq := []byte{'='}
+	for _, line := range bytes.Split(b, nl) {
+		name, value, ok := bytes.Cut(line, eq)
+		if !ok {
+			continue
+		}
+		tags = append(tags, Tag{
+			Name:  string(name),
+			Value: string(value),
+		})
+	}
+	return tags, nil
+}
+
 type dirReader struct {
-	dir  *os.File
-	path string
+	dir     *os.File
+	path    string
+	prefix  string
+	filters []Filter
 }
 
 func (r *dirReader) Close() error {
@@ -239,10 +375,6 @@ func (r *dirReader) Read(items []Info) (n int, err error) {
 		dirents, err := r.dir.ReadDir(len(items) - n)
 
 		for _, dirent := range dirents {
-			if dirent.IsDir() {
-				continue
-			}
-
 			name := dirent.Name()
 			if strings.HasPrefix(name, ".") {
 				continue
@@ -250,16 +382,25 @@ func (r *dirReader) Read(items []Info) (n int, err error) {
 
 			info, err := dirent.Info()
 			if err != nil {
-				r.dir.Close()
+				return n, err
+			}
+
+			tagsPath := filepath.Join(r.path, ".tags", name)
+			tags, err := readTags(tagsPath)
+			if err != nil {
 				return n, err
 			}
 
 			items[n] = Info{
-				Name:      path.Join(r.path, name),
+				Name:      path.Join(r.prefix, name),
 				Size:      info.Size(),
 				CreatedAt: info.ModTime(),
+				Tags:      tags,
 			}
-			n++
+
+			if query.MatchAll(&items[n], r.filters...) {
+				n++
+			}
 		}
 
 		if err != nil {

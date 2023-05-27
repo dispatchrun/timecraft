@@ -27,6 +27,15 @@ func SHA256(b []byte) Hash {
 	}
 }
 
+func ParseHash(s string) (h Hash, err error) {
+	var ok bool
+	h.Algorithm, h.Digest, ok = strings.Cut(s, ":")
+	if !ok {
+		err = fmt.Errorf("malformed hash: %s", s)
+	}
+	return h, err
+}
+
 func (h Hash) String() string {
 	return h.Algorithm + ":" + h.Digest
 }
@@ -59,6 +68,8 @@ const (
 	TypeTimecraftManifest MediaType = "application/vnd.timecraft.manifest.v1+json"
 	TypeTimecraftModule   MediaType = "application/vnd.timecraft.module.v1+wasm"
 )
+
+func (m MediaType) String() string { return string(m) }
 
 type Resource interface {
 	ContentType() MediaType
