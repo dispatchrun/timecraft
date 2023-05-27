@@ -16,6 +16,7 @@ concurrency:
 env:
   # renovate: datasource=go depName=github.com/golangci/golangci-lint
   GOLANGCI_LINT_VERSION: v1.52.2
+  GOPRIVATE: github.com/stealthrocket/*
 
 jobs:
   spellcheck:
@@ -54,6 +55,11 @@ jobs:
     name: Go Test
     runs-on: ubuntu-latest
     steps:
+    - name: Configure git for private modules
+      env:
+        TOKEN: ${{ secrets.PRIVATE_ACCESS_TOKEN }}
+      run: git config --global url."https://stealthrocket:${TOKEN}@github.com".insteadOf "https://github.com"
+
     - uses: actions/checkout@v3
 
     - name: Set up Go
