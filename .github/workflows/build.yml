@@ -44,7 +44,7 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
-      - run: git config --global url.https://stealthrocket:$GH_ACCESS_TOKEN@github.com.insteadOf https://github.com
+      - run: git config --global url.https://$GH_ACCESS_TOKEN@github.com.insteadOf https://github.com
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
