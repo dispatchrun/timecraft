@@ -23,17 +23,20 @@ Options:
    -d, --debug          Start an interactive debugger
    -h, --help           Show this usage information
    -r, --registry path  Path to the timecraft registry (default to ~/.timecraft)
+   -T, --trace          Enable strace-like logging of host function calls
 `
 
 func replay(ctx context.Context, args []string) error {
 	var (
 		registryPath = "~/.timecraft"
 		debugger     = false
+		trace        = false
 	)
 
 	flagSet := newFlagSet("timecraft replay", replayUsage)
 	stringVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &debugger, "d", "debug")
+	boolVar(flagSet, &trace, "T", "trace")
 	flagSet.Parse(args)
 
 	args = flagSet.Args()
@@ -102,6 +105,10 @@ func replay(ctx context.Context, args []string) error {
 
 	if debugger {
 		system = debug.WASIListener(system, debugREPL)
+	}
+
+	if trace {
+		system = &wasi.Tracer{Writer: os.Stderr, System: system}
 	}
 
 	fallback := wasicall.NewObserver(nil, func(ctx context.Context, s wasicall.Syscall) {
