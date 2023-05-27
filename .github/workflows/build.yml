@@ -54,27 +54,25 @@ jobs:
   #         version: v1.52.2
   #         args: --timeout 5m
 
-  # TODO: figure out why the private access token is not working
-  #
-  # test:
-  #   name: Go Test
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #   - uses: actions/checkout@v3
+  test:
+    name: Go Test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
 
-  #   - name: Set up Go
-  #     uses: actions/setup-go@v4
-  #     with:
-  #       go-version-file: go.mod
-  #       check-latest: true
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version-file: go.mod
+        check-latest: true
 
-  #   - name: Install Go tip
-  #     run: |
-  #       curl -sL https://storage.googleapis.com/go-build-snap/go/linux-amd64/$(git ls-remote https://github.com/golang/go.git HEAD | awk '{print $1;}').tar.gz -o gotip.tar.gz
-  #       ls -lah gotip.tar.gz
-  #       mkdir -p $HOME/gotip
-  #       tar -C $HOME/gotip -xzf gotip.tar.gz
+    - name: Install Go tip
+      run: |
+        curl -sL https://storage.googleapis.com/go-build-snap/go/linux-amd64/$(git ls-remote https://github.com/golang/go.git HEAD | awk '{print $1;}').tar.gz -o gotip.tar.gz
+        ls -lah gotip.tar.gz
+        mkdir -p $HOME/gotip
+        tar -C $HOME/gotip -xzf gotip.tar.gz
 
-  #   - run: git config --global url.https://$GH_ACCESS_TOKEN@github.com.insteadOf https://github.com
-  #   - run: make testdata GO=$HOME/gotip/bin/go
-  #   - run: make test
+    - run: git config --global url.https://$GH_ACCESS_TOKEN@github.com.insteadOf https://github.com
+    - run: make testdata GO=$HOME/gotip/bin/go
+    - run: make test
