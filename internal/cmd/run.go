@@ -90,6 +90,12 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer wasmModule.Close(ctx)
 
+	// When running cmd.Root from testable examples, the standard streams are
+	// not set to alternative files and the fd numbers are not 0, 1, 2.
+	stdin := int(os.Stdin.Fd())
+	stdout := int(os.Stdout.Fd())
+	stderr := int(os.Stderr.Fd())
+
 	builder := imports.NewBuilder().
 		WithName(wasmName).
 		WithArgs(args[1:]...).
@@ -97,6 +103,7 @@ func run(ctx context.Context, args []string) error {
 		WithDirs("/").
 		WithListens(listens...).
 		WithDials(dials...).
+		WithStdio(stdin, stdout, stderr).
 		WithSocketsExtension(sockets, wasmModule).
 		WithTracer(trace, os.Stderr)
 
