@@ -12,6 +12,9 @@ Runtime Commands:
    run      Run a WebAssembly module, and optionally trace execution
    replay   Replay a recorded trace of execution
 
+Debugging Commands:
+   prof     Generate performance profile from execution records
+
 Other Commands:
    help     Show usage information about timecraft commands
    version  Show the timecraft version information
