@@ -11,9 +11,9 @@ import (
 )
 
 const replUsage = `Debugger commands:
-  s, step      Step through events
-  q, quit      Quit the debugger
-  h, ?, help   Show this usage information
+  s, step   -- Step through events
+  q, quit   -- Quit the debugger
+  h, help   -- Show this usage information
 `
 
 // REPL provides a read-eval-print loop for debugging WebAssembly modules.
@@ -68,7 +68,7 @@ command_loop:
 		case "q", "quit":
 			r.closed = true
 			panic(sys.NewExitError(0))
-		case "h", "help", "?":
+		case "h", "help" /* be forgiving: */, "?", "-h", "--help":
 			r.print(replUsage)
 			continue
 		default:
