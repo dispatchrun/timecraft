@@ -1,6 +1,8 @@
 .PHONY: clean flatbuffers generate test testdata
 .PRECIOUS: %.wasm
 
+GO ?= go
+
 testdata.go.src = $(wildcard testdata/go/*.go)
 testdata.go.wasm = $(testdata.go.src:.go=.wasm)
 
@@ -16,7 +18,7 @@ timecraft.src.go = \
 	$(wildcard internal/*/*.go)
 
 timecraft: go.mod $(timecraft.src.go)
-	go build -o timecraft
+	$(GO) build -o timecraft
 
 clean:
 	rm -f timecraft $(format.src.go) $(testdata.go.wasm)
@@ -24,15 +26,15 @@ clean:
 generate: flatbuffers
 
 flatbuffers: go.mod $(format.src.go)
-	go build ./format/...
+	$(GO) build ./format/...
 
 test: flatbuffers testdata
-	go test -v ./...
+	$(GO) test -v ./...
 
 testdata: $(testdata.go.wasm)
 
 testdata/go/%.wasm: testdata/go/%.go
-	GOARCH=wasm GOOS=wasip1 gotip build -o $@ $<
+	GOARCH=wasm GOOS=wasip1 $(GO) build -o $@ $<
 
 # We run goimports because the flatc compiler sometimes adds an unused import of
 # strconv.

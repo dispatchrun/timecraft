@@ -1,0 +1,77 @@
+name: build
+on:
+  push:
+    tags:
+      - v*
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # renovate: datasource=go depName=github.com/golangci/golangci-lint
+  GOLANGCI_LINT_VERSION: v1.52.2
+
+jobs:
+  spellcheck:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Actions Repository
+      uses: actions/checkout@v2
+
+    - name: Check spelling of Go files
+      uses: crate-ci/typos@master
+      with:
+        files: '*.go'
+        write_changes: true
+
+  golangci-lint:
+    name: Go Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version-file: .go-version
+          check-latest: true
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --timeout 5m
+
+  test:
+    name: Go Test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20.4'
+        check-latest: true
+
+    - name: Install Go tip
+      run: |
+        curl -sL https://storage.googleapis.com/go-build-snap/go/linux-amd64/$(git ls-remote https://github.com/golang/go.git HEAD | awk '{print $1;}').tar.gz -o gotip.tar.gz
+        ls -lah gotip.tar.gz
+        mkdir -p $HOME/gotip
+        tar -C $HOME/gotip -xzf gotip.tar.gz
+
+    - name: Build test programs
+      run: make testdata GO=$HOME/gotip/bin/go
+
+    - name: Test
+      run: make test
