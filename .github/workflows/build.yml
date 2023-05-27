@@ -14,9 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # renovate: datasource=go depName=github.com/golangci/golangci-lint
-  GOLANGCI_LINT_VERSION: v1.52.2
   GOPRIVATE: github.com/stealthrocket
+  GH_ACCESS_TOKEN: ${{ secrets.PRIVATE_ACCESS_TOKEN }}
 
 jobs:
   spellcheck:
@@ -24,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Actions Repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Check spelling of Go files
       uses: crate-ci/typos@master
@@ -45,21 +44,18 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
+      - run: git config --global url.https://stealthrocket:$GH_ACCESS_TOKEN@github.com.insteadOf https://github.com
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          version: v1.52.2
           args: --timeout 5m
 
   test:
     name: Go Test
     runs-on: ubuntu-latest
     steps:
-    - name: Configure git for private modules
-      env:
-        TOKEN: ${{ secrets.PRIVATE_ACCESS_TOKEN }}
-      run: git config --global url."https://stealthrocket:${TOKEN}@github.com".insteadOf "https://github.com"
-
     - uses: actions/checkout@v3
 
     - name: Set up Go
@@ -75,8 +71,6 @@ jobs:
         mkdir -p $HOME/gotip
         tar -C $HOME/gotip -xzf gotip.tar.gz
 
-    - name: Build test programs
-      run: make testdata GO=$HOME/gotip/bin/go
-
-    - name: Test
-      run: make test
+    - run: git config --global url.https://stealthrocket:$GH_ACCESS_TOKEN@github.com.insteadOf https://github.com
+    - run: make testdata GO=$HOME/gotip/bin/go
+    - run: make test
