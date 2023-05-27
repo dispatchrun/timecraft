@@ -22,46 +22,35 @@ jobs:
     name: Spell Check
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Actions Repository
-      uses: actions/checkout@v3
-
-    - name: Check spelling of Go files
-      uses: crate-ci/typos@master
+    - uses: actions/checkout@v3
+    - uses: crate-ci/typos@master
       with:
         files: '*.go'
         write_changes: true
 
-  # TODO: golangci-lint does not work well with the dot-import of wasi-go,
-  # it fails to find the symbols; maybe related to not being able to download
-  # private dependencies?
-  #
-  # golangci-lint:
-  #   name: Go Lint
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 30
-  #   steps:
-  #     - uses: actions/checkout@v3
-
-  #     - name: Set up Go
-  #       uses: actions/setup-go@v4
-  #       with:
-  #         go-version-file: go.mod
-  #         check-latest: true
-
-  #     - name: golangci-lint
-  #       uses: golangci/golangci-lint-action@v3
-  #       with:
-  #         version: v1.52.2
-  #         args: --timeout 5m
+  golangci-lint:
+    name: Go Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - run: git config --global url.https://$GH_ACCESS_TOKEN@github.com.insteadOf https://github.com
+      - run: go mod download
+      - uses: golangci/golangci-lint-action@v3
+        with:
+          version: v1.52.2
+          args: --timeout 5m
 
   test:
     name: Go Test
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-
-    - name: Set up Go
-      uses: actions/setup-go@v4
+    - uses: actions/setup-go@v4
       with:
         go-version-file: go.mod
         check-latest: true
