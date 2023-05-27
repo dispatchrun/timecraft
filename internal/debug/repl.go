@@ -6,7 +6,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/tetratelabs/wazero/sys"
 )
+
+const replUsage = `Debugger commands:
+  s, step      Step through events
+  q, quit      Quit the debugger
+  h, ?, help   Show this usage information
+`
 
 // REPL provides a read-eval-print loop for debugging WebAssembly modules.
 type REPL struct {
@@ -27,6 +35,7 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 	if r.closed {
 		return
 	}
+
 	switch e := event.(type) {
 	case *ModuleBefore:
 		r.println("ModuleBefore")
@@ -43,16 +52,30 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 	case *WASICallAfter:
 		r.println("WASICallAfter:", e.Syscall.ID().String())
 	}
-	var command string
-	for command == "" {
+
+command_loop:
+	for {
 		r.print("> ")
 		if !r.input.Scan() {
 			r.closed = true
 			return
 		}
-		command = strings.TrimSpace(r.input.Text())
+		switch command := strings.TrimSpace(r.input.Text()); command {
+		case "":
+			continue
+		case "s", "step":
+			break command_loop
+		case "q", "quit":
+			r.closed = true
+			panic(sys.NewExitError(0))
+		case "h", "help", "?":
+			r.print(replUsage)
+			continue
+		default:
+			r.printf("error: %q is not a valid command\n", command)
+			continue
+		}
 	}
-	r.println("You typed:", command)
 }
 
 func (r *REPL) println(args ...any) (int, error) {

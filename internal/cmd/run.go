@@ -39,7 +39,7 @@ Options:
    -T, --trace                    Enable strace-like logging of host function calls
 `
 
-func run(ctx context.Context, args []string) error {
+func run(ctx context.Context, args []string) (err error) {
 	var (
 		envs         stringList
 		listens      stringList
@@ -90,7 +90,23 @@ func run(ctx context.Context, args []string) error {
 
 	var debugREPL *debug.REPL
 	if debugger {
+		defer func() {
+			if panicErr := recover(); panicErr != nil {
+				// We need this to handle the case of the REPL calling
+				// panic(sys.NewExitError(code)) before the module is started
+				// or after it has finished.
+				if exitErr, ok := panicErr.(*sys.ExitError); ok {
+					err = ExitCode(exitErr.ExitCode())
+					return
+				}
+				panic(panicErr)
+			}
+		}()
+
 		debugREPL = debug.NewREPL(os.Stdin, os.Stdout)
+		debugREPL.OnEvent(ctx, &debug.ModuleBefore{})
+		defer debugREPL.OnEvent(ctx, &debug.ModuleAfter{})
+
 		ctx = debug.RegisterFunctionListener(ctx, debugREPL)
 	}
 

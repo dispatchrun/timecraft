@@ -15,6 +15,7 @@ import (
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/sys"
 )
 
 const replayUsage = `
@@ -27,7 +28,7 @@ Options:
    -T, --trace          Enable strace-like logging of host function calls
 `
 
-func replay(ctx context.Context, args []string) error {
+func replay(ctx context.Context, args []string) (err error) {
 	var (
 		registryPath = "~/.timecraft"
 		debugger     = false
@@ -86,6 +87,19 @@ func replay(ctx context.Context, args []string) error {
 
 	var debugREPL *debug.REPL
 	if debugger {
+		defer func() {
+			if panicErr := recover(); panicErr != nil {
+				// We need this to handle the case of the REPL calling
+				// panic(sys.NewExitError(code)) before the module is started
+				// or after it has finished.
+				if exitErr, ok := panicErr.(*sys.ExitError); ok {
+					err = ExitCode(exitErr.ExitCode())
+					return
+				}
+				panic(panicErr)
+			}
+		}()
+
 		debugREPL = debug.NewREPL(os.Stdin, os.Stdout)
 		debugREPL.OnEvent(ctx, &debug.ModuleBefore{})
 		defer debugREPL.OnEvent(ctx, &debug.ModuleAfter{})
