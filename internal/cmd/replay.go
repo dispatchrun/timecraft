@@ -83,6 +83,9 @@ func replay(ctx context.Context, args []string) error {
 	var debugREPL *debug.REPL
 	if debugger {
 		debugREPL = debug.NewREPL(os.Stdin, os.Stdout)
+		debugREPL.OnEvent(ctx, &debug.ModuleCallBefore{})
+		defer debugREPL.OnEvent(ctx, &debug.ModuleCallAfter{})
+
 		ctx = debug.RegisterFunctionListener(ctx, debugREPL)
 	}
 

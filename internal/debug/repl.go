@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // REPL provides a read-eval-print loop for debugging WebAssembly modules.
@@ -27,6 +28,10 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 		return
 	}
 	switch e := event.(type) {
+	case *ModuleCallBefore:
+		r.println("ModuleCallBefore")
+	case *ModuleCallAfter:
+		r.println("ModuleCallAfter")
 	case *FunctionCallBefore:
 		r.println("FunctionCallBefore:", e.Function.DebugName())
 	case *FunctionCallAfter:
@@ -36,12 +41,15 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 	case *WASICallAfter:
 		r.println("WASICallAfter:", e.Syscall.ID().String())
 	}
-	r.print("> ")
-	if !r.input.Scan() {
-		r.closed = true
-		return
+	var command string
+	for command == "" {
+		r.print("> ")
+		if !r.input.Scan() {
+			r.closed = true
+			return
+		}
+		command = strings.TrimSpace(r.input.Text())
 	}
-	command := r.input.Text()
 	r.println("You typed:", command)
 }
 

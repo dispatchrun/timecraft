@@ -6,11 +6,20 @@ import (
 	"github.com/tetratelabs/wazero/experimental"
 )
 
-// Event is an event generated during execution of a WebAssembly module,
-// such as a function call.
+// Event is an event generated during execution of a WebAssembly module.
 type Event interface {
 	event()
 }
+
+// ModuleCallBefore is called before a module is started.
+type ModuleCallBefore struct{}
+
+func (*ModuleCallBefore) event() {}
+
+// ModuleCallAfter is called after a module is started.
+type ModuleCallAfter struct{}
+
+func (*ModuleCallAfter) event() {}
 
 // FunctionCallBefore is an event that's triggered before a function is
 // called in a WebAssembly module.
