@@ -64,7 +64,7 @@ func TestRegistry(t *testing.T) {
 			(*timemachine.Registry).LookupProcess,
 			&format.Process{
 				ID:        uuid.New(),
-				StartTime: time.Unix(1685053878, 0),
+				StartTime: time.Unix(1685053878, 0).UTC(),
 				Config: &format.Descriptor{
 					MediaType: format.TypeTimecraftConfig,
 					Digest:    format.SHA256([]byte("whatever")),
