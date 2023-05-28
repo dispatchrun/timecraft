@@ -17,7 +17,7 @@ func TestWriteNothing(t *testing.T) {
 	b := new(bytes.Buffer)
 	w := jsonprint.NewWriter[tag](b)
 	assert.OK(t, w.Close())
-	assert.Equal(t, b.String(), "[]\n")
+	assert.Equal(t, b.String(), "")
 }
 
 func TestWriteValues(t *testing.T) {
@@ -30,19 +30,17 @@ func TestWriteValues(t *testing.T) {
 	})
 	assert.OK(t, err)
 	assert.OK(t, w.Close())
-	assert.Equal(t, b.String(), `[
-  {
-    "name": "one",
-    "value": "1"
-  },
-  {
-    "name": "two",
-    "value": "2"
-  },
-  {
-    "name": "three",
-    "value": "3"
-  }
-]
+	assert.Equal(t, b.String(), `{
+  "name": "one",
+  "value": "1"
+}
+{
+  "name": "two",
+  "value": "2"
+}
+{
+  "name": "three",
+  "value": "3"
+}
 `)
 }
