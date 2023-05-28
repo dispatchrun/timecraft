@@ -59,7 +59,7 @@ func TestCountYAML(t *testing.T) {
 	testCountEncoding(t, Count(1.234), yaml.Marshal, yaml.Unmarshal)
 }
 
-func testCountEncoding(t *testing.T, x Count, marshal func(interface{}) ([]byte, error), unmarshal func([]byte, interface{}) error) {
+func testCountEncoding(t *testing.T, x Count, marshal func(any) ([]byte, error), unmarshal func([]byte, any) error) {
 	b, err := marshal(x)
 	if err != nil {
 		t.Fatal("marshal error:", err)

@@ -194,7 +194,7 @@ func (b *Bytes) UnmarshalJSON(j []byte) error {
 	return json.Unmarshal(j, (*uint64)(b))
 }
 
-func (b Bytes) MarshalYAML() (interface{}, error) {
+func (b Bytes) MarshalYAML() (any, error) {
 	return b.String(), nil
 }
 

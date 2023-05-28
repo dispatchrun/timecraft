@@ -101,7 +101,7 @@ func (b *Boolean) UnmarshalJSON(j []byte) error {
 	return json.Unmarshal(j, (*bool)(b))
 }
 
-func (b Boolean) MarshalYAML() (interface{}, error) {
+func (b Boolean) MarshalYAML() (any, error) {
 	return bool(b), nil
 }
 

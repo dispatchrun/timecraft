@@ -109,7 +109,7 @@ func (r *Ratio) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, (*float64)(r))
 }
 
-func (r Ratio) MarshalYAML() (interface{}, error) {
+func (r Ratio) MarshalYAML() (any, error) {
 	return r.Text(-1), nil
 }
 

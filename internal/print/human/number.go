@@ -119,7 +119,7 @@ func (n *Number) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, (*float64)(n))
 }
 
-func (n Number) MarshalYAML() (interface{}, error) {
+func (n Number) MarshalYAML() (any, error) {
 	return float64(n), nil
 }
 

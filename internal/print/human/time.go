@@ -165,7 +165,7 @@ func (t *Time) UnmarshalJSON(b []byte) error {
 	return ((*time.Time)(t)).UnmarshalJSON(b)
 }
 
-func (t Time) MarshalYAML() (interface{}, error) {
+func (t Time) MarshalYAML() (any, error) {
 	return time.Time(t).Format(time.RFC3339Nano), nil
 }
 

@@ -166,7 +166,7 @@ func (r *Rate) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, (*float64)(r))
 }
 
-func (r Rate) MarshalYAML() (interface{}, error) {
+func (r Rate) MarshalYAML() (any, error) {
 	return r.String(), nil
 }
 

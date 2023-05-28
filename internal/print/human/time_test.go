@@ -138,7 +138,7 @@ func TestTimeYAML(t *testing.T) {
 	testTimeEncoding(t, Time(time.Now()), yaml.Marshal, yaml.Unmarshal)
 }
 
-func testTimeEncoding(t *testing.T, x Time, marshal func(interface{}) ([]byte, error), unmarshal func([]byte, interface{}) error) {
+func testTimeEncoding(t *testing.T, x Time, marshal func(any) ([]byte, error), unmarshal func([]byte, any) error) {
 	b, err := marshal(x)
 	if err != nil {
 		t.Fatal("marshal error:", err)

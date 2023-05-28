@@ -315,7 +315,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, (*time.Duration)(d))
 }
 
-func (d Duration) MarshalYAML() (interface{}, error) {
+func (d Duration) MarshalYAML() (any, error) {
 	return time.Duration(d).String(), nil
 }
 

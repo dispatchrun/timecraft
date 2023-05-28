@@ -134,7 +134,7 @@ func (c *Count) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, (*float64)(c))
 }
 
-func (c Count) MarshalYAML() (interface{}, error) {
+func (c Count) MarshalYAML() (any, error) {
 	return c.String(), nil
 }
 

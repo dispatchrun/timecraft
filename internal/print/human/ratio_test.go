@@ -60,7 +60,7 @@ func TestRatioYAML(t *testing.T) {
 	testRatioEncoding(t, Ratio(0.234), yaml.Marshal, yaml.Unmarshal)
 }
 
-func testRatioEncoding(t *testing.T, x Ratio, marshal func(interface{}) ([]byte, error), unmarshal func([]byte, interface{}) error) {
+func testRatioEncoding(t *testing.T, x Ratio, marshal func(any) ([]byte, error), unmarshal func([]byte, any) error) {
 	b, err := marshal(x)
 	if err != nil {
 		t.Fatal("marshal error:", err)

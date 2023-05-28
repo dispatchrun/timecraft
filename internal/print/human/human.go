@@ -197,7 +197,7 @@ func ftoa(value, scale float64) string {
 	return s
 }
 
-func printError(verb rune, typ, val interface{}) string {
+func printError(verb rune, typ, val any) string {
 	return fmt.Sprintf("%%!%c(%T=%v)", verb, typ, val)
 }
 

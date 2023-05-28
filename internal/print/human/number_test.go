@@ -61,7 +61,7 @@ func TestNumberYAML(t *testing.T) {
 	testNumberEncoding(t, Number(1.234), yaml.Marshal, yaml.Unmarshal)
 }
 
-func testNumberEncoding(t *testing.T, x Number, marshal func(interface{}) ([]byte, error), unmarshal func([]byte, interface{}) error) {
+func testNumberEncoding(t *testing.T, x Number, marshal func(any) ([]byte, error), unmarshal func([]byte, any) error) {
 	b, err := marshal(x)
 	if err != nil {
 		t.Fatal("marshal error:", err)
