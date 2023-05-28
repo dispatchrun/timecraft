@@ -31,7 +31,10 @@ func (w *writer[T]) Write(values []T) (int, error) {
 	if w.buffer == nil {
 		return 0, io.ErrClosedPipe
 	}
-	if w.buffer.Len() == 0 {
+	if len(values) == 0 {
+		return 0, nil
+	}
+	if w.count == 0 {
 		w.buffer.WriteString("[\n  ")
 	}
 	for n := range values {
@@ -44,14 +47,15 @@ func (w *writer[T]) Write(values []T) (int, error) {
 		w.count++
 		w.buffer.Truncate(w.buffer.Len() - 1)
 	}
-	return len(values), nil
+	_, err := w.buffer.WriteTo(w.output)
+	return len(values), err
 }
 
 func (w *writer[T]) Close() (err error) {
 	if w.buffer != nil {
 		defer func() { w.buffer = nil }()
 
-		if w.buffer.Len() == 0 {
+		if w.count == 0 {
 			w.buffer.WriteString("[]\n")
 		} else {
 			w.buffer.WriteString("\n]\n")
