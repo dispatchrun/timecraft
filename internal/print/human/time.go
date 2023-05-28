@@ -3,6 +3,7 @@ package human
 import (
 	"encoding"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"strings"
@@ -147,6 +148,15 @@ func (t Time) Formatter(now time.Time) fmt.Formatter {
 	return formatter(func(w fmt.State, v rune) { t.formatAt(w, v, now) })
 }
 
+func (t *Time) Set(s string) error {
+	p, err := ParseTime(s)
+	if err != nil {
+		return err
+	}
+	*t = p
+	return nil
+}
+
 func (t Time) MarshalJSON() ([]byte, error) {
 	return time.Time(t).MarshalJSON()
 }
@@ -177,12 +187,7 @@ func (t Time) MarshalText() ([]byte, error) {
 }
 
 func (t *Time) UnmarshalText(b []byte) error {
-	p, err := ParseTime(string(b))
-	if err != nil {
-		return err
-	}
-	*t = p
-	return nil
+	return t.Set(string(b))
 }
 
 var (
@@ -199,4 +204,5 @@ var (
 
 	_ encoding.TextMarshaler   = Time{}
 	_ encoding.TextUnmarshaler = (*Time)(nil)
+	_ flag.Value               = (*Time)(nil)
 )

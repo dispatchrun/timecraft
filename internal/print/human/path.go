@@ -1,7 +1,8 @@
 package human
 
 import (
-	"bytes"
+	"encoding"
+	"flag"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -13,9 +14,13 @@ import (
 // directory of the user that the program is running as.
 type Path string
 
-func (p *Path) UnmarshalText(b []byte) error {
+func (p Path) String() string {
+	return string(p)
+}
+
+func (p *Path) Set(s string) error {
 	switch {
-	case bytes.HasPrefix(b, []byte{'~', filepath.Separator}):
+	case len(s) >= 2 && s[0] == '~' && s[1] == os.PathSeparator:
 		home, ok := os.LookupEnv("HOME")
 		if !ok {
 			u, err := user.Current()
@@ -24,9 +29,18 @@ func (p *Path) UnmarshalText(b []byte) error {
 			}
 			home = u.HomeDir
 		}
-		*p = Path(filepath.Join(home, string(b[2:])))
+		*p = Path(filepath.Join(home, s[2:]))
 	default:
-		*p = Path(b)
+		*p = Path(s)
 	}
 	return nil
 }
+
+func (p *Path) UnmarshalText(b []byte) error {
+	return p.Set(string(b))
+}
+
+var (
+	_ encoding.TextUnmarshaler = (*Path)(nil)
+	_ flag.Value               = (*Path)(nil)
+)

@@ -3,6 +3,7 @@ package human
 import (
 	"encoding"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"math"
@@ -116,6 +117,15 @@ func (c Count) format(w fmt.State, v rune) string {
 	}
 }
 
+func (c *Count) Set(s string) error {
+	p, err := ParseCount(s)
+	if err != nil {
+		return err
+	}
+	*c = p
+	return nil
+}
+
 func (c Count) MarshalJSON() ([]byte, error) {
 	return json.Marshal(float64(c))
 }
@@ -146,12 +156,7 @@ func (c Count) MarshalText() ([]byte, error) {
 }
 
 func (c *Count) UnmarshalText(b []byte) error {
-	p, err := ParseCount(string(b))
-	if err != nil {
-		return err
-	}
-	*c = p
-	return nil
+	return c.Set(string(b))
 }
 
 var (
@@ -167,4 +172,5 @@ var (
 
 	_ encoding.TextMarshaler   = Count(0)
 	_ encoding.TextUnmarshaler = (*Count)(nil)
+	_ flag.Value               = (*Count)(nil)
 )

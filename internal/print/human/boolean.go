@@ -3,6 +3,7 @@ package human
 import (
 	"encoding"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"strings"
@@ -83,6 +84,15 @@ func (b Boolean) string(t, f string) string {
 	return f
 }
 
+func (b *Boolean) Set(s string) error {
+	x, err := ParseBoolean(s)
+	if err != nil {
+		return err
+	}
+	*b = x
+	return nil
+}
+
 func (b Boolean) MarshalJSON() ([]byte, error) {
 	return []byte(b.string("true", "false")), nil
 }
@@ -104,12 +114,7 @@ func (b Boolean) MarshalText() ([]byte, error) {
 }
 
 func (b *Boolean) UnmarshalText(t []byte) error {
-	x, err := ParseBoolean(string(t))
-	if err != nil {
-		return err
-	}
-	*b = x
-	return nil
+	return b.Set(string(t))
 }
 
 var (
@@ -125,4 +130,5 @@ var (
 
 	_ encoding.TextMarshaler   = Boolean(false)
 	_ encoding.TextUnmarshaler = (*Boolean)(nil)
+	_ flag.Value               = (*Boolean)(nil)
 )

@@ -3,6 +3,7 @@ package human
 import (
 	"encoding"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"strconv"
@@ -91,6 +92,15 @@ func (r Ratio) Formatter(precision int) fmt.Formatter {
 	return formatter(func(w fmt.State, v rune) { r.formatWith(w, v, precision) })
 }
 
+func (r *Ratio) Set(s string) error {
+	p, err := ParseRatio(s)
+	if err != nil {
+		return err
+	}
+	*r = p
+	return nil
+}
+
 func (r Ratio) MarshalJSON() ([]byte, error) {
 	return json.Marshal(float64(r))
 }
@@ -121,12 +131,7 @@ func (r Ratio) MarshalText() ([]byte, error) {
 }
 
 func (r *Ratio) UnmarshalText(b []byte) error {
-	p, err := ParseRatio(string(b))
-	if err != nil {
-		return err
-	}
-	*r = p
-	return nil
+	return r.Set(string(b))
 }
 
 var (
@@ -142,4 +147,5 @@ var (
 
 	_ encoding.TextMarshaler   = Ratio(0)
 	_ encoding.TextUnmarshaler = (*Ratio)(nil)
+	_ flag.Value               = (*Ratio)(nil)
 )
