@@ -30,20 +30,19 @@ Examples:
 
    $ timecraft get modules
    MODULE ID     MODULE NAME  SIZE
-   a11c1643e362  (none)       6.82 MiB
+   9d7b7563baf3  app.wasm     6.82 MiB
 
    $ timecraft get modules -o json
-   [
-     {
-       "mediaType": "application/vnd.timecraft.module.v1+wasm",
-       "digest": "sha256:a11c1643e362e9fe0f0a40b45f0f2212e4a725ad8e969ce9fd7ff074cfe7e0d8",
-       "size": 7150231,
-       "annotations": {
-         "timecraft.object.created-at": "2023-05-28T19:50:41Z",
-         "timecraft.object.resource-type": "module"
-       }
+   {
+     "mediaType": "application/vnd.timecraft.module.v1+wasm",
+     "digest": "sha256:9d7b7563baf3702cf24ed3688dc9a58faef2d0ac586041cb2dc95df919f5e5f2",
+     "size": 7150231,
+     "annotations": {
+       "timecraft.module.name": "app.wasm",
+       "timecraft.object.created-at": "2023-05-28T21:52:26Z",
+       "timecraft.object.resource-type": "module"
      }
-   ]
+   }
 
 Options:
    -h, --help           Show this usage information
