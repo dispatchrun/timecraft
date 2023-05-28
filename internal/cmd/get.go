@@ -65,7 +65,7 @@ var resources = [...]resource{
 	},
 	{
 		name: "module",
-		alt:  []string{"mo", "mods", "modules"},
+		alt:  []string{"mo", "mod", "mods", "modules"},
 		get:  getModules,
 	},
 	{
@@ -94,22 +94,20 @@ func get(ctx context.Context, args []string) error {
 
 	args = flagSet.Args()
 	if len(args) == 0 {
-		return errors.New(`expected exactly one resource name as argument`)
+		return errors.New(`expected exactly one resource name as argument` + useGet())
 	}
 	resourceNamePrefix := args[0]
 	parseFlags(flagSet, args[1:])
 
-	matchingResources := selectMatchingResources(resourceNamePrefix, resources[:])
-	if len(matchingResources) == 0 {
-		return fmt.Errorf(`no resources matching '%s'`, resourceNamePrefix)
-	}
-	if len(matchingResources) > 1 {
+	resource, ok := findResource(resourceNamePrefix, resources[:])
+	if !ok {
+		matchingResources := findMatchingResources(resourceNamePrefix, resources[:])
+		if len(matchingResources) == 0 {
+			return fmt.Errorf(`no resources matching '%s'`+useGet(), resourceNamePrefix)
+		}
 		return fmt.Errorf(`no resources matching '%s'
 
-Did you mean?
-
-    $ timecraft get %s
-`, resourceNamePrefix, matchingResources[0].name)
+Did you mean?%s`, resourceNamePrefix, joinResourceNames(matchingResources, "\n   "))
 	}
 
 	registry, err := openRegistry(registryPath)
@@ -117,7 +115,6 @@ Did you mean?
 		return err
 	}
 
-	resource := matchingResources[0]
 	reader := registry.ListResources(ctx, resource.name, timeRange)
 	defer reader.Close()
 
@@ -226,22 +223,53 @@ func newDescTableWriter[T any](w io.Writer, conv func(*format.Descriptor) (T, er
 	return stream.NewWriteCloser(cw, tw)
 }
 
-func selectMatchingResources(name string, options []resource) []resource {
-	var matches []resource
-
+func findResource(name string, options []resource) (resource, bool) {
 	for _, option := range options {
 		if option.name == name {
-			return []resource{option}
+			return option, true
 		}
 		for _, alt := range option.alt {
 			if alt == name {
-				return []resource{option}
+				return option, true
 			}
 		}
-		if strings.HasPrefix(option.name, name) {
+	}
+	return resource{}, false
+}
+
+func findMatchingResources(name string, options []resource) (matches []resource) {
+	for _, option := range options {
+		if prefixLength(option.name, name) > 1 || prefixLength(name, option.name) > 1 {
 			matches = append(matches, option)
 		}
 	}
-
 	return matches
+}
+
+func prefixLength(base, prefix string) int {
+	n := 0
+	for n < len(base) && n < len(prefix) && base[n] == prefix[n] {
+		n++
+	}
+	return n
+}
+
+func joinResourceNames(resources []resource, prefix string) string {
+	s := new(strings.Builder)
+	for _, r := range resources {
+		s.WriteString(prefix)
+		s.WriteString(r.name)
+	}
+	return s.String()
+}
+
+func useGet() string {
+	s := new(strings.Builder)
+	s.WriteString("\n\n")
+	s.WriteString(`Use 'timecraft <resource>' where the supported resource names are:`)
+	for _, r := range resources {
+		s.WriteString("\n   ")
+		s.WriteString(r.name)
+	}
+	return s.String()
 }
