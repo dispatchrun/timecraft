@@ -80,7 +80,7 @@ func ReadAll[T any](r Reader[T]) ([]T, error) {
 	}
 }
 
-// Writeer is an interface implemented by types that write a stream of values of
+// Writer is an interface implemented by types that write a stream of values of
 // type T.
 type Writer[T any] interface {
 	Write(values []T) (int, error)
