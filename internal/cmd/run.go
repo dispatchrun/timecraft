@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stealthrocket/timecraft/format"
+	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
@@ -125,6 +126,9 @@ func run(ctx context.Context, args []string) error {
 
 		module, err := registry.CreateModule(ctx, &format.Module{
 			Code: wasmCode,
+		}, object.Tag{
+			Name:  "timecraft.module.name",
+			Value: wasmModule.Name(),
 		})
 		if err != nil {
 			return err

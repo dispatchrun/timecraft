@@ -14,14 +14,18 @@ format.src.go = \
 timecraft.src.go = \
 	$(format.src.go) \
 	$(wildcard *.go) \
-	$(wildcard cmd/*.go) \
-	$(wildcard internal/*/*.go)
+	$(wildcard */*.go) \
+	$(wildcard */*/*.go) \
+	$(wildcard */*/*/*.go)
 
 timecraft: go.mod $(timecraft.src.go)
 	$(GO) build -o timecraft
 
 clean:
 	rm -f timecraft $(format.src.go) $(testdata.go.wasm)
+
+lint:
+	golangci-lint run ./...
 
 generate: flatbuffers
 

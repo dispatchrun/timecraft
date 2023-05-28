@@ -8,6 +8,9 @@ import (
 const helpUsage = `
 Usage:	timecraft <command> [options]
 
+Registry Commands:
+   get      Display resources from the time machine registry
+
 Runtime Commands:
    run      Run a WebAssembly module, and optionally trace execution
    replay   Replay a recorded trace of execution
@@ -33,6 +36,8 @@ func help(ctx context.Context, args []string) error {
 	}
 
 	switch cmd {
+	case "get":
+		msg = getUsage
 	case "help", "":
 		msg = helpUsage
 	case "profile":
