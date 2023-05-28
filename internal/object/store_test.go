@@ -36,7 +36,7 @@ func testObjectStore(t *testing.T, newStore func(*testing.T) (object.Store, func
 		},
 
 		{
-			scenario: "deleting non existing objects from an emtpy store",
+			scenario: "deleting non existing objects from an empty store",
 			function: testObjectStoreDeleteEmpty,
 		},
 
@@ -68,6 +68,11 @@ func testObjectStore(t *testing.T, newStore func(*testing.T) (object.Store, func
 		{
 			scenario: "objects being created are not visible when listing",
 			function: testObjectStoreListWhileCreate,
+		},
+
+		{
+			scenario: "tagged objects are filtered when listing",
+			function: testObjectStoreListTaggedObjects,
 		},
 	}
 
@@ -115,11 +120,8 @@ func testObjectStoreCreateAndList(t *testing.T, ctx context.Context, store objec
 	assert.OK(t, store.CreateObject(ctx, "test-2", strings.NewReader("A")))
 	assert.OK(t, store.CreateObject(ctx, "test-3", strings.NewReader("BC")))
 
-	objects := readValues(t, store.ListObjects(ctx, "."))
-	clearCreatedAt(objects)
-	sortObjectInfo(objects)
-
-	assert.EqualAll(t, objects, []object.Info{
+	objects := listObjects(t, ctx, store, ".")
+	assert.DeepEqual(t, objects, []object.Info{
 		{Name: "test-1", Size: 0},
 		{Name: "test-2", Size: 1},
 		{Name: "test-3", Size: 2},
@@ -150,11 +152,8 @@ func testObjectStoreDeleteAndList(t *testing.T, ctx context.Context, store objec
 	assert.OK(t, store.CreateObject(ctx, "test-3", strings.NewReader("BC")))
 	assert.OK(t, store.DeleteObject(ctx, "test-2"))
 
-	objects := readValues(t, store.ListObjects(ctx, "."))
-	clearCreatedAt(objects)
-	sortObjectInfo(objects)
-
-	assert.EqualAll(t, objects, []object.Info{
+	objects := listObjects(t, ctx, store, ".")
+	assert.DeepEqual(t, objects, []object.Info{
 		{Name: "test-1", Size: 0},
 		{Name: "test-3", Size: 2},
 	})
@@ -172,30 +171,88 @@ func testObjectStoreListWhileCreate(t *testing.T, ctx context.Context, store obj
 		assert.OK(t, store.CreateObject(ctx, "test-3", r))
 	}()
 
-	io.WriteString(w, "H")
+	_, err := io.WriteString(w, "H")
+	assert.OK(t, err)
 
-	beforeCreateObject := readValues(t, store.ListObjects(ctx, "."))
-	clearCreatedAt(beforeCreateObject)
-	sortObjectInfo(beforeCreateObject)
-
-	assert.EqualAll(t, beforeCreateObject, []object.Info{
+	beforeCreateObject := listObjects(t, ctx, store, ".")
+	assert.DeepEqual(t, beforeCreateObject, []object.Info{
 		{Name: "test-1", Size: 0},
 		{Name: "test-2", Size: 1},
 	})
 
-	io.WriteString(w, "ello World!")
-	w.Close()
+	_, err = io.WriteString(w, "ello World!")
+	assert.OK(t, err)
+	assert.OK(t, w.Close())
 	<-done
 
-	afterCreateObject := readValues(t, store.ListObjects(ctx, "."))
-	clearCreatedAt(afterCreateObject)
-	sortObjectInfo(afterCreateObject)
-
-	assert.EqualAll(t, afterCreateObject, []object.Info{
+	afterCreateObject := listObjects(t, ctx, store, ".")
+	assert.DeepEqual(t, afterCreateObject, []object.Info{
 		{Name: "test-1", Size: 0},
 		{Name: "test-2", Size: 1},
 		{Name: "test-3", Size: 12},
 	})
+}
+
+func testObjectStoreListTaggedObjects(t *testing.T, ctx context.Context, store object.Store) {
+	assert.OK(t, store.CreateObject(ctx, "test-1", strings.NewReader(""))) // no tags
+	assert.OK(t, store.CreateObject(ctx, "test-2", strings.NewReader("A"),
+		object.Tag{"tag-1", "value-1"},
+		object.Tag{"tag-2", "value-2"},
+	))
+	assert.OK(t, store.CreateObject(ctx, "test-3", strings.NewReader("BC"),
+		object.Tag{"tag-1", "value-1"},
+		object.Tag{"tag-1", "value-2"},
+		object.Tag{"tag-2", "value-3"},
+	))
+
+	object1 := object.Info{Name: "test-1", Size: 0}
+	object2 := object.Info{Name: "test-2", Size: 1, Tags: []object.Tag{{"tag-1", "value-1"}, {"tag-2", "value-2"}}}
+	object3 := object.Info{Name: "test-3", Size: 2, Tags: []object.Tag{{"tag-1", "value-1"}, {"tag-1", "value-2"}, {"tag-2", "value-3"}}}
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "."),
+		[]object.Info{object1, object2, object3})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, ".", object.MATCH("tag-1", "value-1")),
+		[]object.Info{object2, object3})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, ".", object.MATCH("tag-1", "value-2")),
+		[]object.Info{object3})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, ".", object.MATCH("tag-2", "value-2")),
+		[]object.Info{object2})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, ".", object.MATCH("tag-2", "value-3")),
+		[]object.Info{object3})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, ".",
+			object.OR(
+				object.MATCH("tag-2", "value-2"),
+				object.MATCH("tag-2", "value-3"),
+			),
+		),
+		[]object.Info{object2, object3})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, ".",
+			object.AND(
+				object.MATCH("tag-1", "value-2"),
+				object.MATCH("tag-2", "value-3"),
+			),
+		),
+		[]object.Info{object3})
+}
+
+func listObjects(t *testing.T, ctx context.Context, store object.Store, prefix string, filters ...object.Filter) []object.Info {
+	objects := readValues(t, store.ListObjects(ctx, ".", filters...))
+	clearCreatedAt(objects)
+	sortObjectInfo(objects)
+	return objects
 }
 
 func readBytes(t *testing.T, r io.ReadCloser) []byte {

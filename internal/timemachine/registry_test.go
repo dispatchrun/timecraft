@@ -16,11 +16,13 @@ import (
 
 func TestRegistry(t *testing.T) {
 	t.Run("CreateAndLookup", func(t *testing.T) {
-		dir, err := object.DirStore(t.TempDir())
+		store, err := object.DirStore(t.TempDir())
 		if err != nil {
 			t.Fatal(err)
 		}
-		reg := timemachine.NewRegistry(dir)
+		reg := &timemachine.Registry{
+			Store: store,
+		}
 
 		testRegistryCreateAndLookup(t, reg,
 			(*timemachine.Registry).CreateModule,
@@ -64,7 +66,7 @@ func TestRegistry(t *testing.T) {
 			(*timemachine.Registry).LookupProcess,
 			&format.Process{
 				ID:        uuid.New(),
-				StartTime: time.Unix(1685053878, 0),
+				StartTime: time.Unix(1685053878, 0).UTC(),
 				Config: &format.Descriptor{
 					MediaType: format.TypeTimecraftConfig,
 					Digest:    format.SHA256([]byte("whatever")),
@@ -79,7 +81,7 @@ type resource interface {
 	format.ResourceUnmarshaler
 }
 
-type createMethod[T any] func(*timemachine.Registry, context.Context, T) (*format.Descriptor, error)
+type createMethod[T any] func(*timemachine.Registry, context.Context, T, ...object.Tag) (*format.Descriptor, error)
 
 type lookupMethod[T any] func(*timemachine.Registry, context.Context, format.Hash) (T, error)
 
@@ -87,14 +89,10 @@ func testRegistryCreateAndLookup[T resource](t *testing.T, reg *timemachine.Regi
 	t.Run(reflect.TypeOf(want).Elem().String(), func(t *testing.T) {
 		ctx := context.Background()
 
-		d1, err := create(reg, ctx, want)
+		desc, err := create(reg, ctx, want)
 		assert.OK(t, err)
 
-		d2, err := reg.LookupDescriptor(ctx, d1.Digest)
-		assert.OK(t, err)
-		assert.DeepEqual(t, d1, d2)
-
-		got, err := lookup(reg, ctx, d1.Digest)
+		got, err := lookup(reg, ctx, desc.Digest)
 		assert.OK(t, err)
 		assert.DeepEqual(t, got, want)
 	})

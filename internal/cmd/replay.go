@@ -39,7 +39,7 @@ func replay(ctx context.Context, args []string) (err error) {
 	stringVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &debugger, "d", "debug")
 	boolVar(flagSet, &trace, "T", "trace")
-	flagSet.Parse(args)
+	parseFlags(flagSet, args)
 
 	args = flagSet.Args()
 	if len(args) != 1 {

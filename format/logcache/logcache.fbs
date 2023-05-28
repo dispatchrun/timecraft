@@ -7,7 +7,7 @@ namespace logcache;
 //
 // The file is designed to contain one or more records. The intent is to
 // support grouping together caches of records that are likely to be accessed
-// together (e.g. multiple stages of a transation). Bulk lookup operations
+// together (e.g. multiple stages of a transaction). Bulk lookup operations
 // can then hit a single record set, which causes a single update of the LRU
 // and single access to the storage layer.
 table RecordSet {

@@ -27,6 +27,15 @@ func SHA256(b []byte) Hash {
 	}
 }
 
+func ParseHash(s string) (h Hash, err error) {
+	var ok bool
+	h.Algorithm, h.Digest, ok = strings.Cut(s, ":")
+	if !ok {
+		err = fmt.Errorf("malformed hash: %s", s)
+	}
+	return h, err
+}
+
 func (h Hash) String() string {
 	return h.Algorithm + ":" + h.Digest
 }
@@ -60,6 +69,8 @@ const (
 	TypeTimecraftModule   MediaType = "application/vnd.timecraft.module.v1+wasm"
 )
 
+func (m MediaType) String() string { return string(m) }
+
 type Resource interface {
 	ContentType() MediaType
 }
@@ -75,11 +86,11 @@ type ResourceUnmarshaler interface {
 }
 
 type Descriptor struct {
-	MediaType   MediaType         `json:"mediaType"`
-	Digest      Hash              `json:"digest"`
-	Size        int64             `json:"size"`
-	URLs        []string          `json:"urls,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"`
+	MediaType   MediaType         `json:"mediaType"             yaml:"mediaType"`
+	Digest      Hash              `json:"digest"                yaml:"digest"`
+	Size        int64             `json:"size"                  yaml:"size"`
+	URLs        []string          `json:"urls,omitempty"        yaml:"urls,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
 }
 
 func (d *Descriptor) ContentType() MediaType {
@@ -112,7 +123,7 @@ func (m *Module) UnmarshalResource(b []byte) error {
 }
 
 type Runtime struct {
-	Version string `json:"version"`
+	Version string `json:"version" yaml:"version"`
 }
 
 func (r *Runtime) ContentType() MediaType {
@@ -128,10 +139,10 @@ func (r *Runtime) UnmarshalResource(b []byte) error {
 }
 
 type Config struct {
-	Runtime *Descriptor   `json:"runtime"`
-	Modules []*Descriptor `json:"modules"`
-	Args    []string      `json:"args"`
-	Env     []string      `json:"env,omitempty"`
+	Runtime *Descriptor   `json:"runtime"       yaml:"runtime"`
+	Modules []*Descriptor `json:"modules"       yaml:"modules"`
+	Args    []string      `json:"args"          yaml:"args"`
+	Env     []string      `json:"env,omitempty" yaml:"env,omitempty"`
 }
 
 func (c *Config) ContentType() MediaType {
@@ -147,9 +158,9 @@ func (c *Config) UnmarshalResource(b []byte) error {
 }
 
 type Process struct {
-	ID        UUID        `json:"id"`
-	StartTime time.Time   `json:"startTime"`
-	Config    *Descriptor `json:"config"`
+	ID        UUID        `json:"id"        yaml:"id"`
+	StartTime time.Time   `json:"startTime" yaml:"startTime"`
+	Config    *Descriptor `json:"config"    yaml:"config"`
 }
 
 func (p *Process) ContentType() MediaType {
@@ -178,8 +189,8 @@ func jsonDecode(b []byte, value any) error {
 }
 
 type Manifest struct {
-	Process   *Descriptor `json:"process"`
-	StartTime time.Time   `json:"startTime"`
+	Process   *Descriptor `json:"process"   yaml:"process"`
+	StartTime time.Time   `json:"startTime" yaml:"startTime"`
 }
 
 func (m *Manifest) ContentType() MediaType {

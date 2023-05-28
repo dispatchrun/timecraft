@@ -13,6 +13,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/debug"
 
 	"github.com/stealthrocket/timecraft/format"
+	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
@@ -64,7 +65,7 @@ func run(ctx context.Context, args []string) (err error) {
 	boolVar(flagSet, &debugger, "d", "debug")
 	intVar(flagSet, &batchSize, "record-batch-size")
 	stringVar(flagSet, &compression, "record-compression")
-	flagSet.Parse(args)
+	parseFlags(flagSet, args)
 
 	envs = append(os.Environ(), envs...)
 	args = flagSet.Args()
@@ -116,13 +117,20 @@ func run(ctx context.Context, args []string) (err error) {
 	}
 	defer wasmModule.Close(ctx)
 
+	// When running cmd.Root from testable examples, the standard streams are
+	// not set to alternative files and the fd numbers are not 0, 1, 2.
+	stdin := int(os.Stdin.Fd())
+	stdout := int(os.Stdout.Fd())
+	stderr := int(os.Stderr.Fd())
+
 	builder := imports.NewBuilder().
 		WithName(wasmName).
-		WithArgs(args...).
+		WithArgs(args[1:]...).
 		WithEnv(envs...).
 		WithDirs("/").
 		WithListens(listens...).
 		WithDials(dials...).
+		WithStdio(stdin, stdout, stderr).
 		WithSocketsExtension(sockets, wasmModule).
 		WithTracer(trace, os.Stderr)
 
@@ -144,6 +152,9 @@ func run(ctx context.Context, args []string) (err error) {
 
 		module, err := registry.CreateModule(ctx, &format.Module{
 			Code: wasmCode,
+		}, object.Tag{
+			Name:  "timecraft.module.name",
+			Value: wasmModule.Name(),
 		})
 		if err != nil {
 			return err
@@ -234,14 +245,16 @@ func exec(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.Com
 
 	<-ctx.Done()
 
-	switch err := context.Cause(ctx).(type) {
-	case nil:
-	case *sys.ExitError:
-		if exitCode := err.ExitCode(); exitCode != 0 {
-			return ExitCode(exitCode)
-		}
-	default:
-		return err
+	err = context.Cause(ctx)
+	switch err {
+	case context.Canceled, context.DeadlineExceeded:
+		err = nil
 	}
-	return nil
+
+	switch e := err.(type) {
+	case *sys.ExitError:
+		return ExitCode(e.ExitCode())
+	}
+
+	return err
 }

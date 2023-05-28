@@ -66,9 +66,9 @@ func init() {
 }
 
 // Root is the timecraft entrypoint.
-func Root(ctx context.Context, args []string) int {
+func Root(ctx context.Context, args ...string) int {
 	flagSet := newFlagSet("timecraft", helpUsage)
-	flagSet.Parse(args)
+	parseFlags(flagSet, args)
 
 	if args = flagSet.Args(); len(args) == 0 {
 		fmt.Println(rootUsage)
@@ -78,6 +78,8 @@ func Root(ctx context.Context, args []string) int {
 	var err error
 	cmd, args := args[0], args[1:]
 	switch cmd {
+	case "get":
+		err = get(ctx, args)
 	case "help":
 		err = help(ctx, args)
 	case "profile":
@@ -98,7 +100,7 @@ func Root(ctx context.Context, args []string) int {
 	case ExitCode:
 		return int(e)
 	default:
-		fmt.Fprintf(os.Stderr, "ERR: timecraft %s: %s\n", cmd, err)
+		fmt.Printf("ERR: timecraft %s: %s\n", cmd, err)
 		return 1
 	}
 }
@@ -120,6 +122,22 @@ func (ts *timestamp) Set(value string) error {
 	}
 	*ts = timestamp(t)
 	return nil
+}
+
+type outputFormat string
+
+func (o outputFormat) String() string {
+	return string(o)
+}
+
+func (o *outputFormat) Set(value string) error {
+	switch value {
+	case "text", "json", "yaml":
+		*o = outputFormat(value)
+		return nil
+	default:
+		return fmt.Errorf("unsupported output format: %q", value)
+	}
 }
 
 type stringList []string
@@ -151,11 +169,14 @@ func openRegistry(path string) (*timemachine.Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir, err := object.DirStore(path)
+	store, err := object.DirStore(path)
 	if err != nil {
 		return nil, err
 	}
-	return timemachine.NewRegistry(dir), nil
+	registry := &timemachine.Registry{
+		Store: store,
+	}
+	return registry, nil
 }
 
 func resolvePath(path string) (string, error) {
@@ -173,6 +194,13 @@ func newFlagSet(cmd, usage string) *flag.FlagSet {
 	flagSet := flag.NewFlagSet(cmd, flag.ExitOnError)
 	flagSet.Usage = func() { fmt.Println(usage) }
 	return flagSet
+}
+
+func parseFlags(f *flag.FlagSet, args []string) {
+	// The flag set is consutrcted with ExitOnError, it should never error.
+	if err := f.Parse(args); err != nil {
+		panic(err)
+	}
 }
 
 func customVar(f *flag.FlagSet, dst flag.Value, name string, alias ...string) {

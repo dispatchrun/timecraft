@@ -88,7 +88,7 @@ func TestReadRecordBatch(t *testing.T) {
 			r := iter.Value()
 			assert.Less(t, count, len(records))
 			records[count] = record{
-				Timestamp:    r.Timestamp(),
+				Timestamp:    r.Time(),
 				FunctionID:   r.FunctionID(),
 				FunctionCall: r.FunctionCall(),
 			}
