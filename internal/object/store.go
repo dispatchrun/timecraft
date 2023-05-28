@@ -13,10 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/exp/slices"
-
 	"github.com/stealthrocket/timecraft/internal/object/query"
 	"github.com/stealthrocket/timecraft/internal/stream"
+	"golang.org/x/exp/slices"
 )
 
 var (
@@ -206,8 +205,8 @@ func (store dirStore) CreateObject(ctx context.Context, name string, data io.Rea
 		return err
 	}
 
-	tagsPath := ""
-	tagsData := []byte(nil)
+	var tagsPath string
+	var tagsData []byte
 	if len(tags) > 0 {
 		for _, tag := range tags {
 			if !validTag(tag) {

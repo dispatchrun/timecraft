@@ -126,6 +126,9 @@ func Copy[T any](w Writer[T], r Reader[T]) (int64, error) {
 			if err != nil {
 				return n, err
 			}
+			if wn < rn {
+				return n, io.ErrNoProgress
+			}
 		}
 
 		if err != nil {
