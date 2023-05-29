@@ -76,6 +76,8 @@ func Root(ctx context.Context, args ...string) int {
 	var err error
 	cmd, args := args[0], args[1:]
 	switch cmd {
+	case "describe":
+		err = describe(ctx, args)
 	case "get":
 		err = get(ctx, args)
 	case "help":
