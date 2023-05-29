@@ -98,19 +98,19 @@ func (reg *Registry) LookupProcess(ctx context.Context, hash format.Hash) (*form
 }
 
 func (reg *Registry) ListModules(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
-	return reg.listObjects(ctx, "module", timeRange, tags)
+	return reg.listObjects(ctx, format.TypeTimecraftModule, timeRange, tags)
 }
 
 func (reg *Registry) ListRuntimes(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
-	return reg.listObjects(ctx, "runtime", timeRange, tags)
+	return reg.listObjects(ctx, format.TypeTimecraftRuntime, timeRange, tags)
 }
 
 func (reg *Registry) ListConfigs(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
-	return reg.listObjects(ctx, "config", timeRange, tags)
+	return reg.listObjects(ctx, format.TypeTimecraftConfig, timeRange, tags)
 }
 
 func (reg *Registry) ListProcesses(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
-	return reg.listObjects(ctx, "process", timeRange, tags)
+	return reg.listObjects(ctx, format.TypeTimecraftProcess, timeRange, tags)
 }
 
 func (reg *Registry) ListResources(ctx context.Context, mediaType format.MediaType, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
