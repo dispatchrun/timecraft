@@ -95,7 +95,7 @@ func TestBytesYAML(t *testing.T) {
 	testBytesEncoding(t, 1*KiB, yaml.Marshal, yaml.Unmarshal)
 }
 
-func testBytesEncoding(t *testing.T, x Bytes, marshal func(interface{}) ([]byte, error), unmarshal func([]byte, interface{}) error) {
+func testBytesEncoding(t *testing.T, x Bytes, marshal func(any) ([]byte, error), unmarshal func([]byte, any) error) {
 	b, err := marshal(x)
 	if err != nil {
 		t.Fatal("marshal error:", err)

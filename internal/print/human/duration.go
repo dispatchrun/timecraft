@@ -3,6 +3,7 @@ package human
 import (
 	"encoding"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"math"
@@ -297,6 +298,19 @@ func (d Duration) Formatter(now time.Time) fmt.Formatter {
 	return formatter(func(w fmt.State, v rune) { d.formatUntil(w, v, now) })
 }
 
+func (d Duration) Get() any {
+	return time.Duration(d)
+}
+
+func (d *Duration) Set(s string) error {
+	p, err := ParseDuration(s)
+	if err != nil {
+		return err
+	}
+	*d = p
+	return nil
+}
+
 func (d Duration) MarshalJSON() ([]byte, error) {
 	return json.Marshal(time.Duration(d))
 }
@@ -305,7 +319,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, (*time.Duration)(d))
 }
 
-func (d Duration) MarshalYAML() (interface{}, error) {
+func (d Duration) MarshalYAML() (any, error) {
 	return time.Duration(d).String(), nil
 }
 
@@ -327,12 +341,7 @@ func (d Duration) MarshalText() ([]byte, error) {
 }
 
 func (d *Duration) UnmarshalText(b []byte) error {
-	p, err := ParseDuration(string(b))
-	if err != nil {
-		return err
-	}
-	*d = p
-	return nil
+	return d.Set(string(b))
 }
 
 func (d Duration) Nanoseconds() int { return int(d) }
@@ -396,4 +405,7 @@ var (
 
 	_ encoding.TextMarshaler   = Duration(0)
 	_ encoding.TextUnmarshaler = (*Duration)(nil)
+
+	_ flag.Getter = (*Duration)(nil)
+	_ flag.Value  = (*Duration)(nil)
 )

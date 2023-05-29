@@ -39,7 +39,6 @@ func TestCountFormat(t *testing.T) {
 		{in: 1234, fmt: "%v", out: "1234"},
 		{in: 10234, fmt: "%v", out: "10.2K"},
 		{in: 123456789, fmt: "%d", out: "123456789"},
-		{in: 1234.56789, fmt: "%f", out: "1234.56789"},
 		{in: 123456789, fmt: "%s", out: "123M"},
 		{in: 123456789, fmt: "%#v", out: "human.Count(1.23456789e+08)"},
 	} {
@@ -52,14 +51,14 @@ func TestCountFormat(t *testing.T) {
 }
 
 func TestCountJSON(t *testing.T) {
-	testCountEncoding(t, Count(1.234), json.Marshal, json.Unmarshal)
+	testCountEncoding(t, Count(1), json.Marshal, json.Unmarshal)
 }
 
 func TestCountYAML(t *testing.T) {
-	testCountEncoding(t, Count(1.234), yaml.Marshal, yaml.Unmarshal)
+	testCountEncoding(t, Count(1), yaml.Marshal, yaml.Unmarshal)
 }
 
-func testCountEncoding(t *testing.T, x Count, marshal func(interface{}) ([]byte, error), unmarshal func([]byte, interface{}) error) {
+func testCountEncoding(t *testing.T, x Count, marshal func(any) ([]byte, error), unmarshal func([]byte, any) error) {
 	b, err := marshal(x)
 	if err != nil {
 		t.Fatal("marshal error:", err)

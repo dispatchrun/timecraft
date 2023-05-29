@@ -74,6 +74,11 @@ func testObjectStore(t *testing.T, newStore func(*testing.T) (object.Store, func
 			scenario: "tagged objects are filtered when listing",
 			function: testObjectStoreListTaggedObjects,
 		},
+
+		{
+			scenario: "listing matches objects by key prefixes",
+			function: testObjectStoreListByPrefix,
+		},
 	}
 
 	for _, test := range tests {
@@ -248,8 +253,69 @@ func testObjectStoreListTaggedObjects(t *testing.T, ctx context.Context, store o
 		[]object.Info{object3})
 }
 
+func testObjectStoreListByPrefix(t *testing.T, ctx context.Context, store object.Store) {
+	assert.OK(t, store.CreateObject(ctx, "test-1", strings.NewReader("")))
+	assert.OK(t, store.CreateObject(ctx, "test-2", strings.NewReader("A")))
+	assert.OK(t, store.CreateObject(ctx, "test-3", strings.NewReader("BC")))
+	assert.OK(t, store.CreateObject(ctx, "sub/key-1.0", strings.NewReader("hello")))
+	assert.OK(t, store.CreateObject(ctx, "sub/key-1.1", strings.NewReader("world")))
+	assert.OK(t, store.CreateObject(ctx, "sub/key-2.0", strings.NewReader("!")))
+
+	object0 := object.Info{Name: "sub/", Size: 0}
+	object1 := object.Info{Name: "test-1", Size: 0}
+	object2 := object.Info{Name: "test-2", Size: 1}
+	object3 := object.Info{Name: "test-3", Size: 2}
+	object4 := object.Info{Name: "sub/key-1.0", Size: 5}
+	object5 := object.Info{Name: "sub/key-1.1", Size: 5}
+	object6 := object.Info{Name: "sub/key-2.0", Size: 1}
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "whatever"),
+		[]object.Info{})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "."),
+		[]object.Info{object0, object1, object2, object3})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "test"),
+		[]object.Info{object1, object2, object3})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "test-"),
+		[]object.Info{object1, object2, object3})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "test-1"),
+		[]object.Info{object1})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "sub"),
+		[]object.Info{object0})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "sub/"),
+		[]object.Info{object4, object5, object6})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "sub/key-"),
+		[]object.Info{object4, object5, object6})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "sub/key-1"),
+		[]object.Info{object4, object5})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "sub/key-1.0"),
+		[]object.Info{object4})
+
+	assert.DeepEqual(t,
+		listObjects(t, ctx, store, "sub/key-2"),
+		[]object.Info{object6})
+}
+
 func listObjects(t *testing.T, ctx context.Context, store object.Store, prefix string, filters ...object.Filter) []object.Info {
-	objects := readValues(t, store.ListObjects(ctx, ".", filters...))
+	objects := readValues(t, store.ListObjects(ctx, prefix, filters...))
 	clearCreatedAt(objects)
 	sortObjectInfo(objects)
 	return objects

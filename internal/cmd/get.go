@@ -19,7 +19,7 @@ import (
 )
 
 const getUsage = `
-Usage:	timecraft get <resource> [options]
+Usage:	timecraft get <resource type> [options]
 
    The get sub-command gives access to the state of the time machine registry.
    The command must be followed by the name of resources to display, which must
@@ -39,8 +39,7 @@ Examples:
      "size": 7150231,
      "annotations": {
        "timecraft.module.name": "app.wasm",
-       "timecraft.object.created-at": "2023-05-28T21:52:26Z",
-       "timecraft.object.resource-type": "module"
+       "timecraft.object.created-at": "2023-05-28T21:52:26Z"
      }
    }
 
@@ -51,31 +50,46 @@ Options:
 `
 
 type resource struct {
-	name string
-	alt  []string
-	get  func(context.Context, io.Writer, *timemachine.Registry) stream.WriteCloser[*format.Descriptor]
+	typ       string
+	alt       []string
+	mediaType format.MediaType
+	get       func(context.Context, io.Writer, *timemachine.Registry) stream.WriteCloser[*format.Descriptor]
+	describe  func(context.Context, *timemachine.Registry, string) (any, error)
+	lookup    func(context.Context, *timemachine.Registry, string) (any, error)
 }
 
 var resources = [...]resource{
 	{
-		name: "config",
-		alt:  []string{"conf", "configs"},
-		get:  getConfigs,
+		typ:       "config",
+		alt:       []string{"conf", "configs"},
+		mediaType: format.TypeTimecraftConfig,
+		get:       getConfigs,
+		describe:  describeConfig,
+		lookup:    lookupConfig,
 	},
 	{
-		name: "module",
-		alt:  []string{"mo", "mod", "mods", "modules"},
-		get:  getModules,
+		typ:       "module",
+		alt:       []string{"mo", "mod", "mods", "modules"},
+		mediaType: format.TypeTimecraftModule,
+		get:       getModules,
+		describe:  describeModule,
+		lookup:    lookupModule,
 	},
 	{
-		name: "process",
-		alt:  []string{"ps", "procs", "processes"},
-		get:  getProcesses,
+		typ:       "process",
+		alt:       []string{"ps", "proc", "procs", "processes"},
+		mediaType: format.TypeTimecraftProcess,
+		get:       getProcesses,
+		describe:  describeProcess,
+		lookup:    lookupProcess,
 	},
 	{
-		name: "runtime",
-		alt:  []string{"rt", "runtimes"},
-		get:  getRuntimes,
+		typ:       "runtime",
+		alt:       []string{"rt", "runtimes"},
+		mediaType: format.TypeTimecraftRuntime,
+		get:       getRuntimes,
+		describe:  describeRuntime,
+		lookup:    lookupRuntime,
 	},
 }
 
@@ -83,30 +97,30 @@ func get(ctx context.Context, args []string) error {
 	var (
 		timeRange    = timemachine.Since(time.Unix(0, 0))
 		output       = outputFormat("text")
-		registryPath = "~/.timecraft"
+		registryPath = human.Path("~/.timecraft")
 	)
 
 	flagSet := newFlagSet("timecraft get", getUsage)
 	customVar(flagSet, &output, "o", "output")
-	stringVar(flagSet, &registryPath, "r", "registry")
+	customVar(flagSet, &registryPath, "r", "registry")
 	parseFlags(flagSet, args)
 
 	args = flagSet.Args()
 	if len(args) == 0 {
-		return errors.New(`expected exactly one resource name as argument` + useGet())
+		return errors.New(`expected exactly one resource type as argument` + useGet())
 	}
-	resourceNamePrefix := args[0]
+	resourceTypeLookup := args[0]
 	parseFlags(flagSet, args[1:])
 
-	resource, ok := findResource(resourceNamePrefix, resources[:])
+	resource, ok := findResource(resourceTypeLookup, resources[:])
 	if !ok {
-		matchingResources := findMatchingResources(resourceNamePrefix, resources[:])
+		matchingResources := findMatchingResources(resourceTypeLookup, resources[:])
 		if len(matchingResources) == 0 {
-			return fmt.Errorf(`no resources matching '%s'`+useGet(), resourceNamePrefix)
+			return fmt.Errorf(`no resources matching '%s'`+useGet(), resourceTypeLookup)
 		}
 		return fmt.Errorf(`no resources matching '%s'
 
-Did you mean?%s`, resourceNamePrefix, joinResourceNames(matchingResources, "\n   "))
+Did you mean?%s`, resourceTypeLookup, joinResourceTypes(matchingResources, "\n   "))
 	}
 
 	registry, err := openRegistry(registryPath)
@@ -114,7 +128,7 @@ Did you mean?%s`, resourceNamePrefix, joinResourceNames(matchingResources, "\n  
 		return err
 	}
 
-	reader := registry.ListResources(ctx, resource.name, timeRange)
+	reader := registry.ListResources(ctx, resource.mediaType, timeRange)
 	defer reader.Close()
 
 	var writer stream.WriteCloser[*format.Descriptor]
@@ -149,8 +163,8 @@ func getConfigs(ctx context.Context, w io.Writer, r *timemachine.Registry) strea
 			return config{}, err
 		}
 		return config{
-			ID:      desc.Digest.Digest[:12],
-			Runtime: r.Version,
+			ID:      desc.Digest.Short(),
+			Runtime: r.Runtime + " (" + r.Version + ")",
 			Modules: len(c.Modules),
 			Size:    human.Bytes(desc.Size),
 		}, nil
@@ -169,7 +183,7 @@ func getModules(ctx context.Context, w io.Writer, r *timemachine.Registry) strea
 			name = "(none)"
 		}
 		return module{
-			ID:   desc.Digest.Digest[:12],
+			ID:   desc.Digest.Short(),
 			Name: name,
 			Size: human.Bytes(desc.Size),
 		}, nil
@@ -195,23 +209,19 @@ func getProcesses(ctx context.Context, w io.Writer, r *timemachine.Registry) str
 
 func getRuntimes(ctx context.Context, w io.Writer, r *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
 	type runtime struct {
-		ID        string     `text:"RUNTIME ID"`
-		Version   string     `text:"VERSION"`
-		CreatedAt human.Time `text:"CREATED"`
+		ID      string `text:"RUNTIME ID"`
+		Runtime string `text:"RUNTIME NAME"`
+		Version string `text:"VERSION"`
 	}
 	return newDescTableWriter(w, func(desc *format.Descriptor) (runtime, error) {
 		r, err := r.LookupRuntime(ctx, desc.Digest)
 		if err != nil {
 			return runtime{}, err
 		}
-		t, err := human.ParseTime(desc.Annotations["timecraft.object.created-at"])
-		if err != nil {
-			return runtime{}, err
-		}
 		return runtime{
-			ID:        desc.Digest.Digest[:12],
-			Version:   r.Version,
-			CreatedAt: t,
+			ID:      desc.Digest.Short(),
+			Runtime: r.Runtime,
+			Version: r.Version,
 		}, nil
 	})
 }
@@ -222,13 +232,13 @@ func newDescTableWriter[T any](w io.Writer, conv func(*format.Descriptor) (T, er
 	return stream.NewWriteCloser(cw, tw)
 }
 
-func findResource(name string, options []resource) (resource, bool) {
+func findResource(typ string, options []resource) (resource, bool) {
 	for _, option := range options {
-		if option.name == name {
+		if option.typ == typ {
 			return option, true
 		}
 		for _, alt := range option.alt {
-			if alt == name {
+			if alt == typ {
 				return option, true
 			}
 		}
@@ -236,9 +246,9 @@ func findResource(name string, options []resource) (resource, bool) {
 	return resource{}, false
 }
 
-func findMatchingResources(name string, options []resource) (matches []resource) {
+func findMatchingResources(typ string, options []resource) (matches []resource) {
 	for _, option := range options {
-		if prefixLength(option.name, name) > 1 || prefixLength(name, option.name) > 1 {
+		if prefixLength(option.typ, typ) > 1 || prefixLength(typ, option.typ) > 1 {
 			matches = append(matches, option)
 		}
 	}
@@ -253,11 +263,11 @@ func prefixLength(base, prefix string) int {
 	return n
 }
 
-func joinResourceNames(resources []resource, prefix string) string {
+func joinResourceTypes(resources []resource, prefix string) string {
 	s := new(strings.Builder)
 	for _, r := range resources {
 		s.WriteString(prefix)
-		s.WriteString(r.name)
+		s.WriteString(r.typ)
 	}
 	return s.String()
 }
@@ -265,10 +275,10 @@ func joinResourceNames(resources []resource, prefix string) string {
 func useGet() string {
 	s := new(strings.Builder)
 	s.WriteString("\n\n")
-	s.WriteString(`Use 'timecraft <resource>' where the supported resource names are:`)
+	s.WriteString(`Use 'timecraft get <resource type>' where the supported resource types are:`)
 	for _, r := range resources {
 		s.WriteString("\n   ")
-		s.WriteString(r.name)
+		s.WriteString(r.typ)
 	}
 	return s.String()
 }

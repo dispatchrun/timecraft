@@ -8,9 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"path"
 	"strconv"
-	"strings"
 	"time"
 
 	"golang.org/x/exp/slices"
@@ -98,24 +99,28 @@ func (reg *Registry) LookupProcess(ctx context.Context, hash format.Hash) (*form
 	return process, reg.lookupObject(ctx, hash, process)
 }
 
+func (reg *Registry) LookupDescriptor(ctx context.Context, hash format.Hash) (*format.Descriptor, error) {
+	return reg.lookupDescriptor(ctx, hash)
+}
+
 func (reg *Registry) ListModules(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
-	return reg.listObjects(ctx, "module", timeRange, tags)
+	return reg.listObjects(ctx, format.TypeTimecraftModule, timeRange, tags)
 }
 
 func (reg *Registry) ListRuntimes(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
-	return reg.listObjects(ctx, "runtime", timeRange, tags)
+	return reg.listObjects(ctx, format.TypeTimecraftRuntime, timeRange, tags)
 }
 
 func (reg *Registry) ListConfigs(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
-	return reg.listObjects(ctx, "config", timeRange, tags)
+	return reg.listObjects(ctx, format.TypeTimecraftConfig, timeRange, tags)
 }
 
 func (reg *Registry) ListProcesses(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
-	return reg.listObjects(ctx, "process", timeRange, tags)
+	return reg.listObjects(ctx, format.TypeTimecraftProcess, timeRange, tags)
 }
 
-func (reg *Registry) ListResources(ctx context.Context, resourceType string, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
-	return reg.listObjects(ctx, resourceType, timeRange, tags)
+func (reg *Registry) ListResources(ctx context.Context, mediaType format.MediaType, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
+	return reg.listObjects(ctx, mediaType, timeRange, tags)
 }
 
 func errorCreateObject(hash format.Hash, value format.Resource, err error) error {
@@ -126,17 +131,8 @@ func errorLookupObject(hash format.Hash, value format.Resource, err error) error
 	return fmt.Errorf("lookup object: %s: %s: %w", hash, value.ContentType(), err)
 }
 
-func errorListObjects(mediaType format.MediaType, err error) error {
-	return fmt.Errorf("list objects: %s: %w", mediaType, err)
-}
-
-func resourceTypeOf(mediaType format.MediaType) string {
-	const prefix = "application/vnd.timecraft."
-	if strings.HasPrefix(string(mediaType), prefix) {
-		s, _, _ := strings.Cut(string(mediaType[len(prefix):]), ".")
-		return s
-	}
-	return "unknown"
+func errorLookupDescriptor(hash format.Hash, err error) error {
+	return fmt.Errorf("lookup descriptor: %s: %w", hash, err)
 }
 
 func appendTagFilters(filters []object.Filter, tags []object.Tag) []object.Filter {
@@ -187,20 +183,10 @@ func (reg *Registry) createObject(ctx context.Context, value format.ResourceMars
 	annotations := make(map[string]string, 1+len(extraTags)+len(reg.CreateTags))
 	assignTags(annotations, reg.CreateTags)
 	assignTags(annotations, extraTags)
-	assignTags(annotations, []object.Tag{
-		{
-			Name:  "timecraft.object.media-type",
-			Value: mediaType.String(),
-		},
-		{
-			Name:  "timecraft.object.created-at",
-			Value: time.Now().UTC().Format(time.RFC3339),
-		},
-		{
-			Name:  "timecraft.object.resource-type",
-			Value: resourceTypeOf(mediaType),
-		},
-	})
+	assignTags(annotations, []object.Tag{{
+		Name:  "timecraft.object.media-type",
+		Value: mediaType.String(),
+	}})
 
 	tags := makeTags(annotations)
 	hash := sha256Hash(b, tags)
@@ -227,12 +213,29 @@ func (reg *Registry) createObject(ctx context.Context, value format.ResourceMars
 }
 
 func (reg *Registry) lookupObject(ctx context.Context, hash format.Hash, value format.ResourceUnmarshaler) error {
+	if hash.Algorithm != "sha256" || len(hash.Digest) != 64 {
+		return errorLookupObject(hash, value, object.ErrNotExist)
+	}
+
 	r, err := reg.Store.ReadObject(ctx, reg.objectKey(hash))
 	if err != nil {
 		return errorLookupObject(hash, value, err)
 	}
 	defer r.Close()
-	b, err := io.ReadAll(r)
+
+	var b []byte
+	switch f := r.(type) {
+	case *os.File:
+		var s fs.FileInfo
+		s, err = f.Stat()
+		if err != nil {
+			return errorLookupObject(hash, value, err)
+		}
+		b = make([]byte, s.Size())
+		_, err = io.ReadFull(f, b)
+	default:
+		b, err = io.ReadAll(r)
+	}
 	if err != nil {
 		return errorLookupObject(hash, value, err)
 	}
@@ -242,13 +245,61 @@ func (reg *Registry) lookupObject(ctx context.Context, hash format.Hash, value f
 	return nil
 }
 
-func (reg *Registry) listObjects(ctx context.Context, resourceType string, timeRange TimeRange, matchTags []object.Tag) stream.ReadCloser[*format.Descriptor] {
+func (reg *Registry) lookupDescriptor(ctx context.Context, hash format.Hash) (*format.Descriptor, error) {
+	if hash.Algorithm != "sha256" {
+		return nil, errorLookupDescriptor(hash, object.ErrNotExist)
+	}
+	if len(hash.Digest) > 64 {
+		return nil, errorLookupDescriptor(hash, object.ErrNotExist)
+	}
+	if len(hash.Digest) < 64 {
+		key := reg.objectKey(hash)
+
+		r := reg.Store.ListObjects(ctx, key)
+		defer r.Close()
+
+		i := stream.Iter[object.Info](r)
+		n := 0
+		for i.Next() {
+			if n++; n > 1 {
+				return nil, errorLookupDescriptor(hash, errors.New("too many objects match the key prefix"))
+			}
+			key = i.Value().Name
+		}
+		if err := i.Err(); err != nil {
+			return nil, err
+		}
+		hash = format.ParseHash(path.Base(key))
+	}
+	info, err := reg.Store.StatObject(ctx, reg.objectKey(hash))
+	if err != nil {
+		return nil, errorLookupDescriptor(hash, err)
+	}
+	return newDescriptor(info), nil
+}
+
+func newDescriptor(info object.Info) *format.Descriptor {
+	annotations := make(map[string]string, len(info.Tags))
+	assignTags(annotations, info.Tags)
+
+	mediaType := annotations["timecraft.object.media-type"]
+	delete(annotations, "timecraft.object.media-type")
+
+	return &format.Descriptor{
+		MediaType:   format.MediaType(mediaType),
+		Digest:      format.ParseHash(path.Base(info.Name)),
+		Size:        info.Size,
+		Annotations: annotations,
+	}
+}
+
+func (reg *Registry) listObjects(ctx context.Context, mediaType format.MediaType, timeRange TimeRange, matchTags []object.Tag) stream.ReadCloser[*format.Descriptor] {
 	if !timeRange.Start.IsZero() {
 		timeRange.Start = timeRange.Start.Add(-1)
 	}
 
 	filters := []object.Filter{
-		object.MATCH("timecraft.object.resource-type", resourceType),
+		object.MATCH("timecraft.object.media-type", mediaType.String()),
 		object.AFTER(timeRange.Start),
 		object.BEFORE(timeRange.End),
 	}
@@ -257,24 +308,7 @@ func (reg *Registry) listObjects(ctx context.Context, resourceType string, timeR
 
 	reader := reg.Store.ListObjects(ctx, "obj/", filters...)
 	return convert(reader, func(info object.Info) (*format.Descriptor, error) {
-		m, ok := info.Lookup("timecraft.object.media-type")
-		if !ok {
-			m = "application/octet-stream"
-		}
-		mediaType := format.MediaType(m)
-		hash, err := format.ParseHash(path.Base(info.Name))
-		if err != nil {
-			return nil, errorListObjects(mediaType, err)
-		}
-		desc := &format.Descriptor{
-			MediaType:   mediaType,
-			Digest:      hash,
-			Size:        info.Size,
-			Annotations: make(map[string]string, len(info.Tags)),
-		}
-		assignTags(desc.Annotations, info.Tags)
-		delete(desc.Annotations, "timecraft.object.media-type")
-		return desc, nil
+		return newDescriptor(info), nil
 	})
 }
 
@@ -316,8 +350,8 @@ func (w *logSegmentWriter) Close() error {
 	return err
 }
 
-func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID) stream.Reader[LogSegment] {
-	reader := reg.Store.ListObjects(ctx, "log/"+processID.String()+"/data")
+func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID) stream.ReadCloser[LogSegment] {
+	reader := reg.Store.ListObjects(ctx, "log/"+processID.String()+"/data/")
 	return convert(reader, func(info object.Info) (LogSegment, error) {
 		number := path.Base(info.Name)
 		n, err := strconv.ParseInt(number, 16, 32)

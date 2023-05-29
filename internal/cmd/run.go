@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
-	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
+	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
@@ -45,10 +47,10 @@ func run(ctx context.Context, args []string) (err error) {
 		envs         stringList
 		listens      stringList
 		dials        stringList
-		batchSize    = 4096
-		compression  = "zstd"
-		sockets      = "auto"
-		registryPath = "~/.timecraft"
+		batchSize    = human.Count(4096)
+		compression  = compression("zstd")
+		sockets      = sockets("auto")
+		registryPath = human.Path("~/.timecraft")
 		record       = false
 		trace        = false
 		debugger     = false
@@ -58,13 +60,13 @@ func run(ctx context.Context, args []string) (err error) {
 	customVar(flagSet, &envs, "e", "env")
 	customVar(flagSet, &listens, "L", "listen")
 	customVar(flagSet, &dials, "dial")
-	stringVar(flagSet, &sockets, "S", "sockets")
-	stringVar(flagSet, &registryPath, "r", "registry")
+	customVar(flagSet, &sockets, "S", "sockets")
+	customVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
 	boolVar(flagSet, &record, "R", "record")
 	boolVar(flagSet, &debugger, "d", "debug")
-	intVar(flagSet, &batchSize, "record-batch-size")
-	stringVar(flagSet, &compression, "record-compression")
+	customVar(flagSet, &batchSize, "record-batch-size")
+	customVar(flagSet, &compression, "record-compression")
 	parseFlags(flagSet, args)
 
 	envs = append(os.Environ(), envs...)
@@ -131,14 +133,14 @@ func run(ctx context.Context, args []string) (err error) {
 		WithListens(listens...).
 		WithDials(dials...).
 		WithStdio(stdin, stdout, stderr).
-		WithSocketsExtension(sockets, wasmModule).
+		WithSocketsExtension(string(sockets), wasmModule).
 		WithTracer(trace, os.Stderr)
 
 	var wrappers []func(wasi.System) wasi.System
 
 	if record {
 		var c timemachine.Compression
-		switch strings.ToLower(compression) {
+		switch compression {
 		case "snappy":
 			c = timemachine.Snappy
 		case "zstd":
@@ -150,7 +152,7 @@ func run(ctx context.Context, args []string) (err error) {
 		}
 
 		processID := uuid.New()
-		startTime := time.Now()
+		startTime := time.Now().UTC()
 
 		module, err := registry.CreateModule(ctx, &format.Module{
 			Code: wasmCode,
@@ -163,6 +165,7 @@ func run(ctx context.Context, args []string) (err error) {
 		}
 
 		runtime, err := registry.CreateRuntime(ctx, &format.Runtime{
+			Runtime: "timecraft",
 			Version: currentVersion(),
 		})
 		if err != nil {
@@ -202,7 +205,7 @@ func run(ctx context.Context, args []string) (err error) {
 		defer logSegment.Close()
 		logWriter := timemachine.NewLogWriter(logSegment)
 
-		recordWriter := timemachine.NewLogRecordWriter(logWriter, batchSize, c)
+		recordWriter := timemachine.NewLogRecordWriter(logWriter, int(batchSize), c)
 		defer recordWriter.Flush()
 
 		wrappers = append(wrappers, func(system wasi.System) wasi.System {
@@ -223,6 +226,9 @@ func run(ctx context.Context, args []string) (err error) {
 	}
 
 	builder = builder.WithWrappers(wrappers...)
+
+	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
 	var system wasi.System
 	ctx, system, err = builder.Instantiate(ctx, runtime)
