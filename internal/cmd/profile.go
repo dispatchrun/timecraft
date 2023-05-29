@@ -11,6 +11,7 @@ import (
 	pprof "github.com/google/pprof/profile"
 	"github.com/google/uuid"
 
+	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
@@ -54,28 +55,28 @@ Options:
 
 func profile(ctx context.Context, args []string) error {
 	var (
-		startTime    timestamp
-		duration     time.Duration
-		sampleRate   = 1.0
-		cpuProfile   = "cpu.out"
-		memProfile   = "mem.out"
-		registryPath = "~/.timecraft"
+		startTime    = human.Time{}
+		duration     = human.Duration(0)
+		sampleRate   = human.Rate(1.0)
+		cpuProfile   = human.Path("cpu.out")
+		memProfile   = human.Path("mem.out")
+		registryPath = human.Path("~/.timecraft")
 	)
 
 	flagSet := newFlagSet("timecraft profile", profileUsage)
 	customVar(flagSet, &startTime, "start-time")
-	durationVar(flagSet, &duration, "duration")
-	float64Var(flagSet, &sampleRate, "sample-rate")
-	stringVar(flagSet, &cpuProfile, "cpuprofile")
-	stringVar(flagSet, &memProfile, "memprofile")
-	stringVar(flagSet, &registryPath, "r", "registry")
+	customVar(flagSet, &duration, "duration")
+	customVar(flagSet, &sampleRate, "sample-rate")
+	customVar(flagSet, &cpuProfile, "cpuprofile")
+	customVar(flagSet, &memProfile, "memprofile")
+	customVar(flagSet, &registryPath, "r", "registry")
 	parseFlags(flagSet, args)
 
 	if time.Time(startTime).IsZero() {
-		startTime = timestamp(time.Unix(0, 0))
+		startTime = human.Time(time.Unix(0, 0))
 	}
 	if duration == 0 {
-		duration = time.Duration(math.MaxInt64)
+		duration = human.Duration(math.MaxInt64)
 	}
 
 	args = flagSet.Args()
@@ -122,16 +123,16 @@ func profile(ctx context.Context, args []string) error {
 	records := &recordProfiler{
 		records:    timemachine.NewLogRecordReader(logReader),
 		startTime:  time.Time(startTime),
-		endTime:    time.Time(startTime).Add(duration),
-		sampleRate: sampleRate,
+		endTime:    time.Time(startTime).Add(time.Duration(duration)),
+		sampleRate: float64(sampleRate),
 	}
 
 	records.cpu = wzprof.NewCPUProfiler(wzprof.TimeFunc(records.now))
 	records.mem = wzprof.NewMemoryProfiler()
 	defer func() {
 		records.stop()
-		writeProfile("cpu", cpuProfile, records.cpuProfile)
-		writeProfile("memory", memProfile, records.memProfile)
+		writeProfile("cpu", string(cpuProfile), records.cpuProfile)
+		writeProfile("memory", string(memProfile), records.memProfile)
 	}()
 
 	ctx = context.WithValue(ctx,

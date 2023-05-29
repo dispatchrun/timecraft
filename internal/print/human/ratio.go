@@ -92,6 +92,10 @@ func (r Ratio) Formatter(precision int) fmt.Formatter {
 	return formatter(func(w fmt.State, v rune) { r.formatWith(w, v, precision) })
 }
 
+func (r Ratio) Get() any {
+	return float64(r)
+}
+
 func (r *Ratio) Set(s string) error {
 	p, err := ParseRatio(s)
 	if err != nil {
@@ -147,5 +151,7 @@ var (
 
 	_ encoding.TextMarshaler   = Ratio(0)
 	_ encoding.TextUnmarshaler = (*Ratio)(nil)
-	_ flag.Value               = (*Ratio)(nil)
+
+	_ flag.Getter = (*Ratio)(nil)
+	_ flag.Value  = (*Ratio)(nil)
 )

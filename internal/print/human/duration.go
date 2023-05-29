@@ -298,6 +298,10 @@ func (d Duration) Formatter(now time.Time) fmt.Formatter {
 	return formatter(func(w fmt.State, v rune) { d.formatUntil(w, v, now) })
 }
 
+func (d Duration) Get() any {
+	return time.Duration(d)
+}
+
 func (d *Duration) Set(s string) error {
 	p, err := ParseDuration(s)
 	if err != nil {
@@ -401,5 +405,7 @@ var (
 
 	_ encoding.TextMarshaler   = Duration(0)
 	_ encoding.TextUnmarshaler = (*Duration)(nil)
-	_ flag.Value               = (*Duration)(nil)
+
+	_ flag.Getter = (*Duration)(nil)
+	_ flag.Value  = (*Duration)(nil)
 )

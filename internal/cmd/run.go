@@ -13,6 +13,7 @@ import (
 
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
+	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
@@ -43,10 +44,10 @@ func run(ctx context.Context, args []string) error {
 		envs         stringList
 		listens      stringList
 		dials        stringList
-		batchSize    = 4096
+		batchSize    = human.Count(4096)
 		compression  = "zstd"
 		sockets      = "auto"
-		registryPath = "~/.timecraft"
+		registryPath = human.Path("~/.timecraft")
 		record       = false
 		trace        = false
 	)
@@ -56,10 +57,10 @@ func run(ctx context.Context, args []string) error {
 	customVar(flagSet, &listens, "L", "listen")
 	customVar(flagSet, &dials, "D", "dial")
 	stringVar(flagSet, &sockets, "S", "sockets")
-	stringVar(flagSet, &registryPath, "r", "registry")
+	customVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
 	boolVar(flagSet, &record, "R", "record")
-	intVar(flagSet, &batchSize, "record-batch-size")
+	customVar(flagSet, &batchSize, "record-batch-size")
 	stringVar(flagSet, &compression, "record-compression")
 	parseFlags(flagSet, args)
 
@@ -174,7 +175,7 @@ func run(ctx context.Context, args []string) error {
 		defer logSegment.Close()
 		logWriter := timemachine.NewLogWriter(logSegment)
 
-		recordWriter := timemachine.NewLogRecordWriter(logWriter, batchSize, c)
+		recordWriter := timemachine.NewLogRecordWriter(logWriter, int(batchSize), c)
 		defer recordWriter.Flush()
 
 		builder = builder.WithWrappers(func(s wasi.System) wasi.System {

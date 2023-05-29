@@ -84,6 +84,10 @@ func (b Boolean) string(t, f string) string {
 	return f
 }
 
+func (b Boolean) Get() any {
+	return bool(b)
+}
+
 func (b *Boolean) Set(s string) error {
 	x, err := ParseBoolean(s)
 	if err != nil {
@@ -130,5 +134,7 @@ var (
 
 	_ encoding.TextMarshaler   = Boolean(false)
 	_ encoding.TextUnmarshaler = (*Boolean)(nil)
-	_ flag.Value               = (*Boolean)(nil)
+
+	_ flag.Getter = (*Boolean)(nil)
+	_ flag.Value  = (*Boolean)(nil)
 )

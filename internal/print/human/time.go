@@ -148,6 +148,10 @@ func (t Time) Formatter(now time.Time) fmt.Formatter {
 	return formatter(func(w fmt.State, v rune) { t.formatAt(w, v, now) })
 }
 
+func (t Time) Get() any {
+	return time.Time(t)
+}
+
 func (t *Time) Set(s string) error {
 	p, err := ParseTime(s)
 	if err != nil {
@@ -204,5 +208,7 @@ var (
 
 	_ encoding.TextMarshaler   = Time{}
 	_ encoding.TextUnmarshaler = (*Time)(nil)
-	_ flag.Value               = (*Time)(nil)
+
+	_ flag.Getter = (*Time)(nil)
+	_ flag.Value  = (*Time)(nil)
 )

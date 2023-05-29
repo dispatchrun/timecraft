@@ -26,12 +26,10 @@ import (
 	"log"
 	_ "net/http/pprof"
 	"os"
-	"os/user"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/object"
+	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 )
 
@@ -105,25 +103,6 @@ func Root(ctx context.Context, args ...string) int {
 	}
 }
 
-type timestamp time.Time
-
-func (ts timestamp) String() string {
-	t := time.Time(ts)
-	if t.IsZero() {
-		return "start"
-	}
-	return t.Format(time.RFC3339)
-}
-
-func (ts *timestamp) Set(value string) error {
-	t, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		return err
-	}
-	*ts = timestamp(t)
-	return nil
-}
-
 type outputFormat string
 
 func (o outputFormat) String() string {
@@ -151,25 +130,25 @@ func (s *stringList) Set(value string) error {
 	return nil
 }
 
-func createRegistry(path string) (*timemachine.Registry, error) {
-	path, err := resolvePath(path)
+func createRegistry(path human.Path) (*timemachine.Registry, error) {
+	p, err := path.Resolve()
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Mkdir(path, 0777); err != nil {
+	if err := os.Mkdir(p, 0777); err != nil {
 		if !errors.Is(err, fs.ErrExist) {
 			return nil, err
 		}
 	}
-	return openRegistry(path)
+	return openRegistry(human.Path(p))
 }
 
-func openRegistry(path string) (*timemachine.Registry, error) {
-	path, err := resolvePath(path)
+func openRegistry(path human.Path) (*timemachine.Registry, error) {
+	p, err := path.Resolve()
 	if err != nil {
 		return nil, err
 	}
-	store, err := object.DirStore(path)
+	store, err := object.DirStore(p)
 	if err != nil {
 		return nil, err
 	}
@@ -177,17 +156,6 @@ func openRegistry(path string) (*timemachine.Registry, error) {
 		Store: store,
 	}
 	return registry, nil
-}
-
-func resolvePath(path string) (string, error) {
-	if strings.HasPrefix(path, "~") {
-		u, err := user.Current()
-		if err != nil {
-			return "", err
-		}
-		path = filepath.Join(u.HomeDir, path[1:])
-	}
-	return path, nil
 }
 
 func newFlagSet(cmd, usage string) *flag.FlagSet {

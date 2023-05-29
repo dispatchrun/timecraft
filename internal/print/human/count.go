@@ -117,6 +117,10 @@ func (c Count) format(w fmt.State, v rune) string {
 	}
 }
 
+func (c Count) Get() any {
+	return float64(c)
+}
+
 func (c *Count) Set(s string) error {
 	p, err := ParseCount(s)
 	if err != nil {
@@ -172,5 +176,7 @@ var (
 
 	_ encoding.TextMarshaler   = Count(0)
 	_ encoding.TextUnmarshaler = (*Count)(nil)
-	_ flag.Value               = (*Count)(nil)
+
+	_ flag.Getter = (*Count)(nil)
+	_ flag.Value  = (*Count)(nil)
 )

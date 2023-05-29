@@ -177,6 +177,10 @@ func (b Bytes) formatWith(units []byteUnit) string {
 	return s
 }
 
+func (b Bytes) Get() any {
+	return uint64(b)
+}
+
 func (b *Bytes) Set(s string) error {
 	p, err := ParseBytes(s)
 	if err != nil {
@@ -232,5 +236,7 @@ var (
 
 	_ encoding.TextMarshaler   = Bytes(0)
 	_ encoding.TextUnmarshaler = (*Bytes)(nil)
-	_ flag.Value               = (*Bytes)(nil)
+
+	_ flag.Value = (*Bytes)(nil)
+	_ flag.Value = (*Bytes)(nil)
 )

@@ -149,6 +149,10 @@ func (r Rate) Formatter(d Duration) fmt.Formatter {
 	return formatter(func(w fmt.State, v rune) { r.formatPer(w, v, d) })
 }
 
+func (r Rate) Get() any {
+	return float64(r)
+}
+
 func (r *Rate) Set(s string) error {
 	p, err := ParseRate(s)
 	if err != nil {
@@ -204,5 +208,7 @@ var (
 
 	_ encoding.TextMarshaler   = Rate(0)
 	_ encoding.TextUnmarshaler = (*Rate)(nil)
-	_ flag.Value               = (*Rate)(nil)
+
+	_ flag.Getter = (*Rate)(nil)
+	_ flag.Value  = (*Rate)(nil)
 )

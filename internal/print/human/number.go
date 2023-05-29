@@ -102,6 +102,10 @@ func (n Number) format(w fmt.State, v rune) string {
 	}
 }
 
+func (n Number) Get() any {
+	return float64(n)
+}
+
 func (n *Number) Set(s string) error {
 	p, err := ParseNumber(s)
 	if err != nil {
@@ -148,5 +152,7 @@ var (
 
 	_ encoding.TextMarshaler   = Number(0)
 	_ encoding.TextUnmarshaler = (*Number)(nil)
-	_ flag.Value               = (*Number)(nil)
+
+	_ flag.Getter = (*Number)(nil)
+	_ flag.Value  = (*Number)(nil)
 )

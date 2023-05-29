@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stealthrocket/wasi-go"
 
+	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
@@ -27,12 +28,12 @@ Options:
 
 func replay(ctx context.Context, args []string) error {
 	var (
-		registryPath = "~/.timecraft"
+		registryPath = human.Path("~/.timecraft")
 		trace        = false
 	)
 
 	flagSet := newFlagSet("timecraft replay", replayUsage)
-	stringVar(flagSet, &registryPath, "r", "registry")
+	customVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
 	parseFlags(flagSet, args)
 
