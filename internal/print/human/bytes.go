@@ -3,6 +3,7 @@ package human
 import (
 	"encoding"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"math"
@@ -176,6 +177,19 @@ func (b Bytes) formatWith(units []byteUnit) string {
 	return s
 }
 
+func (b Bytes) Get() any {
+	return uint64(b)
+}
+
+func (b *Bytes) Set(s string) error {
+	p, err := ParseBytes(s)
+	if err != nil {
+		return err
+	}
+	*b = p
+	return nil
+}
+
 func (b Bytes) MarshalJSON() ([]byte, error) {
 	return json.Marshal(uint64(b))
 }
@@ -184,7 +198,7 @@ func (b *Bytes) UnmarshalJSON(j []byte) error {
 	return json.Unmarshal(j, (*uint64)(b))
 }
 
-func (b Bytes) MarshalYAML() (interface{}, error) {
+func (b Bytes) MarshalYAML() (any, error) {
 	return b.String(), nil
 }
 
@@ -206,12 +220,7 @@ func (b Bytes) MarshalText() ([]byte, error) {
 }
 
 func (b *Bytes) UnmarshalText(t []byte) error {
-	p, err := ParseBytes(string(t))
-	if err != nil {
-		return err
-	}
-	*b = p
-	return nil
+	return b.Set(string(t))
 }
 
 var (
@@ -227,4 +236,7 @@ var (
 
 	_ encoding.TextMarshaler   = Bytes(0)
 	_ encoding.TextUnmarshaler = (*Bytes)(nil)
+
+	_ flag.Value = (*Bytes)(nil)
+	_ flag.Value = (*Bytes)(nil)
 )

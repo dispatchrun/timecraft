@@ -26,12 +26,10 @@ import (
 	"log"
 	_ "net/http/pprof"
 	"os"
-	"os/user"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/stealthrocket/timecraft/internal/object"
+	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 )
 
@@ -105,23 +103,34 @@ func Root(ctx context.Context, args ...string) int {
 	}
 }
 
-type timestamp time.Time
-
-func (ts timestamp) String() string {
-	t := time.Time(ts)
-	if t.IsZero() {
-		return "start"
+func setEnum[T ~string](enum *T, typ string, value string, options ...string) error {
+	for _, option := range options {
+		if option == value {
+			*enum = T(option)
+			return nil
+		}
 	}
-	return t.Format(time.RFC3339)
+	return fmt.Errorf("unsupported %s: %q (not one of %s)", typ, value, strings.Join(options, ", "))
 }
 
-func (ts *timestamp) Set(value string) error {
-	t, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		return err
-	}
-	*ts = timestamp(t)
-	return nil
+type compression string
+
+func (c compression) String() string {
+	return string(c)
+}
+
+func (c *compression) Set(value string) error {
+	return setEnum(c, "compression type", value, "snappy", "zstd", "none")
+}
+
+type sockets string
+
+func (s sockets) String() string {
+	return string(s)
+}
+
+func (s *sockets) Set(value string) error {
+	return setEnum(s, "sockets extension", value, "none", "auto", "path_open", "wasmedgev1", "wasmedgev2")
 }
 
 type outputFormat string
@@ -131,13 +140,7 @@ func (o outputFormat) String() string {
 }
 
 func (o *outputFormat) Set(value string) error {
-	switch value {
-	case "text", "json", "yaml":
-		*o = outputFormat(value)
-		return nil
-	default:
-		return fmt.Errorf("unsupported output format: %q", value)
-	}
+	return setEnum(o, "output format", value, "text", "json", "yaml")
 }
 
 type stringList []string
@@ -151,25 +154,25 @@ func (s *stringList) Set(value string) error {
 	return nil
 }
 
-func createRegistry(path string) (*timemachine.Registry, error) {
-	path, err := resolvePath(path)
+func createRegistry(path human.Path) (*timemachine.Registry, error) {
+	p, err := path.Resolve()
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Mkdir(path, 0777); err != nil {
+	if err := os.Mkdir(p, 0777); err != nil {
 		if !errors.Is(err, fs.ErrExist) {
 			return nil, err
 		}
 	}
-	return openRegistry(path)
+	return openRegistry(human.Path(p))
 }
 
-func openRegistry(path string) (*timemachine.Registry, error) {
-	path, err := resolvePath(path)
+func openRegistry(path human.Path) (*timemachine.Registry, error) {
+	p, err := path.Resolve()
 	if err != nil {
 		return nil, err
 	}
-	store, err := object.DirStore(path)
+	store, err := object.DirStore(p)
 	if err != nil {
 		return nil, err
 	}
@@ -177,17 +180,6 @@ func openRegistry(path string) (*timemachine.Registry, error) {
 		Store: store,
 	}
 	return registry, nil
-}
-
-func resolvePath(path string) (string, error) {
-	if strings.HasPrefix(path, "~") {
-		u, err := user.Current()
-		if err != nil {
-			return "", err
-		}
-		path = filepath.Join(u.HomeDir, path[1:])
-	}
-	return path, nil
 }
 
 func newFlagSet(cmd, usage string) *flag.FlagSet {
@@ -203,36 +195,16 @@ func parseFlags(f *flag.FlagSet, args []string) {
 	}
 }
 
+func boolVar(f *flag.FlagSet, dst *bool, name string, alias ...string) {
+	f.BoolVar(dst, name, *dst, "")
+	for _, name := range alias {
+		f.BoolVar(dst, name, *dst, "")
+	}
+}
+
 func customVar(f *flag.FlagSet, dst flag.Value, name string, alias ...string) {
 	f.Var(dst, name, "")
 	for _, name := range alias {
 		f.Var(dst, name, "")
-	}
-}
-
-func durationVar(f *flag.FlagSet, dst *time.Duration, name string, alias ...string) {
-	setFlagVar(f.DurationVar, dst, name, alias)
-}
-
-func stringVar(f *flag.FlagSet, dst *string, name string, alias ...string) {
-	setFlagVar(f.StringVar, dst, name, alias)
-}
-
-func boolVar(f *flag.FlagSet, dst *bool, name string, alias ...string) {
-	setFlagVar(f.BoolVar, dst, name, alias)
-}
-
-func intVar(f *flag.FlagSet, dst *int, name string, alias ...string) {
-	setFlagVar(f.IntVar, dst, name, alias)
-}
-
-func float64Var(f *flag.FlagSet, dst *float64, name string, alias ...string) {
-	setFlagVar(f.Float64Var, dst, name, alias)
-}
-
-func setFlagVar[T any](set func(*T, string, T, string), dst *T, name string, alias []string) {
-	set(dst, name, *dst, "")
-	for _, name := range alias {
-		set(dst, name, *dst, "")
 	}
 }

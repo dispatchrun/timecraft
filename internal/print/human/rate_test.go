@@ -62,7 +62,7 @@ func TestRateYAML(t *testing.T) {
 	testRateEncoding(t, Rate(1.234), yaml.Marshal, yaml.Unmarshal)
 }
 
-func testRateEncoding(t *testing.T, x Rate, marshal func(interface{}) ([]byte, error), unmarshal func([]byte, interface{}) error) {
+func testRateEncoding(t *testing.T, x Rate, marshal func(any) ([]byte, error), unmarshal func([]byte, any) error) {
 	b, err := marshal(x)
 	if err != nil {
 		t.Fatal("marshal error:", err)

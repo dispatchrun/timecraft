@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
+	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
@@ -43,10 +43,10 @@ func run(ctx context.Context, args []string) error {
 		envs         stringList
 		listens      stringList
 		dials        stringList
-		batchSize    = 4096
-		compression  = "zstd"
-		sockets      = "auto"
-		registryPath = "~/.timecraft"
+		batchSize    = human.Count(4096)
+		compression  = compression("zstd")
+		sockets      = sockets("auto")
+		registryPath = human.Path("~/.timecraft")
 		record       = false
 		trace        = false
 	)
@@ -55,12 +55,12 @@ func run(ctx context.Context, args []string) error {
 	customVar(flagSet, &envs, "e", "env")
 	customVar(flagSet, &listens, "L", "listen")
 	customVar(flagSet, &dials, "D", "dial")
-	stringVar(flagSet, &sockets, "S", "sockets")
-	stringVar(flagSet, &registryPath, "r", "registry")
+	customVar(flagSet, &sockets, "S", "sockets")
+	customVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
 	boolVar(flagSet, &record, "R", "record")
-	intVar(flagSet, &batchSize, "record-batch-size")
-	stringVar(flagSet, &compression, "record-compression")
+	customVar(flagSet, &batchSize, "record-batch-size")
+	customVar(flagSet, &compression, "record-compression")
 	parseFlags(flagSet, args)
 
 	envs = append(os.Environ(), envs...)
@@ -105,12 +105,12 @@ func run(ctx context.Context, args []string) error {
 		WithListens(listens...).
 		WithDials(dials...).
 		WithStdio(stdin, stdout, stderr).
-		WithSocketsExtension(sockets, wasmModule).
+		WithSocketsExtension(string(sockets), wasmModule).
 		WithTracer(trace, os.Stderr)
 
 	if record {
 		var c timemachine.Compression
-		switch strings.ToLower(compression) {
+		switch compression {
 		case "snappy":
 			c = timemachine.Snappy
 		case "zstd":
@@ -174,7 +174,7 @@ func run(ctx context.Context, args []string) error {
 		defer logSegment.Close()
 		logWriter := timemachine.NewLogWriter(logSegment)
 
-		recordWriter := timemachine.NewLogRecordWriter(logWriter, batchSize, c)
+		recordWriter := timemachine.NewLogRecordWriter(logWriter, int(batchSize), c)
 		defer recordWriter.Flush()
 
 		builder = builder.WithWrappers(func(s wasi.System) wasi.System {

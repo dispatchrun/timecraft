@@ -110,7 +110,7 @@ func TestDurationYAML(t *testing.T) {
 	testDurationEncoding(t, (2 * Hour), yaml.Marshal, yaml.Unmarshal)
 }
 
-func testDurationEncoding(t *testing.T, x Duration, marshal func(interface{}) ([]byte, error), unmarshal func([]byte, interface{}) error) {
+func testDurationEncoding(t *testing.T, x Duration, marshal func(any) ([]byte, error), unmarshal func([]byte, any) error) {
 	b, err := marshal(x)
 	if err != nil {
 		t.Fatal("marshal error:", err)

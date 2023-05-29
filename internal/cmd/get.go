@@ -83,12 +83,12 @@ func get(ctx context.Context, args []string) error {
 	var (
 		timeRange    = timemachine.Since(time.Unix(0, 0))
 		output       = outputFormat("text")
-		registryPath = "~/.timecraft"
+		registryPath = human.Path("~/.timecraft")
 	)
 
 	flagSet := newFlagSet("timecraft get", getUsage)
 	customVar(flagSet, &output, "o", "output")
-	stringVar(flagSet, &registryPath, "r", "registry")
+	customVar(flagSet, &registryPath, "r", "registry")
 	parseFlags(flagSet, args)
 
 	args = flagSet.Args()

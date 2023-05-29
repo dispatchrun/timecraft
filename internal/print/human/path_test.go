@@ -11,12 +11,12 @@ func TestPath(t *testing.T) {
 
 	tests := []struct {
 		in  string
-		out Path
+		out string
 	}{
 		{in: ".", out: "."},
-		{in: separator, out: Path(separator)},
-		{in: filepath.Join(".", "hello", "world"), out: Path(filepath.Join(".", "hello", "world"))},
-		{in: filepath.Join("~", "hello", "world"), out: Path(filepath.Join(os.Getenv("HOME"), "hello", "world"))},
+		{in: separator, out: separator},
+		{in: filepath.Join(".", "hello", "world"), out: filepath.Join(".", "hello", "world")},
+		{in: filepath.Join("~", "hello", "world"), out: filepath.Join(os.Getenv("HOME"), "hello", "world")},
 	}
 
 	for _, test := range tests {
@@ -25,8 +25,12 @@ func TestPath(t *testing.T) {
 
 			if err := path.UnmarshalText([]byte(test.in)); err != nil {
 				t.Error(err)
-			} else if path != test.out {
-				t.Errorf("path mismatch: %q != %q", path, test.out)
+			}
+			resolved, err := path.Resolve()
+			if err != nil {
+				t.Error(err)
+			} else if resolved != test.out {
+				t.Errorf("path mismatch: %q != %q", resolved, test.out)
 			}
 		})
 	}
