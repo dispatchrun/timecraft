@@ -39,8 +39,7 @@ Examples:
      "size": 7150231,
      "annotations": {
        "timecraft.module.name": "app.wasm",
-       "timecraft.object.created-at": "2023-05-28T21:52:26Z",
-       "timecraft.object.resource-type": "module"
+       "timecraft.object.created-at": "2023-05-28T21:52:26Z"
      }
    }
 
@@ -53,6 +52,7 @@ Options:
 type resource struct {
 	name string
 	alt  []string
+	typ  format.MediaType
 	get  func(context.Context, io.Writer, *timemachine.Registry) stream.WriteCloser[*format.Descriptor]
 }
 
@@ -60,21 +60,25 @@ var resources = [...]resource{
 	{
 		name: "config",
 		alt:  []string{"conf", "configs"},
+		typ:  format.TypeTimecraftConfig,
 		get:  getConfigs,
 	},
 	{
 		name: "module",
 		alt:  []string{"mo", "mod", "mods", "modules"},
+		typ:  format.TypeTimecraftModule,
 		get:  getModules,
 	},
 	{
 		name: "process",
 		alt:  []string{"ps", "procs", "processes"},
+		typ:  format.TypeTimecraftProcess,
 		get:  getProcesses,
 	},
 	{
 		name: "runtime",
 		alt:  []string{"rt", "runtimes"},
+		typ:  format.TypeTimecraftRuntime,
 		get:  getRuntimes,
 	},
 }
@@ -114,7 +118,7 @@ Did you mean?%s`, resourceNamePrefix, joinResourceNames(matchingResources, "\n  
 		return err
 	}
 
-	reader := registry.ListResources(ctx, resource.name, timeRange)
+	reader := registry.ListResources(ctx, resource.typ, timeRange)
 	defer reader.Close()
 
 	var writer stream.WriteCloser[*format.Descriptor]
