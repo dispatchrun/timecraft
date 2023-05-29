@@ -26,7 +26,7 @@ import (
 	"log"
 	_ "net/http/pprof"
 	"os"
-	"time"
+	"strings"
 
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/print/human"
@@ -103,6 +103,36 @@ func Root(ctx context.Context, args ...string) int {
 	}
 }
 
+func setEnum[T ~string](enum *T, typ string, value string, options ...string) error {
+	for _, option := range options {
+		if option == value {
+			*enum = T(option)
+			return nil
+		}
+	}
+	return fmt.Errorf("unsupported %s: %q (not one of %s)", typ, value, strings.Join(options, ", "))
+}
+
+type compression string
+
+func (c compression) String() string {
+	return string(c)
+}
+
+func (c *compression) Set(value string) error {
+	return setEnum(c, "compression type", value, "snappy", "zstd", "none")
+}
+
+type sockets string
+
+func (s sockets) String() string {
+	return string(s)
+}
+
+func (s *sockets) Set(value string) error {
+	return setEnum(s, "sockets extension", value, "none", "auto", "path_open", "wasmedgev1", "wasmedgev2")
+}
+
 type outputFormat string
 
 func (o outputFormat) String() string {
@@ -110,13 +140,7 @@ func (o outputFormat) String() string {
 }
 
 func (o *outputFormat) Set(value string) error {
-	switch value {
-	case "text", "json", "yaml":
-		*o = outputFormat(value)
-		return nil
-	default:
-		return fmt.Errorf("unsupported output format: %q", value)
-	}
+	return setEnum(o, "output format", value, "text", "json", "yaml")
 }
 
 type stringList []string
@@ -171,36 +195,16 @@ func parseFlags(f *flag.FlagSet, args []string) {
 	}
 }
 
+func boolVar(f *flag.FlagSet, dst *bool, name string, alias ...string) {
+	f.BoolVar(dst, name, *dst, "")
+	for _, name := range alias {
+		f.BoolVar(dst, name, *dst, "")
+	}
+}
+
 func customVar(f *flag.FlagSet, dst flag.Value, name string, alias ...string) {
 	f.Var(dst, name, "")
 	for _, name := range alias {
 		f.Var(dst, name, "")
-	}
-}
-
-func durationVar(f *flag.FlagSet, dst *time.Duration, name string, alias ...string) {
-	setFlagVar(f.DurationVar, dst, name, alias)
-}
-
-func stringVar(f *flag.FlagSet, dst *string, name string, alias ...string) {
-	setFlagVar(f.StringVar, dst, name, alias)
-}
-
-func boolVar(f *flag.FlagSet, dst *bool, name string, alias ...string) {
-	setFlagVar(f.BoolVar, dst, name, alias)
-}
-
-func intVar(f *flag.FlagSet, dst *int, name string, alias ...string) {
-	setFlagVar(f.IntVar, dst, name, alias)
-}
-
-func float64Var(f *flag.FlagSet, dst *float64, name string, alias ...string) {
-	setFlagVar(f.Float64Var, dst, name, alias)
-}
-
-func setFlagVar[T any](set func(*T, string, T, string), dst *T, name string, alias []string) {
-	set(dst, name, *dst, "")
-	for _, name := range alias {
-		set(dst, name, *dst, "")
 	}
 }
