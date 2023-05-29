@@ -10,7 +10,6 @@ import (
 	"io"
 	"path"
 	"strconv"
-	"strings"
 	"time"
 
 	"golang.org/x/exp/slices"
@@ -114,8 +113,8 @@ func (reg *Registry) ListProcesses(ctx context.Context, timeRange TimeRange, tag
 	return reg.listObjects(ctx, "process", timeRange, tags)
 }
 
-func (reg *Registry) ListResources(ctx context.Context, resourceType string, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
-	return reg.listObjects(ctx, resourceType, timeRange, tags)
+func (reg *Registry) ListResources(ctx context.Context, mediaType format.MediaType, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
+	return reg.listObjects(ctx, mediaType, timeRange, tags)
 }
 
 func errorCreateObject(hash format.Hash, value format.Resource, err error) error {
@@ -128,15 +127,6 @@ func errorLookupObject(hash format.Hash, value format.Resource, err error) error
 
 func errorListObjects(mediaType format.MediaType, err error) error {
 	return fmt.Errorf("list objects: %s: %w", mediaType, err)
-}
-
-func resourceTypeOf(mediaType format.MediaType) string {
-	const prefix = "application/vnd.timecraft."
-	if strings.HasPrefix(string(mediaType), prefix) {
-		s, _, _ := strings.Cut(string(mediaType[len(prefix):]), ".")
-		return s
-	}
-	return "unknown"
 }
 
 func appendTagFilters(filters []object.Filter, tags []object.Tag) []object.Filter {
@@ -196,10 +186,6 @@ func (reg *Registry) createObject(ctx context.Context, value format.ResourceMars
 			Name:  "timecraft.object.created-at",
 			Value: time.Now().UTC().Format(time.RFC3339),
 		},
-		{
-			Name:  "timecraft.object.resource-type",
-			Value: resourceTypeOf(mediaType),
-		},
 	})
 
 	tags := makeTags(annotations)
@@ -242,13 +228,13 @@ func (reg *Registry) lookupObject(ctx context.Context, hash format.Hash, value f
 	return nil
 }
 
-func (reg *Registry) listObjects(ctx context.Context, resourceType string, timeRange TimeRange, matchTags []object.Tag) stream.ReadCloser[*format.Descriptor] {
+func (reg *Registry) listObjects(ctx context.Context, mediaType format.MediaType, timeRange TimeRange, matchTags []object.Tag) stream.ReadCloser[*format.Descriptor] {
 	if !timeRange.Start.IsZero() {
 		timeRange.Start = timeRange.Start.Add(-1)
 	}
 
 	filters := []object.Filter{
-		object.MATCH("timecraft.object.resource-type", resourceType),
+		object.MATCH("timecraft.object.media-type", mediaType.String()),
 		object.AFTER(timeRange.Start),
 		object.BEFORE(timeRange.End),
 	}
@@ -257,11 +243,6 @@ func (reg *Registry) listObjects(ctx context.Context, resourceType string, timeR
 
 	reader := reg.Store.ListObjects(ctx, "obj/", filters...)
 	return convert(reader, func(info object.Info) (*format.Descriptor, error) {
-		m, ok := info.Lookup("timecraft.object.media-type")
-		if !ok {
-			m = "application/octet-stream"
-		}
-		mediaType := format.MediaType(m)
 		hash, err := format.ParseHash(path.Base(info.Name))
 		if err != nil {
 			return nil, errorListObjects(mediaType, err)
