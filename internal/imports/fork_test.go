@@ -87,7 +87,7 @@ func TestFork(t *testing.T) {
 
 		child := forked.Module
 		defer child.Close(ctx)
-		childFn := child.ResumeFunction(child, mod, fnName, forked.Stack)
+		childFn := child.ResumeFunction(mod, fnName, forked.Stack)
 		_, err = childFn.Call(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -124,7 +124,7 @@ func TestFork(t *testing.T) {
 		forked := e.Value.(imports.Forked)
 
 		child := forked.Module
-		childFn := child.ResumeFunction(child, mod, fnName, forked.Stack)
+		childFn := child.ResumeFunction(mod, fnName, forked.Stack)
 		println("\n==== call child")
 		_, err = childFn.Call(ctx)
 		if err != nil {
@@ -197,7 +197,7 @@ func TestForkRust(t *testing.T) {
 
 		child := forked.Module
 		defer child.Close(ctx)
-		childFn := child.ResumeFunction(child, mod, fnName, forked.Stack)
+		childFn := child.ResumeFunction(mod, fnName, forked.Stack)
 		_, err = childFn.Call(ctx)
 		if err != nil {
 			if exitErr, ok := err.(*sys.ExitError); ok {
@@ -233,7 +233,7 @@ func TestForkRust(t *testing.T) {
 		forked := e.Value.(imports.Forked)
 
 		child := forked.Module
-		childFn := child.ResumeFunction(child, mod, fnName, forked.Stack)
+		childFn := child.ResumeFunction(mod, fnName, forked.Stack)
 		_, err = childFn.Call(ctx)
 		if err != nil {
 			t.Fatal(err)
