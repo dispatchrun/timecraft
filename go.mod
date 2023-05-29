@@ -12,3 +12,7 @@ require (
 )
 
 require golang.org/x/sys v0.8.0 // indirect
+
+replace github.com/stealthrocket/wazergo => ../wazergo
+
+replace github.com/tetratelabs/wazero => ../wazero
