@@ -124,7 +124,7 @@ func run(ctx context.Context, args []string) error {
 		}
 
 		processID := uuid.New()
-		startTime := time.Now()
+		startTime := time.Now().UTC()
 
 		module, err := registry.CreateModule(ctx, &format.Module{
 			Code: wasmCode,

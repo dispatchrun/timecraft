@@ -213,7 +213,7 @@ func describeProcess(ctx context.Context, reg *timemachine.Registry, id string) 
 
 	desc := &processDescriptor{
 		id:        processID,
-		startTime: human.Time(p.StartTime),
+		startTime: human.Time(p.StartTime.In(time.Local)),
 		runtime: runtimeDescriptor{
 			runtime: runtime,
 			version: version,
@@ -240,7 +240,7 @@ func describeProcess(ctx context.Context, reg *timemachine.Registry, id string) 
 		desc.log = append(desc.log, logSegment{
 			number:    v.Number,
 			size:      human.Bytes(v.Size),
-			createdAt: human.Time(v.CreatedAt),
+			createdAt: human.Time(v.CreatedAt.In(time.Local)),
 		})
 	}
 	if err := i.Err(); err != nil {

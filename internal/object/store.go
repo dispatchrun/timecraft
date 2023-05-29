@@ -407,7 +407,7 @@ func (r *dirReader) Read(items []Info) (n int, err error) {
 			items[n] = Info{
 				Name:      path.Join(r.path, name),
 				Size:      info.Size(),
-				CreatedAt: info.ModTime(),
+				CreatedAt: info.ModTime().UTC(),
 				Tags:      tags,
 			}
 
