@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"strconv"
@@ -134,10 +135,6 @@ func errorLookupDescriptor(hash format.Hash, err error) error {
 	return fmt.Errorf("lookup descriptor: %s: %w", hash, err)
 }
 
-func errorListObjects(mediaType format.MediaType, err error) error {
-	return fmt.Errorf("list objects: %s: %w", mediaType, err)
-}
-
 func appendTagFilters(filters []object.Filter, tags []object.Tag) []object.Filter {
 	for _, tag := range tags {
 		filters = append(filters, object.MATCH(tag.Name, tag.Value))
@@ -229,7 +226,8 @@ func (reg *Registry) lookupObject(ctx context.Context, hash format.Hash, value f
 	var b []byte
 	switch f := r.(type) {
 	case *os.File:
-		s, err := f.Stat()
+		var s fs.FileInfo
+		s, err = f.Stat()
 		if err != nil {
 			return errorLookupObject(hash, value, err)
 		}
