@@ -27,13 +27,20 @@ func SHA256(b []byte) Hash {
 	}
 }
 
-func ParseHash(s string) (h Hash, err error) {
-	var ok bool
-	h.Algorithm, h.Digest, ok = strings.Cut(s, ":")
+func ParseHash(s string) Hash {
+	algorithm, digest, ok := strings.Cut(s, ":")
 	if !ok {
-		err = fmt.Errorf("malformed hash: %s", s)
+		algorithm, digest = "sha256", s
 	}
-	return h, err
+	return Hash{Algorithm: algorithm, Digest: digest}
+}
+
+func (h Hash) Short() string {
+	s := h.Digest
+	if len(s) > 12 {
+		s = s[:12]
+	}
+	return s
 }
 
 func (h Hash) String() string {
@@ -123,6 +130,7 @@ func (m *Module) UnmarshalResource(b []byte) error {
 }
 
 type Runtime struct {
+	Runtime string `json:"runtime" yaml:"runtime"`
 	Version string `json:"version" yaml:"version"`
 }
 

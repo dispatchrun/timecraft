@@ -195,12 +195,10 @@ func (store dirStore) CreateObject(ctx context.Context, name string, data io.Rea
 	if err != nil {
 		return err
 	}
-
 	dirPath, fileName := filepath.Split(filePath)
 	if strings.HasPrefix(fileName, ".") {
 		return fmt.Errorf("object names cannot start with a dot: %s", name)
 	}
-
 	if err := os.MkdirAll(dirPath, 0777); err != nil {
 		return err
 	}
@@ -244,14 +242,12 @@ func (store dirStore) CreateObject(ctx context.Context, name string, data io.Rea
 			}
 		}
 	}()
-
 	if _, err := io.Copy(objectFile, data); err != nil {
 		return err
 	}
 	if err := os.Rename(tmpPath, filePath); err != nil {
 		return err
 	}
-
 	success = true
 	return nil
 }
@@ -261,31 +257,27 @@ func (store dirStore) ReadObject(ctx context.Context, name string) (io.ReadClose
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	return file, nil
+	return os.Open(path)
 }
 
-func (store dirStore) StatObject(ctx context.Context, name string) (Info, error) {
+func (store dirStore) StatObject(ctx context.Context, name string) (info Info, err error) {
 	path, err := store.joinPath(name)
 	if err != nil {
-		return Info{}, err
+		return info, err
 	}
 	stat, err := os.Lstat(path)
 	if err != nil {
-		return Info{}, err
+		return info, err
 	}
 	if !stat.Mode().IsRegular() {
-		return Info{}, ErrNotExist
+		return info, ErrNotExist
 	}
 	dir, base := filepath.Split(path)
 	tags, err := readTags(filepath.Join(dir, ".tags", base))
 	if err != nil {
-		return Info{}, err
+		return info, err
 	}
-	info := Info{
+	info = Info{
 		Name:      name,
 		Size:      stat.Size(),
 		CreatedAt: stat.ModTime(),
@@ -295,10 +287,13 @@ func (store dirStore) StatObject(ctx context.Context, name string) (Info, error)
 }
 
 func (store dirStore) ListObjects(ctx context.Context, prefix string, filters ...Filter) stream.ReadCloser[Info] {
-	if prefix != "." && !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
+	var dirPath, namePrefix string
+	if prefix == "." || strings.HasSuffix(prefix, "/") {
+		dirPath = prefix
+	} else {
+		dirPath, namePrefix = path.Split(prefix)
 	}
-	path, err := store.joinPath(prefix)
+	path, err := store.joinPath(dirPath)
 	if err != nil {
 		return &errorInfoReader{err: err}
 	}
@@ -312,8 +307,8 @@ func (store dirStore) ListObjects(ctx context.Context, prefix string, filters ..
 	}
 	return &dirReader{
 		dir:     dir,
-		path:    path,
-		prefix:  prefix,
+		path:    dirPath,
+		name:    namePrefix,
 		filters: slices.Clone(filters),
 	}
 }
@@ -323,12 +318,19 @@ func (store dirStore) DeleteObject(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+	if err := remove(path); err != nil {
+		return err
+	}
+	dir, file := filepath.Split(path)
+	return remove(filepath.Join(dir, ".tags", file))
+}
+
+func remove(path string) error {
 	if err := os.Remove(path); err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 	}
-	// TODO: cleanup empty parent directories
 	return nil
 }
 
@@ -366,7 +368,7 @@ func readTags(path string) ([]Tag, error) {
 type dirReader struct {
 	dir     *os.File
 	path    string
-	prefix  string
+	name    string
 	filters []Filter
 }
 
@@ -384,23 +386,34 @@ func (r *dirReader) Read(items []Info) (n int, err error) {
 			if strings.HasPrefix(name, ".") {
 				continue
 			}
+			if !strings.HasPrefix(name, r.name) {
+				continue
+			}
 
 			info, err := dirent.Info()
 			if err != nil {
 				return n, err
 			}
 
-			tagsPath := filepath.Join(r.path, ".tags", name)
-			tags, err := readTags(tagsPath)
-			if err != nil {
-				return n, err
+			var tags []Tag
+			if !info.IsDir() {
+				tagsPath := filepath.Join(r.dir.Name(), ".tags", name)
+				tags, err = readTags(tagsPath)
+				if err != nil {
+					return n, err
+				}
 			}
 
 			items[n] = Info{
-				Name:      path.Join(r.prefix, name),
+				Name:      path.Join(r.path, name),
 				Size:      info.Size(),
-				CreatedAt: info.ModTime(),
+				CreatedAt: info.ModTime().UTC(),
 				Tags:      tags,
+			}
+
+			if info.IsDir() {
+				items[n].Name += "/"
+				items[n].Size = 0
 			}
 
 			if query.MatchAll(&items[n], r.filters...) {

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -122,7 +124,7 @@ func run(ctx context.Context, args []string) error {
 		}
 
 		processID := uuid.New()
-		startTime := time.Now()
+		startTime := time.Now().UTC()
 
 		module, err := registry.CreateModule(ctx, &format.Module{
 			Code: wasmCode,
@@ -135,6 +137,7 @@ func run(ctx context.Context, args []string) error {
 		}
 
 		runtime, err := registry.CreateRuntime(ctx, &format.Runtime{
+			Runtime: "timecraft",
 			Version: currentVersion(),
 		})
 		if err != nil {
@@ -187,6 +190,9 @@ func run(ctx context.Context, args []string) error {
 
 		fmt.Println("timecraft run:", processID)
 	}
+
+	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
 	var system wasi.System
 	ctx, system, err = builder.Instantiate(ctx, runtime)
