@@ -134,6 +134,8 @@ func run(ctx context.Context, args []string) (err error) {
 		WithSocketsExtension(sockets, wasmModule).
 		WithTracer(trace, os.Stderr)
 
+	var wrappers []func(wasi.System) wasi.System
+
 	if record {
 		var c timemachine.Compression
 		switch strings.ToLower(compression) {
@@ -203,8 +205,8 @@ func run(ctx context.Context, args []string) (err error) {
 		recordWriter := timemachine.NewLogRecordWriter(logWriter, batchSize, c)
 		defer recordWriter.Flush()
 
-		builder = builder.WithWrappers(func(s wasi.System) wasi.System {
-			return wasicall.NewRecorder(s, startTime, func(record *timemachine.RecordBuilder) {
+		wrappers = append(wrappers, func(system wasi.System) wasi.System {
+			return wasicall.NewRecorder(system, startTime, func(record *timemachine.RecordBuilder) {
 				if err := recordWriter.WriteRecord(record); err != nil {
 					panic(err)
 				}
@@ -214,16 +216,20 @@ func run(ctx context.Context, args []string) (err error) {
 		fmt.Println("timecraft run:", processID)
 	}
 
+	if debugger {
+		wrappers = append(wrappers, func(system wasi.System) wasi.System {
+			return debug.WASIListener(system, debugREPL)
+		})
+	}
+
+	builder = builder.WithWrappers(wrappers...)
+
 	var system wasi.System
 	ctx, system, err = builder.Instantiate(ctx, runtime)
 	if err != nil {
 		return err
 	}
 	defer system.Close(ctx)
-
-	if debugger {
-		system = debug.WASIListener(system, debugREPL)
-	}
 
 	return exec(ctx, runtime, wasmModule)
 }
