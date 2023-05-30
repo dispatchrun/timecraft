@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -20,6 +21,8 @@ import (
 	"github.com/stealthrocket/timecraft/internal/print/yamlprint"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
 	"golang.org/x/exp/slices"
 )
 
@@ -179,11 +182,58 @@ func describeModule(ctx context.Context, reg *timemachine.Registry, id string) (
 	if err != nil {
 		return nil, err
 	}
+
+	runtime := wazero.NewRuntime(ctx)
+	defer runtime.Close(ctx)
+
+	compiledModule, err := runtime.CompileModule(ctx, m.Code)
+	if err != nil {
+		return nil, err
+	}
+	defer compiledModule.Close(ctx)
+
 	desc := &moduleDescriptor{
 		id:   d.Digest.String(),
 		name: moduleName(d),
 		size: human.Bytes(len(m.Code)),
 	}
+
+	for _, importedFunction := range compiledModule.ImportedFunctions() {
+		moduleName, name, _ := importedFunction.Import()
+		desc.imports.functions = append(desc.imports.functions, makeFunctionDefinition(moduleName, name, importedFunction))
+	}
+
+	for _, importedMemory := range compiledModule.ImportedMemories() {
+		moduleName, name, _ := importedMemory.Import()
+		desc.imports.memories = append(desc.imports.memories, makeMemoryDefinition(moduleName, name, importedMemory))
+	}
+
+	for name, exportedFunction := range compiledModule.ExportedFunctions() {
+		desc.exports.functions = append(desc.exports.functions, makeFunctionDefinition(desc.name, name, exportedFunction))
+	}
+
+	for name, exportedMemory := range compiledModule.ExportedMemories() {
+		desc.exports.memories = append(desc.exports.memories, makeMemoryDefinition(desc.name, name, exportedMemory))
+	}
+
+	sortFunctionDefinitions := func(f1, f2 functionDefinition) bool {
+		if f1.Module != f2.Module {
+			return f1.Module < f2.Module
+		}
+		return f1.Name < f2.Name
+	}
+
+	sortMemoryDefinitions := func(m1, m2 memoryDefinition) bool {
+		if m1.Module != m2.Module {
+			return m1.Module < m2.Module
+		}
+		return m1.Name < m2.Name
+	}
+
+	slices.SortFunc(desc.imports.functions, sortFunctionDefinitions)
+	slices.SortFunc(desc.imports.memories, sortMemoryDefinitions)
+	slices.SortFunc(desc.exports.functions, sortFunctionDefinitions)
+	slices.SortFunc(desc.exports.memories, sortMemoryDefinitions)
 	return desc, nil
 }
 
@@ -370,15 +420,111 @@ func (desc *configDescriptor) Format(w fmt.State, _ rune) {
 }
 
 type moduleDescriptor struct {
-	id   string
-	name string
-	size human.Bytes
+	id      string
+	name    string
+	size    human.Bytes
+	imports moduleDefinitions
+	exports moduleDefinitions
+}
+
+type moduleDefinitions struct {
+	functions []functionDefinition
+	memories  []memoryDefinition
+}
+
+type functionDefinition struct {
+	Section string `text:"SECTION"`
+	Module  string `text:"MODULE"`
+	Name    string `text:"FUNCTION"`
+	Type    string `text:"SIGNATURE"`
+}
+
+func makeFunctionDefinition(module, name string, def api.FunctionDefinition) functionDefinition {
+	s := new(strings.Builder)
+	s.WriteString("(func")
+
+	writeSignature := func(keyword string, names []string, types []api.ValueType) {
+		for i := range types {
+			s.WriteString(" (")
+			s.WriteString(keyword)
+			if i < len(names) {
+				s.WriteString(" $")
+				s.WriteString(names[i])
+			}
+			s.WriteString(" ")
+			s.WriteString(api.ValueTypeName(types[i]))
+			s.WriteString(")")
+		}
+	}
+
+	writeSignature("param", def.ParamNames(), def.ParamTypes())
+	writeSignature("result", def.ResultNames(), def.ResultTypes())
+	s.WriteString(")")
+
+	section := "import"
+	if export := def.ExportNames(); len(export) > 0 {
+		section = "export"
+		name = strings.Join(export, ", ")
+	}
+
+	return functionDefinition{
+		Section: section,
+		Module:  module,
+		Name:    name,
+		Type:    s.String(),
+	}
+}
+
+type memoryDefinition struct {
+	Section string      `text:"SECTION"`
+	Module  string      `text:"MODULE"`
+	Name    string      `text:"MEMORY"`
+	Min     human.Bytes `text:"MIN SIZE"`
+	Max     human.Bytes `text:"MAX SIZE"`
+}
+
+func makeMemoryDefinition(module, name string, def api.MemoryDefinition) memoryDefinition {
+	const pageSize = 65536
+	max, hasMax := def.Max()
+	if !hasMax {
+		max = math.MaxUint32
+	} else {
+		max *= pageSize
+	}
+	section := "import"
+	if export := def.ExportNames(); len(export) > 0 {
+		section = "export"
+		name = strings.Join(export, ", ")
+	}
+	return memoryDefinition{
+		Section: section,
+		Module:  module,
+		Name:    name,
+		Min:     human.Bytes(def.Min() * pageSize),
+		Max:     human.Bytes(max),
+	}
 }
 
 func (desc *moduleDescriptor) Format(w fmt.State, _ rune) {
 	fmt.Fprintf(w, "ID:   %s\n", desc.id)
 	fmt.Fprintf(w, "Name: %s\n", desc.name)
 	fmt.Fprintf(w, "Size: %v\n", desc.size)
+
+	if len(desc.imports.functions)+len(desc.exports.functions) > 0 {
+		fmt.Fprintf(w, "\n")
+		fw := textprint.NewTableWriter[functionDefinition](w)
+		fw.Write(desc.imports.functions)
+		fw.Write(desc.exports.functions)
+		fw.Close()
+	}
+
+	if len(desc.imports.memories)+len(desc.exports.memories) > 0 {
+		fmt.Fprintf(w, "\n")
+		mw := textprint.NewTableWriter[memoryDefinition](w)
+		mw.Write(desc.imports.memories)
+		mw.Write(desc.exports.memories)
+		mw.Close()
+	}
 }
 
 type processDescriptor struct {
