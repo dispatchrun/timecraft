@@ -427,11 +427,8 @@ func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUI
 	segments := reg.ListLogSegments(ctx, processID)
 	defer segments.Close()
 
-	it := stream.Iter[format.LogSegment](segments)
-	for it.Next() {
-		m.Segments = append(m.Segments, it.Value())
-	}
-	if err := it.Err(); err != nil {
+	m.Segments, err = stream.ReadAll[format.LogSegment](segments)
+	if err != nil {
 		return nil, err
 	}
 
