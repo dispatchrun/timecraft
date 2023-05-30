@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -107,7 +106,7 @@ func (reg *Registry) CreateProfile(ctx context.Context, processID format.UUID, p
 	}})
 
 	tags := makeTags(annotations)
-	hash := hashProfile(processID, profileType, timeRange)
+	hash := HashProfile(processID, profileType, timeRange)
 	name := reg.objectKey(hash)
 	desc := &format.Descriptor{
 		MediaType:   format.TypeTimecraftProfile,
@@ -119,15 +118,6 @@ func (reg *Registry) CreateProfile(ctx context.Context, processID format.UUID, p
 		return nil, err
 	}
 	return desc, nil
-}
-
-func hashProfile(processID format.UUID, profileType string, timeRange TimeRange) format.Hash {
-	b := make([]byte, 32, 64)
-	copy(b, processID[:])
-	binary.LittleEndian.PutUint64(b[16:], uint64(timeRange.Start.UnixNano()))
-	binary.LittleEndian.PutUint64(b[24:], uint64(timeRange.End.UnixNano()))
-	b = append(b, profileType...)
-	return SHA256(b)
 }
 
 func (reg *Registry) LookupModule(ctx context.Context, hash format.Hash) (*format.Module, error) {
@@ -150,8 +140,7 @@ func (reg *Registry) LookupProcess(ctx context.Context, hash format.Hash) (*form
 	return process, reg.lookupObject(ctx, hash, process)
 }
 
-func (reg *Registry) LookupProfile(ctx context.Context, processID format.UUID, profileType string, timeRange TimeRange) (*profile.Profile, error) {
-	hash := hashProfile(processID, profileType, timeRange)
+func (reg *Registry) LookupProfile(ctx context.Context, hash format.Hash) (*profile.Profile, error) {
 	r, err := reg.Store.ReadObject(ctx, reg.objectKey(hash))
 	if err != nil {
 		return nil, err

@@ -68,6 +68,7 @@ var resources = [...]resource{
 		describe:  describeConfig,
 		lookup:    lookupConfig,
 	},
+
 	{
 		typ:       "log",
 		alt:       []string{"logs"},
@@ -75,6 +76,7 @@ var resources = [...]resource{
 		describe:  describeLog,
 		lookup:    describeLog,
 	},
+
 	{
 		typ:       "module",
 		alt:       []string{"mo", "mod", "mods", "modules"},
@@ -83,6 +85,7 @@ var resources = [...]resource{
 		describe:  describeModule,
 		lookup:    lookupModule,
 	},
+
 	{
 		typ:       "process",
 		alt:       []string{"ps", "proc", "procs", "processes"},
@@ -91,14 +94,16 @@ var resources = [...]resource{
 		describe:  describeProcess,
 		lookup:    lookupProcess,
 	},
+
 	{
 		typ:       "profile",
 		alt:       []string{"prof", "profs", "profiles"},
 		mediaType: format.TypeTimecraftProfile,
 		get:       getProfiles,
-		describe:  describeProfiles,
-		lookup:    describeProfiles,
+		describe:  describeProfile,
+		lookup:    lookupProfile,
 	},
+
 	{
 		typ:       "runtime",
 		alt:       []string{"rt", "runtimes"},

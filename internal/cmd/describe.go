@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	pprof "github.com/google/pprof/profile"
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/print/human"
@@ -156,7 +157,7 @@ func describeConfig(ctx context.Context, reg *timemachine.Registry, id string) (
 		version = r.Version
 	}
 	desc := &configDescriptor{
-		id: d.Digest.Short(),
+		id: d.Digest.String(),
 		runtime: runtimeDescriptor{
 			runtime: runtime,
 			version: version,
@@ -167,7 +168,7 @@ func describeConfig(ctx context.Context, reg *timemachine.Registry, id string) (
 	}
 	for i, module := range c.Modules {
 		desc.modules[i] = moduleDescriptor{
-			id:   module.Digest.Short(),
+			id:   module.Digest.String(),
 			name: moduleName(module),
 			size: human.Bytes(module.Size),
 		}
@@ -185,7 +186,7 @@ func describeModule(ctx context.Context, reg *timemachine.Registry, id string) (
 		return nil, err
 	}
 	desc := &moduleDescriptor{
-		id:   d.Digest.Short(),
+		id:   d.Digest.String(),
 		name: moduleName(d),
 		size: human.Bytes(len(m.Code)),
 	}
@@ -227,7 +228,7 @@ func describeProcess(ctx context.Context, reg *timemachine.Registry, id string) 
 
 	for i, module := range c.Modules {
 		desc.modules[i] = moduleDescriptor{
-			id:   module.Digest.Short(),
+			id:   module.Digest.String(),
 			name: moduleName(module),
 			size: human.Bytes(module.Size),
 		}
@@ -252,8 +253,22 @@ func describeProcess(ctx context.Context, reg *timemachine.Registry, id string) 
 	return desc, nil
 }
 
-func describeProfiles(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
-	return nil, errors.New("TODO")
+func describeProfile(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+	d, err := reg.LookupDescriptor(ctx, format.ParseHash(id))
+	if err != nil {
+		return nil, err
+	}
+	p, err := reg.LookupProfile(ctx, d.Digest)
+	if err != nil {
+		return nil, err
+	}
+	desc := &profileDescriptor{
+		id:          d.Digest.String(),
+		processID:   d.Annotations["timecraft.process.id"],
+		profileType: d.Annotations["timecraft.profile.type"],
+		profile:     p,
+	}
+	return desc, nil
 }
 
 func describeRuntime(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
@@ -266,7 +281,7 @@ func describeRuntime(ctx context.Context, reg *timemachine.Registry, id string) 
 		return nil, err
 	}
 	desc := &runtimeDescriptor{
-		id:      d.Digest.Short(),
+		id:      d.Digest.String(),
 		runtime: r.Runtime,
 		version: r.Version,
 	}
@@ -287,6 +302,10 @@ func lookupProcess(ctx context.Context, reg *timemachine.Registry, id string) (a
 		return nil, err
 	}
 	return descriptorAndData(desc, proc), nil
+}
+
+func lookupProfile(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+	return lookup(ctx, reg, id, (*timemachine.Registry).LookupProfile)
 }
 
 func lookupRuntime(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
@@ -397,6 +416,44 @@ func (desc *processDescriptor) Format(w fmt.State, _ rune) {
 	fmt.Fprintf(w, "Log:\n")
 	for _, log := range desc.log {
 		fmt.Fprintf(w, "  segment %d: %s, created %s (%s)\n", log.Number, log.Size, log.CreatedAt, time.Time(log.CreatedAt).Format(time.RFC1123))
+	}
+}
+
+type profileDescriptor struct {
+	id          string
+	processID   string
+	profileType string
+	profile     *pprof.Profile
+}
+
+func (desc *profileDescriptor) Format(w fmt.State, _ rune) {
+	startTime := human.Time(time.Unix(0, desc.profile.TimeNanos))
+	duration := human.Duration(desc.profile.DurationNanos)
+
+	fmt.Fprintf(w, "ID:       %s\n", desc.id)
+	fmt.Fprintf(w, "Type:     %s\n", desc.profileType)
+	fmt.Fprintf(w, "Process:  %s\n", desc.processID)
+	fmt.Fprintf(w, "Start:    %s, %s\n", startTime, time.Time(startTime).Format(time.RFC1123))
+	fmt.Fprintf(w, "Duration: %s\n", duration)
+
+	if period := desc.profile.Period; period != 0 {
+		fmt.Fprintf(w, "Period:   %d %s/%s\n", period, desc.profile.PeriodType.Type, desc.profile.PeriodType.Unit)
+	} else {
+		fmt.Fprintf(w, "Period:   (none)\n")
+	}
+
+	fmt.Fprintf(w, "Samples:  %d\n", len(desc.profile.Sample))
+	for _, sampleType := range desc.profile.SampleType {
+		fmt.Fprintf(w, "- %s (%s)\n", sampleType.Type, sampleType.Unit)
+	}
+
+	if comments := desc.profile.Comments; len(comments) == 0 {
+		fmt.Fprintf(w, "Comments: (none)\n")
+	} else {
+		fmt.Fprintf(w, "Comments:\n")
+		for _, comment := range comments {
+			fmt.Fprintf(w, "%s\n", comment)
+		}
 	}
 }
 
