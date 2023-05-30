@@ -38,8 +38,7 @@ Examples:
      "digest": "sha256:9d7b7563baf3702cf24ed3688dc9a58faef2d0ac586041cb2dc95df919f5e5f2",
      "size": 7150231,
      "annotations": {
-       "timecraft.module.name": "app.wasm",
-       "timecraft.object.created-at": "2023-05-28T21:52:26Z"
+       "timecraft.module.name": "app.wasm"
      }
    }
 
@@ -146,88 +145,104 @@ Did you mean?%s`, resourceTypeLookup, joinResourceTypes(matchingResources, "\n  
 	return err
 }
 
-func getConfigs(ctx context.Context, w io.Writer, r *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
+func getConfigs(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
 	type config struct {
 		ID      string      `text:"CONFIG ID"`
 		Runtime string      `text:"RUNTIME"`
 		Modules int         `text:"MODULES"`
 		Size    human.Bytes `text:"SIZE"`
 	}
-	return newDescTableWriter(w, func(desc *format.Descriptor) (config, error) {
-		c, err := r.LookupConfig(ctx, desc.Digest)
-		if err != nil {
-			return config{}, err
-		}
-		r, err := r.LookupRuntime(ctx, c.Runtime.Digest)
-		if err != nil {
-			return config{}, err
-		}
-		return config{
-			ID:      desc.Digest.Short(),
-			Runtime: r.Runtime + " (" + r.Version + ")",
-			Modules: len(c.Modules),
-			Size:    human.Bytes(desc.Size),
-		}, nil
-	})
+	return newDescTableWriter(w,
+		func(c1, c2 config) bool {
+			return c1.ID < c2.ID
+		},
+		func(desc *format.Descriptor) (config, error) {
+			c, err := reg.LookupConfig(ctx, desc.Digest)
+			if err != nil {
+				return config{}, err
+			}
+			r, err := reg.LookupRuntime(ctx, c.Runtime.Digest)
+			if err != nil {
+				return config{}, err
+			}
+			return config{
+				ID:      desc.Digest.Short(),
+				Runtime: r.Runtime + " (" + r.Version + ")",
+				Modules: len(c.Modules),
+				Size:    human.Bytes(desc.Size),
+			}, nil
+		})
 }
 
-func getModules(ctx context.Context, w io.Writer, r *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
+func getModules(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
 	type module struct {
 		ID   string      `text:"MODULE ID"`
 		Name string      `text:"MODULE NAME"`
 		Size human.Bytes `text:"SIZE"`
 	}
-	return newDescTableWriter(w, func(desc *format.Descriptor) (module, error) {
-		name := desc.Annotations["timecraft.module.name"]
-		if name == "" {
-			name = "(none)"
-		}
-		return module{
-			ID:   desc.Digest.Short(),
-			Name: name,
-			Size: human.Bytes(desc.Size),
-		}, nil
-	})
+	return newDescTableWriter(w,
+		func(m1, m2 module) bool {
+			return m1.ID < m2.ID
+		},
+		func(desc *format.Descriptor) (module, error) {
+			name := desc.Annotations["timecraft.module.name"]
+			if name == "" {
+				name = "(none)"
+			}
+			return module{
+				ID:   desc.Digest.Short(),
+				Name: name,
+				Size: human.Bytes(desc.Size),
+			}, nil
+		})
 }
 
-func getProcesses(ctx context.Context, w io.Writer, r *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
+func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
 	type process struct {
 		ID        format.UUID `text:"PROCESS ID"`
 		StartTime human.Time  `text:"STARTED"`
 	}
-	return newDescTableWriter(w, func(desc *format.Descriptor) (process, error) {
-		p, err := r.LookupProcess(ctx, desc.Digest)
-		if err != nil {
-			return process{}, err
-		}
-		return process{
-			ID:        p.ID,
-			StartTime: human.Time(p.StartTime),
-		}, nil
-	})
+	return newDescTableWriter(w,
+		func(p1, p2 process) bool {
+			return time.Time(p1.StartTime).Before(time.Time(p2.StartTime))
+		},
+		func(desc *format.Descriptor) (process, error) {
+			p, err := reg.LookupProcess(ctx, desc.Digest)
+			if err != nil {
+				return process{}, err
+			}
+			return process{
+				ID:        p.ID,
+				StartTime: human.Time(p.StartTime),
+			}, nil
+		})
 }
 
-func getRuntimes(ctx context.Context, w io.Writer, r *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
+func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
 	type runtime struct {
 		ID      string `text:"RUNTIME ID"`
 		Runtime string `text:"RUNTIME NAME"`
 		Version string `text:"VERSION"`
 	}
-	return newDescTableWriter(w, func(desc *format.Descriptor) (runtime, error) {
-		r, err := r.LookupRuntime(ctx, desc.Digest)
-		if err != nil {
-			return runtime{}, err
-		}
-		return runtime{
-			ID:      desc.Digest.Short(),
-			Runtime: r.Runtime,
-			Version: r.Version,
-		}, nil
-	})
+	return newDescTableWriter(w,
+		func(r1, r2 runtime) bool {
+			return r1.ID < r2.ID
+		},
+		func(desc *format.Descriptor) (runtime, error) {
+			r, err := reg.LookupRuntime(ctx, desc.Digest)
+			if err != nil {
+				return runtime{}, err
+			}
+			return runtime{
+				ID:      desc.Digest.Short(),
+				Runtime: r.Runtime,
+				Version: r.Version,
+			}, nil
+		})
 }
 
-func newDescTableWriter[T any](w io.Writer, conv func(*format.Descriptor) (T, error)) stream.WriteCloser[*format.Descriptor] {
-	tw := textprint.NewTableWriter[T](w)
+func newDescTableWriter[T any](w io.Writer, orderBy func(T, T) bool, conv func(*format.Descriptor) (T, error)) stream.WriteCloser[*format.Descriptor] {
+	tw := textprint.NewTableWriter[T](w, textprint.OrderBy(orderBy))
 	cw := stream.ConvertWriter[T](tw, conv)
 	return stream.NewWriteCloser(cw, tw)
 }
