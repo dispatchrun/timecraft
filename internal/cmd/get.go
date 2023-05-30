@@ -127,18 +127,11 @@ func get(ctx context.Context, args []string) error {
 	args = parseFlags(flagSet, args)
 
 	if len(args) != 1 {
-		return errors.New(`expected exactly one resource type as argument` + useGet())
+		return errors.New(`expected exactly one resource type as argument` + useCmd("get"))
 	}
-	resourceTypeLookup := args[0]
-	resource, ok := findResource(resourceTypeLookup, resources[:])
-	if !ok {
-		matchingResources := findMatchingResources(resourceTypeLookup, resources[:])
-		if len(matchingResources) == 0 {
-			return fmt.Errorf(`no resources matching '%s'`+useGet(), resourceTypeLookup)
-		}
-		return fmt.Errorf(`no resources matching '%s'
-
-Did you mean?%s`, resourceTypeLookup, joinResourceTypes(matchingResources, "\n   "))
+	resource, err := findResource("get", args[0])
+	if err != nil {
+		return err
 	}
 
 	registry, err := openRegistry(registryPath)
@@ -348,27 +341,35 @@ func newTableWriter[T1, T2 any](w io.Writer, orderBy func(T1, T1) bool, conv fun
 	return stream.NewWriteCloser(cw, tw)
 }
 
-func findResource(typ string, options []resource) (resource, bool) {
-	for _, option := range options {
-		if option.typ == typ {
-			return option, true
+func findResource(cmd, typ string) (*resource, error) {
+	for i, resource := range resources {
+		if resource.typ == typ {
+			return &resources[i], nil
 		}
-		for _, alt := range option.alt {
+		for _, alt := range resource.alt {
 			if alt == typ {
-				return option, true
+				return &resources[i], nil
 			}
 		}
 	}
-	return resource{}, false
-}
 
-func findMatchingResources(typ string, options []resource) (matches []resource) {
-	for _, option := range options {
-		if prefixLength(option.typ, typ) > 1 || prefixLength(typ, option.typ) > 1 {
-			matches = append(matches, option)
+	var matchingResources []*resource
+	for i, resource := range resources {
+		if prefixLength(resource.typ, typ) > 1 || prefixLength(typ, resource.typ) > 1 {
+			matchingResources = append(matchingResources, &resources[i])
 		}
 	}
-	return matches
+	if len(matchingResources) == 0 {
+		return nil, fmt.Errorf(`no resources matching '%s'%s`, typ, useCmd(cmd))
+	}
+
+	var resourceTypes strings.Builder
+	for _, r := range matchingResources {
+		resourceTypes.WriteString("\n  ")
+		resourceTypes.WriteString(r.typ)
+	}
+
+	return nil, fmt.Errorf("no resources matching '%s'\n\nDid you mean?%s", typ, &resourceTypes)
 }
 
 func prefixLength(base, prefix string) int {
@@ -379,19 +380,10 @@ func prefixLength(base, prefix string) int {
 	return n
 }
 
-func joinResourceTypes(resources []resource, prefix string) string {
-	s := new(strings.Builder)
-	for _, r := range resources {
-		s.WriteString(prefix)
-		s.WriteString(r.typ)
-	}
-	return s.String()
-}
-
-func useGet() string {
+func useCmd(cmd string) string {
 	s := new(strings.Builder)
 	s.WriteString("\n\n")
-	s.WriteString(`Use 'timecraft get <resource type>' where the supported resource types are:`)
+	s.WriteString(`Use 'timecraft ` + cmd + ` <resource type>' where the supported resource types are:`)
 	for _, r := range resources {
 		s.WriteString("\n   ")
 		s.WriteString(r.typ)
