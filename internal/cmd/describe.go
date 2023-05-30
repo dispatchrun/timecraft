@@ -433,30 +433,40 @@ func moduleName(module *format.Descriptor) string {
 }
 
 type recordBatch struct {
-	NumRecords       int         `json:"numRecords"       yaml:"numRecords"       text:"RECORDS"`
-	FirstOffset      int64       `json:"firstOffset"      yaml:"firstOffset"      text:"FIRST OFFSET"`
-	FirstTimestamp   human.Time  `json:"firstTimestamp"   yaml:"firstTimestamp"   text:"FIRST TIMESTAMP"`
-	UncompressedSize human.Bytes `json:"uncompressedSize" yaml:"uncompressedSize" text:"UNCOMPRESSED SIZE"`
-	CompressedSize   human.Bytes `json:"compressedSize"   yaml:"compressedSize"   text:"COMPRESSED SIZE"`
-	CompressionRatio human.Ratio `json:"copmressionRatio" yaml:"compressionRatio" text:"COMPRESSION RATIO"`
-	Compression      string      `json:"compression"      yaml:"compression"      text:"COMPRESSION"`
+	NumRecords       int            `json:"numRecords"       yaml:"numRecords"       text:"RECORDS"`
+	FirstOffset      int64          `json:"firstOffset"      yaml:"firstOffset"      text:"FIRST OFFSET"`
+	FirstTimestamp   human.Time     `json:"firstTimestamp"   yaml:"firstTimestamp"   text:"-"`
+	LastTimestamp    human.Time     `json:"lastTimestamp"    yaml:"lastTimestamp"    text:"-"`
+	Duration         human.Duration `json:"-"                yaml:"-"                text:"DURATION"`
+	UncompressedSize human.Bytes    `json:"uncompressedSize" yaml:"uncompressedSize" text:"UNCOMPRESSED SIZE"`
+	CompressedSize   human.Bytes    `json:"compressedSize"   yaml:"compressedSize"   text:"COMPRESSED SIZE"`
+	CompressionRatio human.Ratio    `json:"copmressionRatio" yaml:"compressionRatio" text:"COMPRESSION RATIO"`
+	Compression      string         `json:"compression"      yaml:"compression"      text:"COMPRESSION"`
 }
 
 type logSegment struct {
-	Number           int           `json:"number"        yaml:"number"        text:"SEGMENT"`
-	NumRecords       int           `json:"-"             yaml:"-"             text:"RECORDS"`
-	NumBatches       int           `json:"-"             yaml:"-"             text:"BATCHES"`
-	Size             human.Bytes   `json:"size"          yaml:"size"          text:"SIZE"`
-	UncompressedSize human.Bytes   `json:"-"             yaml:"-"             text:"UNCOMPRESSED SIZE"`
-	CompressedSize   human.Bytes   `json:"-"             yaml:"-"             text:"COMPRESSED SIZE"`
-	CompressionRatio human.Ratio   `json:"-"             yaml:"-"             text:"COMPRESSION RATIO"`
-	CreatedAt        human.Time    `json:"createdAt"     yaml:"createdAt"     text:"CREATED"`
-	RecordBatches    []recordBatch `json:"recordBatches" yaml:"recordBatches" text:"-"`
+	Number           int            `json:"number"        yaml:"number"        text:"SEGMENT"`
+	NumRecords       int            `json:"-"             yaml:"-"             text:"RECORDS"`
+	NumBatches       int            `json:"-"             yaml:"-"             text:"BATCHES"`
+	Duration         human.Duration `json:"-"             yaml:"-"             text:"DURATION"`
+	Size             human.Bytes    `json:"size"          yaml:"size"          text:"SIZE"`
+	UncompressedSize human.Bytes    `json:"-"             yaml:"-"             text:"UNCOMPRESSED SIZE"`
+	CompressedSize   human.Bytes    `json:"-"             yaml:"-"             text:"COMPRESSED SIZE"`
+	CompressionRatio human.Ratio    `json:"-"             yaml:"-"             text:"COMPRESSION RATIO"`
+	CreatedAt        human.Time     `json:"createdAt"     yaml:"createdAt"     text:"CREATED"`
+	RecordBatches    []recordBatch  `json:"recordBatches" yaml:"recordBatches" text:"-"`
 }
 
 func (desc *logSegment) Format(w fmt.State, _ rune) {
+	startTime := human.Time{}
+	if len(desc.RecordBatches) > 0 {
+		startTime = desc.RecordBatches[0].FirstTimestamp
+	}
+
 	fmt.Fprintf(w, "Segment: %d\n", desc.Number)
 	fmt.Fprintf(w, "Size: %s/%s +%s (compression: %s)\n", desc.CompressedSize, desc.UncompressedSize, desc.Size-desc.CompressedSize, desc.CompressionRatio)
+
+	fmt.Fprintf(w, "Start: %s, %s\n", startTime, time.Time(startTime).Format(time.RFC1123))
 	fmt.Fprintf(w, "Records: %d (%d batch)\n", desc.NumRecords, len(desc.RecordBatches))
 	fmt.Fprintf(w, "---\n")
 
@@ -561,16 +571,26 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, id string) (any
 					}
 					break
 				}
-				numRecords := b.NumRecords()
-				uncompressedSize := human.Bytes(b.UncompressedSize())
-				compressedSize := human.Bytes(b.CompressedSize())
+
+				var (
+					numRecords       = b.NumRecords()
+					firstTimestamp   = b.FirstTimestamp()
+					lastTimestamp    = b.LastTimestamp()
+					duration         = human.Duration(lastTimestamp.Sub(firstTimestamp))
+					uncompressedSize = human.Bytes(b.UncompressedSize())
+					compressedSize   = human.Bytes(b.CompressedSize())
+				)
+
 				logSegment.NumRecords += numRecords
+				logSegment.Duration += duration
 				logSegment.CompressedSize += compressedSize
 				logSegment.UncompressedSize += uncompressedSize
 				logSegment.RecordBatches = append(logSegment.RecordBatches, recordBatch{
 					NumRecords:       numRecords,
 					FirstOffset:      b.FirstOffset(),
-					FirstTimestamp:   human.Time(b.FirstTimestamp()),
+					FirstTimestamp:   human.Time(firstTimestamp),
+					LastTimestamp:    human.Time(lastTimestamp),
+					Duration:         duration,
 					UncompressedSize: uncompressedSize,
 					CompressedSize:   compressedSize,
 					CompressionRatio: 1 - human.Ratio(compressedSize)/human.Ratio(uncompressedSize),

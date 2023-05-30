@@ -86,9 +86,14 @@ func (b *RecordBatch) FirstOffset() int64 {
 	return b.batch.FirstOffset()
 }
 
-// FirstTimestamp returns the time at which the first record was produced.
+// FirstTimestamp returns the time of the first record in the batch.
 func (b *RecordBatch) FirstTimestamp() time.Time {
 	return b.startTime.Add(time.Duration(b.batch.FirstTimestamp()))
+}
+
+// LastTimestamp returns the time of the last record in the batch.
+func (b *RecordBatch) LastTimestamp() time.Time {
+	return b.startTime.Add(time.Duration(b.batch.LastTimestamp()))
 }
 
 // CompressedSize returns the size of the record batch data section in the log
@@ -175,6 +180,7 @@ type RecordBatchBuilder struct {
 	compression    Compression
 	firstOffset    int64
 	firstTimestamp int64
+	lastTimestamp  int64
 	recordCount    uint32
 	uncompressed   []byte
 	compressed     []byte
@@ -198,6 +204,7 @@ func (b *RecordBatchBuilder) Reset(compression Compression, firstOffset int64) {
 	b.records = nil
 	b.firstOffset = firstOffset
 	b.firstTimestamp = 0
+	b.lastTimestamp = 0
 	b.finished = false
 	b.concatenated = false
 	b.recordCount = 0
@@ -215,6 +222,7 @@ func (b *RecordBatchBuilder) AddRecord(record *RecordBuilder) {
 	if b.recordCount == 0 {
 		b.firstTimestamp = record.timestamp
 	}
+	b.lastTimestamp = record.timestamp
 	b.recordCount++
 }
 
@@ -267,6 +275,7 @@ func (b *RecordBatchBuilder) build() {
 	logsegment.RecordBatchStart(b.builder)
 	logsegment.RecordBatchAddFirstOffset(b.builder, b.firstOffset)
 	logsegment.RecordBatchAddFirstTimestamp(b.builder, b.firstTimestamp)
+	logsegment.RecordBatchAddLastTimestamp(b.builder, b.lastTimestamp)
 	logsegment.RecordBatchAddCompressedSize(b.builder, uint32(len(b.compressed)))
 	logsegment.RecordBatchAddUncompressedSize(b.builder, uint32(len(b.uncompressed)))
 	logsegment.RecordBatchAddChecksum(b.builder, checksum(b.records))

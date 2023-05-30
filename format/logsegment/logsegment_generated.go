@@ -59,19 +59,19 @@ func (rcv *RecordBatch) MutateFirstTimestamp(n int64) bool {
 	return rcv._tab.MutateInt64Slot(6, n)
 }
 
-func (rcv *RecordBatch) CompressedSize() uint32 {
+func (rcv *RecordBatch) LastTimestamp() int64 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(8))
 	if o != 0 {
-		return rcv._tab.GetUint32(o + rcv._tab.Pos)
+		return rcv._tab.GetInt64(o + rcv._tab.Pos)
 	}
 	return 0
 }
 
-func (rcv *RecordBatch) MutateCompressedSize(n uint32) bool {
-	return rcv._tab.MutateUint32Slot(8, n)
+func (rcv *RecordBatch) MutateLastTimestamp(n int64) bool {
+	return rcv._tab.MutateInt64Slot(8, n)
 }
 
-func (rcv *RecordBatch) UncompressedSize() uint32 {
+func (rcv *RecordBatch) CompressedSize() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(10))
 	if o != 0 {
 		return rcv._tab.GetUint32(o + rcv._tab.Pos)
@@ -79,11 +79,11 @@ func (rcv *RecordBatch) UncompressedSize() uint32 {
 	return 0
 }
 
-func (rcv *RecordBatch) MutateUncompressedSize(n uint32) bool {
+func (rcv *RecordBatch) MutateCompressedSize(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(10, n)
 }
 
-func (rcv *RecordBatch) NumRecords() uint32 {
+func (rcv *RecordBatch) UncompressedSize() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(12))
 	if o != 0 {
 		return rcv._tab.GetUint32(o + rcv._tab.Pos)
@@ -91,11 +91,11 @@ func (rcv *RecordBatch) NumRecords() uint32 {
 	return 0
 }
 
-func (rcv *RecordBatch) MutateNumRecords(n uint32) bool {
+func (rcv *RecordBatch) MutateUncompressedSize(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(12, n)
 }
 
-func (rcv *RecordBatch) Checksum() uint32 {
+func (rcv *RecordBatch) NumRecords() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(14))
 	if o != 0 {
 		return rcv._tab.GetUint32(o + rcv._tab.Pos)
@@ -103,12 +103,24 @@ func (rcv *RecordBatch) Checksum() uint32 {
 	return 0
 }
 
-func (rcv *RecordBatch) MutateChecksum(n uint32) bool {
+func (rcv *RecordBatch) MutateNumRecords(n uint32) bool {
 	return rcv._tab.MutateUint32Slot(14, n)
 }
 
-func (rcv *RecordBatch) Compression() types.Compression {
+func (rcv *RecordBatch) Checksum() uint32 {
 	o := flatbuffers.UOffsetT(rcv._tab.Offset(16))
+	if o != 0 {
+		return rcv._tab.GetUint32(o + rcv._tab.Pos)
+	}
+	return 0
+}
+
+func (rcv *RecordBatch) MutateChecksum(n uint32) bool {
+	return rcv._tab.MutateUint32Slot(16, n)
+}
+
+func (rcv *RecordBatch) Compression() types.Compression {
+	o := flatbuffers.UOffsetT(rcv._tab.Offset(18))
 	if o != 0 {
 		return types.Compression(rcv._tab.GetUint32(o + rcv._tab.Pos))
 	}
@@ -116,11 +128,11 @@ func (rcv *RecordBatch) Compression() types.Compression {
 }
 
 func (rcv *RecordBatch) MutateCompression(n types.Compression) bool {
-	return rcv._tab.MutateUint32Slot(16, uint32(n))
+	return rcv._tab.MutateUint32Slot(18, uint32(n))
 }
 
 func RecordBatchStart(builder *flatbuffers.Builder) {
-	builder.StartObject(7)
+	builder.StartObject(8)
 }
 func RecordBatchAddFirstOffset(builder *flatbuffers.Builder, firstOffset int64) {
 	builder.PrependInt64Slot(0, firstOffset, 0)
@@ -128,20 +140,23 @@ func RecordBatchAddFirstOffset(builder *flatbuffers.Builder, firstOffset int64) 
 func RecordBatchAddFirstTimestamp(builder *flatbuffers.Builder, firstTimestamp int64) {
 	builder.PrependInt64Slot(1, firstTimestamp, 0)
 }
+func RecordBatchAddLastTimestamp(builder *flatbuffers.Builder, lastTimestamp int64) {
+	builder.PrependInt64Slot(2, lastTimestamp, 0)
+}
 func RecordBatchAddCompressedSize(builder *flatbuffers.Builder, compressedSize uint32) {
-	builder.PrependUint32Slot(2, compressedSize, 0)
+	builder.PrependUint32Slot(3, compressedSize, 0)
 }
 func RecordBatchAddUncompressedSize(builder *flatbuffers.Builder, uncompressedSize uint32) {
-	builder.PrependUint32Slot(3, uncompressedSize, 0)
+	builder.PrependUint32Slot(4, uncompressedSize, 0)
 }
 func RecordBatchAddNumRecords(builder *flatbuffers.Builder, numRecords uint32) {
-	builder.PrependUint32Slot(4, numRecords, 0)
+	builder.PrependUint32Slot(5, numRecords, 0)
 }
 func RecordBatchAddChecksum(builder *flatbuffers.Builder, checksum uint32) {
-	builder.PrependUint32Slot(5, checksum, 0)
+	builder.PrependUint32Slot(6, checksum, 0)
 }
 func RecordBatchAddCompression(builder *flatbuffers.Builder, compression types.Compression) {
-	builder.PrependUint32Slot(6, uint32(compression), 0)
+	builder.PrependUint32Slot(7, uint32(compression), 0)
 }
 func RecordBatchEnd(builder *flatbuffers.Builder) flatbuffers.UOffsetT {
 	return builder.EndObject()

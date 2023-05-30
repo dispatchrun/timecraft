@@ -60,13 +60,7 @@ func (t *tableWriter[T]) Close() error {
 	}
 
 	var encoders []encodeFunc
-	for i, f := range reflect.VisibleFields(valueType) {
-		if i != 0 {
-			if _, err := io.WriteString(tw, "\t"); err != nil {
-				return err
-			}
-		}
-
+	for _, f := range reflect.VisibleFields(valueType) {
 		name := f.Name
 		if textTag := f.Tag.Get("text"); textTag != "" {
 			tag := strings.Split(textTag, ",")
@@ -82,6 +76,11 @@ func (t *tableWriter[T]) Close() error {
 			continue
 		}
 
+		if len(encoders) > 0 {
+			if _, err := io.WriteString(tw, "\t"); err != nil {
+				return err
+			}
+		}
 		if _, err := io.WriteString(tw, name); err != nil {
 			return err
 		}
