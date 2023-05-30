@@ -12,13 +12,14 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"sync"
 	"time"
 
-	"golang.org/x/exp/slices"
-
+	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/stream"
+	"golang.org/x/exp/slices"
 )
 
 var (
@@ -45,12 +46,6 @@ func Until(now time.Time) TimeRange {
 
 func (tr TimeRange) Duration() time.Duration {
 	return tr.End.Sub(tr.Start)
-}
-
-type LogSegment struct {
-	Number    int
-	Size      int64
-	CreatedAt time.Time
 }
 
 type Registry struct {
@@ -350,15 +345,15 @@ func (w *logSegmentWriter) Close() error {
 	return err
 }
 
-func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID) stream.ReadCloser[LogSegment] {
+func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID) stream.ReadCloser[format.LogSegment] {
 	reader := reg.Store.ListObjects(ctx, "log/"+processID.String()+"/data/")
-	return convert(reader, func(info object.Info) (LogSegment, error) {
+	return convert(reader, func(info object.Info) (format.LogSegment, error) {
 		number := path.Base(info.Name)
 		n, err := strconv.ParseInt(number, 16, 32)
 		if err != nil || n < 0 {
-			return LogSegment{}, fmt.Errorf("invalid log segment entry: %q", info.Name)
+			return format.LogSegment{}, fmt.Errorf("invalid log segment entry: %q", info.Name)
 		}
-		segment := LogSegment{
+		segment := format.LogSegment{
 			Number:    int(n),
 			Size:      info.Size,
 			CreatedAt: info.CreatedAt,
@@ -366,6 +361,48 @@ func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID)
 		return segment, nil
 	})
 }
+
+func (reg *Registry) ListLogManifests(ctx context.Context) stream.ReadCloser[*format.Manifest] {
+	ch := make(chan stream.Optional[*format.Manifest])
+	ctx, cancel := context.WithCancel(ctx)
+
+	go func(reader stream.ReadCloser[object.Info]) {
+		defer close(ch)
+		defer reader.Close()
+
+		it := stream.Iter[object.Info](reader)
+		wg := sync.WaitGroup{}
+
+		for it.Next() {
+			processID, err := uuid.Parse(path.Base(it.Value().Name))
+			if err != nil {
+				continue
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ch <- stream.Opt(reg.LookupLogManifest(ctx, processID))
+			}()
+		}
+
+		if err := it.Err(); err != nil {
+			ch <- stream.Opt[*format.Manifest](nil, err)
+		}
+
+		wg.Wait()
+	}(reg.Store.ListObjects(ctx, "log/"))
+
+	return stream.NewReadCloser(stream.ChanReader(ch), closerFunc(func() error {
+		cancel()
+		for range ch {
+		}
+		return nil
+	}))
+}
+
+type closerFunc func() error
+
+func (f closerFunc) Close() error { return f() }
 
 func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUID) (*format.Manifest, error) {
 	r, err := reg.Store.ReadObject(ctx, reg.manifestKey(processID))
@@ -380,10 +417,24 @@ func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUI
 	if err != nil {
 		return nil, err
 	}
+
 	m := new(format.Manifest)
 	if err := m.UnmarshalResource(b); err != nil {
 		return nil, err
 	}
+	m.ProcessID = processID
+
+	segments := reg.ListLogSegments(ctx, processID)
+	defer segments.Close()
+
+	m.Segments, err = stream.ReadAll[format.LogSegment](segments)
+	if err != nil {
+		return nil, err
+	}
+
+	slices.SortFunc(m.Segments, func(s1, s2 format.LogSegment) bool {
+		return s1.Number < s2.Number
+	})
 	return m, nil
 }
 

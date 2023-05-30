@@ -3,7 +3,7 @@ namespace types;
 // Compression is the enumeration representing the supported compression
 // algorithms for data sections of log snapshots.
 enum Compression:uint {
-  Uncompressed, Snappy, Zstd
+  uncompressed, snappy, zstd
 }
 
 // Hash represents a OCI hash which pairs an algorithm name to a digest.

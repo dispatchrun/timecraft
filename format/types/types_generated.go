@@ -11,21 +11,21 @@ import (
 type Compression uint32
 
 const (
-	CompressionUncompressed Compression = 0
-	CompressionSnappy       Compression = 1
-	CompressionZstd         Compression = 2
+	Compressionuncompressed Compression = 0
+	Compressionsnappy       Compression = 1
+	Compressionzstd         Compression = 2
 )
 
 var EnumNamesCompression = map[Compression]string{
-	CompressionUncompressed: "Uncompressed",
-	CompressionSnappy:       "Snappy",
-	CompressionZstd:         "Zstd",
+	Compressionuncompressed: "uncompressed",
+	Compressionsnappy:       "snappy",
+	Compressionzstd:         "zstd",
 }
 
 var EnumValuesCompression = map[string]Compression{
-	"Uncompressed": CompressionUncompressed,
-	"Snappy":       CompressionSnappy,
-	"Zstd":         CompressionZstd,
+	"uncompressed": Compressionuncompressed,
+	"snappy":       Compressionsnappy,
+	"zstd":         Compressionzstd,
 }
 
 func (v Compression) String() string {

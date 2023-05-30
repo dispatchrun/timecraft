@@ -111,7 +111,7 @@ var bytes1000 = [...]byteUnit{
 }
 
 var bytes1024 = [...]byteUnit{
-	{B, ""},
+	{B, "B"},
 	{KiB, "KiB"},
 	{MiB, "MiB"},
 	{GiB, "GiB"},
@@ -199,7 +199,7 @@ func (b *Bytes) UnmarshalJSON(j []byte) error {
 }
 
 func (b Bytes) MarshalYAML() (any, error) {
-	return b.String(), nil
+	return uint64(b), nil
 }
 
 func (b *Bytes) UnmarshalYAML(y *yaml.Node) error {
