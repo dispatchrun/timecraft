@@ -31,6 +31,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 )
 
@@ -154,6 +155,31 @@ func (s stringList) String() string {
 
 func (s *stringList) Set(value string) error {
 	*s = append(*s, value)
+	return nil
+}
+
+type stringMap map[string]string
+
+func (m stringMap) String() string {
+	b := new(strings.Builder)
+	keys := maps.Keys(m)
+	slices.Sort(keys)
+	for i, k := range keys {
+		if i != 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(k)
+		b.WriteByte(':')
+		b.WriteString(m[k])
+	}
+	return b.String()
+}
+
+func (m stringMap) Set(value string) error {
+	k, v, _ := strings.Cut(value, ":")
+	k = strings.TrimSpace(k)
+	v = strings.TrimSpace(v)
+	m[k] = v
 	return nil
 }
 

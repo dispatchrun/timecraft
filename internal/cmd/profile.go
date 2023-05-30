@@ -3,13 +3,13 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"time"
 
 	pprof "github.com/google/pprof/profile"
 	"github.com/google/uuid"
-
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/print/jsonprint"
@@ -20,9 +20,10 @@ import (
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
 	"github.com/stealthrocket/wzprof"
-
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/experimental"
+	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 )
 
 const profileUsage = `
@@ -38,7 +39,8 @@ Usage:	timecraft profile [options] <process id>
 
 Example:
 
-   $ timecraft profile f6e9acbc-0543-47df-9413-b99f569cfa3b
+   $ timecraft profile --export memory:mem.out f6e9acbc-0543-47df-9413-b99f569cfa3b
+   ==> writing memory profile to mem.out
    ...
 
    $ go tool pprof -http :4040 cpu.out
@@ -46,6 +48,7 @@ Example:
 
 Options:
    -d, --duration duration  Amount of time that the profiler will be running for (default to the process up time)
+       --export type:path   Exports the generated profiles, type is one of cpu or memory (may be repeated)
    -h, --help               Show this usage information
    -o, --ouptut format      Output format, one of: text, json, yaml
    -t, --start-time time    Time at which the profiler gets started (default to 1 minute)
@@ -54,6 +57,7 @@ Options:
 
 func profile(ctx context.Context, args []string) error {
 	var (
+		exports      = stringMap{}
 		output       = outputFormat("text")
 		startTime    = human.Time{}
 		duration     = human.Duration(1 * time.Minute)
@@ -61,6 +65,7 @@ func profile(ctx context.Context, args []string) error {
 	)
 
 	flagSet := newFlagSet("timecraft profile", profileUsage)
+	customVar(flagSet, &exports, "export")
 	customVar(flagSet, &output, "o", "output")
 	customVar(flagSet, &duration, "d", "duration")
 	customVar(flagSet, &startTime, "t", "start-time")
@@ -69,6 +74,17 @@ func profile(ctx context.Context, args []string) error {
 
 	if len(args) != 1 {
 		return errors.New(`expected exactly one process id as argument`)
+	}
+
+	exportedProfileTypes := maps.Keys(exports)
+	slices.Sort(exportedProfileTypes)
+
+	for _, typ := range exportedProfileTypes {
+		switch typ {
+		case "cpu", "memory":
+		default:
+			return fmt.Errorf(`unsupported profile type: %s`, typ)
+		}
 	}
 
 	processID, err := uuid.Parse(args[0])
@@ -160,6 +176,23 @@ func profile(ctx context.Context, args []string) error {
 	desc, err := createProfiles(registry, processID, records.cpuProfile, records.memProfile)
 	if err != nil {
 		return err
+	}
+
+	for _, typ := range exportedProfileTypes {
+		var p *pprof.Profile
+		switch typ {
+		case "cpu":
+			p = records.cpuProfile
+		case "memory":
+			p = records.memProfile
+		}
+		if p != nil {
+			path := exports[typ]
+			fmt.Fprintf(os.Stderr, "==> writing %s profile to %s\n", typ, path)
+			if err := wzprof.WriteProfile(path, p); err != nil {
+				return err
+			}
+		}
 	}
 
 	var writer stream.WriteCloser[*format.Descriptor]
