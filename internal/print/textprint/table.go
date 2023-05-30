@@ -34,11 +34,6 @@ type tableWriter[T any] struct {
 	orderBy func(T, T) bool
 }
 
-func (t *tableWriter[T]) WriteOne(value T) error {
-	_, err := t.Write([]T{value})
-	return err
-}
-
 func (t *tableWriter[T]) Write(values []T) (int, error) {
 	t.values = append(t.values, values...)
 	return len(values), nil
