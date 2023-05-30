@@ -80,6 +80,8 @@ func Root(ctx context.Context, args ...string) int {
 	switch cmd {
 	case "describe":
 		err = describe(ctx, args)
+	case "export":
+		err = export(ctx, args)
 	case "get":
 		err = get(ctx, args)
 	case "help":

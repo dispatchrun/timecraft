@@ -153,6 +153,10 @@ func (reg *Registry) LookupDescriptor(ctx context.Context, hash format.Hash) (*f
 	return reg.lookupDescriptor(ctx, hash)
 }
 
+func (reg *Registry) LookupResource(ctx context.Context, hash format.Hash) (io.ReadCloser, error) {
+	return reg.Store.ReadObject(ctx, reg.objectKey(hash))
+}
+
 func (reg *Registry) ListModules(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
 	return reg.listObjects(ctx, format.TypeTimecraftModule, timeRange, tags)
 }

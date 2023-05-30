@@ -63,27 +63,20 @@ func describe(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return errors.New(`expected a resource type as argument`)
 	}
-	resourceTypeLookup := args[0]
+
+	resource, err := findResource("describe", args[0])
+	if err != nil {
+		return err
+	}
+
 	resourceIDs := args[1:]
-
-	resource, ok := findResource(resourceTypeLookup, resources[:])
-	if !ok {
-		matchingResources := findMatchingResources(resourceTypeLookup, resources[:])
-		if len(matchingResources) == 0 {
-			return fmt.Errorf(`no resources matching '%s'`+useGet(), resourceTypeLookup)
-		}
-		return fmt.Errorf(`no resources matching '%s'
-
-Did you mean?%s`, resourceTypeLookup, joinResourceTypes(matchingResources, "\n   "))
+	if len(resourceIDs) == 0 {
+		return fmt.Errorf(`no resources were specified, use 'timecraft describe %s <resources ids...>'`, resource.typ)
 	}
 
 	registry, err := openRegistry(registryPath)
 	if err != nil {
 		return err
-	}
-
-	if len(resourceIDs) == 0 {
-		return fmt.Errorf(`no resources were specified, use 'timecraft describe %s <resources ids...>'`, resource.typ)
 	}
 
 	var lookup func(context.Context, *timemachine.Registry, string) (any, error)
