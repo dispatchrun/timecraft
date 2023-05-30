@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	pprof "github.com/google/pprof/profile"
@@ -443,9 +444,24 @@ func (desc *profileDescriptor) Format(w fmt.State, _ rune) {
 	}
 
 	fmt.Fprintf(w, "Samples:  %d\n", len(desc.profile.Sample))
-	for _, sampleType := range desc.profile.SampleType {
-		fmt.Fprintf(w, "- %s (%s)\n", sampleType.Type, sampleType.Unit)
+	hasDefault := false
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	for i, sampleType := range desc.profile.SampleType {
+		if i != 0 {
+			fmt.Fprintf(tw, "\n")
+		}
+		fmt.Fprintf(w, "- %s\t%s", sampleType.Type, sampleType.Unit)
+		if sampleType.Type == desc.profile.DefaultSampleType {
+			hasDefault = true
+			fmt.Fprintf(tw, " (default)")
+		}
 	}
+	if !hasDefault {
+		fmt.Fprintf(tw, " (default)\n")
+	} else {
+		fmt.Fprintf(tw, "\n")
+	}
+	_ = tw.Flush()
 
 	if comments := desc.profile.Comments; len(comments) == 0 {
 		fmt.Fprintf(w, "Comments: (none)\n")
