@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/print/jsonprint"
@@ -23,7 +25,7 @@ Usage:	timecraft get <resource type> [options]
 
    The get sub-command gives access to the state of the time machine registry.
    The command must be followed by the name of resources to display, which must
-   be one of config, log, module, process, or runtime.
+   be one of config, log, module, process, profile, or runtime.
    (the command also accepts plurals and abbreviations of the resource names)
 
 Examples:
@@ -90,6 +92,14 @@ var resources = [...]resource{
 		lookup:    lookupProcess,
 	},
 	{
+		typ:       "profile",
+		alt:       []string{"prof", "profs", "profiles"},
+		mediaType: format.TypeTimecraftProfile,
+		get:       getProfiles,
+		describe:  describeProfiles,
+		lookup:    describeProfiles,
+	},
+	{
 		typ:       "runtime",
 		alt:       []string{"rt", "runtimes"},
 		mediaType: format.TypeTimecraftRuntime,
@@ -109,15 +119,12 @@ func get(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft get", getUsage)
 	customVar(flagSet, &output, "o", "output")
 	customVar(flagSet, &registryPath, "r", "registry")
-	parseFlags(flagSet, args)
+	args = parseFlags(flagSet, args)
 
-	args = flagSet.Args()
-	if len(args) == 0 {
+	if len(args) != 1 {
 		return errors.New(`expected exactly one resource type as argument` + useGet())
 	}
 	resourceTypeLookup := args[0]
-	parseFlags(flagSet, args[1:])
-
 	resource, ok := findResource(resourceTypeLookup, resources[:])
 	if !ok {
 		matchingResources := findMatchingResources(resourceTypeLookup, resources[:])
@@ -228,7 +235,7 @@ func getModules(ctx context.Context, w io.Writer, reg *timemachine.Registry) str
 func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
 	type process struct {
 		ID        format.UUID `text:"PROCESS ID"`
-		StartTime human.Time  `text:"STARTED"`
+		StartTime human.Time  `text:"START"`
 	}
 	return newTableWriter(w,
 		func(p1, p2 process) bool {
@@ -242,6 +249,43 @@ func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry) s
 			return process{
 				ID:        p.ID,
 				StartTime: human.Time(p.StartTime),
+			}, nil
+		})
+}
+
+func getProfiles(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
+	type profile struct {
+		ID        string         `text:"PROFILE ID"`
+		ProcessID format.UUID    `text:"PROCESS ID"`
+		Type      string         `text:"TYPE"`
+		StartTime human.Time     `text:"START"`
+		Duration  human.Duration `text:"DURATION"`
+		Size      human.Bytes    `text:"SIZE"`
+	}
+	return newTableWriter(w,
+		func(p1, p2 profile) bool {
+			if p1.ProcessID != p2.ProcessID {
+				return bytes.Compare(p1.ProcessID[:], p2.ProcessID[:]) < 0
+			}
+			if p1.Type != p2.Type {
+				return p1.Type < p2.Type
+			}
+			if !time.Time(p1.StartTime).Equal(time.Time(p2.StartTime)) {
+				return time.Time(p1.StartTime).Before(time.Time(p2.StartTime))
+			}
+			return p1.Duration < p2.Duration
+		},
+		func(desc *format.Descriptor) (profile, error) {
+			processID, _ := uuid.Parse(desc.Annotations["timecraft.process.id"])
+			startTime, _ := time.Parse(time.RFC3339Nano, desc.Annotations["timecraft.profile.start"])
+			endTime, _ := time.Parse(time.RFC3339Nano, desc.Annotations["timecraft.profile.end"])
+			return profile{
+				ID:        desc.Digest.Short(),
+				ProcessID: processID,
+				Type:      desc.Annotations["timecraft.profile.type"],
+				StartTime: human.Time(startTime),
+				Duration:  human.Duration(endTime.Sub(startTime)),
+				Size:      human.Bytes(desc.Size),
 			}, nil
 		})
 }
@@ -273,8 +317,8 @@ func getLogs(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream
 	type manifest struct {
 		ProcessID format.UUID `text:"PROCESS ID"`
 		Segments  human.Count `text:"SEGMENTS"`
+		StartTime human.Time  `text:"START"`
 		Size      human.Bytes `text:"SIZE"`
-		StartTime human.Time  `text:"STARTED"`
 	}
 	return newTableWriter(w,
 		func(m1, m2 manifest) bool {

@@ -56,29 +56,13 @@ func describe(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft describe", describeUsage)
 	customVar(flagSet, &output, "o", "output")
 	customVar(flagSet, &registryPath, "r", "registry")
-	parseFlags(flagSet, args)
+	args = parseFlags(flagSet, args)
 
-	args = flagSet.Args()
 	if len(args) == 0 {
-		return errors.New(`expected one resource id as argument`)
+		return errors.New(`expected a resource type as argument`)
 	}
 	resourceTypeLookup := args[0]
-	resourceIDs := []string{}
-	args = args[1:]
-
-	for len(args) > 0 {
-		parseFlags(flagSet, args)
-		args = flagSet.Args()
-
-		i := slices.IndexFunc(args, func(s string) bool {
-			return strings.HasPrefix(s, "-")
-		})
-		if i < 0 {
-			i = len(args)
-		}
-		resourceIDs = append(resourceIDs, args[:i]...)
-		args = args[i:]
-	}
+	resourceIDs := args[1:]
 
 	resource, ok := findResource(resourceTypeLookup, resources[:])
 	if !ok {
@@ -266,6 +250,10 @@ func describeProcess(ctx context.Context, reg *timemachine.Registry, id string) 
 	}
 
 	return desc, nil
+}
+
+func describeProfiles(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+	return nil, errors.New("TODO")
 }
 
 func describeRuntime(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {

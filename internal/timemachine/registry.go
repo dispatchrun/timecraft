@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/pprof/profile"
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
@@ -74,6 +76,60 @@ func (reg *Registry) CreateProcess(ctx context.Context, process *format.Process,
 	return reg.createObject(ctx, process, tags)
 }
 
+func (reg *Registry) CreateProfile(ctx context.Context, processID format.UUID, profileType string, prof *profile.Profile) (*format.Descriptor, error) {
+	buffer := new(bytes.Buffer)
+	if err := prof.Write(buffer); err != nil {
+		return nil, err
+	}
+
+	timeRange := TimeRange{
+		Start: time.Unix(0, prof.TimeNanos),
+		End:   time.Unix(0, prof.TimeNanos+prof.DurationNanos),
+	}
+
+	annotations := make(map[string]string, 2+len(reg.CreateTags))
+	assignTags(annotations, reg.CreateTags)
+	assignTags(annotations, []object.Tag{{
+		Name:  "timecraft.object.mediatype",
+		Value: format.TypeTimecraftProfile.String(),
+	}, {
+		Name:  "timecraft.process.id",
+		Value: processID.String(),
+	}, {
+		Name:  "timecraft.profile.type",
+		Value: profileType,
+	}, {
+		Name:  "timecraft.profile.start",
+		Value: timeRange.Start.Format(time.RFC3339Nano),
+	}, {
+		Name:  "timecraft.profile.end",
+		Value: timeRange.End.Format(time.RFC3339Nano),
+	}})
+
+	tags := makeTags(annotations)
+	hash := hashProfile(processID, profileType, timeRange)
+	name := reg.objectKey(hash)
+	desc := &format.Descriptor{
+		MediaType:   format.TypeTimecraftProfile,
+		Digest:      hash,
+		Size:        int64(buffer.Len()),
+		Annotations: annotations,
+	}
+	if err := reg.Store.CreateObject(ctx, name, buffer, tags...); err != nil {
+		return nil, err
+	}
+	return desc, nil
+}
+
+func hashProfile(processID format.UUID, profileType string, timeRange TimeRange) format.Hash {
+	b := make([]byte, 32, 64)
+	copy(b, processID[:])
+	binary.LittleEndian.PutUint64(b[16:], uint64(timeRange.Start.UnixNano()))
+	binary.LittleEndian.PutUint64(b[24:], uint64(timeRange.End.UnixNano()))
+	b = append(b, profileType...)
+	return SHA256(b)
+}
+
 func (reg *Registry) LookupModule(ctx context.Context, hash format.Hash) (*format.Module, error) {
 	module := new(format.Module)
 	return module, reg.lookupObject(ctx, hash, module)
@@ -92,6 +148,16 @@ func (reg *Registry) LookupConfig(ctx context.Context, hash format.Hash) (*forma
 func (reg *Registry) LookupProcess(ctx context.Context, hash format.Hash) (*format.Process, error) {
 	process := new(format.Process)
 	return process, reg.lookupObject(ctx, hash, process)
+}
+
+func (reg *Registry) LookupProfile(ctx context.Context, processID format.UUID, profileType string, timeRange TimeRange) (*profile.Profile, error) {
+	hash := hashProfile(processID, profileType, timeRange)
+	r, err := reg.Store.ReadObject(ctx, reg.objectKey(hash))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return profile.Parse(r)
 }
 
 func (reg *Registry) LookupDescriptor(ctx context.Context, hash format.Hash) (*format.Descriptor, error) {
@@ -151,13 +217,17 @@ func makeTags(annotations map[string]string) []object.Tag {
 			Value: value,
 		})
 	}
-	slices.SortFunc(tags, func(t1, t2 object.Tag) bool {
-		return t1.Name < t2.Name
-	})
+	sortTags(tags)
 	return tags
 }
 
-func sha256Hash(data []byte, tags []object.Tag) format.Hash {
+func sortTags(tags []object.Tag) {
+	slices.SortFunc(tags, func(t1, t2 object.Tag) bool {
+		return t1.Name < t2.Name
+	})
+}
+
+func hashTags(data []byte, tags []object.Tag) format.Hash {
 	buf := object.AppendTags(make([]byte, 0, 256), tags...)
 	sha := sha256.New()
 	sha.Write(data)
@@ -169,7 +239,7 @@ func sha256Hash(data []byte, tags []object.Tag) format.Hash {
 }
 
 func (reg *Registry) createObject(ctx context.Context, value format.ResourceMarshaler, extraTags []object.Tag) (*format.Descriptor, error) {
-	b, err := value.MarshalResource()
+	data, err := value.MarshalResource()
 	if err != nil {
 		return nil, err
 	}
@@ -179,17 +249,17 @@ func (reg *Registry) createObject(ctx context.Context, value format.ResourceMars
 	assignTags(annotations, reg.CreateTags)
 	assignTags(annotations, extraTags)
 	assignTags(annotations, []object.Tag{{
-		Name:  "timecraft.object.media-type",
+		Name:  "timecraft.object.mediatype",
 		Value: mediaType.String(),
 	}})
 
 	tags := makeTags(annotations)
-	hash := sha256Hash(b, tags)
+	hash := hashTags(data, tags)
 	name := reg.objectKey(hash)
 	desc := &format.Descriptor{
 		MediaType:   mediaType,
 		Digest:      hash,
-		Size:        int64(len(b)),
+		Size:        int64(len(data)),
 		Annotations: annotations,
 	}
 
@@ -201,7 +271,7 @@ func (reg *Registry) createObject(ctx context.Context, value format.ResourceMars
 		return desc, nil
 	}
 
-	if err := reg.Store.CreateObject(ctx, name, bytes.NewReader(b), tags...); err != nil {
+	if err := reg.Store.CreateObject(ctx, name, bytes.NewReader(data), tags...); err != nil {
 		return nil, errorCreateObject(hash, value, err)
 	}
 	return desc, nil
@@ -277,8 +347,8 @@ func newDescriptor(info object.Info) *format.Descriptor {
 	annotations := make(map[string]string, len(info.Tags))
 	assignTags(annotations, info.Tags)
 
-	mediaType := annotations["timecraft.object.media-type"]
-	delete(annotations, "timecraft.object.media-type")
+	mediaType := annotations["timecraft.object.mediatype"]
+	delete(annotations, "timecraft.object.mediatype")
 
 	return &format.Descriptor{
 		MediaType:   format.MediaType(mediaType),
@@ -294,7 +364,7 @@ func (reg *Registry) listObjects(ctx context.Context, mediaType format.MediaType
 	}
 
 	filters := []object.Filter{
-		object.MATCH("timecraft.object.media-type", mediaType.String()),
+		object.MATCH("timecraft.object.mediatype", mediaType.String()),
 		object.AFTER(timeRange.Start),
 		object.BEFORE(timeRange.End),
 	}

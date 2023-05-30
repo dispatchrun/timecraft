@@ -3,15 +3,17 @@ package cmd
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"math"
+	"os"
 	"time"
 
 	pprof "github.com/google/pprof/profile"
 	"github.com/google/uuid"
 
+	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/print/human"
+	"github.com/stealthrocket/timecraft/internal/print/jsonprint"
+	"github.com/stealthrocket/timecraft/internal/print/yamlprint"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
@@ -36,50 +38,35 @@ Usage:	timecraft profile [options] <process id>
 
 Example:
 
-    $ timecraft profile f6e9acbc-0543-47df-9413-b99f569cfa3b
-    writing cpu profile:	cpu.out
-    writing memory profile:	mem.out
+   $ timecraft profile f6e9acbc-0543-47df-9413-b99f569cfa3b
+   ...
 
-    $ go tool pprof -http :4040 cpu.out
-    (web page opens in browser)
+   $ go tool pprof -http :4040 cpu.out
+   (web page opens in browser)
 
 Options:
-       --cpuprofile path    Path where the CPU profile will be written (default to cpu.out)
-       --duration duration  Amount of time that the profiler will be running for (default to the process up time)
+   -d, --duration duration  Amount of time that the profiler will be running for (default to the process up time)
    -h, --help               Show this usage information
-       --memprofile path    Path where the memory profile will be written (default to mem.out)
-       --sample-rate ratio  Ratio of function calls recorded by the profiler, expressed as a decimal number between 0 and 1 (default to 1)
-       --start-time time    Time at which the profiler gets started (default to the process start time)
+   -o, --ouptut format      Output format, one of: text, json, yaml
+   -t, --start-time time    Time at which the profiler gets started (default to 1 minute)
    -r, --registry path      Path to the timecraft registry (default to ~/.timecraft)
 `
 
 func profile(ctx context.Context, args []string) error {
 	var (
+		output       = outputFormat("text")
 		startTime    = human.Time{}
-		duration     = human.Duration(0)
-		sampleRate   = human.Rate(1.0)
-		cpuProfile   = human.Path("cpu.out")
-		memProfile   = human.Path("mem.out")
+		duration     = human.Duration(1 * time.Minute)
 		registryPath = human.Path("~/.timecraft")
 	)
 
 	flagSet := newFlagSet("timecraft profile", profileUsage)
-	customVar(flagSet, &startTime, "start-time")
-	customVar(flagSet, &duration, "duration")
-	customVar(flagSet, &sampleRate, "sample-rate")
-	customVar(flagSet, &cpuProfile, "cpuprofile")
-	customVar(flagSet, &memProfile, "memprofile")
+	customVar(flagSet, &output, "o", "output")
+	customVar(flagSet, &duration, "d", "duration")
+	customVar(flagSet, &startTime, "t", "start-time")
 	customVar(flagSet, &registryPath, "r", "registry")
-	parseFlags(flagSet, args)
+	args = parseFlags(flagSet, args)
 
-	if time.Time(startTime).IsZero() {
-		startTime = human.Time(time.Unix(0, 0))
-	}
-	if duration == 0 {
-		duration = human.Duration(math.MaxInt64)
-	}
-
-	args = flagSet.Args()
 	if len(args) != 1 {
 		return errors.New(`expected exactly one process id as argument`)
 	}
@@ -98,6 +85,14 @@ func profile(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if startTime.IsZero() {
+		startTime = human.Time(manifest.StartTime)
+	}
+	timeRange := timemachine.TimeRange{
+		Start: time.Time(startTime),
+		End:   time.Time(startTime).Add(time.Duration(duration)),
+	}
+
 	process, err := registry.LookupProcess(ctx, manifest.Process.Digest)
 	if err != nil {
 		return err
@@ -122,18 +117,12 @@ func profile(ctx context.Context, args []string) error {
 
 	records := &recordProfiler{
 		records:    timemachine.NewLogRecordReader(logReader),
-		startTime:  time.Time(startTime),
-		endTime:    time.Time(startTime).Add(time.Duration(duration)),
-		sampleRate: float64(sampleRate),
+		startTime:  timeRange.Start,
+		endTime:    timeRange.End,
+		sampleRate: 1.0,
 	}
-
 	records.cpu = wzprof.NewCPUProfiler(wzprof.TimeFunc(records.now))
 	records.mem = wzprof.NewMemoryProfiler()
-	defer func() {
-		records.stop()
-		writeProfile("cpu", string(cpuProfile), records.cpuProfile)
-		writeProfile("memory", string(memProfile), records.memProfile)
-	}()
 
 	ctx = context.WithValue(ctx,
 		experimental.FunctionListenerFactoryKey{},
@@ -162,7 +151,30 @@ func profile(ctx context.Context, args []string) error {
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
-	return exec(ctx, runtime, compiledModule)
+	if err := exec(ctx, runtime, compiledModule); err != nil {
+		return err
+	}
+
+	records.stop()
+
+	desc, err := createProfiles(registry, processID, records.cpuProfile, records.memProfile)
+	if err != nil {
+		return err
+	}
+
+	var writer stream.WriteCloser[*format.Descriptor]
+	switch output {
+	case "json":
+		writer = jsonprint.NewWriter[*format.Descriptor](os.Stdout)
+	case "yaml":
+		writer = yamlprint.NewWriter[*format.Descriptor](os.Stdout)
+	default:
+		writer = getProfiles(ctx, os.Stdout, registry)
+	}
+	defer writer.Close()
+
+	_, err = stream.Copy[*format.Descriptor](writer, stream.NewReader(desc...))
+	return err
 }
 
 type recordProfiler struct {
@@ -174,13 +186,15 @@ type recordProfiler struct {
 	cpuProfile *pprof.Profile
 	memProfile *pprof.Profile
 
-	currentTime int64
-	startTime   time.Time
-	endTime     time.Time
-	started     bool
-	stopped     bool
-	sampleRate  float64
-	symbols     wzprof.Symbolizer
+	firstTimestamp int64
+	lastTimestamp  int64
+
+	startTime  time.Time
+	endTime    time.Time
+	started    bool
+	stopped    bool
+	sampleRate float64
+	symbols    wzprof.Symbolizer
 }
 
 func (r *recordProfiler) Read(records []timemachine.Record) (int, error) {
@@ -192,8 +206,9 @@ func (r *recordProfiler) Read(records []timemachine.Record) (int, error) {
 	}
 	n, err := r.records.Read(records[:1])
 	if n > 0 {
-		r.currentTime = records[0].Timestamp()
+		r.lastTimestamp = records[0].Timestamp()
 		if !r.started && !records[0].Time().Before(r.startTime) {
+			r.firstTimestamp = r.lastTimestamp
 			r.start()
 		}
 		if !r.stopped && !records[0].Time().Before(r.endTime) {
@@ -204,7 +219,7 @@ func (r *recordProfiler) Read(records []timemachine.Record) (int, error) {
 }
 
 func (r *recordProfiler) now() int64 {
-	return r.currentTime
+	return r.lastTimestamp
 }
 
 func (r *recordProfiler) start() {
@@ -219,22 +234,46 @@ func (r *recordProfiler) stop() {
 		r.stopped = true
 		r.cpuProfile = r.cpu.StopProfile(r.sampleRate, r.symbols)
 		r.memProfile = r.mem.NewProfile(r.sampleRate, r.symbols)
+		r.cpuProfile.TimeNanos = r.startTime.UnixNano()
+		r.memProfile.TimeNanos = r.startTime.UnixNano()
+		duration := r.lastTimestamp - r.firstTimestamp
+		r.cpuProfile.DurationNanos = duration
+		r.memProfile.DurationNanos = duration
 	}
 }
 
-func writeProfile(profileName, path string, prof *pprof.Profile) {
-	if prof == nil {
-		return
-	}
-
-	prof.Mapping = []*pprof.Mapping{{
+func createProfiles(reg *timemachine.Registry, processID format.UUID, profiles ...*pprof.Profile) ([]*format.Descriptor, error) {
+	mapping := []*pprof.Mapping{{
 		ID:   1,
 		File: "module.wasm",
 	}}
 
-	fmt.Printf("writing %s profile:\t%s\n", profileName, path)
+	ch := make(chan stream.Optional[*format.Descriptor])
+	for _, p := range profiles {
+		p.Mapping = mapping
 
-	if err := wzprof.WriteProfile(path, prof); err != nil {
-		fmt.Printf("ERR: %s\n", err)
+		profileType := "memory"
+		for _, sample := range p.SampleType {
+			if sample.Type == "cpu" || sample.Type == "samples" {
+				profileType = "cpu"
+				break
+			}
+		}
+
+		go func(profile *pprof.Profile) {
+			ch <- stream.Opt(reg.CreateProfile(context.TODO(), processID, profileType, profile))
+		}(p)
 	}
+
+	var descriptors = make([]*format.Descriptor, 0, len(profiles))
+	var lastErr error
+	for range profiles {
+		d, err := (<-ch).Value()
+		if err != nil {
+			lastErr = err
+		} else {
+			descriptors = append(descriptors, d)
+		}
+	}
+	return descriptors, lastErr
 }

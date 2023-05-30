@@ -27,35 +27,36 @@ For a description of each command, run 'timecraft help <command>'.`
 
 func help(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft help", helpUsage)
-	parseFlags(flagSet, args)
+	args = parseFlags(flagSet, args)
 
-	var cmd string
-	var msg string
+	for i, cmd := range args {
+		var msg string
 
-	if args = flagSet.Args(); len(args) > 0 {
-		cmd = args[0]
+		if i != 0 {
+			fmt.Println("---")
+		}
+
+		switch cmd {
+		case "describe":
+			msg = describeUsage
+		case "get":
+			msg = getUsage
+		case "help", "":
+			msg = helpUsage
+		case "profile":
+			msg = profileUsage
+		case "run":
+			msg = runUsage
+		case "replay":
+			msg = replayUsage
+		case "version":
+			msg = versionUsage
+		default:
+			fmt.Printf("timecraft help %s: unknown command\n", cmd)
+			return ExitCode(1)
+		}
+
+		fmt.Println(msg)
 	}
-
-	switch cmd {
-	case "describe":
-		msg = describeUsage
-	case "get":
-		msg = getUsage
-	case "help", "":
-		msg = helpUsage
-	case "profile":
-		msg = profileUsage
-	case "run":
-		msg = runUsage
-	case "replay":
-		msg = replayUsage
-	case "version":
-		msg = versionUsage
-	default:
-		fmt.Printf("timecraft help %s: unknown command\n", cmd)
-		return ExitCode(1)
-	}
-
-	fmt.Println(msg)
 	return nil
 }

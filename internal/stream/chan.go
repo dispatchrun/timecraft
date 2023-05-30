@@ -11,7 +11,7 @@ func Opt[T any](val T, err error) Optional[T] {
 	return Optional[T]{val: val, err: err}
 }
 
-func (opt *Optional[T]) Value() (T, error) {
+func (opt Optional[T]) Value() (T, error) {
 	return opt.val, opt.err
 }
 
