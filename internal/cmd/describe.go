@@ -33,9 +33,9 @@ Usage:	timecraft describe <resource type> <resource ids...> [options]
 Examples:
 
    $ timecraft describe log e1c6ae6e-caa8-45c1-bc9b-827617347063
-   ID: e1c6ae6e-caa8-45c1-bc9b-827617347063
-   Size: 1.62 KiB/3.88 KiB +64 B (compression: 58.27%)
-   Start: 3h ago, Mon, 29 May 2023 23:00:41 UTC
+   ID:      e1c6ae6e-caa8-45c1-bc9b-827617347063
+   Size:    1.62 KiB/3.88 KiB +64 B (compression: 58.27%)
+   Start:   3h ago, Mon, 29 May 2023 23:00:41 UTC
    Records: 27 (1 batch)
    ---
    SEGMENT  RECORDS  BATCHES  SIZE      UNCOMPRESSED SIZE  COMPRESSED SIZE  COMPRESSION RATIO
@@ -352,7 +352,7 @@ type configDescriptor struct {
 }
 
 func (desc *configDescriptor) Format(w fmt.State, _ rune) {
-	fmt.Fprintf(w, "ID: %s\n", desc.id)
+	fmt.Fprintf(w, "ID:      %s\n", desc.id)
 	fmt.Fprintf(w, "Runtime: %s (%s)\n", desc.runtime.runtime, desc.runtime.version)
 	fmt.Fprintf(w, "Modules:\n")
 	for _, module := range desc.modules {
@@ -375,7 +375,7 @@ type moduleDescriptor struct {
 }
 
 func (desc *moduleDescriptor) Format(w fmt.State, _ rune) {
-	fmt.Fprintf(w, "ID: %s\n", desc.id)
+	fmt.Fprintf(w, "ID:   %s\n", desc.id)
 	fmt.Fprintf(w, "Name: %s\n", desc.name)
 	fmt.Fprintf(w, "Size: %v\n", desc.size)
 }
@@ -391,8 +391,8 @@ type processDescriptor struct {
 }
 
 func (desc *processDescriptor) Format(w fmt.State, _ rune) {
-	fmt.Fprintf(w, "ID: %s\n", desc.id)
-	fmt.Fprintf(w, "Start: %s, %s\n", desc.startTime, time.Time(desc.startTime).Format(time.RFC1123))
+	fmt.Fprintf(w, "ID:      %s\n", desc.id)
+	fmt.Fprintf(w, "Start:   %s, %s\n", desc.startTime, time.Time(desc.startTime).Format(time.RFC1123))
 	fmt.Fprintf(w, "Runtime: %s (%s)\n", desc.runtime.runtime, desc.runtime.version)
 	fmt.Fprintf(w, "Modules:\n")
 	for _, module := range desc.modules {
@@ -419,7 +419,7 @@ type runtimeDescriptor struct {
 }
 
 func (desc *runtimeDescriptor) Format(w fmt.State, _ rune) {
-	fmt.Fprintf(w, "ID: %s\n", desc.id)
+	fmt.Fprintf(w, "ID:      %s\n", desc.id)
 	fmt.Fprintf(w, "Runtime: %s\n", desc.runtime)
 	fmt.Fprintf(w, "Version: %s\n", desc.version)
 }
@@ -464,9 +464,8 @@ func (desc *logSegment) Format(w fmt.State, _ rune) {
 	}
 
 	fmt.Fprintf(w, "Segment: %d\n", desc.Number)
-	fmt.Fprintf(w, "Size: %s/%s +%s (compression: %s)\n", desc.CompressedSize, desc.UncompressedSize, desc.Size-desc.CompressedSize, desc.CompressionRatio)
-
-	fmt.Fprintf(w, "Start: %s, %s\n", startTime, time.Time(startTime).Format(time.RFC1123))
+	fmt.Fprintf(w, "Size:    %s/%s +%s (compression: %s)\n", desc.CompressedSize, desc.UncompressedSize, desc.Size-desc.CompressedSize, desc.CompressionRatio)
+	fmt.Fprintf(w, "Start:   %s, %s\n", startTime, time.Time(startTime).Format(time.RFC1123))
 	fmt.Fprintf(w, "Records: %d (%d batch)\n", desc.NumRecords, len(desc.RecordBatches))
 	fmt.Fprintf(w, "---\n")
 
@@ -498,9 +497,9 @@ func (desc *logDescriptor) Format(w fmt.State, _ rune) {
 	}
 	compressionRatio := 1 - human.Ratio(compressedSize)/human.Ratio(uncompressedSize)
 
-	fmt.Fprintf(w, "ID: %s\n", desc.ProcessID)
-	fmt.Fprintf(w, "Size: %s/%s +%s (compression: %s)\n", compressedSize, uncompressedSize, metadataSize, compressionRatio)
-	fmt.Fprintf(w, "Start: %s, %s\n", desc.StartTime, time.Time(desc.StartTime).Format(time.RFC1123))
+	fmt.Fprintf(w, "ID:      %s\n", desc.ProcessID)
+	fmt.Fprintf(w, "Size:    %s/%s +%s (compression: %s)\n", compressedSize, uncompressedSize, metadataSize, compressionRatio)
+	fmt.Fprintf(w, "Start:   %s, %s\n", desc.StartTime, time.Time(desc.StartTime).Format(time.RFC1123))
 	fmt.Fprintf(w, "Records: %d (%d batch)\n", numRecords, numBatches)
 	fmt.Fprintf(w, "---\n")
 
