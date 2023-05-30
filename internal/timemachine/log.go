@@ -52,9 +52,17 @@ func (r *LogReader) Close() error {
 // The RecordBatch is only valid until the next call to ReadRecordBatch.
 func (r *LogReader) ReadRecordBatch() (*RecordBatch, error) {
 	if r.batch.reader.N > 0 {
-		if _, err := io.Copy(io.Discard, &r.batch.reader); err != nil {
+		var err error
+		if s, ok := r.batch.reader.R.(io.Seeker); ok {
+			_, err = s.Seek(r.batch.reader.N, io.SeekCurrent)
+		} else {
+			_, err = io.Copy(io.Discard, &r.batch.reader)
+		}
+		if err != nil {
 			return nil, err
 		}
+		r.batch.reader.R = nil
+		r.batch.reader.N = 0
 	}
 	buffer.Release(&r.batchFrame, &frameBufferPool)
 	var err error

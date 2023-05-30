@@ -23,7 +23,7 @@ Usage:	timecraft get <resource type> [options]
 
    The get sub-command gives access to the state of the time machine registry.
    The command must be followed by the name of resources to display, which must
-   be one of config, module, process, or runtime.
+   be one of config, log, module, process, or runtime.
    (the command also accepts plurals and abbreviations of the resource names)
 
 Examples:
@@ -65,6 +65,13 @@ var resources = [...]resource{
 		get:       getConfigs,
 		describe:  describeConfig,
 		lookup:    lookupConfig,
+	},
+	{
+		typ:       "log",
+		alt:       []string{"logs"},
+		mediaType: format.TypeTimecraftManifest,
+		describe:  describeLog,
+		lookup:    describeLog,
 	},
 	{
 		typ:       "module",
@@ -127,6 +134,27 @@ Did you mean?%s`, resourceTypeLookup, joinResourceTypes(matchingResources, "\n  
 		return err
 	}
 
+	// We make a special case for the log segments because they are not
+	// immutable objects and therefore don't have descriptors.
+	if resource.typ == "log" {
+		reader := registry.ListLogManifests(ctx) // TODO: time range
+		defer reader.Close()
+
+		var writer stream.WriteCloser[*format.Manifest]
+		switch output {
+		case "json":
+			writer = jsonprint.NewWriter[*format.Manifest](os.Stdout)
+		case "yaml":
+			writer = yamlprint.NewWriter[*format.Manifest](os.Stdout)
+		default:
+			writer = getLogs(ctx, os.Stdout, registry)
+		}
+		defer writer.Close()
+
+		_, err = stream.Copy[*format.Manifest](writer, reader)
+		return err
+	}
+
 	reader := registry.ListResources(ctx, resource.mediaType, timeRange)
 	defer reader.Close()
 
@@ -152,7 +180,7 @@ func getConfigs(ctx context.Context, w io.Writer, reg *timemachine.Registry) str
 		Modules int         `text:"MODULES"`
 		Size    human.Bytes `text:"SIZE"`
 	}
-	return newDescTableWriter(w,
+	return newTableWriter(w,
 		func(c1, c2 config) bool {
 			return c1.ID < c2.ID
 		},
@@ -180,7 +208,7 @@ func getModules(ctx context.Context, w io.Writer, reg *timemachine.Registry) str
 		Name string      `text:"MODULE NAME"`
 		Size human.Bytes `text:"SIZE"`
 	}
-	return newDescTableWriter(w,
+	return newTableWriter(w,
 		func(m1, m2 module) bool {
 			return m1.ID < m2.ID
 		},
@@ -202,7 +230,7 @@ func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry) s
 		ID        format.UUID `text:"PROCESS ID"`
 		StartTime human.Time  `text:"STARTED"`
 	}
-	return newDescTableWriter(w,
+	return newTableWriter(w,
 		func(p1, p2 process) bool {
 			return time.Time(p1.StartTime).Before(time.Time(p2.StartTime))
 		},
@@ -224,7 +252,7 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry) st
 		Runtime string `text:"RUNTIME NAME"`
 		Version string `text:"VERSION"`
 	}
-	return newDescTableWriter(w,
+	return newTableWriter(w,
 		func(r1, r2 runtime) bool {
 			return r1.ID < r2.ID
 		},
@@ -241,9 +269,33 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry) st
 		})
 }
 
-func newDescTableWriter[T any](w io.Writer, orderBy func(T, T) bool, conv func(*format.Descriptor) (T, error)) stream.WriteCloser[*format.Descriptor] {
-	tw := textprint.NewTableWriter[T](w, textprint.OrderBy(orderBy))
-	cw := stream.ConvertWriter[T](tw, conv)
+func getLogs(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Manifest] {
+	type manifest struct {
+		ProcessID format.UUID `text:"PROCESS ID"`
+		Segments  human.Count `text:"SEGMENTS"`
+		Size      human.Bytes `text:"SIZE"`
+		StartTime human.Time  `text:"STARTED"`
+	}
+	return newTableWriter(w,
+		func(m1, m2 manifest) bool {
+			return time.Time(m1.StartTime).Before(time.Time(m2.StartTime))
+		},
+		func(m *format.Manifest) (manifest, error) {
+			manifest := manifest{
+				ProcessID: m.ProcessID,
+				Segments:  human.Count(len(m.Segments)),
+				StartTime: human.Time(m.StartTime),
+			}
+			for _, segment := range m.Segments {
+				manifest.Size += human.Bytes(segment.Size)
+			}
+			return manifest, nil
+		})
+}
+
+func newTableWriter[T1, T2 any](w io.Writer, orderBy func(T1, T1) bool, conv func(T2) (T1, error)) stream.WriteCloser[T2] {
+	tw := textprint.NewTableWriter[T1](w, textprint.OrderBy(orderBy))
+	cw := stream.ConvertWriter[T1](tw, conv)
 	return stream.NewWriteCloser(cw, tw)
 }
 

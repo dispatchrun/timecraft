@@ -54,7 +54,7 @@ func TestBytesFormat(t *testing.T) {
 		out string
 	}{
 		{fmt: "%v", out: "0", in: 0},
-		{fmt: "%v", out: "2", in: 2},
+		{fmt: "%v", out: "2 B", in: 2},
 
 		{fmt: "%v", out: "1.95 KiB", in: 2 * KB},
 		{fmt: "%v", out: "1.91 MiB", in: 2 * MB},
