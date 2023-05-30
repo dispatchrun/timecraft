@@ -47,20 +47,18 @@ Examples:
    0        27       1        1.68 KiB  3.88 KiB           1.62 KiB         58.27%
 
 Options:
+   -c, --config         Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help           Show this usage information
    -o, --ouptut format  Output format, one of: text, json, yaml
-   -r, --registry path  Path to the timecraft registry (default to ~/.timecraft)
 `
 
 func describe(ctx context.Context, args []string) error {
 	var (
-		output       = outputFormat("text")
-		registryPath = human.Path("~/.timecraft")
+		output = outputFormat("text")
 	)
 
 	flagSet := newFlagSet("timecraft describe", describeUsage)
 	customVar(flagSet, &output, "o", "output")
-	customVar(flagSet, &registryPath, "r", "registry")
 	args = parseFlags(flagSet, args)
 
 	if len(args) == 0 {
@@ -71,13 +69,15 @@ func describe(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-
 	resourceIDs := args[1:]
 	if len(resourceIDs) == 0 {
 		return fmt.Errorf(`no resources were specified, use 'timecraft describe %s <resources ids...>'`, resource.typ)
 	}
-
-	registry, err := openRegistry(registryPath)
+	config, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	registry, err := config.openRegistry()
 	if err != nil {
 		return err
 	}

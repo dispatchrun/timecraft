@@ -18,19 +18,13 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	_ "net/http/pprof"
-	"os"
 	"strings"
 
-	"github.com/stealthrocket/timecraft/internal/object"
-	"github.com/stealthrocket/timecraft/internal/print/human"
-	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 )
@@ -78,6 +72,8 @@ func Root(ctx context.Context, args ...string) int {
 	var err error
 	cmd, args := args[0], args[1:]
 	switch cmd {
+	case "config":
+		err = config(ctx, args)
 	case "describe":
 		err = describe(ctx, args)
 	case "export":
@@ -185,37 +181,10 @@ func (m stringMap) Set(value string) error {
 	return nil
 }
 
-func createRegistry(path human.Path) (*timemachine.Registry, error) {
-	p, err := path.Resolve()
-	if err != nil {
-		return nil, err
-	}
-	if err := os.Mkdir(p, 0777); err != nil {
-		if !errors.Is(err, fs.ErrExist) {
-			return nil, err
-		}
-	}
-	return openRegistry(human.Path(p))
-}
-
-func openRegistry(path human.Path) (*timemachine.Registry, error) {
-	p, err := path.Resolve()
-	if err != nil {
-		return nil, err
-	}
-	store, err := object.DirStore(p)
-	if err != nil {
-		return nil, err
-	}
-	registry := &timemachine.Registry{
-		Store: store,
-	}
-	return registry, nil
-}
-
 func newFlagSet(cmd, usage string) *flag.FlagSet {
 	flagSet := flag.NewFlagSet(cmd, flag.ExitOnError)
 	flagSet.Usage = func() { fmt.Println(usage) }
+	customVar(flagSet, &configPath, "c", "config")
 	return flagSet
 }
 

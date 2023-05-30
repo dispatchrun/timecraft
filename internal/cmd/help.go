@@ -21,8 +21,13 @@ Debugging Commands:
    profile   Generate performance profile from execution records
 
 Other Commands:
+   config    View or edit the timecraft configuration
    help      Show usage information about timecraft commands
    version   Show the timecraft version information
+
+Global Options:
+   -c, --config  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -h, --help    Show usage information
 
 For a description of each command, run 'timecraft help <command>'.`
 
@@ -41,6 +46,8 @@ func help(ctx context.Context, args []string) error {
 		}
 
 		switch cmd {
+		case "config":
+			msg = configUsage
 		case "describe":
 			msg = describeUsage
 		case "export":
