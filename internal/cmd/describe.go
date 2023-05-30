@@ -513,17 +513,17 @@ func (desc *moduleDescriptor) Format(w fmt.State, _ rune) {
 	if len(desc.imports.functions)+len(desc.exports.functions) > 0 {
 		fmt.Fprintf(w, "\n")
 		fw := textprint.NewTableWriter[functionDefinition](w)
-		fw.Write(desc.imports.functions)
-		fw.Write(desc.exports.functions)
-		fw.Close()
+		_, _ = fw.Write(desc.imports.functions)
+		_, _ = fw.Write(desc.exports.functions)
+		_ = fw.Close()
 	}
 
 	if len(desc.imports.memories)+len(desc.exports.memories) > 0 {
 		fmt.Fprintf(w, "\n")
 		mw := textprint.NewTableWriter[memoryDefinition](w)
-		mw.Write(desc.imports.memories)
-		mw.Write(desc.exports.memories)
-		mw.Close()
+		_, _ = mw.Write(desc.imports.memories)
+		_, _ = mw.Write(desc.exports.memories)
+		_ = mw.Close()
 	}
 }
 
