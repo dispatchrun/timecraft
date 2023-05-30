@@ -440,7 +440,7 @@ type recordBatch struct {
 	Duration         human.Duration `json:"-"                yaml:"-"                text:"DURATION"`
 	UncompressedSize human.Bytes    `json:"uncompressedSize" yaml:"uncompressedSize" text:"UNCOMPRESSED SIZE"`
 	CompressedSize   human.Bytes    `json:"compressedSize"   yaml:"compressedSize"   text:"COMPRESSED SIZE"`
-	CompressionRatio human.Ratio    `json:"-"                 yaml:"-"                text:"COMPRESSION RATIO"`
+	CompressionRatio human.Ratio    `json:"-"                yaml:"-"                text:"COMPRESSION RATIO"`
 	Compression      string         `json:"compression"      yaml:"compression"      text:"COMPRESSION"`
 }
 
