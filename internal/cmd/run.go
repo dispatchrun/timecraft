@@ -67,7 +67,7 @@ func run(ctx context.Context, args []string) (err error) {
 	boolVar(flagSet, &debugger, "d", "debug")
 	customVar(flagSet, &batchSize, "record-batch-size")
 	customVar(flagSet, &compression, "record-compression")
-	parseFlags(flagSet, args)
+	_ = flagSet.Parse(args)
 
 	envs = append(os.Environ(), envs...)
 	args = flagSet.Args()
@@ -265,7 +265,10 @@ func exec(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.Com
 
 	switch e := err.(type) {
 	case *sys.ExitError:
-		return ExitCode(e.ExitCode())
+		if exitCode := e.ExitCode(); exitCode != 0 {
+			return ExitCode(e.ExitCode())
+		}
+		err = nil
 	}
 
 	return err

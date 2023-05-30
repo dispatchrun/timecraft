@@ -12,13 +12,15 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"sync"
 	"time"
 
-	"golang.org/x/exp/slices"
-
+	"github.com/google/pprof/profile"
+	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/stream"
+	"golang.org/x/exp/slices"
 )
 
 var (
@@ -47,12 +49,6 @@ func (tr TimeRange) Duration() time.Duration {
 	return tr.End.Sub(tr.Start)
 }
 
-type LogSegment struct {
-	Number    int
-	Size      int64
-	CreatedAt time.Time
-}
-
 type Registry struct {
 	// The object store that the registry uses to load and store data.
 	Store object.Store
@@ -79,6 +75,51 @@ func (reg *Registry) CreateProcess(ctx context.Context, process *format.Process,
 	return reg.createObject(ctx, process, tags)
 }
 
+func (reg *Registry) CreateProfile(ctx context.Context, processID format.UUID, profileType string, prof *profile.Profile) (*format.Descriptor, error) {
+	buffer := new(bytes.Buffer)
+	if err := prof.Write(buffer); err != nil {
+		return nil, err
+	}
+
+	timeRange := TimeRange{
+		Start: time.Unix(0, prof.TimeNanos),
+		End:   time.Unix(0, prof.TimeNanos+prof.DurationNanos),
+	}
+
+	annotations := make(map[string]string, 2+len(reg.CreateTags))
+	assignTags(annotations, reg.CreateTags)
+	assignTags(annotations, []object.Tag{{
+		Name:  "timecraft.object.mediatype",
+		Value: format.TypeTimecraftProfile.String(),
+	}, {
+		Name:  "timecraft.process.id",
+		Value: processID.String(),
+	}, {
+		Name:  "timecraft.profile.type",
+		Value: profileType,
+	}, {
+		Name:  "timecraft.profile.start",
+		Value: timeRange.Start.Format(time.RFC3339Nano),
+	}, {
+		Name:  "timecraft.profile.end",
+		Value: timeRange.End.Format(time.RFC3339Nano),
+	}})
+
+	tags := makeTags(annotations)
+	hash := HashProfile(processID, profileType, timeRange)
+	name := reg.objectKey(hash)
+	desc := &format.Descriptor{
+		MediaType:   format.TypeTimecraftProfile,
+		Digest:      hash,
+		Size:        int64(buffer.Len()),
+		Annotations: annotations,
+	}
+	if err := reg.Store.CreateObject(ctx, name, buffer, tags...); err != nil {
+		return nil, err
+	}
+	return desc, nil
+}
+
 func (reg *Registry) LookupModule(ctx context.Context, hash format.Hash) (*format.Module, error) {
 	module := new(format.Module)
 	return module, reg.lookupObject(ctx, hash, module)
@@ -99,8 +140,21 @@ func (reg *Registry) LookupProcess(ctx context.Context, hash format.Hash) (*form
 	return process, reg.lookupObject(ctx, hash, process)
 }
 
+func (reg *Registry) LookupProfile(ctx context.Context, hash format.Hash) (*profile.Profile, error) {
+	r, err := reg.Store.ReadObject(ctx, reg.objectKey(hash))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return profile.Parse(r)
+}
+
 func (reg *Registry) LookupDescriptor(ctx context.Context, hash format.Hash) (*format.Descriptor, error) {
 	return reg.lookupDescriptor(ctx, hash)
+}
+
+func (reg *Registry) LookupResource(ctx context.Context, hash format.Hash) (io.ReadCloser, error) {
+	return reg.Store.ReadObject(ctx, reg.objectKey(hash))
 }
 
 func (reg *Registry) ListModules(ctx context.Context, timeRange TimeRange, tags ...object.Tag) stream.ReadCloser[*format.Descriptor] {
@@ -156,13 +210,17 @@ func makeTags(annotations map[string]string) []object.Tag {
 			Value: value,
 		})
 	}
-	slices.SortFunc(tags, func(t1, t2 object.Tag) bool {
-		return t1.Name < t2.Name
-	})
+	sortTags(tags)
 	return tags
 }
 
-func sha256Hash(data []byte, tags []object.Tag) format.Hash {
+func sortTags(tags []object.Tag) {
+	slices.SortFunc(tags, func(t1, t2 object.Tag) bool {
+		return t1.Name < t2.Name
+	})
+}
+
+func hashTags(data []byte, tags []object.Tag) format.Hash {
 	buf := object.AppendTags(make([]byte, 0, 256), tags...)
 	sha := sha256.New()
 	sha.Write(data)
@@ -174,7 +232,7 @@ func sha256Hash(data []byte, tags []object.Tag) format.Hash {
 }
 
 func (reg *Registry) createObject(ctx context.Context, value format.ResourceMarshaler, extraTags []object.Tag) (*format.Descriptor, error) {
-	b, err := value.MarshalResource()
+	data, err := value.MarshalResource()
 	if err != nil {
 		return nil, err
 	}
@@ -184,17 +242,17 @@ func (reg *Registry) createObject(ctx context.Context, value format.ResourceMars
 	assignTags(annotations, reg.CreateTags)
 	assignTags(annotations, extraTags)
 	assignTags(annotations, []object.Tag{{
-		Name:  "timecraft.object.media-type",
+		Name:  "timecraft.object.mediatype",
 		Value: mediaType.String(),
 	}})
 
 	tags := makeTags(annotations)
-	hash := sha256Hash(b, tags)
+	hash := hashTags(data, tags)
 	name := reg.objectKey(hash)
 	desc := &format.Descriptor{
 		MediaType:   mediaType,
 		Digest:      hash,
-		Size:        int64(len(b)),
+		Size:        int64(len(data)),
 		Annotations: annotations,
 	}
 
@@ -206,7 +264,7 @@ func (reg *Registry) createObject(ctx context.Context, value format.ResourceMars
 		return desc, nil
 	}
 
-	if err := reg.Store.CreateObject(ctx, name, bytes.NewReader(b), tags...); err != nil {
+	if err := reg.Store.CreateObject(ctx, name, bytes.NewReader(data), tags...); err != nil {
 		return nil, errorCreateObject(hash, value, err)
 	}
 	return desc, nil
@@ -282,8 +340,8 @@ func newDescriptor(info object.Info) *format.Descriptor {
 	annotations := make(map[string]string, len(info.Tags))
 	assignTags(annotations, info.Tags)
 
-	mediaType := annotations["timecraft.object.media-type"]
-	delete(annotations, "timecraft.object.media-type")
+	mediaType := annotations["timecraft.object.mediatype"]
+	delete(annotations, "timecraft.object.mediatype")
 
 	return &format.Descriptor{
 		MediaType:   format.MediaType(mediaType),
@@ -299,7 +357,7 @@ func (reg *Registry) listObjects(ctx context.Context, mediaType format.MediaType
 	}
 
 	filters := []object.Filter{
-		object.MATCH("timecraft.object.media-type", mediaType.String()),
+		object.MATCH("timecraft.object.mediatype", mediaType.String()),
 		object.AFTER(timeRange.Start),
 		object.BEFORE(timeRange.End),
 	}
@@ -350,15 +408,15 @@ func (w *logSegmentWriter) Close() error {
 	return err
 }
 
-func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID) stream.ReadCloser[LogSegment] {
+func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID) stream.ReadCloser[format.LogSegment] {
 	reader := reg.Store.ListObjects(ctx, "log/"+processID.String()+"/data/")
-	return convert(reader, func(info object.Info) (LogSegment, error) {
+	return convert(reader, func(info object.Info) (format.LogSegment, error) {
 		number := path.Base(info.Name)
 		n, err := strconv.ParseInt(number, 16, 32)
 		if err != nil || n < 0 {
-			return LogSegment{}, fmt.Errorf("invalid log segment entry: %q", info.Name)
+			return format.LogSegment{}, fmt.Errorf("invalid log segment entry: %q", info.Name)
 		}
-		segment := LogSegment{
+		segment := format.LogSegment{
 			Number:    int(n),
 			Size:      info.Size,
 			CreatedAt: info.CreatedAt,
@@ -366,6 +424,48 @@ func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID)
 		return segment, nil
 	})
 }
+
+func (reg *Registry) ListLogManifests(ctx context.Context) stream.ReadCloser[*format.Manifest] {
+	ch := make(chan stream.Optional[*format.Manifest])
+	ctx, cancel := context.WithCancel(ctx)
+
+	go func(reader stream.ReadCloser[object.Info]) {
+		defer close(ch)
+		defer reader.Close()
+
+		it := stream.Iter[object.Info](reader)
+		wg := sync.WaitGroup{}
+
+		for it.Next() {
+			processID, err := uuid.Parse(path.Base(it.Value().Name))
+			if err != nil {
+				continue
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ch <- stream.Opt(reg.LookupLogManifest(ctx, processID))
+			}()
+		}
+
+		if err := it.Err(); err != nil {
+			ch <- stream.Opt[*format.Manifest](nil, err)
+		}
+
+		wg.Wait()
+	}(reg.Store.ListObjects(ctx, "log/"))
+
+	return stream.NewReadCloser(stream.ChanReader(ch), closerFunc(func() error {
+		cancel()
+		for range ch {
+		}
+		return nil
+	}))
+}
+
+type closerFunc func() error
+
+func (f closerFunc) Close() error { return f() }
 
 func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUID) (*format.Manifest, error) {
 	r, err := reg.Store.ReadObject(ctx, reg.manifestKey(processID))
@@ -380,10 +480,24 @@ func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUI
 	if err != nil {
 		return nil, err
 	}
+
 	m := new(format.Manifest)
 	if err := m.UnmarshalResource(b); err != nil {
 		return nil, err
 	}
+	m.ProcessID = processID
+
+	segments := reg.ListLogSegments(ctx, processID)
+	defer segments.Close()
+
+	m.Segments, err = stream.ReadAll[format.LogSegment](segments)
+	if err != nil {
+		return nil, err
+	}
+
+	slices.SortFunc(m.Segments, func(s1, s2 format.LogSegment) bool {
+		return s1.Number < s2.Number
+	})
 	return m, nil
 }
 

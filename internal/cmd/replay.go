@@ -40,9 +40,8 @@ func replay(ctx context.Context, args []string) (err error) {
 	customVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &debugger, "d", "debug")
 	boolVar(flagSet, &trace, "T", "trace")
-	parseFlags(flagSet, args)
+	args = parseFlags(flagSet, args)
 
-	args = flagSet.Args()
 	if len(args) != 1 {
 		return errors.New(`expected exactly one process id as argument`)
 	}

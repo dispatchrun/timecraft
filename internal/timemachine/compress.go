@@ -12,9 +12,9 @@ import (
 type Compression = types.Compression
 
 const (
-	Uncompressed Compression = types.CompressionUncompressed
-	Snappy       Compression = types.CompressionSnappy
-	Zstd         Compression = types.CompressionZstd
+	Uncompressed Compression = types.Compressionuncompressed
+	Snappy       Compression = types.Compressionsnappy
+	Zstd         Compression = types.Compressionzstd
 )
 
 var (

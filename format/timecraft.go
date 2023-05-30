@@ -72,6 +72,7 @@ const (
 	TypeTimecraftRuntime  MediaType = "application/vnd.timecraft.runtime.v1+json"
 	TypeTimecraftConfig   MediaType = "application/vnd.timecraft.config.v1+json"
 	TypeTimecraftProcess  MediaType = "application/vnd.timecraft.process.v1+json"
+	TypeTimecraftProfile  MediaType = "application/vnd.timecraft.profile.v1+pprof"
 	TypeTimecraftManifest MediaType = "application/vnd.timecraft.manifest.v1+json"
 	TypeTimecraftModule   MediaType = "application/vnd.timecraft.module.v1+wasm"
 )
@@ -197,8 +198,10 @@ func jsonDecode(b []byte, value any) error {
 }
 
 type Manifest struct {
-	Process   *Descriptor `json:"process"   yaml:"process"`
-	StartTime time.Time   `json:"startTime" yaml:"startTime"`
+	ProcessID UUID         `json:"-"                  yaml:"-"`
+	StartTime time.Time    `json:"startTime"          yaml:"startTime"`
+	Process   *Descriptor  `json:"process"            yaml:"process"`
+	Segments  []LogSegment `json:"segments,omitempty" yaml:"segments,omitempty"`
 }
 
 func (m *Manifest) ContentType() MediaType {
@@ -211,6 +214,12 @@ func (m *Manifest) MarshalResource() ([]byte, error) {
 
 func (m *Manifest) UnmarshalResource(b []byte) error {
 	return jsonDecode(b, m)
+}
+
+type LogSegment struct {
+	Number    int       `json:"number"    yaml:"number"`
+	Size      int64     `json:"size"      yaml:"size"`
+	CreatedAt time.Time `json:"createdAt" yaml:"createdAt"`
 }
 
 var (
