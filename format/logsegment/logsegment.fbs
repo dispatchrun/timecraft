@@ -42,32 +42,6 @@ table Record {
  function_call:[ubyte];
 }
 
-// Details about a function call.
-table FunctionCall {
- // State of the WebAssembly stack before and after the function was called.
- // The first {param_count} values are the input parameters, and the remaining
- // values are the return values.
- stack:[ulong];
- // Captured sections of the WebAssembly module's linear memory, stored
- // contiguously and indexed by {memory_access}.
- memory:[ubyte];
- // Ordered collection of memory reads and writes made by the function.
- memory_access:[MemoryAccess];
-}
-
-// MemoryAccess represents the capture of a section of memory.
-struct MemoryAccess {
- // Byte offset in the WebAssembly module's linear memory where the memory
- // access starts.
- offset:uint;
- // Byte offset into {FunctionCall.memory}. The length of the captured memory
- // can be derived by comparing the {index_offset} with that of the next
- // {FunctionCall.memory_access}. The length of the final memory region can
- // be derived by comparing the {index_offset} with the length of
- // {FunctionCall.memory}.
- index_offset:uint;
-}
-
 root_type RecordBatch;
 
 file_identifier "TL.0";

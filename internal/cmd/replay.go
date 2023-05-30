@@ -35,9 +35,8 @@ func replay(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft replay", replayUsage)
 	customVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
-	parseFlags(flagSet, args)
+	args = parseFlags(flagSet, args)
 
-	args = flagSet.Args()
 	if len(args) != 1 {
 		return errors.New(`expected exactly one process id as argument`)
 	}

@@ -31,6 +31,8 @@ import (
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 )
 
 // ExitCode is an error type returned from Root to indicate the exit code that
@@ -66,7 +68,7 @@ func init() {
 // Root is the timecraft entrypoint.
 func Root(ctx context.Context, args ...string) int {
 	flagSet := newFlagSet("timecraft", helpUsage)
-	parseFlags(flagSet, args)
+	_ = flagSet.Parse(args)
 
 	if args = flagSet.Args(); len(args) == 0 {
 		fmt.Println(rootUsage)
@@ -78,6 +80,8 @@ func Root(ctx context.Context, args ...string) int {
 	switch cmd {
 	case "describe":
 		err = describe(ctx, args)
+	case "export":
+		err = export(ctx, args)
 	case "get":
 		err = get(ctx, args)
 	case "help":
@@ -156,6 +160,31 @@ func (s *stringList) Set(value string) error {
 	return nil
 }
 
+type stringMap map[string]string
+
+func (m stringMap) String() string {
+	b := new(strings.Builder)
+	keys := maps.Keys(m)
+	slices.Sort(keys)
+	for i, k := range keys {
+		if i != 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(k)
+		b.WriteByte(':')
+		b.WriteString(m[k])
+	}
+	return b.String()
+}
+
+func (m stringMap) Set(value string) error {
+	k, v, _ := strings.Cut(value, ":")
+	k = strings.TrimSpace(k)
+	v = strings.TrimSpace(v)
+	m[k] = v
+	return nil
+}
+
 func createRegistry(path human.Path) (*timemachine.Registry, error) {
 	p, err := path.Resolve()
 	if err != nil {
@@ -190,10 +219,29 @@ func newFlagSet(cmd, usage string) *flag.FlagSet {
 	return flagSet
 }
 
-func parseFlags(f *flag.FlagSet, args []string) {
-	// The flag set is consutrcted with ExitOnError, it should never error.
-	if err := f.Parse(args); err != nil {
-		panic(err)
+// parseFlags is a greedy parser which consumes all options known to f and
+// returns the remaining arguments.
+func parseFlags(f *flag.FlagSet, args []string) []string {
+	var unknownArgs []string
+	for {
+		// The flag set is constructed with ExitOnError, it should never error.
+		if err := f.Parse(args); err != nil {
+			panic(err)
+		}
+		if args = f.Args(); len(args) == 0 {
+			return unknownArgs
+		}
+		i := slices.IndexFunc(args, func(s string) bool {
+			return strings.HasPrefix(s, "-")
+		})
+		if i < 0 {
+			i = len(args)
+		}
+		if i == 0 {
+			panic("parsing command line arguments did not error on " + args[0])
+		}
+		unknownArgs = append(unknownArgs, args[:i]...)
+		args = args[i:]
 	}
 }
 

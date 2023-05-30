@@ -10,6 +10,7 @@ Usage:	timecraft <command> [options]
 
 Registry Commands:
    describe  Show detailed information about specific resources
+   export    Export resources to local files
    get       Display resources from the time machine registry
 
 Runtime Commands:
@@ -27,35 +28,41 @@ For a description of each command, run 'timecraft help <command>'.`
 
 func help(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft help", helpUsage)
-	parseFlags(flagSet, args)
-
-	var cmd string
-	var msg string
-
-	if args = flagSet.Args(); len(args) > 0 {
-		cmd = args[0]
+	args = parseFlags(flagSet, args)
+	if len(args) == 0 {
+		args = []string{"help"}
 	}
 
-	switch cmd {
-	case "describe":
-		msg = describeUsage
-	case "get":
-		msg = getUsage
-	case "help", "":
-		msg = helpUsage
-	case "profile":
-		msg = profileUsage
-	case "run":
-		msg = runUsage
-	case "replay":
-		msg = replayUsage
-	case "version":
-		msg = versionUsage
-	default:
-		fmt.Printf("timecraft help %s: unknown command\n", cmd)
-		return ExitCode(1)
-	}
+	for i, cmd := range args {
+		var msg string
 
-	fmt.Println(msg)
+		if i != 0 {
+			fmt.Println("---")
+		}
+
+		switch cmd {
+		case "describe":
+			msg = describeUsage
+		case "export":
+			msg = exportUsage
+		case "get":
+			msg = getUsage
+		case "help":
+			msg = helpUsage
+		case "profile":
+			msg = profileUsage
+		case "run":
+			msg = runUsage
+		case "replay":
+			msg = replayUsage
+		case "version":
+			msg = versionUsage
+		default:
+			fmt.Printf("timecraft help %s: unknown command\n", cmd)
+			return ExitCode(1)
+		}
+
+		fmt.Println(msg)
+	}
 	return nil
 }

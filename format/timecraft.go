@@ -72,6 +72,7 @@ const (
 	TypeTimecraftRuntime  MediaType = "application/vnd.timecraft.runtime.v1+json"
 	TypeTimecraftConfig   MediaType = "application/vnd.timecraft.config.v1+json"
 	TypeTimecraftProcess  MediaType = "application/vnd.timecraft.process.v1+json"
+	TypeTimecraftProfile  MediaType = "application/vnd.timecraft.profile.v1+pprof"
 	TypeTimecraftManifest MediaType = "application/vnd.timecraft.manifest.v1+json"
 	TypeTimecraftModule   MediaType = "application/vnd.timecraft.module.v1+wasm"
 )

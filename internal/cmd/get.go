@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/print/jsonprint"
@@ -23,7 +25,7 @@ Usage:	timecraft get <resource type> [options]
 
    The get sub-command gives access to the state of the time machine registry.
    The command must be followed by the name of resources to display, which must
-   be one of config, log, module, process, or runtime.
+   be one of config, log, module, process, profile, or runtime.
    (the command also accepts plurals and abbreviations of the resource names)
 
 Examples:
@@ -66,6 +68,7 @@ var resources = [...]resource{
 		describe:  describeConfig,
 		lookup:    lookupConfig,
 	},
+
 	{
 		typ:       "log",
 		alt:       []string{"logs"},
@@ -73,6 +76,7 @@ var resources = [...]resource{
 		describe:  describeLog,
 		lookup:    describeLog,
 	},
+
 	{
 		typ:       "module",
 		alt:       []string{"mo", "mod", "mods", "modules"},
@@ -81,6 +85,7 @@ var resources = [...]resource{
 		describe:  describeModule,
 		lookup:    lookupModule,
 	},
+
 	{
 		typ:       "process",
 		alt:       []string{"ps", "proc", "procs", "processes"},
@@ -89,6 +94,16 @@ var resources = [...]resource{
 		describe:  describeProcess,
 		lookup:    lookupProcess,
 	},
+
+	{
+		typ:       "profile",
+		alt:       []string{"prof", "profs", "profiles"},
+		mediaType: format.TypeTimecraftProfile,
+		get:       getProfiles,
+		describe:  describeProfile,
+		lookup:    lookupProfile,
+	},
+
 	{
 		typ:       "runtime",
 		alt:       []string{"rt", "runtimes"},
@@ -109,24 +124,14 @@ func get(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft get", getUsage)
 	customVar(flagSet, &output, "o", "output")
 	customVar(flagSet, &registryPath, "r", "registry")
-	parseFlags(flagSet, args)
+	args = parseFlags(flagSet, args)
 
-	args = flagSet.Args()
-	if len(args) == 0 {
-		return errors.New(`expected exactly one resource type as argument` + useGet())
+	if len(args) != 1 {
+		return errors.New(`expected exactly one resource type as argument` + useCmd("get"))
 	}
-	resourceTypeLookup := args[0]
-	parseFlags(flagSet, args[1:])
-
-	resource, ok := findResource(resourceTypeLookup, resources[:])
-	if !ok {
-		matchingResources := findMatchingResources(resourceTypeLookup, resources[:])
-		if len(matchingResources) == 0 {
-			return fmt.Errorf(`no resources matching '%s'`+useGet(), resourceTypeLookup)
-		}
-		return fmt.Errorf(`no resources matching '%s'
-
-Did you mean?%s`, resourceTypeLookup, joinResourceTypes(matchingResources, "\n   "))
+	resource, err := findResource("get", args[0])
+	if err != nil {
+		return err
 	}
 
 	registry, err := openRegistry(registryPath)
@@ -228,7 +233,7 @@ func getModules(ctx context.Context, w io.Writer, reg *timemachine.Registry) str
 func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
 	type process struct {
 		ID        format.UUID `text:"PROCESS ID"`
-		StartTime human.Time  `text:"STARTED"`
+		StartTime human.Time  `text:"START"`
 	}
 	return newTableWriter(w,
 		func(p1, p2 process) bool {
@@ -242,6 +247,43 @@ func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry) s
 			return process{
 				ID:        p.ID,
 				StartTime: human.Time(p.StartTime),
+			}, nil
+		})
+}
+
+func getProfiles(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
+	type profile struct {
+		ID        string         `text:"PROFILE ID"`
+		ProcessID format.UUID    `text:"PROCESS ID"`
+		Type      string         `text:"TYPE"`
+		StartTime human.Time     `text:"START"`
+		Duration  human.Duration `text:"DURATION"`
+		Size      human.Bytes    `text:"SIZE"`
+	}
+	return newTableWriter(w,
+		func(p1, p2 profile) bool {
+			if p1.ProcessID != p2.ProcessID {
+				return bytes.Compare(p1.ProcessID[:], p2.ProcessID[:]) < 0
+			}
+			if p1.Type != p2.Type {
+				return p1.Type < p2.Type
+			}
+			if !time.Time(p1.StartTime).Equal(time.Time(p2.StartTime)) {
+				return time.Time(p1.StartTime).Before(time.Time(p2.StartTime))
+			}
+			return p1.Duration < p2.Duration
+		},
+		func(desc *format.Descriptor) (profile, error) {
+			processID, _ := uuid.Parse(desc.Annotations["timecraft.process.id"])
+			startTime, _ := time.Parse(time.RFC3339Nano, desc.Annotations["timecraft.profile.start"])
+			endTime, _ := time.Parse(time.RFC3339Nano, desc.Annotations["timecraft.profile.end"])
+			return profile{
+				ID:        desc.Digest.Short(),
+				ProcessID: processID,
+				Type:      desc.Annotations["timecraft.profile.type"],
+				StartTime: human.Time(startTime),
+				Duration:  human.Duration(endTime.Sub(startTime)),
+				Size:      human.Bytes(desc.Size),
 			}, nil
 		})
 }
@@ -273,8 +315,8 @@ func getLogs(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream
 	type manifest struct {
 		ProcessID format.UUID `text:"PROCESS ID"`
 		Segments  human.Count `text:"SEGMENTS"`
+		StartTime human.Time  `text:"START"`
 		Size      human.Bytes `text:"SIZE"`
-		StartTime human.Time  `text:"STARTED"`
 	}
 	return newTableWriter(w,
 		func(m1, m2 manifest) bool {
@@ -299,27 +341,35 @@ func newTableWriter[T1, T2 any](w io.Writer, orderBy func(T1, T1) bool, conv fun
 	return stream.NewWriteCloser(cw, tw)
 }
 
-func findResource(typ string, options []resource) (resource, bool) {
-	for _, option := range options {
-		if option.typ == typ {
-			return option, true
+func findResource(cmd, typ string) (*resource, error) {
+	for i, resource := range resources {
+		if resource.typ == typ {
+			return &resources[i], nil
 		}
-		for _, alt := range option.alt {
+		for _, alt := range resource.alt {
 			if alt == typ {
-				return option, true
+				return &resources[i], nil
 			}
 		}
 	}
-	return resource{}, false
-}
 
-func findMatchingResources(typ string, options []resource) (matches []resource) {
-	for _, option := range options {
-		if prefixLength(option.typ, typ) > 1 || prefixLength(typ, option.typ) > 1 {
-			matches = append(matches, option)
+	var matchingResources []*resource
+	for i, resource := range resources {
+		if prefixLength(resource.typ, typ) > 1 || prefixLength(typ, resource.typ) > 1 {
+			matchingResources = append(matchingResources, &resources[i])
 		}
 	}
-	return matches
+	if len(matchingResources) == 0 {
+		return nil, fmt.Errorf(`no resources matching '%s'%s`, typ, useCmd(cmd))
+	}
+
+	var resourceTypes strings.Builder
+	for _, r := range matchingResources {
+		resourceTypes.WriteString("\n  ")
+		resourceTypes.WriteString(r.typ)
+	}
+
+	return nil, fmt.Errorf("no resources matching '%s'\n\nDid you mean?%s", typ, &resourceTypes)
 }
 
 func prefixLength(base, prefix string) int {
@@ -330,19 +380,10 @@ func prefixLength(base, prefix string) int {
 	return n
 }
 
-func joinResourceTypes(resources []resource, prefix string) string {
-	s := new(strings.Builder)
-	for _, r := range resources {
-		s.WriteString(prefix)
-		s.WriteString(r.typ)
-	}
-	return s.String()
-}
-
-func useGet() string {
+func useCmd(cmd string) string {
 	s := new(strings.Builder)
 	s.WriteString("\n\n")
-	s.WriteString(`Use 'timecraft get <resource type>' where the supported resource types are:`)
+	s.WriteString(`Use 'timecraft ` + cmd + ` <resource type>' where the supported resource types are:`)
 	for _, r := range resources {
 		s.WriteString("\n   ")
 		s.WriteString(r.typ)
