@@ -38,8 +38,8 @@ Examples:
    Start: 3h ago, Mon, 29 May 2023 23:00:41 UTC
    Records: 27 (1 batch)
    ---
-   SEGMENT  RECORDS  BATCHES  SIZE      UNCOMPRESSED SIZE  COMPRESSED SIZE  COMPRESSION RATIO  CREATED
-   0        27       1        1.68 KiB  3.88 KiB           1.62 KiB         58.27%             4h ago
+   SEGMENT  RECORDS  BATCHES  SIZE      UNCOMPRESSED SIZE  COMPRESSED SIZE  COMPRESSION RATIO
+   0        27       1        1.68 KiB  3.88 KiB           1.62 KiB         58.27%
 
 Options:
    -h, --help           Show this usage information
@@ -440,7 +440,7 @@ type recordBatch struct {
 	Duration         human.Duration `json:"-"                yaml:"-"                text:"DURATION"`
 	UncompressedSize human.Bytes    `json:"uncompressedSize" yaml:"uncompressedSize" text:"UNCOMPRESSED SIZE"`
 	CompressedSize   human.Bytes    `json:"compressedSize"   yaml:"compressedSize"   text:"COMPRESSED SIZE"`
-	CompressionRatio human.Ratio    `json:"copmressionRatio" yaml:"compressionRatio" text:"COMPRESSION RATIO"`
+	CompressionRatio human.Ratio    `json:"-"                 yaml:"-"                text:"COMPRESSION RATIO"`
 	Compression      string         `json:"compression"      yaml:"compression"      text:"COMPRESSION"`
 }
 
@@ -453,7 +453,7 @@ type logSegment struct {
 	UncompressedSize human.Bytes    `json:"-"             yaml:"-"             text:"UNCOMPRESSED SIZE"`
 	CompressedSize   human.Bytes    `json:"-"             yaml:"-"             text:"COMPRESSED SIZE"`
 	CompressionRatio human.Ratio    `json:"-"             yaml:"-"             text:"COMPRESSION RATIO"`
-	CreatedAt        human.Time     `json:"createdAt"     yaml:"createdAt"     text:"CREATED"`
+	CreatedAt        human.Time     `json:"createdAt"     yaml:"createdAt"     text:"-"`
 	RecordBatches    []recordBatch  `json:"recordBatches" yaml:"recordBatches" text:"-"`
 }
 
@@ -557,6 +557,7 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, id string) (any
 				CreatedAt: human.Time(seg.CreatedAt),
 			}
 
+			lastTime := time.Time(logSegment.CreatedAt)
 			for {
 				b, err := logReader.ReadRecordBatch()
 				if err != nil {
@@ -567,6 +568,7 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, id string) (any
 						u := human.Ratio(logSegment.UncompressedSize)
 						logSegment.CompressionRatio = 1 - c/u
 						logSegment.NumBatches = len(logSegment.RecordBatches)
+						logSegment.Duration = human.Duration(lastTime.Sub(time.Time(logSegment.CreatedAt)))
 						logch <- logSegment
 					}
 					break
@@ -574,27 +576,29 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, id string) (any
 
 				var (
 					numRecords       = b.NumRecords()
+					firstOffset      = b.FirstOffset()
 					firstTimestamp   = b.FirstTimestamp()
 					lastTimestamp    = b.LastTimestamp()
 					duration         = human.Duration(lastTimestamp.Sub(firstTimestamp))
 					uncompressedSize = human.Bytes(b.UncompressedSize())
 					compressedSize   = human.Bytes(b.CompressedSize())
+					compression      = b.Compression()
 				)
 
+				lastTime = lastTimestamp
 				logSegment.NumRecords += numRecords
-				logSegment.Duration += duration
 				logSegment.CompressedSize += compressedSize
 				logSegment.UncompressedSize += uncompressedSize
 				logSegment.RecordBatches = append(logSegment.RecordBatches, recordBatch{
 					NumRecords:       numRecords,
-					FirstOffset:      b.FirstOffset(),
+					FirstOffset:      firstOffset,
 					FirstTimestamp:   human.Time(firstTimestamp),
 					LastTimestamp:    human.Time(lastTimestamp),
 					Duration:         duration,
 					UncompressedSize: uncompressedSize,
 					CompressedSize:   compressedSize,
 					CompressionRatio: 1 - human.Ratio(compressedSize)/human.Ratio(uncompressedSize),
-					Compression:      b.Compression().String(),
+					Compression:      compression.String(),
 				})
 			}
 		}(seg)
