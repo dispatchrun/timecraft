@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -362,15 +363,46 @@ func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID)
 }
 
 func (reg *Registry) ListLogManifests(ctx context.Context) stream.ReadCloser[*format.Manifest] {
-	reader := reg.Store.ListObjects(ctx, "log/")
-	return convert(reader, func(info object.Info) (*format.Manifest, error) {
-		processID, err := uuid.Parse(path.Base(info.Name))
-		if err != nil {
-			return nil, err
+	ch := make(chan stream.Optional[*format.Manifest])
+	ctx, cancel := context.WithCancel(ctx)
+
+	go func(reader stream.ReadCloser[object.Info]) {
+		defer close(ch)
+		defer reader.Close()
+
+		it := stream.Iter[object.Info](reader)
+		wg := sync.WaitGroup{}
+
+		for it.Next() {
+			processID, err := uuid.Parse(path.Base(it.Value().Name))
+			if err != nil {
+				continue
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ch <- stream.Opt(reg.LookupLogManifest(ctx, processID))
+			}()
 		}
-		return reg.LookupLogManifest(ctx, processID)
-	})
+
+		if err := it.Err(); err != nil {
+			ch <- stream.Opt[*format.Manifest](nil, err)
+		}
+
+		wg.Wait()
+	}(reg.Store.ListObjects(ctx, "log/"))
+
+	return stream.NewReadCloser(stream.ChanReader(ch), closerFunc(func() error {
+		cancel()
+		for range ch {
+		}
+		return nil
+	}))
 }
+
+type closerFunc func() error
+
+func (f closerFunc) Close() error { return f() }
 
 func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUID) (*format.Manifest, error) {
 	r, err := reg.Store.ReadObject(ctx, reg.manifestKey(processID))
