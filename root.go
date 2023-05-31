@@ -1,4 +1,4 @@
-package cmd
+package main
 
 // Notes on program structure
 // --------------------------
@@ -20,22 +20,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
-	"log"
 	_ "net/http/pprof"
+	"os"
 	"strings"
 
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 )
-
-// ExitCode is an error type returned from Root to indicate the exit code that
-// should be returned by the program.
-type ExitCode int
-
-func (e ExitCode) Error() string {
-	return fmt.Sprintf("exit: %d", e)
-}
 
 const rootUsage = `timecraft - WebAssembly Time Machine
 
@@ -45,8 +36,8 @@ const rootUsage = `timecraft - WebAssembly Time Machine
 
 Example:
 
-   $ timecraft run --record -- app.wasm
-   timecraft run: f6e9acbc-0543-47df-9413-b99f569cfa3b
+   $ timecraft run -- app.wasm
+   f6e9acbc-0543-47df-9413-b99f569cfa3b
    ...
 
    $ timecraft replay f6e9acbc-0543-47df-9413-b99f569cfa3b
@@ -54,19 +45,14 @@ Example:
 
 For a list of commands available, run 'timecraft help'.`
 
-func init() {
-	// TODO: do something better with logs
-	log.SetOutput(io.Discard)
-}
-
-// Root is the timecraft entrypoint.
-func Root(ctx context.Context, args ...string) int {
+// root is the timecraft entrypoint.
+func root(ctx context.Context, args ...string) int {
 	flagSet := newFlagSet("timecraft", helpUsage)
 	_ = flagSet.Parse(args)
 
 	if args = flagSet.Args(); len(args) == 0 {
 		fmt.Println(rootUsage)
-		return 1
+		return 0
 	}
 
 	var err error
@@ -97,12 +83,37 @@ func Root(ctx context.Context, args ...string) int {
 	switch e := err.(type) {
 	case nil:
 		return 0
-	case ExitCode:
+	case exitCode:
 		return int(e)
+	case usage:
+		fmt.Fprintf(os.Stderr, "%s\n", e)
+		return 2
 	default:
-		fmt.Printf("ERR: timecraft %s: %s\n", cmd, err)
+		fmt.Fprintf(os.Stderr, "ERR: timecraft %s: %s\n", cmd, err)
 		return 1
 	}
+}
+
+// exitCode is an error type returned from command functions to indicate the
+// exit code that should be returned by the program.
+type exitCode int
+
+func (e exitCode) Error() string {
+	return fmt.Sprintf("exit: %d", e)
+}
+
+// usage is an error type returned from command functions to indicate a usage
+// error.
+//
+// Usage erors cause the program to exist with status code 2.
+type usage string
+
+func usageError(msg string, args ...any) error {
+	return usage(fmt.Sprintf(msg, args...))
+}
+
+func (e usage) Error() string {
+	return string(e)
 }
 
 func setEnum[T ~string](enum *T, typ string, value string, options ...string) error {
@@ -182,6 +193,7 @@ func (m stringMap) Set(value string) error {
 }
 
 func newFlagSet(cmd, usage string) *flag.FlagSet {
+	usage = strings.TrimSpace(usage)
 	flagSet := flag.NewFlagSet(cmd, flag.ExitOnError)
 	flagSet.Usage = func() { fmt.Println(usage) }
 	customVar(flagSet, &configPath, "c", "config")
@@ -205,6 +217,8 @@ func parseFlags(f *flag.FlagSet, args []string) []string {
 		})
 		if i < 0 {
 			i = len(args)
+		} else if args[i] == "-" {
+			i++
 		}
 		if i == 0 {
 			panic("parsing command line arguments did not error on " + args[0])

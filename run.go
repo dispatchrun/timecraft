@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"context"
@@ -29,10 +29,10 @@ Options:
    -c, --config                   Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -D, --dial addr                Expose a socket connected to the specified address
    -e, --env name=value           Pass an environment variable to the guest module
+       --fly-blind                Disable recording of the guest module execution
    -h, --help                     Show this usage information
    -L, --listen addr              Expose a socket listening on the specified address
    -S, --sockets extension        Enable a sockets extension, one of none, auto, path_open, wasmedgev1, wasmedgev2 (default to auto)
-   -R, --record                   Enable recording of the guest module execution
        --record-batch-size size   Number of records written per batch (default to 4096)
        --record-compression type  Compression to use when writing records, either snappy or zstd (default to zstd)
    -T, --trace                    Enable strace-like logging of host function calls
@@ -46,7 +46,7 @@ func run(ctx context.Context, args []string) error {
 		batchSize   = human.Count(4096)
 		compression = compression("zstd")
 		sockets     = sockets("auto")
-		record      = false
+		flyBlind    = false
 		trace       = false
 	)
 
@@ -56,7 +56,7 @@ func run(ctx context.Context, args []string) error {
 	customVar(flagSet, &dials, "D", "dial")
 	customVar(flagSet, &sockets, "S", "sockets")
 	boolVar(flagSet, &trace, "T", "trace")
-	boolVar(flagSet, &record, "R", "record")
+	boolVar(flagSet, &flyBlind, "fly-blind")
 	customVar(flagSet, &batchSize, "record-batch-size")
 	customVar(flagSet, &compression, "record-compression")
 	_ = flagSet.Parse(args)
@@ -110,7 +110,7 @@ func run(ctx context.Context, args []string) error {
 		WithSocketsExtension(string(sockets), wasmModule).
 		WithTracer(trace, os.Stderr)
 
-	if record {
+	if !flyBlind {
 		var c timemachine.Compression
 		switch compression {
 		case "snappy":
@@ -188,7 +188,7 @@ func run(ctx context.Context, args []string) error {
 			})
 		})
 
-		fmt.Println("timecraft run:", processID)
+		fmt.Fprintf(os.Stderr, "%s\n", processID)
 	}
 
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
@@ -229,8 +229,8 @@ func instantiate(ctx context.Context, runtime wazero.Runtime, compiledModule waz
 
 	switch e := err.(type) {
 	case *sys.ExitError:
-		if exitCode := e.ExitCode(); exitCode != 0 {
-			return ExitCode(e.ExitCode())
+		if rc := e.ExitCode(); rc != 0 {
+			return exitCode(rc)
 		}
 		err = nil
 	}

@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"bytes"
@@ -24,7 +24,7 @@ Options:
    -c, --config         Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
        --edit           Open $EDITOR to edit the configuration
    -h, --help           Show usage information
-   -o, --ouptut format  Output format, one of: text, json, yaml
+   -o, --output format  Output format, one of: text, json, yaml
 `
 
 var (

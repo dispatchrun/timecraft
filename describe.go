@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"context"
@@ -49,7 +49,7 @@ Examples:
 Options:
    -c, --config         Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help           Show this usage information
-   -o, --ouptut format  Output format, one of: text, json, yaml
+   -o, --output format  Output format, one of: text, json, yaml
 `
 
 func describe(ctx context.Context, args []string) error {
