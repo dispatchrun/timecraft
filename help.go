@@ -1,8 +1,9 @@
-package cmd
+package main
 
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 const helpUsage = `
@@ -65,11 +66,10 @@ func help(ctx context.Context, args []string) error {
 		case "version":
 			msg = versionUsage
 		default:
-			fmt.Printf("timecraft help %s: unknown command\n", cmd)
-			return ExitCode(1)
+			return usageError("timecraft help %s: unknown command", cmd)
 		}
 
-		fmt.Println(msg)
+		fmt.Println(strings.TrimSpace(msg))
 	}
 	return nil
 }

@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"context"
@@ -21,7 +21,6 @@ import (
 	"github.com/stealthrocket/timecraft/internal/print/yamlprint"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
-	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"golang.org/x/exp/slices"
 )
@@ -49,7 +48,7 @@ Examples:
 Options:
    -c, --config         Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help           Show this usage information
-   -o, --ouptut format  Output format, one of: text, json, yaml
+   -o, --output format  Output format, one of: text, json, yaml
 `
 
 func describe(ctx context.Context, args []string) error {
@@ -82,7 +81,7 @@ func describe(ctx context.Context, args []string) error {
 		return err
 	}
 
-	var lookup func(context.Context, *timemachine.Registry, string) (any, error)
+	var lookup func(context.Context, *timemachine.Registry, string, *configuration) (any, error)
 	var writer stream.WriteCloser[any]
 	switch output {
 	case "json":
@@ -98,43 +97,23 @@ func describe(ctx context.Context, args []string) error {
 	defer writer.Close()
 
 	readers := make([]stream.Reader[any], len(resourceIDs))
-	for i, resource := range resourceIDs {
-		readers[i] = &describeResourceReader{
-			context:  ctx,
-			registry: registry,
-			resource: resource,
-			lookup:   lookup,
-		}
+	for i := range resourceIDs {
+		resource := resourceIDs[i]
+		readers[i] = stream.ReaderFunc(func(values []any) (int, error) {
+			v, err := lookup(ctx, registry, resource, config)
+			if err != nil {
+				return 0, err
+			}
+			values[0] = v
+			return 1, io.EOF
+		})
 	}
 
 	_, err = stream.Copy[any](writer, stream.MultiReader[any](readers...))
 	return err
 }
 
-type describeResourceReader struct {
-	context  context.Context
-	registry *timemachine.Registry
-	resource string
-	lookup   func(context.Context, *timemachine.Registry, string) (any, error)
-}
-
-func (r *describeResourceReader) Read(values []any) (int, error) {
-	if r.registry == nil {
-		return 0, io.EOF
-	}
-	if len(values) == 0 {
-		return 0, nil
-	}
-	defer func() { r.registry = nil }()
-	v, err := r.lookup(r.context, r.registry, r.resource)
-	if err != nil {
-		return 0, err
-	}
-	values[0] = v
-	return 1, io.EOF
-}
-
-func describeConfig(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+func describeConfig(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	d, err := reg.LookupDescriptor(ctx, format.ParseHash(id))
 	if err != nil {
 		return nil, err
@@ -173,7 +152,7 @@ func describeConfig(ctx context.Context, reg *timemachine.Registry, id string) (
 	return desc, nil
 }
 
-func describeModule(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+func describeModule(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	d, err := reg.LookupDescriptor(ctx, format.ParseHash(id))
 	if err != nil {
 		return nil, err
@@ -183,7 +162,7 @@ func describeModule(ctx context.Context, reg *timemachine.Registry, id string) (
 		return nil, err
 	}
 
-	runtime := wazero.NewRuntime(ctx)
+	runtime := config.newRuntime(ctx)
 	defer runtime.Close(ctx)
 
 	compiledModule, err := runtime.CompileModule(ctx, m.Code)
@@ -237,7 +216,7 @@ func describeModule(ctx context.Context, reg *timemachine.Registry, id string) (
 	return desc, nil
 }
 
-func describeProcess(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+func describeProcess(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	processID, _, p, err := lookupProcessByLogID(ctx, reg, id)
 	if err != nil {
 		return nil, err
@@ -297,7 +276,7 @@ func describeProcess(ctx context.Context, reg *timemachine.Registry, id string) 
 	return desc, nil
 }
 
-func describeProfile(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+func describeProfile(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	d, err := reg.LookupDescriptor(ctx, format.ParseHash(id))
 	if err != nil {
 		return nil, err
@@ -315,7 +294,7 @@ func describeProfile(ctx context.Context, reg *timemachine.Registry, id string) 
 	return desc, nil
 }
 
-func describeRuntime(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+func describeRuntime(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	d, err := reg.LookupDescriptor(ctx, format.ParseHash(id))
 	if err != nil {
 		return nil, err
@@ -332,15 +311,15 @@ func describeRuntime(ctx context.Context, reg *timemachine.Registry, id string) 
 	return desc, nil
 }
 
-func lookupConfig(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+func lookupConfig(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	return lookup(ctx, reg, id, (*timemachine.Registry).LookupConfig)
 }
 
-func lookupModule(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+func lookupModule(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	return lookup(ctx, reg, id, (*timemachine.Registry).LookupModule)
 }
 
-func lookupProcess(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+func lookupProcess(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	_, desc, proc, err := lookupProcessByLogID(ctx, reg, id)
 	if err != nil {
 		return nil, err
@@ -348,11 +327,11 @@ func lookupProcess(ctx context.Context, reg *timemachine.Registry, id string) (a
 	return descriptorAndData(desc, proc), nil
 }
 
-func lookupProfile(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+func lookupProfile(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	return lookup(ctx, reg, id, (*timemachine.Registry).LookupProfile)
 }
 
-func lookupRuntime(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+func lookupRuntime(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	return lookup(ctx, reg, id, (*timemachine.Registry).LookupRuntime)
 }
 
@@ -709,7 +688,7 @@ func (desc *logDescriptor) Format(w fmt.State, _ rune) {
 	_, _ = table.Write(desc.Segments)
 }
 
-func describeLog(ctx context.Context, reg *timemachine.Registry, id string) (any, error) {
+func describeLog(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	logSegmentNumber := -1
 	logID, logNumber, ok := strings.Cut(id, "/")
 	if ok {

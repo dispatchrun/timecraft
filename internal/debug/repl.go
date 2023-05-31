@@ -48,8 +48,8 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 		case nil:
 			r.printf("the module exited normally\n")
 		case *sys.ExitError:
-			r.printf("the module exited with code %d\n", err.ExitCode())
-		case error:
+			r.printf("the module exited with code: %d\n", err.ExitCode())
+		default:
 			r.printf("the module exited with error: %v\n", err)
 		}
 	case *FunctionCallBeforeEvent:

@@ -12,15 +12,22 @@ import (
 
 type TableOption[T any] func(*tableWriter[T])
 
+func Header[T any](enable bool) TableOption[T] {
+	return func(t *tableWriter[T]) { t.header = enable }
+}
+
+func List[T any](enable bool) TableOption[T] {
+	return func(t *tableWriter[T]) { t.list = enable }
+}
+
 func OrderBy[T any](f func(T, T) bool) TableOption[T] {
-	return func(t *tableWriter[T]) {
-		t.orderBy = f
-	}
+	return func(t *tableWriter[T]) { t.orderBy = f }
 }
 
 func NewTableWriter[T any](w io.Writer, opts ...TableOption[T]) stream.WriteCloser[T] {
 	t := &tableWriter[T]{
 		output: w,
+		header: true,
 	}
 	for _, opt := range opts {
 		opt(t)
@@ -31,6 +38,8 @@ func NewTableWriter[T any](w io.Writer, opts ...TableOption[T]) stream.WriteClos
 type tableWriter[T any] struct {
 	output  io.Writer
 	values  []T
+	header  bool
+	list    bool
 	orderBy func(T, T) bool
 }
 
@@ -59,6 +68,7 @@ func (t *tableWriter[T]) Close() error {
 		}
 	}
 
+	var columns []string
 	var encoders []encodeFunc
 	for _, f := range reflect.VisibleFields(valueType) {
 		name := f.Name
@@ -71,24 +81,32 @@ func (t *tableWriter[T]) Close() error {
 				}
 			}
 		}
-
 		if name == "-" {
 			continue
 		}
-
-		if len(encoders) > 0 {
-			if _, err := io.WriteString(tw, "\t"); err != nil {
-				return err
-			}
-		}
-		if _, err := io.WriteString(tw, name); err != nil {
-			return err
-		}
+		columns = append(columns, name)
 		encoders = append(encoders, encodeFuncOfStructField(f.Type, f.Index))
 	}
 
-	if _, err := io.WriteString(tw, "\n"); err != nil {
-		return err
+	if t.list {
+		columns = columns[:1]
+		encoders = encoders[:1]
+	}
+
+	if t.header {
+		for i, name := range columns {
+			if i != 0 {
+				if _, err := io.WriteString(tw, "\t"); err != nil {
+					return err
+				}
+			}
+			if _, err := io.WriteString(tw, name); err != nil {
+				return err
+			}
+		}
+		if _, err := io.WriteString(tw, "\n"); err != nil {
+			return err
+		}
 	}
 
 	for n := range t.values {

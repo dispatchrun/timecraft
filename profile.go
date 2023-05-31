@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"context"
@@ -21,7 +21,6 @@ import (
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
 	"github.com/stealthrocket/wzprof"
-	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/experimental"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
@@ -52,9 +51,9 @@ Options:
    -d, --duration duration  Amount of time that the profiler will be running for (default to the process up time)
        --export type:path   Exports the generated profiles, type is one of cpu or memory (may be repeated)
    -h, --help               Show this usage information
-   -o, --ouptut format      Output format, one of: text, json, yaml
+   -o, --output format      Output format, one of: text, json, yaml
+   -q, --quiet              Only display the profile ids
    -t, --start-time time    Time at which the profiler gets started (default to 1 minute)
-   -r, --registry path      Path to the timecraft registry (default to ~/.timecraft)
 `
 
 func profile(ctx context.Context, args []string) error {
@@ -63,6 +62,7 @@ func profile(ctx context.Context, args []string) error {
 		output    = outputFormat("text")
 		startTime = human.Time{}
 		duration  = human.Duration(1 * time.Minute)
+		quiet     = false
 	)
 
 	flagSet := newFlagSet("timecraft profile", profileUsage)
@@ -70,6 +70,7 @@ func profile(ctx context.Context, args []string) error {
 	customVar(flagSet, &output, "o", "output")
 	customVar(flagSet, &duration, "d", "duration")
 	customVar(flagSet, &startTime, "t", "start-time")
+	boolVar(flagSet, &quiet, "q", "quiet")
 	args = parseFlags(flagSet, args)
 
 	if len(args) != 1 {
@@ -151,7 +152,7 @@ func profile(ctx context.Context, args []string) error {
 		),
 	)
 
-	runtime := wazero.NewRuntime(ctx)
+	runtime := config.newRuntime(ctx)
 	defer runtime.Close(ctx)
 
 	compiledModule, err := runtime.CompileModule(ctx, module.Code)
@@ -204,7 +205,7 @@ func profile(ctx context.Context, args []string) error {
 	case "yaml":
 		writer = yamlprint.NewWriter[*format.Descriptor](os.Stdout)
 	default:
-		writer = getProfiles(ctx, os.Stdout, registry)
+		writer = getProfiles(ctx, os.Stdout, registry, quiet)
 	}
 	defer writer.Close()
 

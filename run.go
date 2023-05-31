@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"context"
@@ -31,10 +31,10 @@ Options:
    -d, --debug                    Start an interactive debugger
        --dial addr                Expose a socket connected to the specified address
    -e, --env name=value           Pass an environment variable to the guest module
+       --fly-blind                Disable recording of the guest module execution
    -h, --help                     Show this usage information
    -L, --listen addr              Expose a socket listening on the specified address
    -S, --sockets extension        Enable a sockets extension, one of none, auto, path_open, wasmedgev1, wasmedgev2 (default to auto)
-   -R, --record                   Enable recording of the guest module execution
        --record-batch-size size   Number of records written per batch (default to 4096)
        --record-compression type  Compression to use when writing records, either snappy or zstd (default to zstd)
    -T, --trace                    Enable strace-like logging of host function calls
@@ -48,7 +48,7 @@ func run(ctx context.Context, args []string) (err error) {
 		batchSize   = human.Count(4096)
 		compression = compression("zstd")
 		sockets     = sockets("auto")
-		record      = false
+		flyBlind    = false
 		trace       = false
 		debugger    = false
 	)
@@ -59,8 +59,8 @@ func run(ctx context.Context, args []string) (err error) {
 	customVar(flagSet, &dials, "dial")
 	customVar(flagSet, &sockets, "S", "sockets")
 	boolVar(flagSet, &trace, "T", "trace")
-	boolVar(flagSet, &record, "R", "record")
 	boolVar(flagSet, &debugger, "d", "debug")
+	boolVar(flagSet, &flyBlind, "fly-blind")
 	customVar(flagSet, &batchSize, "record-batch-size")
 	customVar(flagSet, &compression, "record-compression")
 	_ = flagSet.Parse(args)
@@ -88,7 +88,7 @@ func run(ctx context.Context, args []string) (err error) {
 		return fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
 	}
 
-	runtime := wazero.NewRuntime(ctx)
+	runtime := config.newRuntime(ctx)
 	defer runtime.Close(ctx)
 
 	var debugREPL *debug.REPL
@@ -99,7 +99,7 @@ func run(ctx context.Context, args []string) (err error) {
 				// panic(sys.NewExitError(code)) before the module is started
 				// or after it has finished.
 				if exitErr, ok := panicErr.(*sys.ExitError); ok {
-					err = ExitCode(exitErr.ExitCode())
+					err = exitCode(exitErr.ExitCode())
 					return
 				}
 				panic(panicErr)
@@ -136,7 +136,7 @@ func run(ctx context.Context, args []string) (err error) {
 
 	var wrappers []func(wasi.System) wasi.System
 
-	if record {
+	if !flyBlind {
 		var c timemachine.Compression
 		switch compression {
 		case "snappy":
@@ -214,7 +214,7 @@ func run(ctx context.Context, args []string) (err error) {
 			})
 		})
 
-		fmt.Println("timecraft run:", processID)
+		fmt.Fprintf(os.Stderr, "%s\n", processID)
 	}
 
 	if debugger {
@@ -275,8 +275,8 @@ func instantiate(ctx context.Context, runtime wazero.Runtime, compiledModule waz
 
 	switch e := err.(type) {
 	case *sys.ExitError:
-		if exitCode := e.ExitCode(); exitCode != 0 {
-			return ExitCode(e.ExitCode())
+		if rc := e.ExitCode(); rc != 0 {
+			return exitCode(rc)
 		}
 		err = nil
 	}

@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"io"
+	"log"
 	"os"
-
-	"github.com/stealthrocket/timecraft/internal/cmd"
 )
 
+func init() {
+	// TODO: do something better with logs
+	log.SetOutput(io.Discard)
+}
+
 func main() {
-	os.Exit(cmd.Root(context.Background(), os.Args[1:]...))
+	os.Exit(root(context.Background(), os.Args[1:]...))
 }

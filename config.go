@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/tetratelabs/wazero"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,7 +25,7 @@ Options:
    -c, --config         Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
        --edit           Open $EDITOR to edit the configuration
    -h, --help           Show usage information
-   -o, --ouptut format  Output format, one of: text, json, yaml
+   -o, --output format  Output format, one of: text, json, yaml
 `
 
 var (
@@ -139,15 +140,77 @@ func config(ctx context.Context, args []string) error {
 	}
 }
 
+type nullable[T any] struct {
+	value T
+	exist bool
+}
+
+// Note: commented to satisfy the linter, uncomment if we need it
+//
+// func null[T any]() nullable[T] {
+// 	return nullable[T]{exist: false}
+// }
+
+func value[T any](v T) nullable[T] {
+	return nullable[T]{value: v, exist: true}
+}
+
+func (v *nullable[T]) Value() (T, bool) {
+	return v.value, v.exist
+}
+
+func (v *nullable[T]) MarshalJSON() ([]byte, error) {
+	if !v.exist {
+		return []byte("null"), nil
+	}
+	return json.Marshal(v.value)
+}
+
+func (v *nullable[T]) MarshalYAML() (any, error) {
+	if !v.exist {
+		return nil, nil
+	}
+	return v.value, nil
+}
+
+func (v *nullable[T]) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		v.exist = false
+		return nil
+	} else if err := json.Unmarshal(b, &v.value); err != nil {
+		v.exist = false
+		return err
+	} else {
+		v.exist = true
+		return nil
+	}
+}
+
+func (v *nullable[T]) UnmarshalYAML(node *yaml.Node) error {
+	if node.Value == "" || node.Value == "~" || node.Value == "null" {
+		v.exist = false
+		return nil
+	} else if err := node.Decode(&v.value); err != nil {
+		v.exist = false
+		return err
+	} else {
+		v.exist = true
+		return nil
+	}
+}
+
 type configuration struct {
 	Registry struct {
-		Location string `json:"location"`
+		Location nullable[human.Path] `json:"location"`
 	} `json:"registry"`
+	Cache struct {
+		Location nullable[human.Path] `json:"location"`
+	} `json:"cache"`
 }
 
 func defaultConfig() *configuration {
 	c := new(configuration)
-	c.Registry.Location = "~/.timecraft"
+	c.Registry.Location = value[human.Path]("~/.timecraft/registry")
 	return c
 }
 
@@ -187,13 +250,56 @@ func readConfig(r io.Reader) (*configuration, error) {
 	return c, nil
 }
 
-func (c *configuration) createRegistry() (*timemachine.Registry, error) {
-	p, err := human.Path(c.Registry.Location).Resolve()
-	if err != nil {
-		return nil, err
+func (c *configuration) newRuntime(ctx context.Context) wazero.Runtime {
+	config := wazero.NewRuntimeConfig()
+
+	var cache wazero.CompilationCache
+	if cachePath, ok := c.Cache.Location.Value(); ok {
+		// The cache is an optimization, so if we encounter errors we notify the
+		// user but still go ahead with the runtime instantiation.
+		path, err := cachePath.Resolve()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ERR: resolving timecraft cache location: %s\n", err)
+		} else {
+			cache, err = createCacheDirectory(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ERR: creating timecraft cache directory: %s\n", err)
+			} else {
+				config = config.WithCompilationCache(cache)
+			}
+		}
 	}
-	if err := os.Mkdir(filepath.Dir(p), 0777); err != nil {
-		if !errors.Is(err, fs.ErrExist) {
+
+	runtime := wazero.NewRuntimeWithConfig(ctx, config)
+	if cache != nil {
+		runtime = &runtimeWithCompilationCache{
+			Runtime: runtime,
+			cache:   cache,
+		}
+	}
+	return runtime
+}
+
+type runtimeWithCompilationCache struct {
+	wazero.Runtime
+	cache wazero.CompilationCache
+}
+
+func (r *runtimeWithCompilationCache) Close(ctx context.Context) error {
+	if r.cache != nil {
+		defer r.cache.Close(ctx)
+	}
+	return r.Runtime.Close(ctx)
+}
+
+func (c *configuration) createRegistry() (*timemachine.Registry, error) {
+	location, ok := c.Registry.Location.Value()
+	if ok {
+		path, err := location.Resolve()
+		if err != nil {
+			return nil, err
+		}
+		if err := createDirectory(path); err != nil {
 			return nil, err
 		}
 	}
@@ -201,13 +307,18 @@ func (c *configuration) createRegistry() (*timemachine.Registry, error) {
 }
 
 func (c *configuration) openRegistry() (*timemachine.Registry, error) {
-	p, err := human.Path(c.Registry.Location).Resolve()
-	if err != nil {
-		return nil, err
-	}
-	store, err := object.DirStore(p)
-	if err != nil {
-		return nil, err
+	store := object.EmptyStore()
+	location, ok := c.Registry.Location.Value()
+	if ok {
+		path, err := location.Resolve()
+		if err != nil {
+			return nil, err
+		}
+		dir, err := object.DirStore(path)
+		if err != nil {
+			return nil, err
+		}
+		store = dir
 	}
 	registry := &timemachine.Registry{
 		Store: store,
@@ -224,4 +335,20 @@ func createTempFile(path string, r io.Reader) (string, error) {
 	defer w.Close()
 	_, err = io.Copy(w, r)
 	return w.Name(), err
+}
+
+func createDirectory(path string) error {
+	if err := os.MkdirAll(path, 0777); err != nil {
+		if !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func createCacheDirectory(path string) (wazero.CompilationCache, error) {
+	if err := createDirectory(path); err != nil {
+		return nil, err
+	}
+	return wazero.NewCompilationCacheWithDir(path)
 }

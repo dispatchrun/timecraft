@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"context"
@@ -15,7 +15,6 @@ import (
 	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
-	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/sys"
 )
 
@@ -85,7 +84,7 @@ func replay(ctx context.Context, args []string) (err error) {
 	logReader := timemachine.NewLogReader(logSegment, manifest.StartTime)
 	defer logReader.Close()
 
-	runtime := wazero.NewRuntime(ctx)
+	runtime := config.newRuntime(ctx)
 	defer runtime.Close(ctx)
 
 	var debugREPL *debug.REPL
@@ -96,7 +95,7 @@ func replay(ctx context.Context, args []string) (err error) {
 				// panic(sys.NewExitError(code)) before the module is started
 				// or after it has finished.
 				if exitErr, ok := panicErr.(*sys.ExitError); ok {
-					err = ExitCode(exitErr.ExitCode())
+					err = exitCode(exitErr.ExitCode())
 					return
 				}
 				panic(panicErr)
