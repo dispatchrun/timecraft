@@ -48,6 +48,7 @@ Example:
    (web page opens in browser)
 
 Options:
+   -c, --config             Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -d, --duration duration  Amount of time that the profiler will be running for (default to the process up time)
        --export type:path   Exports the generated profiles, type is one of cpu or memory (may be repeated)
    -h, --help               Show this usage information
@@ -58,11 +59,10 @@ Options:
 
 func profile(ctx context.Context, args []string) error {
 	var (
-		exports      = stringMap{}
-		output       = outputFormat("text")
-		startTime    = human.Time{}
-		duration     = human.Duration(1 * time.Minute)
-		registryPath = human.Path("~/.timecraft")
+		exports   = stringMap{}
+		output    = outputFormat("text")
+		startTime = human.Time{}
+		duration  = human.Duration(1 * time.Minute)
 	)
 
 	flagSet := newFlagSet("timecraft profile", profileUsage)
@@ -70,7 +70,6 @@ func profile(ctx context.Context, args []string) error {
 	customVar(flagSet, &output, "o", "output")
 	customVar(flagSet, &duration, "d", "duration")
 	customVar(flagSet, &startTime, "t", "start-time")
-	customVar(flagSet, &registryPath, "r", "registry")
 	args = parseFlags(flagSet, args)
 
 	if len(args) != 1 {
@@ -92,8 +91,11 @@ func profile(ctx context.Context, args []string) error {
 	if err != nil {
 		return errors.New(`malformed process id passed as argument (not a UUID)`)
 	}
-
-	registry, err := openRegistry(registryPath)
+	config, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	registry, err := config.openRegistry()
 	if err != nil {
 		return err
 	}
@@ -114,11 +116,11 @@ func profile(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	config, err := registry.LookupConfig(ctx, process.Config.Digest)
+	processConfig, err := registry.LookupConfig(ctx, process.Config.Digest)
 	if err != nil {
 		return err
 	}
-	module, err := registry.LookupModule(ctx, config.Modules[0].Digest)
+	module, err := registry.LookupModule(ctx, processConfig.Modules[0].Digest)
 	if err != nil {
 		return err
 	}
@@ -167,7 +169,7 @@ func profile(ctx context.Context, args []string) error {
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
-	if err := exec(ctx, runtime, compiledModule); err != nil {
+	if err := instantiate(ctx, runtime, compiledModule); err != nil {
 		return err
 	}
 

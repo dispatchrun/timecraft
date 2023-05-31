@@ -23,10 +23,10 @@ const replayUsage = `
 Usage:	timecraft replay [options] <process id>
 
 Options:
-   -d, --debug          Start an interactive debugger
-   -h, --help           Show this usage information
-   -r, --registry path  Path to the timecraft registry (default to ~/.timecraft)
-   -T, --trace          Enable strace-like logging of host function calls
+   -c, --config  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -d, --debug   Start an interactive debugger
+   -h, --help    Show this usage information
+   -T, --trace   Enable strace-like logging of host function calls
 `
 
 func replay(ctx context.Context, args []string) (err error) {
@@ -50,8 +50,11 @@ func replay(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return errors.New(`malformed process id passed as argument (not a UUID)`)
 	}
-
-	registry, err := openRegistry(registryPath)
+	config, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	registry, err := config.openRegistry()
 	if err != nil {
 		return err
 	}
@@ -64,11 +67,11 @@ func replay(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	config, err := registry.LookupConfig(ctx, process.Config.Digest)
+	processConfig, err := registry.LookupConfig(ctx, process.Config.Digest)
 	if err != nil {
 		return err
 	}
-	module, err := registry.LookupModule(ctx, config.Modules[0].Digest)
+	module, err := registry.LookupModule(ctx, processConfig.Modules[0].Digest)
 	if err != nil {
 		return err
 	}
@@ -135,5 +138,5 @@ func replay(ctx context.Context, args []string) (err error) {
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
-	return exec(ctx, runtime, compiledModule)
+	return instantiate(ctx, runtime, compiledModule)
 }
