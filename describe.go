@@ -568,7 +568,7 @@ func (desc *profileDescriptor) Format(w fmt.State, _ rune) {
 		if i != 0 {
 			fmt.Fprintf(tw, "\n")
 		}
-		fmt.Fprintf(w, "- %s\t%s", sampleType.Type, sampleType.Unit)
+		fmt.Fprintf(tw, "- %s\t%s", sampleType.Type, sampleType.Unit)
 		if sampleType.Type == desc.profile.DefaultSampleType {
 			hasDefault = true
 			fmt.Fprintf(tw, " (default)")
