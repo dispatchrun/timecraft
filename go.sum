@@ -2,8 +2,8 @@ github.com/google/flatbuffers v23.5.9+incompatible h1:mTPHyMn3/qO7lvBcm5S9p0olWU
 github.com/google/flatbuffers v23.5.9+incompatible/go.mod h1:1AeVuKshWv4vARoZatz6mlQ0JxURH0Kv5+zNeJKJCa8=
 github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
 github.com/google/go-cmp v0.5.9/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
-github.com/google/pprof v0.0.0-20230406165453-00490a63f317 h1:hFhpt7CTmR3DX+b4R19ydQFtofxT0Sv3QsKNMVQYTMQ=
-github.com/google/pprof v0.0.0-20230406165453-00490a63f317/go.mod h1:79YE0hCXdHag9sBkw2o+N/YnZtTkXi0UT9Nnixa5eYk=
+github.com/google/pprof v0.0.0-20230510103437-eeec1cb781c3 h1:2XF1Vzq06X+inNqgJ9tRnGuw+ZVCB3FazXODD6JE1R8=
+github.com/google/pprof v0.0.0-20230510103437-eeec1cb781c3/go.mod h1:79YE0hCXdHag9sBkw2o+N/YnZtTkXi0UT9Nnixa5eYk=
 github.com/google/uuid v1.3.0 h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wx8BZdTaoZ5fu7I=
 github.com/google/uuid v1.3.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/klauspost/compress v1.16.5 h1:IFV2oUNUzZaz+XyusxpLzpzS8Pt5rh0Z16For/djlyI=
@@ -12,8 +12,8 @@ github.com/stealthrocket/wasi-go v0.1.1 h1:9Q9zpKWItoObGjNG5kkllzHx1sksiq/MKfuYd
 github.com/stealthrocket/wasi-go v0.1.1/go.mod h1:LBhZHvAroNNQTejkVTMJZ01ssj3jXF+3Lkbru4cTzGQ=
 github.com/stealthrocket/wazergo v0.19.0 h1:0ZBya2fBURvV+I2hGl0vcuQ8dgoUvllxQ7aYlZSA5nI=
 github.com/stealthrocket/wazergo v0.19.0/go.mod h1:riI0hxw4ndZA5e6z7PesHg2BtTftcZaMxRcoiGGipTs=
-github.com/stealthrocket/wzprof v0.1.5-0.20230526193557-ec6e2ad60848 h1:gNZnxEbv7OgKkGvRU4PtGDZpzls81FV0IYoUW3I46l0=
-github.com/stealthrocket/wzprof v0.1.5-0.20230526193557-ec6e2ad60848/go.mod h1:hqLzj5iDSncc6rlPMhC51O642AkaC+dWVPNNalZdlCY=
+github.com/stealthrocket/wzprof v0.1.5 h1:Y3jQHvdGFQMySV2VIjJhBu08OdcqcflfTz7CvrH5MGM=
+github.com/stealthrocket/wzprof v0.1.5/go.mod h1:hqLzj5iDSncc6rlPMhC51O642AkaC+dWVPNNalZdlCY=
 github.com/tetratelabs/wazero v1.1.1-0.20230522055633-256b7a4bf970 h1:X5OOeHRjoLA8XhVc7biEbh1/hnTzpYpPn7HuyarMslQ=
 github.com/tetratelabs/wazero v1.1.1-0.20230522055633-256b7a4bf970/go.mod h1:wYx2gNRg8/WihJfSDxA1TIL8H+GkfLYm+bIfbblu9VQ=
 golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1 h1:k/i9J1pBpvlfR+9QsetwPyERsqu1GIbi967PQMq3Ivc=
