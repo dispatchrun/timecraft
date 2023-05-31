@@ -1,9 +1,8 @@
-package cmd
+package main
 
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -47,14 +46,15 @@ Examples:
 Options:
    -c, --config         Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help           Show this usage information
-   -o, --ouptut format  Output format, one of: text, json, yaml
+   -o, --output format  Output format, one of: text, json, yaml
+   -q, --quiet          Only display the resource ids
 `
 
 type resource struct {
 	typ       string
 	alt       []string
 	mediaType format.MediaType
-	get       func(context.Context, io.Writer, *timemachine.Registry) stream.WriteCloser[*format.Descriptor]
+	get       func(context.Context, io.Writer, *timemachine.Registry, bool) stream.WriteCloser[*format.Descriptor]
 	describe  func(context.Context, *timemachine.Registry, string) (any, error)
 	lookup    func(context.Context, *timemachine.Registry, string) (any, error)
 }
@@ -118,18 +118,20 @@ func get(ctx context.Context, args []string) error {
 	var (
 		timeRange = timemachine.Since(time.Unix(0, 0))
 		output    = outputFormat("text")
+		quiet     = false
 	)
 
 	flagSet := newFlagSet("timecraft get", getUsage)
 	customVar(flagSet, &output, "o", "output")
+	boolVar(flagSet, &quiet, "q", "quiet")
 	args = parseFlags(flagSet, args)
 
 	if len(args) != 1 {
-		return errors.New(`expected exactly one resource type as argument` + useCmd("get"))
+		return usageError(`Expected exactly one resource type as argument` + useCmd("get"))
 	}
 	resource, err := findResource("get", args[0])
 	if err != nil {
-		return err
+		return usageError(err.Error())
 	}
 	config, err := loadConfig()
 	if err != nil {
@@ -153,7 +155,7 @@ func get(ctx context.Context, args []string) error {
 		case "yaml":
 			writer = yamlprint.NewWriter[*format.Manifest](os.Stdout)
 		default:
-			writer = getLogs(ctx, os.Stdout, registry)
+			writer = getLogs(ctx, os.Stdout, registry, quiet)
 		}
 		defer writer.Close()
 
@@ -171,7 +173,7 @@ func get(ctx context.Context, args []string) error {
 	case "yaml":
 		writer = yamlprint.NewWriter[*format.Descriptor](os.Stdout)
 	default:
-		writer = resource.get(ctx, os.Stdout, registry)
+		writer = resource.get(ctx, os.Stdout, registry, quiet)
 	}
 	defer writer.Close()
 
@@ -179,14 +181,14 @@ func get(ctx context.Context, args []string) error {
 	return err
 }
 
-func getConfigs(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
+func getConfigs(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Descriptor] {
 	type config struct {
 		ID      string      `text:"CONFIG ID"`
 		Runtime string      `text:"RUNTIME"`
 		Modules int         `text:"MODULES"`
 		Size    human.Bytes `text:"SIZE"`
 	}
-	return newTableWriter(w,
+	return newTableWriter(w, quiet,
 		func(c1, c2 config) bool {
 			return c1.ID < c2.ID
 		},
@@ -208,13 +210,13 @@ func getConfigs(ctx context.Context, w io.Writer, reg *timemachine.Registry) str
 		})
 }
 
-func getModules(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
+func getModules(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Descriptor] {
 	type module struct {
 		ID   string      `text:"MODULE ID"`
 		Name string      `text:"MODULE NAME"`
 		Size human.Bytes `text:"SIZE"`
 	}
-	return newTableWriter(w,
+	return newTableWriter(w, quiet,
 		func(m1, m2 module) bool {
 			return m1.ID < m2.ID
 		},
@@ -231,12 +233,12 @@ func getModules(ctx context.Context, w io.Writer, reg *timemachine.Registry) str
 		})
 }
 
-func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
+func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Descriptor] {
 	type process struct {
 		ID        format.UUID `text:"PROCESS ID"`
 		StartTime human.Time  `text:"START"`
 	}
-	return newTableWriter(w,
+	return newTableWriter(w, quiet,
 		func(p1, p2 process) bool {
 			return time.Time(p1.StartTime).Before(time.Time(p2.StartTime))
 		},
@@ -252,7 +254,7 @@ func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry) s
 		})
 }
 
-func getProfiles(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
+func getProfiles(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Descriptor] {
 	type profile struct {
 		ID        string         `text:"PROFILE ID"`
 		ProcessID format.UUID    `text:"PROCESS ID"`
@@ -261,7 +263,7 @@ func getProfiles(ctx context.Context, w io.Writer, reg *timemachine.Registry) st
 		Duration  human.Duration `text:"DURATION"`
 		Size      human.Bytes    `text:"SIZE"`
 	}
-	return newTableWriter(w,
+	return newTableWriter(w, quiet,
 		func(p1, p2 profile) bool {
 			if p1.ProcessID != p2.ProcessID {
 				return bytes.Compare(p1.ProcessID[:], p2.ProcessID[:]) < 0
@@ -289,13 +291,13 @@ func getProfiles(ctx context.Context, w io.Writer, reg *timemachine.Registry) st
 		})
 }
 
-func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Descriptor] {
+func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Descriptor] {
 	type runtime struct {
 		ID      string `text:"RUNTIME ID"`
 		Runtime string `text:"RUNTIME NAME"`
 		Version string `text:"VERSION"`
 	}
-	return newTableWriter(w,
+	return newTableWriter(w, quiet,
 		func(r1, r2 runtime) bool {
 			return r1.ID < r2.ID
 		},
@@ -312,14 +314,14 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry) st
 		})
 }
 
-func getLogs(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream.WriteCloser[*format.Manifest] {
+func getLogs(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Manifest] {
 	type manifest struct {
 		ProcessID format.UUID `text:"PROCESS ID"`
 		Segments  human.Count `text:"SEGMENTS"`
 		StartTime human.Time  `text:"START"`
 		Size      human.Bytes `text:"SIZE"`
 	}
-	return newTableWriter(w,
+	return newTableWriter(w, quiet,
 		func(m1, m2 manifest) bool {
 			return time.Time(m1.StartTime).Before(time.Time(m2.StartTime))
 		},
@@ -336,8 +338,17 @@ func getLogs(ctx context.Context, w io.Writer, reg *timemachine.Registry) stream
 		})
 }
 
-func newTableWriter[T1, T2 any](w io.Writer, orderBy func(T1, T1) bool, conv func(T2) (T1, error)) stream.WriteCloser[T2] {
-	tw := textprint.NewTableWriter[T1](w, textprint.OrderBy(orderBy))
+func newTableWriter[T1, T2 any](w io.Writer, quiet bool, orderBy func(T1, T1) bool, conv func(T2) (T1, error)) stream.WriteCloser[T2] {
+	opts := []textprint.TableOption[T1]{
+		textprint.OrderBy(orderBy),
+	}
+	if quiet {
+		opts = append(opts,
+			textprint.Header[T1](false),
+			textprint.List[T1](true),
+		)
+	}
+	tw := textprint.NewTableWriter[T1](w, opts...)
 	cw := stream.ConvertWriter[T1](tw, conv)
 	return stream.NewWriteCloser(cw, tw)
 }

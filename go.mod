@@ -13,9 +13,7 @@ require (
 	github.com/stealthrocket/wzprof v0.1.5-0.20230526193557-ec6e2ad60848
 	github.com/tetratelabs/wazero v1.1.1-0.20230522055633-256b7a4bf970
 	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
+	gopkg.in/yaml.v3 v3.0.1
 )
 
-require (
-	golang.org/x/sys v0.8.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
-)
+require golang.org/x/sys v0.8.0 // indirect
