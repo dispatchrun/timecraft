@@ -145,9 +145,11 @@ type nullable[T any] struct {
 	exist bool
 }
 
-func null[T any]() nullable[T] {
-	return nullable[T]{exist: false}
-}
+// Note: commented to satisfy the linter, uncomment if we need it
+//
+// func null[T any]() nullable[T] {
+// 	return nullable[T]{exist: false}
+// }
 
 func value[T any](v T) nullable[T] {
 	return nullable[T]{value: v, exist: true}
