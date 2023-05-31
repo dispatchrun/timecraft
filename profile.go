@@ -161,7 +161,10 @@ func profile(ctx context.Context, args []string) error {
 		return err
 	}
 	defer compiledModule.Close(ctx)
-	p.Prepare(compiledModule)
+	err = p.Prepare(compiledModule)
+	if err != nil {
+		return err
+	}
 
 	replay := wasicall.NewReplay(records)
 	defer replay.Close(ctx)
