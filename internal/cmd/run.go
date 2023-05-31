@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/print/human"
@@ -19,7 +18,6 @@ import (
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
-
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/sys"
 )
@@ -28,6 +26,7 @@ const runUsage = `
 Usage:	timecraft run [options] [--] <module> [args...]
 
 Options:
+   -c, --config                   Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -D, --dial addr                Expose a socket connected to the specified address
    -e, --env name=value           Pass an environment variable to the guest module
    -h, --help                     Show this usage information
@@ -36,21 +35,19 @@ Options:
    -R, --record                   Enable recording of the guest module execution
        --record-batch-size size   Number of records written per batch (default to 4096)
        --record-compression type  Compression to use when writing records, either snappy or zstd (default to zstd)
-   -r, --registry path            Path to the timecraft registry (default to ~/.timecraft)
    -T, --trace                    Enable strace-like logging of host function calls
 `
 
 func run(ctx context.Context, args []string) error {
 	var (
-		envs         stringList
-		listens      stringList
-		dials        stringList
-		batchSize    = human.Count(4096)
-		compression  = compression("zstd")
-		sockets      = sockets("auto")
-		registryPath = human.Path("~/.timecraft")
-		record       = false
-		trace        = false
+		envs        stringList
+		listens     stringList
+		dials       stringList
+		batchSize   = human.Count(4096)
+		compression = compression("zstd")
+		sockets     = sockets("auto")
+		record      = false
+		trace       = false
 	)
 
 	flagSet := newFlagSet("timecraft run", runUsage)
@@ -58,7 +55,6 @@ func run(ctx context.Context, args []string) error {
 	customVar(flagSet, &listens, "L", "listen")
 	customVar(flagSet, &dials, "D", "dial")
 	customVar(flagSet, &sockets, "S", "sockets")
-	customVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
 	boolVar(flagSet, &record, "R", "record")
 	customVar(flagSet, &batchSize, "record-batch-size")
@@ -72,7 +68,11 @@ func run(ctx context.Context, args []string) error {
 		return errors.New(`missing "--" separator before the module path`)
 	}
 
-	registry, err := createRegistry(registryPath)
+	config, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	registry, err := config.createRegistry()
 	if err != nil {
 		return err
 	}
@@ -201,10 +201,10 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer system.Close(ctx)
 
-	return exec(ctx, runtime, wasmModule)
+	return instantiate(ctx, runtime, wasmModule)
 }
 
-func exec(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule) error {
+func instantiate(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule) error {
 	module, err := runtime.InstantiateModule(ctx, compiledModule, wazero.NewModuleConfig().
 		WithStartFunctions())
 	if err != nil {

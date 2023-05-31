@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
-	"github.com/stealthrocket/timecraft/internal/print/human"
 )
 
 const exportUsage = `
@@ -23,17 +22,12 @@ Usage:	timecraft export <resource type> <resource id> <output file>
    resource to stdout.
 
 Options:
-   -h, --help              Show this usage information
-   -r, --registry path     Path to the timecraft registry (default to ~/.timecraft)
+   -c, --config  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -h, --help    Show this usage information
 `
 
 func export(ctx context.Context, args []string) error {
-	var (
-		registryPath = human.Path("~/.timecraft")
-	)
-
 	flagSet := newFlagSet("timecraft export", exportUsage)
-	customVar(flagSet, &registryPath, "r", "registry")
 	args = parseFlags(flagSet, args)
 
 	if len(args) != 3 {
@@ -44,8 +38,11 @@ func export(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-
-	registry, err := openRegistry(registryPath)
+	config, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	registry, err := config.openRegistry()
 	if err != nil {
 		return err
 	}

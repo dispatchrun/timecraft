@@ -45,9 +45,9 @@ Examples:
    }
 
 Options:
+   -c, --config         Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help           Show this usage information
    -o, --ouptut format  Output format, one of: text, json, yaml
-   -r, --registry path  Path to the timecraft registry (default to ~/.timecraft)
 `
 
 type resource struct {
@@ -116,14 +116,12 @@ var resources = [...]resource{
 
 func get(ctx context.Context, args []string) error {
 	var (
-		timeRange    = timemachine.Since(time.Unix(0, 0))
-		output       = outputFormat("text")
-		registryPath = human.Path("~/.timecraft")
+		timeRange = timemachine.Since(time.Unix(0, 0))
+		output    = outputFormat("text")
 	)
 
 	flagSet := newFlagSet("timecraft get", getUsage)
 	customVar(flagSet, &output, "o", "output")
-	customVar(flagSet, &registryPath, "r", "registry")
 	args = parseFlags(flagSet, args)
 
 	if len(args) != 1 {
@@ -133,8 +131,11 @@ func get(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-
-	registry, err := openRegistry(registryPath)
+	config, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	registry, err := config.openRegistry()
 	if err != nil {
 		return err
 	}

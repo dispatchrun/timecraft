@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stealthrocket/wasi-go"
 
-	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
@@ -21,19 +20,17 @@ const replayUsage = `
 Usage:	timecraft replay [options] <process id>
 
 Options:
-   -h, --help           Show this usage information
-   -r, --registry path  Path to the timecraft registry (default to ~/.timecraft)
-   -T, --trace          Enable strace-like logging of host function calls
+   -c, --config  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -h, --help    Show this usage information
+   -T, --trace   Enable strace-like logging of host function calls
 `
 
 func replay(ctx context.Context, args []string) error {
 	var (
-		registryPath = human.Path("~/.timecraft")
-		trace        = false
+		trace = false
 	)
 
 	flagSet := newFlagSet("timecraft replay", replayUsage)
-	customVar(flagSet, &registryPath, "r", "registry")
 	boolVar(flagSet, &trace, "T", "trace")
 	args = parseFlags(flagSet, args)
 
@@ -45,8 +42,11 @@ func replay(ctx context.Context, args []string) error {
 	if err != nil {
 		return errors.New(`malformed process id passed as argument (not a UUID)`)
 	}
-
-	registry, err := openRegistry(registryPath)
+	config, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	registry, err := config.openRegistry()
 	if err != nil {
 		return err
 	}
@@ -59,11 +59,11 @@ func replay(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	config, err := registry.LookupConfig(ctx, process.Config.Digest)
+	processConfig, err := registry.LookupConfig(ctx, process.Config.Digest)
 	if err != nil {
 		return err
 	}
-	module, err := registry.LookupModule(ctx, config.Modules[0].Digest)
+	module, err := registry.LookupModule(ctx, processConfig.Modules[0].Digest)
 	if err != nil {
 		return err
 	}
@@ -104,5 +104,5 @@ func replay(ctx context.Context, args []string) error {
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
-	return exec(ctx, runtime, compiledModule)
+	return instantiate(ctx, runtime, compiledModule)
 }
