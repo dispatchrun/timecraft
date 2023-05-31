@@ -20,7 +20,6 @@ import (
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
 	"github.com/stealthrocket/wzprof"
-	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/experimental"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
@@ -152,7 +151,7 @@ func profile(ctx context.Context, args []string) error {
 		),
 	)
 
-	runtime := wazero.NewRuntime(ctx)
+	runtime := config.newRuntime(ctx)
 	defer runtime.Close(ctx)
 
 	compiledModule, err := runtime.CompileModule(ctx, module.Code)

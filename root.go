@@ -22,8 +22,11 @@ import (
 	"fmt"
 	_ "net/http/pprof"
 	"os"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 
+	"github.com/stealthrocket/timecraft/internal/print/human"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 )
@@ -47,12 +50,47 @@ For a list of commands available, run 'timecraft help'.`
 
 // root is the timecraft entrypoint.
 func root(ctx context.Context, args ...string) int {
+	var (
+		// Secret options, we don't document them since they are only used for
+		// development. Since they are not part of the public interface we may
+		// remove or change the syntax at any time.
+		cpuProfile human.Path
+		memProfile human.Path
+	)
+
 	flagSet := newFlagSet("timecraft", helpUsage)
+	customVar(flagSet, &cpuProfile, "cpuprofile")
+	customVar(flagSet, &memProfile, "memprofile")
 	_ = flagSet.Parse(args)
 
 	if args = flagSet.Args(); len(args) == 0 {
 		fmt.Println(rootUsage)
 		return 0
+	}
+
+	if cpuProfile != "" {
+		path, _ := cpuProfile.Resolve()
+		f, err := os.Create(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "WARN: could not create CPU profile: %s\n", err)
+		} else {
+			defer f.Close()
+			_ = pprof.StartCPUProfile(f)
+			defer pprof.StopCPUProfile()
+		}
+	}
+
+	if memProfile != "" {
+		path, _ := memProfile.Resolve()
+		defer func() {
+			f, err := os.Create(path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "WARN: could not create memory profile: %s\n", err)
+			}
+			defer f.Close()
+			runtime.GC()
+			_ = pprof.WriteHeapProfile(f)
+		}()
 	}
 
 	var err error

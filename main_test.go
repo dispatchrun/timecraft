@@ -1,11 +1,12 @@
 package main_test
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/exp/maps"
@@ -14,6 +15,7 @@ import (
 )
 
 func TestTimecraft(t *testing.T) {
+	t.Setenv("TIMECRAFT_TEST_CACHE", t.TempDir())
 	t.Run("export", export.run)
 	t.Run("get", get.run)
 	t.Run("help", help.run)
@@ -24,9 +26,14 @@ func TestTimecraft(t *testing.T) {
 
 type configuration struct {
 	Registry registry `yaml:"registry"`
+	Cache    cache    `yaml:"cache"`
 }
 
 type registry struct {
+	Location string `yaml:"location"`
+}
+
+type cache struct {
 	Location string `yaml:"location"`
 }
 
@@ -39,18 +46,19 @@ func (suite tests) run(t *testing.T) {
 	for _, name := range names {
 		test := suite[name]
 		t.Run(name, func(t *testing.T) {
-			tmp := t.TempDir()
-
 			b, err := yaml.Marshal(configuration{
 				Registry: registry{
-					Location: tmp,
+					Location: t.TempDir(),
+				},
+				Cache: cache{
+					Location: os.Getenv("TIMECRAFT_TEST_CACHE"),
 				},
 			})
 			if err != nil {
 				t.Fatal("marshaling timecraft configuration:", err)
 			}
 
-			configPath := filepath.Join(tmp, "config.yaml")
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
 			if err := os.WriteFile(configPath, b, 0666); err != nil {
 				t.Fatal("writing timecraft configuration:", err)
 			}
@@ -71,8 +79,10 @@ func timecraft(t *testing.T, args ...string) (stdout, stderr string, err error) 
 		defer cancel()
 	}
 
-	outbuf := new(strings.Builder)
-	errbuf := new(strings.Builder)
+	outbuf := acquireBuffer()
+	errbuf := acquireBuffer()
+	defer releaseBuffer(outbuf)
+	defer releaseBuffer(errbuf)
 
 	cmd := exec.CommandContext(ctx, "./timecraft", args...)
 	cmd.Stdout = outbuf
@@ -80,4 +90,20 @@ func timecraft(t *testing.T, args ...string) (stdout, stderr string, err error) 
 
 	err = cmd.Run()
 	return outbuf.String(), errbuf.String(), err
+}
+
+var buffers sync.Pool
+
+func acquireBuffer() *bytes.Buffer {
+	b, _ := buffers.Get().(*bytes.Buffer)
+	if b == nil {
+		b = new(bytes.Buffer)
+	} else {
+		b.Reset()
+	}
+	return b
+}
+
+func releaseBuffer(b *bytes.Buffer) {
+	buffers.Put(b)
 }
