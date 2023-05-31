@@ -1,11 +1,12 @@
 package main_test
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/exp/maps"
@@ -78,8 +79,10 @@ func timecraft(t *testing.T, args ...string) (stdout, stderr string, err error) 
 		defer cancel()
 	}
 
-	outbuf := new(strings.Builder)
-	errbuf := new(strings.Builder)
+	outbuf := acquireBuffer()
+	errbuf := acquireBuffer()
+	defer releaseBuffer(outbuf)
+	defer releaseBuffer(errbuf)
 
 	cmd := exec.CommandContext(ctx, "./timecraft", args...)
 	cmd.Stdout = outbuf
@@ -87,4 +90,20 @@ func timecraft(t *testing.T, args ...string) (stdout, stderr string, err error) 
 
 	err = cmd.Run()
 	return outbuf.String(), errbuf.String(), err
+}
+
+var buffers sync.Pool
+
+func acquireBuffer() *bytes.Buffer {
+	b, _ := buffers.Get().(*bytes.Buffer)
+	if b == nil {
+		b = new(bytes.Buffer)
+	} else {
+		b.Reset()
+	}
+	return b
+}
+
+func releaseBuffer(b *bytes.Buffer) {
+	buffers.Put(b)
 }
