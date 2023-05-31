@@ -80,6 +80,16 @@ func ReadAll[T any](r Reader[T]) ([]T, error) {
 	}
 }
 
+func ReaderFunc[T any](f func([]T) (int, error)) Reader[T] {
+	return readerFunc[T](f)
+}
+
+type readerFunc[T any] func([]T) (int, error)
+
+func (f readerFunc[T]) Read(values []T) (int, error) {
+	return f(values)
+}
+
 // Writer is an interface implemented by types that write a stream of values of
 // type T.
 type Writer[T any] interface {

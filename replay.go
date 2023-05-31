@@ -13,7 +13,6 @@ import (
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
-	"github.com/tetratelabs/wazero"
 )
 
 const replayUsage = `
@@ -77,7 +76,7 @@ func replay(ctx context.Context, args []string) error {
 	logReader := timemachine.NewLogReader(logSegment, manifest.StartTime)
 	defer logReader.Close()
 
-	runtime := wazero.NewRuntime(ctx)
+	runtime := config.newRuntime(ctx)
 	defer runtime.Close(ctx)
 
 	compiledModule, err := runtime.CompileModule(ctx, module.Code)

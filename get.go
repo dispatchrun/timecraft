@@ -55,8 +55,8 @@ type resource struct {
 	alt       []string
 	mediaType format.MediaType
 	get       func(context.Context, io.Writer, *timemachine.Registry, bool) stream.WriteCloser[*format.Descriptor]
-	describe  func(context.Context, *timemachine.Registry, string) (any, error)
-	lookup    func(context.Context, *timemachine.Registry, string) (any, error)
+	describe  func(context.Context, *timemachine.Registry, string, *configuration) (any, error)
+	lookup    func(context.Context, *timemachine.Registry, string, *configuration) (any, error)
 }
 
 var resources = [...]resource{

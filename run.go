@@ -84,7 +84,7 @@ func run(ctx context.Context, args []string) error {
 		return fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
 	}
 
-	runtime := wazero.NewRuntime(ctx)
+	runtime := config.newRuntime(ctx)
 	defer runtime.Close(ctx)
 
 	wasmModule, err := runtime.CompileModule(ctx, wasmCode)
