@@ -253,6 +253,7 @@ func readConfig(r io.Reader) (*configuration, error) {
 func (c *configuration) newRuntime(ctx context.Context) wazero.Runtime {
 	config := wazero.NewRuntimeConfig()
 
+	var cache wazero.CompilationCache
 	if cachePath, ok := c.Cache.Location.Value(); ok {
 		// The cache is an optimization, so if we encounter errors we notify the
 		// user but still go ahead with the runtime instantiation.
@@ -260,7 +261,7 @@ func (c *configuration) newRuntime(ctx context.Context) wazero.Runtime {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERR: resolving timecraft cache location: %s\n", err)
 		} else {
-			cache, err := createCacheDirectory(path)
+			cache, err = createCacheDirectory(path)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "ERR: creating timecraft cache directory: %s\n", err)
 			} else {
@@ -269,7 +270,26 @@ func (c *configuration) newRuntime(ctx context.Context) wazero.Runtime {
 		}
 	}
 
-	return wazero.NewRuntimeWithConfig(ctx, config)
+	runtime := wazero.NewRuntimeWithConfig(ctx, config)
+	if cache != nil {
+		runtime = &runtimeWithCompilationCache{
+			Runtime: runtime,
+			cache:   cache,
+		}
+	}
+	return runtime
+}
+
+type runtimeWithCompilationCache struct {
+	wazero.Runtime
+	cache wazero.CompilationCache
+}
+
+func (r *runtimeWithCompilationCache) Close(ctx context.Context) error {
+	if r.cache != nil {
+		defer r.cache.Close(ctx)
+	}
+	return r.Runtime.Close(ctx)
 }
 
 func (c *configuration) createRegistry() (*timemachine.Registry, error) {
