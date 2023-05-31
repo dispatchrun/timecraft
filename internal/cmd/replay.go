@@ -104,8 +104,6 @@ func replay(ctx context.Context, args []string) (err error) {
 		}()
 
 		debugREPL = debug.NewREPL(os.Stdin, os.Stdout)
-		debugREPL.OnEvent(ctx, &debug.ModuleBefore{})
-		defer debugREPL.OnEvent(ctx, &debug.ModuleAfter{})
 
 		ctx = debug.RegisterFunctionListener(ctx, debugREPL)
 	}
@@ -137,6 +135,18 @@ func replay(ctx context.Context, args []string) (err error) {
 	hostModule := wasi_snapshot_preview1.NewHostModule(imports.DetectExtensions(compiledModule)...)
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
+
+	if debugger {
+		debugREPL.OnEvent(ctx, &debug.ModuleBeforeEvent{Module: compiledModule})
+		defer func() {
+			if err := recover(); err != nil {
+				debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{Error: err})
+				panic(err)
+			} else {
+				debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{})
+			}
+		}()
+	}
 
 	return instantiate(ctx, runtime, compiledModule)
 }

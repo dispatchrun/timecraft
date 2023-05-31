@@ -107,17 +107,15 @@ func run(ctx context.Context, args []string) (err error) {
 		}()
 
 		debugREPL = debug.NewREPL(os.Stdin, os.Stdout)
-		debugREPL.OnEvent(ctx, &debug.ModuleBefore{})
-		defer debugREPL.OnEvent(ctx, &debug.ModuleAfter{})
 
 		ctx = debug.RegisterFunctionListener(ctx, debugREPL)
 	}
 
-	wasmModule, err := runtime.CompileModule(ctx, wasmCode)
+	compiledModule, err := runtime.CompileModule(ctx, wasmCode)
 	if err != nil {
 		return err
 	}
-	defer wasmModule.Close(ctx)
+	defer compiledModule.Close(ctx)
 
 	// When running cmd.Root from testable examples, the standard streams are
 	// not set to alternative files and the fd numbers are not 0, 1, 2.
@@ -133,7 +131,7 @@ func run(ctx context.Context, args []string) (err error) {
 		WithListens(listens...).
 		WithDials(dials...).
 		WithStdio(stdin, stdout, stderr).
-		WithSocketsExtension(string(sockets), wasmModule).
+		WithSocketsExtension(string(sockets), compiledModule).
 		WithTracer(trace, os.Stderr)
 
 	var wrappers []func(wasi.System) wasi.System
@@ -158,7 +156,7 @@ func run(ctx context.Context, args []string) (err error) {
 			Code: wasmCode,
 		}, object.Tag{
 			Name:  "timecraft.module.name",
-			Value: wasmModule.Name(),
+			Value: compiledModule.Name(),
 		})
 		if err != nil {
 			return err
@@ -237,7 +235,19 @@ func run(ctx context.Context, args []string) (err error) {
 	}
 	defer system.Close(ctx)
 
-	return instantiate(ctx, runtime, wasmModule)
+	if debugger {
+		debugREPL.OnEvent(ctx, &debug.ModuleBeforeEvent{Module: compiledModule})
+		defer func() {
+			if err := recover(); err != nil {
+				debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{Error: err})
+				panic(err)
+			} else {
+				debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{})
+			}
+		}()
+	}
+
+	return instantiate(ctx, runtime, compiledModule)
 }
 
 func instantiate(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule) error {
