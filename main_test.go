@@ -50,7 +50,11 @@ func (suite tests) run(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			b, err := yaml.Marshal(configuration{
 				Registry: registry{
-					Location: t.TempDir(),
+					// Add a "one/two" subdirectory because the path is unlikely
+					// to be used in the code, and it will detect a regression
+					// if using a non-existing directory causes the program to
+					// fail.
+					Location: filepath.Join(t.TempDir(), "one", "two"),
 				},
 				Cache: cache{
 					Location: os.Getenv("TIMECRAFT_TEST_CACHE"),
