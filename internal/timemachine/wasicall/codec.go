@@ -847,7 +847,10 @@ func (c *Codec) EncodeSockAccept(buffer []byte, fd FD, flags FDFlags, newfd FD, 
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeFDFlags(buffer, flags)
 	buffer = encodeFD(buffer, newfd)
-	return encodeAddr(buffer, addr)
+	if addr != nil {
+		buffer = encodeAddr(buffer, addr)
+	}
+	return buffer
 }
 
 func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD, addr SocketAddress, errno Errno, err error) {
@@ -863,7 +866,9 @@ func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD,
 	if newfd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	addr, _, err = decodeAddr(buffer)
+	if len(buffer) != 0 {
+		addr, _, err = decodeAddr(buffer)
+	}
 	return
 }
 
@@ -1899,9 +1904,9 @@ func encodeAddr(buffer []byte, addr SocketAddress) []byte {
 		buffer = encodeInt(buffer, a.Port)
 		return encodeBytes(buffer, a.Addr[:])
 	case *UnixAddress:
-		panic("not implemented") // waiting for upstream support
+		panic("unix domain sockets are not implemented") // waiting for upstream support
 	default:
-		panic("unreachable")
+		panic("cannot encode unsupported socket address type")
 	}
 }
 
