@@ -93,21 +93,7 @@ func run(ctx context.Context, args []string) error {
 
 	var debugREPL *debug.REPL
 	if debugger {
-		defer func() {
-			if panicErr := recover(); panicErr != nil {
-				// We need this to handle the case of the REPL calling
-				// panic(sys.NewExitError(code)) before the module is started
-				// or after it has finished.
-				if exitErr, ok := panicErr.(*sys.ExitError); ok {
-					err = exitCode(exitErr.ExitCode())
-					return
-				}
-				panic(panicErr)
-			}
-		}()
-
 		debugREPL = debug.NewREPL(os.Stdin, os.Stdout)
-
 		ctx = debug.RegisterFunctionListener(ctx, debugREPL)
 	}
 
