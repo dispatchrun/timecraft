@@ -143,8 +143,9 @@ func profile(ctx context.Context, args []string) error {
 		endTime:    timeRange.End,
 		sampleRate: 1.0,
 	}
-	records.cpu = wzprof.NewCPUProfiler(wzprof.TimeFunc(records.now))
-	records.mem = wzprof.NewMemoryProfiler()
+	p := wzprof.ProfilingFor(module.Code)
+	records.cpu = p.CPUProfiler(wzprof.TimeFunc(records.now))
+	records.mem = p.MemoryProfiler()
 
 	ctx = context.WithValue(ctx,
 		experimental.FunctionListenerFactoryKey{},
@@ -162,6 +163,9 @@ func profile(ctx context.Context, args []string) error {
 		return err
 	}
 	defer compiledModule.Close(ctx)
+	if err := p.Prepare(compiledModule); err != nil {
+		return err
+	}
 
 	replay := wasicall.NewReplay(records)
 	defer replay.Close(ctx)
@@ -233,7 +237,6 @@ type recordProfiler struct {
 	started    bool
 	stopped    bool
 	sampleRate float64
-	symbols    wzprof.Symbolizer
 }
 
 func (r *recordProfiler) Read(records []timemachine.Record) (int, error) {
@@ -271,8 +274,8 @@ func (r *recordProfiler) start() {
 func (r *recordProfiler) stop() {
 	if !r.stopped {
 		r.stopped = true
-		r.cpuProfile = r.cpu.StopProfile(r.sampleRate, r.symbols)
-		r.memProfile = r.mem.NewProfile(r.sampleRate, r.symbols)
+		r.cpuProfile = r.cpu.StopProfile(r.sampleRate)
+		r.memProfile = r.mem.NewProfile(r.sampleRate)
 		r.cpuProfile.TimeNanos = r.startTime.UnixNano()
 		r.memProfile.TimeNanos = r.startTime.UnixNano()
 		duration := r.lastTimestamp - r.firstTimestamp
@@ -304,7 +307,7 @@ func createProfiles(reg *timemachine.Registry, processID format.UUID, profiles .
 		}(p)
 	}
 
-	var descriptors = make([]*format.Descriptor, 0, len(profiles))
+	descriptors := make([]*format.Descriptor, 0, len(profiles))
 	var lastErr error
 	for range profiles {
 		d, err := (<-ch).Value()
