@@ -80,7 +80,7 @@ func (r *LogReader) Seek(offset int64, whence int) (int64, error) {
 // The RecordBatch is only valid until the next call to ReadRecordBatch or Seek.
 func (r *LogReader) ReadRecordBatch() (*RecordBatch, error) {
 	for {
-		// There may be data left that was not consumed from the prevous batch
+		// There may be data left that was not consumed from the previous batch
 		// returned by ReadRecordBatch (e.g. if the program read the metadata
 		// and decided it wasn't interested in the batch). We know the byte
 		// offset of the current record batch
