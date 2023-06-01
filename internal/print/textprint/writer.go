@@ -45,7 +45,7 @@ type writer[T any] struct {
 func (w *writer[T]) Write(values []T) (int, error) {
 	for n, v := range values {
 		if w.count++; w.count > 1 {
-			_, err := io.WriteString(w.output, separator)
+			_, err := io.WriteString(w.output, w.separator)
 			if err != nil {
 				return n, err
 			}
