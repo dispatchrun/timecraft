@@ -3,6 +3,7 @@ package debug
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -12,9 +13,18 @@ import (
 
 const replUsage = `Commands:
   s, step     -- Step through events
+  r, restart  -- Restart the debugger
   q, quit     -- Quit the debugger
   h, help     -- Show this usage information
 `
+
+var (
+	// QuitError is raised (via panic) when the user calls q/quit.
+	QuitError = errors.New("quitting from the debug REPL")
+
+	// RestartError is raised (via panic) when the user calls r/restart.
+	RestartError = errors.New("restarting from the debug REPL")
+)
 
 // REPL provides a read-eval-print loop for debugging WebAssembly modules.
 type REPL struct {
@@ -46,11 +56,11 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 	case *ModuleAfterEvent:
 		switch err := e.Error.(type) {
 		case nil:
-			r.printf("the module exited normally\n")
+			r.printf("The module exited normally\n")
 		case *sys.ExitError:
-			r.printf("the module exited with code: %d\n", err.ExitCode())
+			r.printf("The module exited with code: %d\n", err.ExitCode())
 		default:
-			r.printf("the module exited with error: %v\n", err)
+			r.printf("The module exited with error: %v\n", err)
 		}
 	case *FunctionCallBeforeEvent:
 		return
@@ -82,20 +92,21 @@ command_loop:
 		case "s", "step":
 			break command_loop
 		case "q", "quit":
+			r.printf("Quitting the debugger\n")
 			r.closed = true
-			panic(sys.NewExitError(0))
-		case "h", "help" /* be forgiving: */, "?", "-h", "--help":
+			panic(QuitError)
+		case "r", "restart":
+			r.printf("Restarting the debugger\n")
+			r.closed = true
+			panic(RestartError)
+		case "h", "help" /* be forgiving: */, "?", "-h", "--help", `"help"`:
 			r.print(replUsage)
 			continue
 		default:
-			r.printf("error: %q is not a valid command\n", command)
+			r.printf(`error: %q is not a valid command. See "help"\n`, command)
 			continue
 		}
 	}
-}
-
-func (r *REPL) println(args ...any) (int, error) {
-	return fmt.Fprintln(r.writer, args...)
 }
 
 func (r *REPL) printf(s string, args ...any) (int, error) {

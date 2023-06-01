@@ -40,7 +40,7 @@ Options:
    -T, --trace                    Enable strace-like logging of host function calls
 `
 
-func run(ctx context.Context, args []string) (err error) {
+func run(ctx context.Context, args []string) error {
 	var (
 		envs        stringList
 		listens     stringList
@@ -235,22 +235,38 @@ func run(ctx context.Context, args []string) (err error) {
 	}
 	defer system.Close(ctx)
 
-	if debugger {
-		debugREPL.OnEvent(ctx, &debug.ModuleBeforeEvent{Module: compiledModule})
-		defer func() {
-			if err := recover(); err != nil {
-				debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{Error: err})
-				panic(err)
-			} else {
-				debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{})
-			}
-		}()
-	}
-
-	return instantiate(ctx, runtime, compiledModule)
+	return instantiate(ctx, runtime, compiledModule, debugREPL)
 }
 
-func instantiate(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule) error {
+func instantiate(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule, debugREPL *debug.REPL) (err error) {
+	if debugREPL != nil {
+		// The double defer is so that we can catch debug.{Quit,Restart}Error,
+		// whether it originates from deep with the WebAssembly module
+		// execution, or whether it originates from the OnEvent handler below
+		// which is called after the module exits.
+		defer func() {
+			defer func() {
+				switch e := recover(); e {
+				case nil:
+				case debug.QuitError:
+					err = exitCode(0)
+				case debug.RestartError:
+					err = restart{}
+				default:
+					panic(e)
+				}
+			}()
+
+			e := recover()
+			debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{Error: e})
+			if e != nil {
+				panic(e)
+			}
+		}()
+
+		debugREPL.OnEvent(ctx, &debug.ModuleBeforeEvent{Module: compiledModule})
+	}
+
 	module, err := runtime.InstantiateModule(ctx, compiledModule, wazero.NewModuleConfig().
 		WithStartFunctions())
 	if err != nil {

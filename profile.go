@@ -170,7 +170,7 @@ func profile(ctx context.Context, args []string) error {
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
-	if err := instantiate(ctx, runtime, compiledModule); err != nil {
+	if err := instantiate(ctx, runtime, compiledModule, nil); err != nil {
 		return err
 	}
 

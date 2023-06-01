@@ -93,8 +93,10 @@ func root(ctx context.Context, args ...string) int {
 		}()
 	}
 
-	var err error
 	cmd, args := args[0], args[1:]
+
+run_command:
+	var err error
 	switch cmd {
 	case "config":
 		err = config(ctx, args)
@@ -123,6 +125,8 @@ func root(ctx context.Context, args ...string) int {
 		return 0
 	case exitCode:
 		return int(e)
+	case restart:
+		goto run_command
 	case usage:
 		fmt.Fprintf(os.Stderr, "%s\n", e)
 		return 2
@@ -139,6 +143,12 @@ type exitCode int
 func (e exitCode) Error() string {
 	return fmt.Sprintf("exit: %d", e)
 }
+
+// restart is an error type returned from command functions to indicate
+// that a command should be restarted.
+type restart struct{}
+
+func (restart) Error() string { return "restart" }
 
 // usage is an error type returned from command functions to indicate a usage
 // error.

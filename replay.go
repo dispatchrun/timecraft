@@ -28,7 +28,7 @@ Options:
    -T, --trace   Enable strace-like logging of host function calls
 `
 
-func replay(ctx context.Context, args []string) (err error) {
+func replay(ctx context.Context, args []string) error {
 	var (
 		registryPath = human.Path("~/.timecraft")
 		debugger     = false
@@ -135,17 +135,5 @@ func replay(ctx context.Context, args []string) (err error) {
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
-	if debugger {
-		debugREPL.OnEvent(ctx, &debug.ModuleBeforeEvent{Module: compiledModule})
-		defer func() {
-			if err := recover(); err != nil {
-				debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{Error: err})
-				panic(err)
-			} else {
-				debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{})
-			}
-		}()
-	}
-
-	return instantiate(ctx, runtime, compiledModule)
+	return instantiate(ctx, runtime, compiledModule, debugREPL)
 }
