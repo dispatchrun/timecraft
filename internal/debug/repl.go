@@ -11,6 +11,7 @@ import (
 
 const replUsage = `Commands:
   s, step     -- Step through events
+  c, continue -- Continue execution until a breakpoint is reached or the module exits
   r, restart  -- Restart the debugger
   q, quit     -- Quit the debugger
   h, help     -- Show this usage information
@@ -26,10 +27,11 @@ var (
 
 // REPL provides a read-eval-print loop for debugging WebAssembly modules.
 type REPL struct {
-	input  *bufio.Scanner
-	tracer *Tracer
-	writer io.Writer
-	closed bool
+	input    *bufio.Scanner
+	tracer   *Tracer
+	writer   io.Writer
+	stepping bool
+	closed   bool
 }
 
 // NewREPL creates a new REPL using the specified input and writer stream.
@@ -48,18 +50,13 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 
 	r.tracer.OnEvent(ctx, event)
 
+	// TODO: support breakpoints
+	executing := true
 	switch event.(type) {
-	case *ModuleBeforeEvent:
-	case *ModuleAfterEvent:
-	case *FunctionCallBeforeEvent:
-		return
-	case *FunctionCallAfterEvent:
-		return
-	case *FunctionCallAbortEvent:
-		return
-	case *SystemCallBeforeEvent:
-		return
-	case *SystemCallAfterEvent:
+	case *ModuleBeforeEvent, *ModuleAfterEvent:
+		executing = false
+	}
+	if executing && !r.stepping {
 		return
 	}
 
@@ -76,15 +73,17 @@ read_input:
 
 	switch command {
 	case "s", "step":
-		// TODO
+		r.stepping = true
+
+	case "c", "continue":
+		r.stepping = false
 
 	case "r", "restart":
-		r.print("Restarting the debugger\n")
+		r.print("Restarting...\n")
 		r.closed = true
 		panic(RestartError)
 
 	case "q", "quit":
-		r.print("Quitting the debugger\n")
 		r.closed = true
 		panic(QuitError)
 
