@@ -150,39 +150,42 @@ type Event struct {
 	Data  []wasi.IOVec       `json:"data,omitempty"  yaml:"data,omitempty"`
 }
 
-func (e Event) Format(w fmt.State, v rune) {
-	fmt.Fprintf(w, `%s %s %s (fd=%d,`,
-		e.Time.Format("2006-01-02T15:04:05.000000Z07:00"),
-		e.Proto,
-		e.Type,
-		e.FD,
-	)
-
-	if e.Type == Receive || e.Type == Send {
-		fmt.Fprintf(w, ` size=%d,`, len(e.Data))
-	}
-
-	fmt.Fprintf(w, ` %s)
+func (e Event) Format(w fmt.State, _ rune) {
+	fmt.Fprintf(w, `%s %s %s (fd=%d, size=%d, %s)
     ADDR: %s
     PEER: %s
 `,
+		e.Time.In(time.Local).Format("2006/01/02 15:04:05.000000"),
+		e.Proto,
+		e.Type,
+		e.FD,
+		iovecSize(e.Data),
 		e.Error,
 		socketAddressString(e.Addr),
 		socketAddressString(e.Peer),
 	)
 
-	const separator = `
+	if w.Flag('+') {
+		const separator = `
 ------------------------------------------------------------------------------
 `
-	if e.Type == Receive || e.Type == Send {
-		fmt.Fprint(w, separator)
-		hexdump := hex.Dumper(w)
-		for _, iov := range e.Data {
-			_, _ = hexdump.Write(iov)
+		if e.Type == Receive || e.Type == Send {
+			fmt.Fprint(w, separator)
+			hexdump := hex.Dumper(w)
+			for _, iov := range e.Data {
+				_, _ = hexdump.Write(iov)
+			}
+			hexdump.Close()
+			fmt.Fprint(w, separator[1:])
 		}
-		hexdump.Close()
-		fmt.Fprint(w, separator[1:])
 	}
+}
+
+func iovecSize(iovs []wasi.IOVec) (size wasi.Size) {
+	for _, iov := range iovs {
+		size += wasi.Size(len(iov))
+	}
+	return size
 }
 
 func socketAddressString(addr wasi.SocketAddress) string {
