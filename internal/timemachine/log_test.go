@@ -15,34 +15,34 @@ import (
 func TestReadRecordBatch(t *testing.T) {
 	startTime := time.Now()
 
-	batches := [][]record{
+	batches := [][]timemachine.Record{
 		{
 			{
-				Timestamp:    startTime.Add(1 * time.Millisecond),
+				Time:         startTime.Add(1 * time.Millisecond),
 				FunctionID:   0,
 				FunctionCall: []byte("function call 0"),
 			},
 		},
 		{
 			{
-				Timestamp:    startTime.Add(2 * time.Millisecond),
+				Time:         startTime.Add(2 * time.Millisecond),
 				FunctionID:   1,
 				FunctionCall: []byte("function call 1"),
 			},
 			{
-				Timestamp:    startTime.Add(3 * time.Millisecond),
+				Time:         startTime.Add(3 * time.Millisecond),
 				FunctionID:   2,
 				FunctionCall: []byte("function call 2"),
 			},
 		},
 		{
 			{
-				Timestamp:    startTime.Add(4 * time.Millisecond),
+				Time:         startTime.Add(4 * time.Millisecond),
 				FunctionID:   3,
 				FunctionCall: []byte("function call: A, B, C, D"),
 			},
 			{
-				Timestamp:    startTime.Add(5 * time.Millisecond),
+				Time:         startTime.Add(5 * time.Millisecond),
 				FunctionID:   4,
 				FunctionCall: []byte("hello world!"),
 			},
@@ -59,7 +59,7 @@ func TestReadRecordBatch(t *testing.T) {
 		recordBatchBuilder.Reset(timemachine.Zstd, firstOffset)
 		for _, r := range batch {
 			recordBuilder.Reset(startTime)
-			recordBuilder.SetTimestamp(r.Timestamp)
+			recordBuilder.SetTimestamp(r.Time)
 			recordBuilder.SetFunctionID(r.FunctionID)
 			recordBuilder.SetFunctionCall(r.FunctionCall)
 			recordBatchBuilder.AddRecord(&recordBuilder)
@@ -71,7 +71,7 @@ func TestReadRecordBatch(t *testing.T) {
 	}
 
 	reader := timemachine.NewLogReader(bytes.NewReader(buffer.Bytes()), startTime)
-	batchesRead := make([][]record, 0, len(batches))
+	batchesRead := make([][]timemachine.Record, 0, len(batches))
 	for {
 		batch, err := reader.ReadRecordBatch()
 		if err != nil {
@@ -80,18 +80,14 @@ func TestReadRecordBatch(t *testing.T) {
 			}
 			t.Fatal(err)
 		}
-		records := make([]record, batch.NumRecords())
+		records := make([]timemachine.Record, batch.NumRecords())
 		count := 0
 		iter := stream.Iter[timemachine.Record](batch)
 
 		for iter.Next() {
 			r := iter.Value()
 			assert.Less(t, count, len(records))
-			records[count] = record{
-				Timestamp:    r.Time(),
-				FunctionID:   r.FunctionID(),
-				FunctionCall: r.FunctionCall(),
-			}
+			records[count] = r
 			count++
 		}
 
@@ -105,18 +101,12 @@ func TestReadRecordBatch(t *testing.T) {
 	}
 }
 
-type record struct {
-	Timestamp    time.Time
-	FunctionID   int
-	FunctionCall []byte
-}
-
 func BenchmarkLogWriter(b *testing.B) {
 	startTime := time.Now()
 
 	tests := []struct {
 		scenario string
-		batch    []record
+		batch    []timemachine.Record
 	}{
 		{
 			scenario: "zero records",
@@ -124,9 +114,9 @@ func BenchmarkLogWriter(b *testing.B) {
 
 		{
 			scenario: "one record",
-			batch: []record{
+			batch: []timemachine.Record{
 				{
-					Timestamp:    startTime.Add(1 * time.Millisecond),
+					Time:         startTime.Add(1 * time.Millisecond),
 					FunctionID:   0,
 					FunctionCall: []byte("function call 0"),
 				},
@@ -135,29 +125,29 @@ func BenchmarkLogWriter(b *testing.B) {
 
 		{
 			scenario: "five records",
-			batch: []record{
+			batch: []timemachine.Record{
 				{
-					Timestamp:    startTime.Add(1 * time.Millisecond),
+					Time:         startTime.Add(1 * time.Millisecond),
 					FunctionID:   0,
 					FunctionCall: []byte("1"),
 				},
 				{
-					Timestamp:    startTime.Add(2 * time.Millisecond),
+					Time:         startTime.Add(2 * time.Millisecond),
 					FunctionID:   1,
 					FunctionCall: []byte("1,2"),
 				},
 				{
-					Timestamp:    startTime.Add(3 * time.Millisecond),
+					Time:         startTime.Add(3 * time.Millisecond),
 					FunctionID:   2,
 					FunctionCall: []byte("1,2,3"),
 				},
 				{
-					Timestamp:    startTime.Add(4 * time.Millisecond),
+					Time:         startTime.Add(4 * time.Millisecond),
 					FunctionID:   3,
 					FunctionCall: []byte("A,B,C,D"),
 				},
 				{
-					Timestamp:    startTime.Add(5 * time.Millisecond),
+					Time:         startTime.Add(5 * time.Millisecond),
 					FunctionID:   4,
 					FunctionCall: []byte("hello world!"),
 				},
@@ -172,7 +162,7 @@ func BenchmarkLogWriter(b *testing.B) {
 	}
 }
 
-func benchmarkLogWriterWriteRecordBatch(b *testing.B, startTime time.Time, compression timemachine.Compression, batch []record) {
+func benchmarkLogWriterWriteRecordBatch(b *testing.B, startTime time.Time, compression timemachine.Compression, batch []timemachine.Record) {
 	w := timemachine.NewLogWriter(io.Discard)
 
 	var recordBuilder timemachine.RecordBuilder
@@ -185,7 +175,7 @@ func benchmarkLogWriterWriteRecordBatch(b *testing.B, startTime time.Time, compr
 		recordBatchBuilder.Reset(compression, 0)
 		for _, r := range batch {
 			recordBuilder.Reset(startTime)
-			recordBuilder.SetTimestamp(r.Timestamp)
+			recordBuilder.SetTimestamp(r.Time)
 			recordBuilder.SetFunctionID(r.FunctionID)
 			recordBuilder.SetFunctionCall(r.FunctionCall)
 			recordBatchBuilder.AddRecord(&recordBuilder)

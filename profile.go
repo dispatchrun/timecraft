@@ -229,8 +229,8 @@ type recordProfiler struct {
 	cpuProfile *pprof.Profile
 	memProfile *pprof.Profile
 
-	firstTimestamp int64
-	lastTimestamp  int64
+	firstTimestamp time.Time
+	lastTimestamp  time.Time
 
 	startTime  time.Time
 	endTime    time.Time
@@ -248,12 +248,12 @@ func (r *recordProfiler) Read(records []timemachine.Record) (int, error) {
 	}
 	n, err := r.records.Read(records[:1])
 	if n > 0 {
-		r.lastTimestamp = records[0].Timestamp()
-		if !r.started && !records[0].Time().Before(r.startTime) {
+		r.lastTimestamp = records[0].Time
+		if !r.started && !r.lastTimestamp.Before(r.startTime) {
 			r.firstTimestamp = r.lastTimestamp
 			r.start()
 		}
-		if !r.stopped && !records[0].Time().Before(r.endTime) {
+		if !r.stopped && !r.lastTimestamp.Before(r.endTime) {
 			r.stop()
 		}
 	}
@@ -261,7 +261,7 @@ func (r *recordProfiler) Read(records []timemachine.Record) (int, error) {
 }
 
 func (r *recordProfiler) now() int64 {
-	return r.lastTimestamp
+	return int64(r.lastTimestamp.Sub(r.firstTimestamp))
 }
 
 func (r *recordProfiler) start() {
@@ -278,9 +278,9 @@ func (r *recordProfiler) stop() {
 		r.memProfile = r.mem.NewProfile(r.sampleRate)
 		r.cpuProfile.TimeNanos = r.startTime.UnixNano()
 		r.memProfile.TimeNanos = r.startTime.UnixNano()
-		duration := r.lastTimestamp - r.firstTimestamp
-		r.cpuProfile.DurationNanos = duration
-		r.memProfile.DurationNanos = duration
+		duration := r.lastTimestamp.Sub(r.firstTimestamp)
+		r.cpuProfile.DurationNanos = int64(duration)
+		r.memProfile.DurationNanos = int64(duration)
 	}
 }
 

@@ -11,43 +11,9 @@ import (
 
 // Record is a read-only record from the log.
 type Record struct {
-	startTime time.Time
-	record    logsegment.Record
-}
-
-// MakeRecord creates a record from a buffer.
-//
-// The buffer must live as long as the record.
-func MakeRecord(startTime time.Time, buffer []byte) (r Record) {
-	r.Reset(startTime, buffer)
-	return
-}
-
-// Reset resets a record.
-func (r *Record) Reset(startTime time.Time, buffer []byte) {
-	r.startTime = startTime
-	r.record = *logsegment.GetSizePrefixedRootAsRecord(buffer, 0)
-}
-
-// Time is the record timestamp as a time.Time value (adjusted from
-// the process start time).
-func (r *Record) Time() time.Time {
-	return r.startTime.Add(time.Duration(r.Timestamp()))
-}
-
-// Timestamp is the monontonic timestamp encoded in the record.
-func (r *Record) Timestamp() int64 {
-	return r.record.Timestamp()
-}
-
-// FunctionID is the record's associated function ID.
-func (r *Record) FunctionID() int {
-	return int(r.record.FunctionId())
-}
-
-// FunctionCall returns the function call details.
-func (r *Record) FunctionCall() []byte {
-	return r.record.FunctionCallBytes()
+	Time         time.Time
+	FunctionID   int
+	FunctionCall []byte
 }
 
 // RecordBuilder is a builder for records.
