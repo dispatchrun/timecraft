@@ -155,18 +155,18 @@ func value[T any](v T) nullable[T] {
 	return nullable[T]{value: v, exist: true}
 }
 
-func (v *nullable[T]) Value() (T, bool) {
+func (v nullable[T]) Value() (T, bool) {
 	return v.value, v.exist
 }
 
-func (v *nullable[T]) MarshalJSON() ([]byte, error) {
+func (v nullable[T]) MarshalJSON() ([]byte, error) {
 	if !v.exist {
 		return []byte("null"), nil
 	}
 	return json.Marshal(v.value)
 }
 
-func (v *nullable[T]) MarshalYAML() (any, error) {
+func (v nullable[T]) MarshalYAML() (any, error) {
 	if !v.exist {
 		return nil, nil
 	}
