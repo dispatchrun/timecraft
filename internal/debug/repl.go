@@ -9,12 +9,22 @@ import (
 	"strings"
 )
 
-const replUsage = `Commands:
-  s, step     -- Step through events
-  c, continue -- Continue execution until a breakpoint is reached or the module exits
-  r, restart  -- Restart the debugger
-  q, quit     -- Quit the debugger
-  h, help     -- Show this usage information
+const replUsage = `
+Debugger Commands:
+  s, step             -- Step through events
+  c, continue         -- Continue execution until a breakpoint is reached or the module exits
+  t, trace <options>  -- Configure the tracer using a comma-separated list of options
+  r, restart          -- Restart the debugger
+  q, quit             -- Quit the debugger
+  h, help             -- Show this usage information
+
+Tracer Options:
+  all        -- Enable all tracing
+  functions  -- Enable function call tracing
+  syscalls   -- Enable system call tracing
+  stack      -- Enable function call stack params/results tracing
+  timestamps -- Enable timestamps in tracer output
+  relative   -- Show relative times between tracer lines
 `
 
 var (
@@ -72,6 +82,44 @@ read_input:
 	command := strings.TrimSpace(parts[0])
 
 	switch command {
+	case "t", "trace":
+		if len(parts) == 1 {
+			r.println(`error: expected a tracer option. See "help"`)
+		}
+		for _, opt := range strings.Split(parts[1], ",") {
+			opt = strings.TrimSpace(opt)
+			if len(opt) == 0 {
+				continue
+			}
+			enable := true
+			switch opt[0] {
+			case '+':
+				opt = opt[1:]
+			case '-':
+				enable = false
+				opt = opt[1:]
+			}
+			switch opt {
+			case "all":
+				r.tracer.TraceFunctionCalls(enable)
+				r.tracer.TraceSystemCalls(enable)
+				r.tracer.TraceStack(enable)
+				r.tracer.EnableTimestamps(enable)
+				r.tracer.RelativeTimestamps(enable)
+			case "functions":
+				r.tracer.TraceFunctionCalls(enable)
+			case "syscalls":
+				r.tracer.TraceSystemCalls(enable)
+			case "stack":
+				r.tracer.TraceStack(enable)
+			case "timestamps":
+				r.tracer.EnableTimestamps(enable)
+			case "relative":
+				r.tracer.RelativeTimestamps(enable)
+			}
+		}
+		goto read_input
+
 	case "s", "step":
 		if ctx.Err() != nil {
 			r.println(`error: the module has exited. Try "restart", "quit" or "help"`)
@@ -103,7 +151,7 @@ read_input:
 		goto read_input
 
 	default:
-		r.printf(`error: %q is not a valid command. See "help"\n`, command)
+		r.printf("error: %q is not a valid command. See \"help\"\n", command)
 		goto read_input
 	}
 }

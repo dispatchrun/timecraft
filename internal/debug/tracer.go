@@ -20,74 +20,66 @@ import (
 type Tracer struct {
 	writer io.Writer
 
-	enable                    bool
-	enableIndent              bool
-	enableFunctionCallTracing bool
-	enableStackParamTracing   bool
-	enableStackResultTracing  bool
-	enableSystemCallTracing   bool
+	traceFunctionCalls bool
+	traceStack         bool
+	traceSystemCalls   bool
+	enableTimestamps   bool
+	relativeTimestamps bool
 
-	indent int
+	previousTime time.Time
+	depth        int
 }
 
 // NewTracer creates a new Tracer.
 func NewTracer(writer io.Writer) *Tracer {
-	return &Tracer{
-		writer:                    writer,
-		enable:                    true,
-		enableIndent:              true,
-		enableSystemCallTracing:   true,
-		enableFunctionCallTracing: true,
-		enableStackParamTracing:   true,
-		enableStackResultTracing:  true,
-	}
+	return &Tracer{writer: writer}
 }
 
-func (t *Tracer) EnableIndent(enable bool) {
-	t.enableIndent = enable
+func (t *Tracer) TraceFunctionCalls(enable bool) {
+	t.traceFunctionCalls = enable
 }
 
-func (t *Tracer) EnableFunctionCallTracing(enable bool) {
-	t.enableFunctionCallTracing = enable
+func (t *Tracer) TraceSystemCalls(enable bool) {
+	t.traceSystemCalls = enable
 }
 
-func (t *Tracer) EnableSystemCallTracing(enable bool) {
-	t.enableFunctionCallTracing = enable
+func (t *Tracer) TraceStack(enable bool) {
+	t.traceStack = enable
 }
 
-func (t *Tracer) EnableStackParamTracing(enable bool) {
-	t.enableStackParamTracing = enable
+func (t *Tracer) EnableTimestamps(enable bool) {
+	t.enableTimestamps = enable
 }
 
-func (t *Tracer) EnableStackResultTracing(enable bool) {
-	t.enableStackResultTracing = enable
+func (t *Tracer) RelativeTimestamps(enable bool) {
+	t.relativeTimestamps = enable
 }
 
 func (t *Tracer) OnEvent(ctx context.Context, event Event) {
 	switch e := event.(type) {
 	case *ModuleBeforeEvent:
-		t.ModuleBefore(ctx, e.Module)
+		t.moduleBefore(ctx, e.Module)
 	case *ModuleAfterEvent:
-		t.ModuleAfter(ctx, e.Error)
+		t.moduleAfter(ctx, e.Error)
 	case *FunctionCallBeforeEvent:
-		t.FunctionCallBefore(ctx, e.Module, e.Function, e.Params)
+		t.functionCallBefore(ctx, e.Module, e.Function, e.Params)
 	case *FunctionCallAfterEvent:
-		t.FunctionCallAfter(ctx, e.Module, e.Function, e.Results)
+		t.functionCallAfter(ctx, e.Module, e.Function, e.Results)
 	case *FunctionCallAbortEvent:
-		t.FunctionCallAbort(ctx, e.Module, e.Function, e.Error)
+		t.functionCallAbort(ctx, e.Module, e.Function, e.Error)
 	case *SystemCallBeforeEvent:
-		t.SystemCallBefore(ctx, e.Syscall)
+		t.systemCallBefore(ctx, e.Syscall)
 	case *SystemCallAfterEvent:
-		t.SystemCallAfter(ctx, e.Syscall)
+		t.systemCallAfter(ctx, e.Syscall)
 	}
+
+	t.previousTime = time.Now()
 }
 
-func (t *Tracer) ModuleBefore(ctx context.Context, mod wazero.CompiledModule) {
-
+func (t *Tracer) moduleBefore(ctx context.Context, mod wazero.CompiledModule) {
 }
 
-func (t *Tracer) ModuleAfter(ctx context.Context, err any) {
-	t.print("\n")
+func (t *Tracer) moduleAfter(ctx context.Context, err any) {
 	switch e := err.(type) {
 	case nil:
 		t.print("The module exited normally\n")
@@ -98,51 +90,50 @@ func (t *Tracer) ModuleAfter(ctx context.Context, err any) {
 	}
 }
 
-func (t *Tracer) FunctionCallBefore(ctx context.Context, mod api.Module, fn api.FunctionDefinition, params []uint64) {
-	if !t.enable || !t.enableFunctionCallTracing {
+func (t *Tracer) functionCallBefore(ctx context.Context, mod api.Module, fn api.FunctionDefinition, params []uint64) {
+	if !t.traceFunctionCalls {
 		return
 	}
 
 	t.printLine(func() {
+		t.print(color.BlackString("→ "))
 		t.print(fn.DebugName())
-		if t.enableStackParamTracing {
-			t.print(color.HiBlackString(" <= "))
+		if t.traceStack {
 			t.printStack(params)
 		}
 	})
 
-	t.indent++
+	t.depth++
 }
 
-func (t *Tracer) FunctionCallAfter(ctx context.Context, mod api.Module, fn api.FunctionDefinition, results []uint64) {
-	if !t.enable || !t.enableFunctionCallTracing {
+func (t *Tracer) functionCallAfter(ctx context.Context, mod api.Module, fn api.FunctionDefinition, results []uint64) {
+	if !t.traceFunctionCalls {
 		return
 	}
 
-	t.indent--
-
-	if !t.enableStackResultTracing {
-		return
-	}
+	t.depth--
 
 	t.printLine(func() {
+		t.print(color.BlackString("← "))
 		t.print(fn.DebugName())
-		t.print(color.HiBlackString(" => "))
-		t.printStack(results)
+		if t.traceStack {
+			t.print(color.HiBlackString(" => "))
+			t.printStack(results)
+		}
 	})
 }
 
-func (t *Tracer) FunctionCallAbort(ctx context.Context, mod api.Module, fn api.FunctionDefinition, err error) {
-	if !t.enable || !t.enableFunctionCallTracing {
+func (t *Tracer) functionCallAbort(ctx context.Context, mod api.Module, fn api.FunctionDefinition, err error) {
+	if !t.traceFunctionCalls {
 		return
 	}
 
-	t.indent--
+	t.depth--
 
 	t.printLine(func() {
-		t.print(fn.DebugName(), "")
-		t.print(color.HiBlackString(" => "))
-		t.print("(")
+		t.print(color.BlackString("← "))
+		t.print(fn.DebugName())
+		t.print(" (")
 		if _, ok := err.(*sys.ExitError); ok {
 			t.print(color.YellowString("exiting"))
 		} else {
@@ -152,44 +143,31 @@ func (t *Tracer) FunctionCallAbort(ctx context.Context, mod api.Module, fn api.F
 	})
 }
 
-func (t *Tracer) SystemCallBefore(ctx context.Context, s wasicall.Syscall) {
-	if !t.enable || !t.enableSystemCallTracing {
+func (t *Tracer) systemCallBefore(ctx context.Context, s wasicall.Syscall) {
+	if !t.traceSystemCalls {
 		return
 	}
 
 	t.printLine(func() {
 		t.print(color.MagentaString(s.ID().String()))
-
-		t.print(color.HiBlackString(" <= "))
-
-		t.print("(")
-		for i, param := range s.Params() {
-			if i > 0 {
-				t.print(", ")
-			}
-			t.printf("%v", param)
-		}
-		t.print(")")
 	})
+	for _, param := range s.Params() {
+		t.printLine(func() {
+			t.print(color.HiBlackString("   <= "))
+			t.printf("%v", param)
+		})
+	}
 }
 
-func (t *Tracer) SystemCallAfter(ctx context.Context, s wasicall.Syscall) {
-	if !t.enable || !t.enableSystemCallTracing {
+func (t *Tracer) systemCallAfter(ctx context.Context, s wasicall.Syscall) {
+	if !t.traceSystemCalls {
 		return
 	}
-
-	t.printLine(func() {
-		t.print(strings.Repeat(" ", len(s.ID().String())))
-
-		t.print(color.HiBlackString(" => "))
-
-		t.print("(")
-		results := s.Results()
-		errno := s.Error()
-		for i, result := range results {
-			if i > 0 {
-				t.print(", ")
-			}
+	results := s.Results()
+	errno := s.Error()
+	for i, result := range results {
+		t.printLine(func() {
+			t.print(color.HiBlackString("   => "))
 			if i == len(results)-1 && errno == result {
 				switch errno {
 				case wasi.ESUCCESS:
@@ -202,9 +180,8 @@ func (t *Tracer) SystemCallAfter(ctx context.Context, s wasicall.Syscall) {
 			} else {
 				t.printf("%v", result)
 			}
-		}
-		t.print(")")
-	})
+		})
+	}
 }
 
 func (t *Tracer) printStack(values []uint64) {
@@ -226,10 +203,31 @@ func (t *Tracer) printLine(fn func()) {
 }
 
 func (t *Tracer) printPrefix() (int, error) {
-	fmt.Fprintf(t.writer, color.BlackString("%d "), time.Now().UnixNano())
+	if t.enableTimestamps {
+		switch {
+		case t.relativeTimestamps && t.previousTime == time.Time{}:
+			fmt.Fprint(t.writer, "")
+		case t.relativeTimestamps:
+			elapsed := time.Since(t.previousTime)
+			switch {
+			case elapsed < time.Microsecond:
+				fmt.Fprintf(t.writer, color.HiBlackString("%+ 4dns"), elapsed)
+			case elapsed < time.Millisecond:
+				fmt.Fprintf(t.writer, color.HiBlackString("%+ 4dµs"), elapsed/time.Microsecond)
+			case elapsed < time.Second:
+				fmt.Fprintf(t.writer, color.YellowString("%+ 4dms"), elapsed/time.Millisecond)
+			case elapsed < 1000*time.Second:
+				fmt.Fprintf(t.writer, color.RedString("%+ 4ds "), elapsed/time.Second)
+			default:
+				panic("not implemented")
+			}
+		default:
+			fmt.Fprintf(t.writer, color.HiBlackString("%d "), time.Now().UnixNano())
+		}
+	}
 
-	if t.enableIndent && t.indent > 0 {
-		return fmt.Fprint(t.writer, strings.Repeat(" ", t.indent))
+	if t.traceFunctionCalls && t.depth > 0 {
+		return fmt.Fprint(t.writer, strings.Repeat(" ", t.depth))
 	}
 
 	return 0, nil
