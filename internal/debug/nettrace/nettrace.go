@@ -247,11 +247,12 @@ func newSocket(proto Protocol, fd wasi.FD) *socket {
 	}
 }
 
-func (s *socket) newClient(fd wasi.FD) *socket {
+func (s *socket) newClient(fd wasi.FD, addr wasi.SocketAddress) *socket {
 	return &socket{
 		proto: s.proto,
 		fd:    fd,
 		addr:  s.addr,
+		peer:  addr,
 	}
 }
 
@@ -339,7 +340,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			n++
 
 		case wasicall.SockAccept:
-			fd, _, newfd, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
+			fd, _, newfd, addr, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
 			if err != nil {
 				return n, err
 			}
@@ -358,7 +359,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 				// interface returned the socket address that the client
 				// is connecting from, even if it's not part of the ABI,
 				// at least it would be recorded and we could access it.
-				client := server.newClient(newfd)
+				client := server.newClient(newfd, addr)
 				r.sockets[newfd] = client
 				events[n].init(client, record.Time, Accept, 0)
 			} else {
