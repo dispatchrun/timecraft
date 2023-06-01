@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	_ "net/http/pprof"
@@ -48,8 +49,12 @@ Example:
 
 For a list of commands available, run 'timecraft help'.`
 
-// root is the timecraft entrypoint.
-func root(ctx context.Context, args ...string) int {
+// Root is the timecraft entrypoint.
+func Root(ctx context.Context, args ...string) int {
+	if v := os.Getenv("TIMECRAFTCONFIG"); v != "" {
+		configPath = human.Path(v)
+	}
+
 	var (
 		// Secret options, we don't document them since they are only used for
 		// development. Since they are not part of the public interface we may
@@ -61,7 +66,13 @@ func root(ctx context.Context, args ...string) int {
 	flagSet := newFlagSet("timecraft", helpUsage)
 	customVar(flagSet, &cpuProfile, "cpuprofile")
 	customVar(flagSet, &memProfile, "memprofile")
-	_ = flagSet.Parse(args)
+
+	if err := flagSet.Parse(args); err != nil {
+		if !errors.Is(err, flag.ErrHelp) {
+			fmt.Println(err)
+		}
+		return 0
+	}
 
 	if args = flagSet.Args(); len(args) == 0 {
 		fmt.Println(rootUsage)
@@ -72,7 +83,7 @@ func root(ctx context.Context, args ...string) int {
 		path, _ := cpuProfile.Resolve()
 		f, err := os.Create(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "WARN: could not create CPU profile: %s\n", err)
+			perrorf("WARN: could not create CPU profile: %s", err)
 		} else {
 			defer f.Close()
 			_ = pprof.StartCPUProfile(f)
@@ -85,7 +96,7 @@ func root(ctx context.Context, args ...string) int {
 		defer func() {
 			f, err := os.Create(path)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "WARN: could not create memory profile: %s\n", err)
+				perrorf("WARN: could not create memory profile: %s", err)
 			}
 			defer f.Close()
 			runtime.GC()
@@ -118,16 +129,17 @@ func root(ctx context.Context, args ...string) int {
 		err = unknown(ctx, cmd)
 	}
 
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
+
 	switch e := err.(type) {
 	case nil:
 		return 0
 	case exitCode:
 		return int(e)
-	case usage:
-		fmt.Fprintf(os.Stderr, "%s\n", e)
-		return 2
 	default:
-		fmt.Fprintf(os.Stderr, "ERR: timecraft %s: %s\n", cmd, err)
+		perrorf("ERR: timecraft %s: %s", cmd, err)
 		return 1
 	}
 }
@@ -138,20 +150,6 @@ type exitCode int
 
 func (e exitCode) Error() string {
 	return fmt.Sprintf("exit: %d", e)
-}
-
-// usage is an error type returned from command functions to indicate a usage
-// error.
-//
-// Usage erors cause the program to exist with status code 2.
-type usage string
-
-func usageError(msg string, args ...any) error {
-	return usage(fmt.Sprintf(msg, args...))
-}
-
-func (e usage) Error() string {
-	return string(e)
 }
 
 func setEnum[T ~string](enum *T, typ string, value string, options ...string) error {
@@ -230,9 +228,16 @@ func (m stringMap) Set(value string) error {
 	return nil
 }
 
+func perror(args ...any) {
+	fmt.Fprintln(os.Stderr, args...)
+}
+
+func perrorf(msg string, args ...any) {
+	fmt.Fprintf(os.Stderr, msg+"\n", args...)
+}
+
 func newFlagSet(cmd, usage string) *flag.FlagSet {
-	usage = strings.TrimSpace(usage)
-	flagSet := flag.NewFlagSet(cmd, flag.ExitOnError)
+	flagSet := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	flagSet.Usage = func() { fmt.Println(usage) }
 	customVar(flagSet, &configPath, "c", "config")
 	return flagSet
@@ -240,15 +245,17 @@ func newFlagSet(cmd, usage string) *flag.FlagSet {
 
 // parseFlags is a greedy parser which consumes all options known to f and
 // returns the remaining arguments.
-func parseFlags(f *flag.FlagSet, args []string) []string {
-	var unknownArgs []string
+func parseFlags(f *flag.FlagSet, args []string) ([]string, error) {
+	var vals []string
 	for {
-		// The flag set is constructed with ExitOnError, it should never error.
 		if err := f.Parse(args); err != nil {
-			panic(err)
+			if errors.Is(err, flag.ErrHelp) {
+				return nil, err
+			}
+			return nil, exitCode(2)
 		}
 		if args = f.Args(); len(args) == 0 {
-			return unknownArgs
+			return vals, nil
 		}
 		i := slices.IndexFunc(args, func(s string) bool {
 			return strings.HasPrefix(s, "-")
@@ -261,7 +268,7 @@ func parseFlags(f *flag.FlagSet, args []string) []string {
 		if i == 0 {
 			panic("parsing command line arguments did not error on " + args[0])
 		}
-		unknownArgs = append(unknownArgs, args[:i]...)
+		vals = append(vals, args[:i]...)
 		args = args[i:]
 	}
 }

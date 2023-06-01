@@ -59,7 +59,10 @@ func run(ctx context.Context, args []string) error {
 	boolVar(flagSet, &flyBlind, "fly-blind")
 	customVar(flagSet, &batchSize, "record-batch-size")
 	customVar(flagSet, &compression, "record-compression")
-	_ = flagSet.Parse(args)
+
+	if err := flagSet.Parse(args); err != nil {
+		return err
+	}
 
 	envs = append(os.Environ(), envs...)
 	args = flagSet.Args()

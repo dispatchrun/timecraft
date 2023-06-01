@@ -58,10 +58,14 @@ func describe(ctx context.Context, args []string) error {
 
 	flagSet := newFlagSet("timecraft describe", describeUsage)
 	customVar(flagSet, &output, "o", "output")
-	args = parseFlags(flagSet, args)
 
+	args, err := parseFlags(flagSet, args)
+	if err != nil {
+		return err
+	}
 	if len(args) == 0 {
-		return errors.New(`expected a resource type as argument`)
+		perror(`expected a resource type as argument`)
+		return exitCode(2)
 	}
 
 	resource, err := findResource("describe", args[0])
