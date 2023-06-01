@@ -7,16 +7,26 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
+	"github.com/tetratelabs/wazero/api"
 )
 
 const replUsage = `
 Debugger Commands:
   s, step             -- Step through events
   c, continue         -- Continue execution until a breakpoint is reached or the module exits
+  b, break <options>  -- Configure a breakpoint using a comma-separated list of options
   t, trace <options>  -- Configure the tracer using a comma-separated list of options
   r, restart          -- Restart the debugger
   q, quit             -- Quit the debugger
   h, help             -- Show this usage information
+
+Breakpoint Options:
+  functions       -- Break at function calls
+  syscalls        -- Break at system calls
+  function=NAME   -- Break at function calls with a name that contains NAME
+  syscall=NAME    -- Break at system calls with a name that contains NAME
 
 Tracer Options:
   all        -- Enable all tracing
@@ -37,11 +47,12 @@ var (
 
 // REPL provides a read-eval-print loop for debugging WebAssembly modules.
 type REPL struct {
-	input    *bufio.Scanner
-	tracer   *Tracer
-	writer   io.Writer
-	stepping bool
-	closed   bool
+	input       *bufio.Scanner
+	tracer      *Tracer
+	writer      io.Writer
+	breakpoints []breakpoint
+	stepping    bool
+	closed      bool
 }
 
 // NewREPL creates a new REPL using the specified input and writer stream.
@@ -51,6 +62,51 @@ func NewREPL(input io.Reader, writer io.Writer) *REPL {
 		tracer: NewTracer(writer),
 		writer: writer,
 	}
+}
+
+type breakpoint struct {
+	functions    bool
+	functionName string
+	syscalls     bool
+	syscallName  string
+}
+
+func (bp *breakpoint) matchFunction(fn api.FunctionDefinition) bool {
+	if bp.functionName != "" {
+		return strings.Contains(fn.DebugName(), bp.functionName)
+	}
+	return bp.functions
+}
+
+func (bp *breakpoint) matchSyscall(s wasicall.Syscall) bool {
+	if bp.syscallName != "" {
+		return strings.Contains(s.ID().String(), bp.syscallName)
+	}
+	return bp.syscalls
+}
+
+func (r *REPL) matchBreakpoint(event Event) bool {
+	for _, bp := range r.breakpoints {
+		switch e := event.(type) {
+		case *FunctionCallBeforeEvent:
+			if bp.matchFunction(e.Function) {
+				return true
+			}
+		case *FunctionCallAfterEvent:
+			if bp.matchFunction(e.Function) {
+				return true
+			}
+		case *SystemCallBeforeEvent:
+			if bp.matchSyscall(e.Syscall) {
+				return true
+			}
+		case *SystemCallAfterEvent:
+			if bp.matchSyscall(e.Syscall) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (r *REPL) OnEvent(ctx context.Context, event Event) {
@@ -66,8 +122,10 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 	case *ModuleBeforeEvent, *ModuleAfterEvent:
 		executing = false
 	}
-	if executing && !r.stepping {
-		return
+	if executing {
+		if !r.stepping && !r.matchBreakpoint(event) {
+			return
+		}
 	}
 
 read_input:
@@ -82,9 +140,56 @@ read_input:
 	command := strings.TrimSpace(parts[0])
 
 	switch command {
-	case "t", "trace":
+	case "s", "step":
+		if ctx.Err() != nil {
+			r.println(`error: the module has exited. Try "restart", "quit" or "help"`)
+			goto read_input
+		}
+		r.stepping = true
+
+	case "c", "continue":
+		if ctx.Err() != nil {
+			r.println(`error: the module has exited. Try "restart", "quit" or "help"`)
+			goto read_input
+		}
+		r.stepping = false
+
+	case "b", "break", "breakpoint":
+		if len(parts) == 1 {
+			r.println(`error: expected a breakpoint option. See "help"`)
+			goto read_input
+		}
+		var bp breakpoint
+		for _, rawOpt := range strings.Split(parts[1], ",") {
+			opt := strings.TrimSpace(rawOpt)
+			if len(opt) == 0 {
+				continue
+			}
+			var value string
+			opt, value, _ = strings.Cut(opt, "=")
+			opt = strings.TrimSpace(opt)
+			value = strings.TrimSpace(value)
+			switch {
+			case opt == "functions":
+				bp.functions = true
+			case opt == "syscalls":
+				bp.syscalls = true
+			case opt == "function" && value != "":
+				bp.functionName = value
+			case opt == "syscall" && value != "":
+				bp.syscallName = value
+			default:
+				r.printf("error: invalid breakpoint option %q. See \"help\"", rawOpt)
+				goto read_input
+			}
+		}
+		r.breakpoints = append(r.breakpoints, bp)
+		goto read_input
+
+	case "t", "trace", "tracer":
 		if len(parts) == 1 {
 			r.println(`error: expected a tracer option. See "help"`)
+			goto read_input
 		}
 		for _, opt := range strings.Split(parts[1], ",") {
 			opt = strings.TrimSpace(opt)
@@ -116,23 +221,12 @@ read_input:
 				r.tracer.EnableTimestamps(enable)
 			case "relative":
 				r.tracer.RelativeTimestamps(enable)
+			default:
+				r.printf("error: invalid tracer option %q. See \"help\"", opt)
+				goto read_input
 			}
 		}
 		goto read_input
-
-	case "s", "step":
-		if ctx.Err() != nil {
-			r.println(`error: the module has exited. Try "restart", "quit" or "help"`)
-			goto read_input
-		}
-		r.stepping = true
-
-	case "c", "continue":
-		if ctx.Err() != nil {
-			r.println(`error: the module has exited. Try "restart", "quit" or "help"`)
-			goto read_input
-		}
-		r.stepping = false
 
 	case "r", "restart":
 		r.print("Restarting...\n")
