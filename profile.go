@@ -161,8 +161,7 @@ func profile(ctx context.Context, args []string) error {
 		return err
 	}
 	defer compiledModule.Close(ctx)
-	err = p.Prepare(compiledModule)
-	if err != nil {
+	if err := p.Prepare(compiledModule); err != nil {
 		return err
 	}
 
