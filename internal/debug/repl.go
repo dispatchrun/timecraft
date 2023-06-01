@@ -27,6 +27,7 @@ Breakpoint Options:
   syscalls        -- Break at system calls
   function=NAME   -- Break at function calls with a name that contains NAME
   syscall=NAME    -- Break at system calls with a name that contains NAME
+  errno=ERRNO     -- Breat at system calls that return ERRNO
 
 Tracer Options:
   all        -- Enable all tracing
@@ -69,6 +70,7 @@ type breakpoint struct {
 	functionName string
 	syscalls     bool
 	syscallName  string
+	errno        string
 }
 
 func (bp *breakpoint) matchFunction(fn api.FunctionDefinition) bool {
@@ -78,9 +80,12 @@ func (bp *breakpoint) matchFunction(fn api.FunctionDefinition) bool {
 	return bp.functions
 }
 
-func (bp *breakpoint) matchSyscall(s wasicall.Syscall) bool {
+func (bp *breakpoint) matchSyscall(s wasicall.Syscall, after bool) bool {
 	if bp.syscallName != "" {
 		return strings.Contains(s.ID().String(), bp.syscallName)
+	}
+	if bp.errno != "" && after {
+		return s.Error().Name() == bp.errno
 	}
 	return bp.syscalls
 }
@@ -97,11 +102,11 @@ func (r *REPL) matchBreakpoint(event Event) bool {
 				return true
 			}
 		case *SystemCallBeforeEvent:
-			if bp.matchSyscall(e.Syscall) {
+			if bp.matchSyscall(e.Syscall, false) {
 				return true
 			}
 		case *SystemCallAfterEvent:
-			if bp.matchSyscall(e.Syscall) {
+			if bp.matchSyscall(e.Syscall, true) {
 				return true
 			}
 		}
@@ -116,7 +121,6 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 
 	r.tracer.OnEvent(ctx, event)
 
-	// TODO: support breakpoints
 	executing := true
 	switch event.(type) {
 	case *ModuleBeforeEvent, *ModuleAfterEvent:
@@ -178,6 +182,8 @@ read_input:
 				bp.functionName = value
 			case opt == "syscall" && value != "":
 				bp.syscallName = value
+			case opt == "errno" && value != "":
+				bp.errno = strings.ToUpper(value)
 			default:
 				r.printf("error: invalid breakpoint option %q. See \"help\"", rawOpt)
 				goto read_input
