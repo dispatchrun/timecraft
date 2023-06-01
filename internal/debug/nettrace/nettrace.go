@@ -147,7 +147,7 @@ type Event struct {
 	FD    wasi.FD            `json:"fd"              yaml:"fd"`
 	Addr  wasi.SocketAddress `json:"addr,omitempty"  yaml:"addr,omitempty"`
 	Peer  wasi.SocketAddress `json:"peer,omitempty"  yaml:"peer,omitempty"`
-	Data  Bytes              `json:"data,omitempty"  yaml:"data,omitempty"`
+	Data  []wasi.IOVec       `json:"data,omitempty"  yaml:"data,omitempty"`
 }
 
 func (e Event) Format(w fmt.State, v rune) {
@@ -177,7 +177,9 @@ func (e Event) Format(w fmt.State, v rune) {
 	if e.Type == Receive || e.Type == Send {
 		fmt.Fprint(w, separator)
 		hexdump := hex.Dumper(w)
-		_, _ = hexdump.Write(e.Data)
+		for _, iov := range e.Data {
+			_, _ = hexdump.Write(iov)
+		}
 		hexdump.Close()
 		fmt.Fprint(w, separator[1:])
 	}
@@ -210,8 +212,10 @@ func (e *Event) write(iovs []wasi.IOVec, size wasi.Size) {
 			iovLen = size
 			iov = iov[:size]
 		}
-		size -= iovLen
-		e.Data = append(e.Data, iov...)
+		if iovLen != 0 {
+			size -= iovLen
+			e.Data = append(e.Data, iov)
+		}
 	}
 }
 
@@ -262,309 +266,303 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 		r.sockets = make(map[wasi.FD]*socket)
 	}
 
-	for n < len(events) {
-		rn, err := r.Records.Read(r.records[:len(events)-n])
+	rn, err := r.Records.Read(r.records)
 
-		for _, record := range r.records[:rn] {
-			switch wasicall.SyscallID(record.FunctionID()) {
-			case wasicall.FDClose:
-				fd, errno, err := r.codec.DecodeFDClose(record.FunctionCall())
-				if err != nil {
-					return n, err
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					continue
-				}
-				delete(r.sockets, fd)
-				events[n].init(socket, record.Time(), Close, errno)
-				n++
-
-			case wasicall.FDRenumber:
-				from, to, errno, err := r.codec.DecodeFDRenumber(record.FunctionCall())
-				if err != nil {
-					return n, err
-				}
-				if errno != wasi.ESUCCESS {
-					continue
-				}
-				socket, ok := r.sockets[from]
-				if !ok {
-					continue
-				}
-				delete(r.sockets, from)
-				r.sockets[to] = socket
-
-			case wasicall.FDRead:
-				fd, iovecs, size, errno, err := r.codec.DecodeFDRead(record.FunctionCall(), r.iovecs[:0])
-				if err != nil {
-					return n, err
-				}
-				r.iovecs = iovecs
-				if errno == wasi.EAGAIN {
-					errno = wasi.ESUCCESS
-				}
-				if (errno == wasi.ESUCCESS) && (size == 0) {
-					continue
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					continue
-				}
-				fmt.Printf("fd_read(fd=%d) => size=%d errno=%s\n", fd, size, errno)
-				events[n].init(socket, record.Time(), Receive, errno)
-				events[n].write(iovecs, size)
-				n++
-
-			case wasicall.FDWrite:
-				fd, iovecs, size, errno, err := r.codec.DecodeFDWrite(record.FunctionCall(), r.iovecs[:0])
-				if err != nil {
-					return n, err
-				}
-				r.iovecs = iovecs
-				if errno == wasi.EAGAIN {
-					errno = wasi.ESUCCESS
-				}
-				if (errno == wasi.ESUCCESS) && (size == 0) {
-					continue
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					continue
-				}
-				events[n].init(socket, record.Time(), Send, errno)
-				events[n].write(iovecs, size)
-				n++
-
-			case wasicall.SockAccept:
-				fd, _, newfd, errno, err := r.codec.DecodeSockAccept(record.FunctionCall())
-				if err != nil {
-					return n, err
-				}
-				server, ok := r.sockets[fd]
-				if !ok {
-					// This condition may occur when using a preopen socket
-					// which has not been seen before by any other function.
-					server = newSocket(TCP, fd)
-					r.sockets[fd] = server
-				}
-				if errno == wasi.EAGAIN {
-					continue
-				}
-				if errno == wasi.ESUCCESS {
-					// TODO: it would be really helpful if the wasi.System
-					// interface returned the socket address that the client
-					// is connecting from, even if it's not part of the ABI,
-					// at least it would be recorded and we could access it.
-					client := server.newClient(newfd)
-					r.sockets[newfd] = client
-					events[n].init(client, record.Time(), Accept, 0)
-				} else {
-					events[n].init(server, record.Time(), Accept, errno)
-				}
-				n++
-
-			case wasicall.SockRecv:
-				fd, iovecs, _, size, _, errno, err := r.codec.DecodeSockRecv(record.FunctionCall(), r.iovecs[:0])
-				if err != nil {
-					return n, err
-				}
-				r.iovecs = iovecs
-				if errno == wasi.EAGAIN {
-					errno = wasi.ESUCCESS
-				}
-				if (errno == wasi.ESUCCESS) && (size == 0) {
-					continue
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					continue
-				}
-				events[n].init(socket, record.Time(), Receive, errno)
-				events[n].write(iovecs, size)
-				n++
-
-			case wasicall.SockSend:
-				fd, iovecs, _, size, errno, err := r.codec.DecodeSockSend(record.FunctionCall())
-				if err != nil {
-					return n, err
-				}
-				r.iovecs = iovecs
-				if errno == wasi.EAGAIN {
-					errno = wasi.ESUCCESS
-				}
-				if (errno == wasi.ESUCCESS) && (size == 0) {
-					continue
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					continue
-				}
-				events[n].init(socket, record.Time(), Send, errno)
-				events[n].write(iovecs, size)
-				n++
-
-			case wasicall.SockShutdown:
-				fd, flags, errno, err := r.codec.DecodeSockShutdown(record.FunctionCall())
-				if err != nil {
-					return n, err
-				}
-				if errno != wasi.ESUCCESS {
-					continue
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					continue
-				}
-				if flags &= ^socket.shut; flags == 0 {
-					continue
-				}
-				socket.shut |= flags
-				shutdown := Shutdown
-				if (flags & wasi.ShutdownRD) != 0 {
-					shutdown |= ShutRD
-				}
-				if (flags & wasi.ShutdownWR) != 0 {
-					shutdown |= ShutWR
-				}
-				events[n].init(socket, record.Time(), shutdown, 0)
-				n++
-
-			case wasicall.SockOpen:
-				_, _, protocol, _, _, fd, errno, err := r.codec.DecodeSockOpen(record.FunctionCall())
-				if err != nil {
-					return n, err
-				}
-				if errno != wasi.ESUCCESS {
-					continue
-				}
-				var proto Protocol
-				switch protocol {
-				case wasi.TCPProtocol:
-					proto = TCP
-				case wasi.UDPProtocol:
-					proto = UDP
-				default:
-					continue
-				}
-				socket := newSocket(proto, fd)
-				r.sockets[fd] = socket
-
-			case wasicall.SockBind:
-				fd, addr, errno, err := r.codec.DecodeSockBind(record.FunctionCall())
-				if err != nil {
-					return n, err
-				}
-				if errno != wasi.ESUCCESS {
-					continue
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					continue
-				}
-				socket.addr = addr
-
-			case wasicall.SockConnect:
-				fd, addr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall())
-				if err != nil {
-					return n, err
-				}
-				if errno != wasi.EINPROGRESS {
-					continue
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					continue
-				}
-				socket.peer = addr
-				events[n].init(socket, record.Time(), Connect, errno)
-				n++
-
-			case wasicall.SockRecvFrom:
-				fd, iovecs, _, size, _, addr, errno, err := r.codec.DecodeSockRecvFrom(record.FunctionCall(), r.iovecs[:0])
-				if err != nil {
-					return n, err
-				}
-				r.iovecs = iovecs
-				if errno == wasi.EAGAIN {
-					errno = wasi.ESUCCESS
-				}
-				if (errno == wasi.ESUCCESS) && (size == 0) {
-					continue
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					continue
-				}
-				events[n].init(socket, record.Time(), Receive, errno)
-				events[n].write(iovecs, size)
-				events[n].Addr = addr
-				n++
-
-			case wasicall.SockSendTo:
-				fd, iovecs, _, addr, size, errno, err := r.codec.DecodeSockSendTo(record.FunctionCall(), r.iovecs[:0])
-				if err != nil {
-					return n, err
-				}
-				r.iovecs = iovecs
-				if errno == wasi.EAGAIN {
-					errno = wasi.ESUCCESS
-				}
-				if (errno == wasi.ESUCCESS) && (size == 0) {
-					continue
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					continue
-				}
-				events[n].init(socket, record.Time(), Send, errno)
-				events[n].write(iovecs, size)
-				events[n].Peer = addr
-				n++
-
-			case wasicall.SockLocalAddress:
-				fd, addr, errno, err := r.codec.DecodeSockLocalAddress(record.FunctionCall())
-				if err != nil {
-					return n, err
-				}
-				if errno != wasi.ESUCCESS {
-					continue
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					// This condition should only occur on preopen server
-					// sockets, so it is fair to assume they should use the
-					// TCP protocol
-					socket = newSocket(TCP, fd)
-					r.sockets[fd] = socket
-				}
-				socket.addr = addr
-
-			case wasicall.SockPeerAddress:
-				fd, addr, errno, err := r.codec.DecodeSockPeerAddress(record.FunctionCall())
-				if err != nil {
-					return n, err
-				}
-				if errno != wasi.ESUCCESS {
-					continue
-				}
-				socket, ok := r.sockets[fd]
-				if !ok {
-					// This condition should only occur on preopen server
-					// sockets, so it is fair to assume they should use the
-					// TCP protocol
-					socket = newSocket(TCP, fd)
-					r.sockets[fd] = socket
-				}
-				socket.peer = addr
+	for _, record := range r.records[:rn] {
+		switch wasicall.SyscallID(record.FunctionID) {
+		case wasicall.FDClose:
+			fd, errno, err := r.codec.DecodeFDClose(record.FunctionCall)
+			if err != nil {
+				return n, err
 			}
-		}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				continue
+			}
+			delete(r.sockets, fd)
+			events[n].init(socket, record.Time, Close, errno)
+			n++
 
-		if err != nil {
-			return n, err
+		case wasicall.FDRenumber:
+			from, to, errno, err := r.codec.DecodeFDRenumber(record.FunctionCall)
+			if err != nil {
+				return n, err
+			}
+			if errno != wasi.ESUCCESS {
+				continue
+			}
+			socket, ok := r.sockets[from]
+			if !ok {
+				continue
+			}
+			delete(r.sockets, from)
+			r.sockets[to] = socket
+
+		case wasicall.FDRead:
+			fd, iovecs, size, errno, err := r.codec.DecodeFDRead(record.FunctionCall, r.iovecs[:0])
+			if err != nil {
+				return n, err
+			}
+			r.iovecs = iovecs
+			if errno == wasi.EAGAIN {
+				errno = wasi.ESUCCESS
+			}
+			if (errno == wasi.ESUCCESS) && (size == 0) {
+				continue
+			}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				continue
+			}
+			events[n].init(socket, record.Time, Receive, errno)
+			events[n].write(iovecs, size)
+			n++
+
+		case wasicall.FDWrite:
+			fd, iovecs, size, errno, err := r.codec.DecodeFDWrite(record.FunctionCall, r.iovecs[:0])
+			if err != nil {
+				return n, err
+			}
+			r.iovecs = iovecs
+			if errno == wasi.EAGAIN {
+				errno = wasi.ESUCCESS
+			}
+			if (errno == wasi.ESUCCESS) && (size == 0) {
+				continue
+			}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				continue
+			}
+			events[n].init(socket, record.Time, Send, errno)
+			events[n].write(iovecs, size)
+			n++
+
+		case wasicall.SockAccept:
+			fd, _, newfd, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
+			if err != nil {
+				return n, err
+			}
+			server, ok := r.sockets[fd]
+			if !ok {
+				// This condition may occur when using a preopen socket
+				// which has not been seen before by any other function.
+				server = newSocket(TCP, fd)
+				r.sockets[fd] = server
+			}
+			if errno == wasi.EAGAIN {
+				continue
+			}
+			if errno == wasi.ESUCCESS {
+				// TODO: it would be really helpful if the wasi.System
+				// interface returned the socket address that the client
+				// is connecting from, even if it's not part of the ABI,
+				// at least it would be recorded and we could access it.
+				client := server.newClient(newfd)
+				r.sockets[newfd] = client
+				events[n].init(client, record.Time, Accept, 0)
+			} else {
+				events[n].init(server, record.Time, Accept, errno)
+			}
+			n++
+
+		case wasicall.SockRecv:
+			fd, iovecs, _, size, _, errno, err := r.codec.DecodeSockRecv(record.FunctionCall, r.iovecs[:0])
+			if err != nil {
+				return n, err
+			}
+			r.iovecs = iovecs
+			if errno == wasi.EAGAIN {
+				errno = wasi.ESUCCESS
+			}
+			if (errno == wasi.ESUCCESS) && (size == 0) {
+				continue
+			}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				continue
+			}
+			events[n].init(socket, record.Time, Receive, errno)
+			events[n].write(iovecs, size)
+			n++
+
+		case wasicall.SockSend:
+			fd, iovecs, _, size, errno, err := r.codec.DecodeSockSend(record.FunctionCall)
+			if err != nil {
+				return n, err
+			}
+			r.iovecs = iovecs
+			if errno == wasi.EAGAIN {
+				errno = wasi.ESUCCESS
+			}
+			if (errno == wasi.ESUCCESS) && (size == 0) {
+				continue
+			}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				continue
+			}
+			events[n].init(socket, record.Time, Send, errno)
+			events[n].write(iovecs, size)
+			n++
+
+		case wasicall.SockShutdown:
+			fd, flags, errno, err := r.codec.DecodeSockShutdown(record.FunctionCall)
+			if err != nil {
+				return n, err
+			}
+			if errno != wasi.ESUCCESS {
+				continue
+			}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				continue
+			}
+			if flags &= ^socket.shut; flags == 0 {
+				continue
+			}
+			socket.shut |= flags
+			shutdown := Shutdown
+			if (flags & wasi.ShutdownRD) != 0 {
+				shutdown |= ShutRD
+			}
+			if (flags & wasi.ShutdownWR) != 0 {
+				shutdown |= ShutWR
+			}
+			events[n].init(socket, record.Time, shutdown, 0)
+			n++
+
+		case wasicall.SockOpen:
+			_, _, protocol, _, _, fd, errno, err := r.codec.DecodeSockOpen(record.FunctionCall)
+			if err != nil {
+				return n, err
+			}
+			if errno != wasi.ESUCCESS {
+				continue
+			}
+			var proto Protocol
+			switch protocol {
+			case wasi.TCPProtocol:
+				proto = TCP
+			case wasi.UDPProtocol:
+				proto = UDP
+			default:
+				continue
+			}
+			socket := newSocket(proto, fd)
+			r.sockets[fd] = socket
+
+		case wasicall.SockBind:
+			fd, addr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
+			if err != nil {
+				return n, err
+			}
+			if errno != wasi.ESUCCESS {
+				continue
+			}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				continue
+			}
+			socket.addr = addr
+
+		case wasicall.SockConnect:
+			fd, addr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
+			if err != nil {
+				return n, err
+			}
+			if errno != wasi.EINPROGRESS {
+				continue
+			}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				continue
+			}
+			socket.peer = addr
+			events[n].init(socket, record.Time, Connect, errno)
+			n++
+
+		case wasicall.SockRecvFrom:
+			fd, iovecs, _, size, _, addr, errno, err := r.codec.DecodeSockRecvFrom(record.FunctionCall, r.iovecs[:0])
+			if err != nil {
+				return n, err
+			}
+			r.iovecs = iovecs
+			if errno == wasi.EAGAIN {
+				errno = wasi.ESUCCESS
+			}
+			if (errno == wasi.ESUCCESS) && (size == 0) {
+				continue
+			}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				continue
+			}
+			events[n].init(socket, record.Time, Receive, errno)
+			events[n].write(iovecs, size)
+			events[n].Addr = addr
+			n++
+
+		case wasicall.SockSendTo:
+			fd, iovecs, _, addr, size, errno, err := r.codec.DecodeSockSendTo(record.FunctionCall, r.iovecs[:0])
+			if err != nil {
+				return n, err
+			}
+			r.iovecs = iovecs
+			if errno == wasi.EAGAIN {
+				errno = wasi.ESUCCESS
+			}
+			if (errno == wasi.ESUCCESS) && (size == 0) {
+				continue
+			}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				continue
+			}
+			events[n].init(socket, record.Time, Send, errno)
+			events[n].write(iovecs, size)
+			events[n].Peer = addr
+			n++
+
+		case wasicall.SockLocalAddress:
+			fd, addr, errno, err := r.codec.DecodeSockLocalAddress(record.FunctionCall)
+			if err != nil {
+				return n, err
+			}
+			if errno != wasi.ESUCCESS {
+				continue
+			}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				// This condition should only occur on preopen server
+				// sockets, so it is fair to assume they should use the
+				// TCP protocol
+				socket = newSocket(TCP, fd)
+				r.sockets[fd] = socket
+			}
+			socket.addr = addr
+
+		case wasicall.SockPeerAddress:
+			fd, addr, errno, err := r.codec.DecodeSockPeerAddress(record.FunctionCall)
+			if err != nil {
+				return n, err
+			}
+			if errno != wasi.ESUCCESS {
+				continue
+			}
+			socket, ok := r.sockets[fd]
+			if !ok {
+				// This condition should only occur on preopen server
+				// sockets, so it is fair to assume they should use the
+				// TCP protocol
+				socket = newSocket(TCP, fd)
+				r.sockets[fd] = socket
+			}
+			socket.peer = addr
 		}
 	}
-	return n, nil
+
+	return n, err
 }
 
 var (
