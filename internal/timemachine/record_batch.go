@@ -34,14 +34,6 @@ type RecordBatch struct {
 	offset uint32
 }
 
-// MakeRecordBatch creates a record batch from the specified buffer.
-//
-// The buffer must live as long as the record batch.
-func MakeRecordBatch(startTime time.Time, buffer []byte, reader io.Reader) (rb RecordBatch) {
-	rb.Reset(startTime, buffer, reader)
-	return
-}
-
 // Reset resets the record batch.
 func (b *RecordBatch) Reset(startTime time.Time, buf []byte, reader io.Reader) {
 	if b.records != nil {
@@ -137,7 +129,14 @@ func (b *RecordBatch) Read(records []Record) (int, error) {
 		if b.offset+size < b.offset || b.offset+size > uint32(len(batch)) {
 			return n, fmt.Errorf("cannot read record at [%d:%d+%d] as records buffer is length %d: %w", b.offset, b.offset, size, len(batch), io.ErrUnexpectedEOF)
 		}
-		records[n] = MakeRecord(b.startTime, batch[b.offset:b.offset+size+4])
+		i := 4 + b.offset
+		j := 4 + b.offset + size
+		r := logsegment.GetRootAsRecord(batch[i:j:j], 0)
+		records[n] = Record{
+			Time:         b.startTime.Add(time.Duration(r.Timestamp())),
+			FunctionID:   int(r.FunctionId()),
+			FunctionCall: r.FunctionCallBytes(),
+		}
 		b.offset += size + 4
 	}
 	return len(records), nil
