@@ -311,11 +311,11 @@ func (r *Reader) ReadSyscall() (time.Time, Syscall, error) {
 		}
 		syscall = &RandomGetSyscall{b, errno}
 	case SockAccept:
-		fd, flags, newfd, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
+		fd, flags, newfd, addr, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
 		if err != nil {
 			return time.Time{}, nil, &DecodeError{record, err}
 		}
-		syscall = &SockAcceptSyscall{fd, flags, newfd, errno}
+		syscall = &SockAcceptSyscall{fd, flags, newfd, addr, errno}
 	case SockShutdown:
 		fd, flags, errno, err := r.codec.DecodeSockShutdown(record.FunctionCall)
 		if err != nil {

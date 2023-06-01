@@ -1033,12 +1033,12 @@ func (r *Replay) RandomGet(ctx context.Context, buffer []byte) Errno {
 	return errno
 }
 
-func (r *Replay) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errno) {
+func (r *Replay) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, SocketAddress, Errno) {
 	record, ok := r.readRecord(SockAccept)
 	if !ok {
-		return -1, ENOSYS
+		return -1, nil, ENOSYS
 	}
-	recordFD, recordFlags, newfd, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
+	recordFD, recordFlags, newfd, addr, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1054,7 +1054,7 @@ func (r *Replay) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errn
 			panic(errors.Join(mismatch...))
 		}
 	}
-	return newfd, errno
+	return newfd, addr, errno
 }
 
 func (r *Replay) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno {
