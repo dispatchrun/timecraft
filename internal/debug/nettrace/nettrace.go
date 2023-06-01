@@ -2,6 +2,7 @@ package nettrace
 
 import (
 	"encoding"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"time"
@@ -15,7 +16,7 @@ import (
 type Bytes []byte
 
 func (b Bytes) MarshalYAML() (any, error) {
-	return hex.EncodeToString(b), nil
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 type Protocol uint8
@@ -147,7 +148,7 @@ type Event struct {
 	FD    wasi.FD            `json:"fd"              yaml:"fd"`
 	Addr  wasi.SocketAddress `json:"addr,omitempty"  yaml:"addr,omitempty"`
 	Peer  wasi.SocketAddress `json:"peer,omitempty"  yaml:"peer,omitempty"`
-	Data  []wasi.IOVec       `json:"data,omitempty"  yaml:"data,omitempty"`
+	Data  []Bytes            `json:"data,omitempty"  yaml:"data,omitempty"`
 }
 
 func (e Event) Format(w fmt.State, _ rune) {
@@ -181,7 +182,7 @@ func (e Event) Format(w fmt.State, _ rune) {
 	}
 }
 
-func iovecSize(iovs []wasi.IOVec) (size wasi.Size) {
+func iovecSize(iovs []Bytes) (size wasi.Size) {
 	for _, iov := range iovs {
 		size += wasi.Size(len(iov))
 	}
@@ -217,7 +218,7 @@ func (e *Event) write(iovs []wasi.IOVec, size wasi.Size) {
 		}
 		if iovLen != 0 {
 			size -= iovLen
-			e.Data = append(e.Data, iov)
+			e.Data = append(e.Data, Bytes(iov))
 		}
 	}
 }
