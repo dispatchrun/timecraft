@@ -44,7 +44,10 @@ func config(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft config", configUsage)
 	boolVar(flagSet, &edit, "edit")
 	customVar(flagSet, &output, "o", "output")
-	parseFlags(flagSet, args)
+
+	if _, err := parseFlags(flagSet, args); err != nil {
+		return err
+	}
 
 	r, path, err := openConfig()
 	if err != nil {
