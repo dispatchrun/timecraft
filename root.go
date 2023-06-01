@@ -49,7 +49,7 @@ Example:
 For a list of commands available, run 'timecraft help'.`
 
 // root is the timecraft entrypoint.
-func root(ctx context.Context, args ...string) int {
+func root(args ...string) int {
 	var (
 		// Secret options, we don't document them since they are only used for
 		// development. Since they are not part of the public interface we may
@@ -96,6 +96,8 @@ func root(ctx context.Context, args ...string) int {
 	cmd, args := args[0], args[1:]
 
 run_command:
+	ctx := context.Background()
+
 	var err error
 	switch cmd {
 	case "config":

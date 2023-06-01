@@ -85,7 +85,7 @@ func replay(ctx context.Context, args []string) error {
 
 	var debugREPL *debug.REPL
 	if debugger {
-		debugREPL = debug.NewREPL(os.Stdin, os.Stdout)
+		debugREPL = debug.NewREPL(os.Stdin, os.Stderr)
 		ctx = debug.RegisterFunctionListener(ctx, debugREPL)
 	}
 

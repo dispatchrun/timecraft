@@ -73,9 +73,17 @@ read_input:
 
 	switch command {
 	case "s", "step":
+		if ctx.Err() != nil {
+			r.println(`error: the module has exited. Try "restart", "quit" or "help"`)
+			goto read_input
+		}
 		r.stepping = true
 
 	case "c", "continue":
+		if ctx.Err() != nil {
+			r.println(`error: the module has exited. Try "restart", "quit" or "help"`)
+			goto read_input
+		}
 		r.stepping = false
 
 	case "r", "restart":
@@ -106,4 +114,8 @@ func (r *REPL) printf(s string, args ...any) (int, error) {
 
 func (r *REPL) print(args ...any) (int, error) {
 	return fmt.Fprint(r.writer, args...)
+}
+
+func (r *REPL) println(args ...any) (int, error) {
+	return fmt.Fprintln(r.writer, args...)
 }

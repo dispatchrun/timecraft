@@ -93,7 +93,7 @@ func run(ctx context.Context, args []string) error {
 
 	var debugREPL *debug.REPL
 	if debugger {
-		debugREPL = debug.NewREPL(os.Stdin, os.Stdout)
+		debugREPL = debug.NewREPL(os.Stdin, os.Stderr)
 		ctx = debug.RegisterFunctionListener(ctx, debugREPL)
 	}
 
@@ -227,9 +227,9 @@ func run(ctx context.Context, args []string) error {
 func instantiate(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule, debugREPL *debug.REPL) (err error) {
 	if debugREPL != nil {
 		// The double defer is so that we can catch debug.{Quit,Restart}Error,
-		// whether it originates from deep with the WebAssembly module
-		// execution, or whether it originates from the OnEvent handler below
-		// which is called after the module exits.
+		// whether it originates from deep within the WebAssembly module, or
+		// whether it originates from the OnEvent handler below which is called
+		// after the module exits.
 		defer func() {
 			defer func() {
 				switch e := recover(); e {
@@ -243,10 +243,11 @@ func instantiate(ctx context.Context, runtime wazero.Runtime, compiledModule waz
 				}
 			}()
 
-			e := recover()
-			debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{Error: e})
-			if e != nil {
-				panic(e)
+			if panicErr := recover(); panicErr != nil {
+				debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{Error: panicErr})
+				panic(panicErr)
+			} else {
+				debugREPL.OnEvent(ctx, &debug.ModuleAfterEvent{Error: err})
 			}
 		}()
 

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"io"
 	"log"
 	"os"
@@ -13,5 +12,5 @@ func init() {
 }
 
 func main() {
-	os.Exit(root(context.Background(), os.Args[1:]...))
+	os.Exit(root(os.Args[1:]...))
 }

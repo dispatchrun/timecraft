@@ -87,6 +87,7 @@ func (t *Tracer) ModuleBefore(ctx context.Context, mod wazero.CompiledModule) {
 }
 
 func (t *Tracer) ModuleAfter(ctx context.Context, err any) {
+	t.print("\n")
 	switch e := err.(type) {
 	case nil:
 		t.print("The module exited normally\n")
