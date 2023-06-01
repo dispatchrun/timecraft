@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/tetratelabs/wazero/sys"
 )
 
 const replUsage = `Commands:
@@ -50,18 +48,9 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 
 	r.tracer.OnEvent(ctx, event)
 
-	switch e := event.(type) {
+	switch event.(type) {
 	case *ModuleBeforeEvent:
-		// noop
 	case *ModuleAfterEvent:
-		switch err := e.Error.(type) {
-		case nil:
-			r.printf("The module exited normally\n")
-		case *sys.ExitError:
-			r.printf("The module exited with code: %d\n", err.ExitCode())
-		default:
-			r.printf("The module exited with error: %v\n", err)
-		}
 	case *FunctionCallBeforeEvent:
 		return
 	case *FunctionCallAfterEvent:
@@ -74,38 +63,41 @@ func (r *REPL) OnEvent(ctx context.Context, event Event) {
 		return
 	}
 
-command_loop:
-	for {
-		r.print("> ")
-		if !r.input.Scan() {
-			r.closed = true
-			return
-		}
+read_input:
+	r.print("> ")
+	if !r.input.Scan() {
+		r.closed = true
+		panic(QuitError)
+	}
 
-		input := strings.TrimSpace(r.input.Text())
-		parts := strings.Split(input, " ")
-		command := strings.TrimSpace(parts[0])
+	input := strings.TrimSpace(r.input.Text())
+	parts := strings.Split(input, " ")
+	command := strings.TrimSpace(parts[0])
 
-		switch command {
-		case "":
-			continue
-		case "s", "step":
-			break command_loop
-		case "q", "quit":
-			r.printf("Quitting the debugger\n")
-			r.closed = true
-			panic(QuitError)
-		case "r", "restart":
-			r.printf("Restarting the debugger\n")
-			r.closed = true
-			panic(RestartError)
-		case "h", "help" /* be forgiving: */, "?", "-h", "--help", `"help"`:
-			r.print(replUsage)
-			continue
-		default:
-			r.printf(`error: %q is not a valid command. See "help"\n`, command)
-			continue
-		}
+	switch command {
+	case "s", "step":
+		// TODO
+
+	case "r", "restart":
+		r.print("Restarting the debugger\n")
+		r.closed = true
+		panic(RestartError)
+
+	case "q", "quit":
+		r.print("Quitting the debugger\n")
+		r.closed = true
+		panic(QuitError)
+
+	case "h", "help" /* be forgiving: */, "?", "-h", "--help", `"help"`:
+		r.print(replUsage)
+		goto read_input
+
+	case "":
+		goto read_input
+
+	default:
+		r.printf(`error: %q is not a valid command. See "help"\n`, command)
+		goto read_input
 	}
 }
 

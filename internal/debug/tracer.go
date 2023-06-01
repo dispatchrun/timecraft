@@ -10,12 +10,13 @@ import (
 	"github.com/fatih/color"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/sys"
 )
 
 // Tracer traces a WebAssembly module's function calls and WASI system
-// calls (host function calls).
+// calls.
 type Tracer struct {
 	writer io.Writer
 
@@ -64,6 +65,10 @@ func (t *Tracer) EnableStackResultTracing(enable bool) {
 
 func (t *Tracer) OnEvent(ctx context.Context, event Event) {
 	switch e := event.(type) {
+	case *ModuleBeforeEvent:
+		t.ModuleBefore(ctx, e.Module)
+	case *ModuleAfterEvent:
+		t.ModuleAfter(ctx, e.Error)
 	case *FunctionCallBeforeEvent:
 		t.FunctionCallBefore(ctx, e.Module, e.Function, e.Params)
 	case *FunctionCallAfterEvent:
@@ -74,6 +79,21 @@ func (t *Tracer) OnEvent(ctx context.Context, event Event) {
 		t.SystemCallBefore(ctx, e.Syscall)
 	case *SystemCallAfterEvent:
 		t.SystemCallAfter(ctx, e.Syscall)
+	}
+}
+
+func (t *Tracer) ModuleBefore(ctx context.Context, mod wazero.CompiledModule) {
+
+}
+
+func (t *Tracer) ModuleAfter(ctx context.Context, err any) {
+	switch e := err.(type) {
+	case nil:
+		t.print("The module exited normally\n")
+	case *sys.ExitError:
+		t.printf("The module exited with code: %d\n", e.ExitCode())
+	default:
+		t.printf("The module exited with error: %v\n", e)
 	}
 }
 
@@ -198,8 +218,8 @@ func (t *Tracer) printStack(values []uint64) {
 }
 
 func (t *Tracer) printLine(fn func()) {
-	t.printPrefix()
-	defer t.printSuffix()
+	_, _ = t.printPrefix()
+	defer func() { _, _ = t.printSuffix() }()
 
 	fn()
 }
