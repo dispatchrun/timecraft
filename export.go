@@ -28,14 +28,19 @@ Options:
 
 func export(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft export", exportUsage)
-	args = parseFlags(flagSet, args)
 
+	args, err := parseFlags(flagSet, args)
+	if err != nil {
+		return err
+	}
 	if len(args) != 3 {
-		return usageError(`Expected resource type, id, and output file as argument` + useCmd("export"))
+		perrorf(`Expected resource type, id, and output file as argument` + useCmd("export"))
+		return exitCode(2)
 	}
 	resource, err := findResource("describe", args[0])
 	if err != nil {
-		return usageError(err.Error())
+		perror(err)
+		return exitCode(2)
 	}
 	config, err := loadConfig()
 	if err != nil {

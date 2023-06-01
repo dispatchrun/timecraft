@@ -124,14 +124,19 @@ func get(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft get", getUsage)
 	customVar(flagSet, &output, "o", "output")
 	boolVar(flagSet, &quiet, "q", "quiet")
-	args = parseFlags(flagSet, args)
 
+	args, err := parseFlags(flagSet, args)
+	if err != nil {
+		return err
+	}
 	if len(args) != 1 {
-		return usageError(`Expected exactly one resource type as argument` + useCmd("get"))
+		perrorf(`Expected exactly one resource type as argument` + useCmd("get"))
+		return exitCode(2)
 	}
 	resource, err := findResource("get", args[0])
 	if err != nil {
-		return usageError(err.Error())
+		perror(err)
+		return exitCode(2)
 	}
 	config, err := loadConfig()
 	if err != nil {

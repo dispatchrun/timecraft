@@ -70,8 +70,11 @@ func profile(ctx context.Context, args []string) error {
 	customVar(flagSet, &duration, "d", "duration")
 	customVar(flagSet, &startTime, "t", "start-time")
 	boolVar(flagSet, &quiet, "q", "quiet")
-	args = parseFlags(flagSet, args)
 
+	args, err := parseFlags(flagSet, args)
+	if err != nil {
+		return err
+	}
 	if len(args) != 1 {
 		return errors.New(`expected exactly one process id as argument`)
 	}
@@ -191,7 +194,7 @@ func profile(ctx context.Context, args []string) error {
 		}
 		if p != nil {
 			path := exports[typ]
-			fmt.Fprintf(os.Stderr, "==> writing %s profile to %s\n", typ, path)
+			perrorf("==> writing %s profile to %s", typ, path)
 			if err := wzprof.WriteProfile(path, p); err != nil {
 				return err
 			}
