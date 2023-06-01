@@ -2,7 +2,10 @@
 // values.
 package stream
 
-import "io"
+import (
+	"errors"
+	"io"
+)
 
 // Reader is an interface implemented by types that read a stream of values of
 // type T.
@@ -60,6 +63,42 @@ type nopCloser[T any] struct{ reader Reader[T] }
 
 func (r *nopCloser[T]) Close() error                 { return nil }
 func (r *nopCloser[T]) Read(values []T) (int, error) { return r.reader.Read(values) }
+
+type ReadSeeker[T any] interface {
+	Reader[T]
+	io.Seeker
+}
+
+type ReadSeekCloser[T any] interface {
+	Reader[T]
+	io.Seeker
+	io.Closer
+}
+
+var (
+	errSeekWhence = errors.New("seek: invalid whence value")
+	errSeekOffset = errors.New("seek: offset out of range")
+)
+
+func Seek(offset, length, seek int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		offset = seek
+	case io.SeekCurrent:
+		offset += seek
+	case io.SeekEnd:
+		offset = length - seek
+	default:
+		return -1, errSeekWhence
+	}
+	if offset < 0 {
+		return -1, errSeekOffset
+	}
+	if offset > length {
+		offset = length
+	}
+	return offset, nil
+}
 
 // ReadAll reads all values from r and returns them as a slice, along with any
 // error that occurred (other than io.EOF).

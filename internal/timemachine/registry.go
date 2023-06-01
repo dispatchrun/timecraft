@@ -153,7 +153,7 @@ func (reg *Registry) LookupDescriptor(ctx context.Context, hash format.Hash) (*f
 	return reg.lookupDescriptor(ctx, hash)
 }
 
-func (reg *Registry) LookupResource(ctx context.Context, hash format.Hash) (io.ReadCloser, error) {
+func (reg *Registry) LookupResource(ctx context.Context, hash format.Hash) (io.ReadSeekCloser, error) {
 	return reg.Store.ReadObject(ctx, reg.objectKey(hash))
 }
 
@@ -501,7 +501,7 @@ func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUI
 	return m, nil
 }
 
-func (reg *Registry) ReadLogSegment(ctx context.Context, processID format.UUID, segmentNumber int) (io.ReadCloser, error) {
+func (reg *Registry) ReadLogSegment(ctx context.Context, processID format.UUID, segmentNumber int) (io.ReadSeekCloser, error) {
 	r, err := reg.Store.ReadObject(ctx, reg.logKey(processID, segmentNumber))
 	if err != nil {
 		if errors.Is(err, object.ErrNotExist) {

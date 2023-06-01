@@ -6,12 +6,16 @@ const DefaultSize = 4096
 
 type Buffer struct{ Data []byte }
 
+func (buf *Buffer) Size() int64 {
+	return int64(len(buf.Data))
+}
+
 type Pool struct{ pool sync.Pool }
 
-func (p *Pool) Get(size int) *Buffer {
+func (p *Pool) Get(size int64) *Buffer {
 	b, _ := p.pool.Get().(*Buffer)
 	if b != nil {
-		if size <= cap(b.Data) {
+		if int(size) <= cap(b.Data) {
 			b.Data = b.Data[:size]
 			return b
 		}
@@ -27,7 +31,7 @@ func (p *Pool) Put(b *Buffer) {
 	}
 }
 
-func New(size int) *Buffer {
+func New(size int64) *Buffer {
 	return &Buffer{Data: make([]byte, size, Align(size, DefaultSize))}
 }
 
@@ -38,6 +42,6 @@ func Release(buf **Buffer, pool *Pool) {
 	}
 }
 
-func Align(size, to int) int {
+func Align(size, to int64) int64 {
 	return ((size + (to - 1)) / to) * to
 }
