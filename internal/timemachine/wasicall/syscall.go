@@ -570,12 +570,13 @@ type SockAcceptSyscall struct {
 	FD    FD
 	Flags FDFlags
 	NewFD FD
+	Addr  SocketAddress
 	Errno Errno
 }
 
 func (s *SockAcceptSyscall) ID() SyscallID  { return SockAccept }
 func (s *SockAcceptSyscall) Params() []any  { return []any{s.FD, s.Flags} }
-func (s *SockAcceptSyscall) Results() []any { return []any{s.NewFD, s.Errno} }
+func (s *SockAcceptSyscall) Results() []any { return []any{s.NewFD, s.Addr, s.Errno} }
 func (s *SockAcceptSyscall) Error() Errno   { return s.Errno }
 func (s *SockAcceptSyscall) private()       {}
 

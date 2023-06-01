@@ -486,13 +486,13 @@ func (o *Observer) RandomGet(ctx context.Context, b []byte) (errno Errno) {
 	return
 }
 
-func (o *Observer) SockAccept(ctx context.Context, fd FD, flags FDFlags) (newfd FD, errno Errno) {
+func (o *Observer) SockAccept(ctx context.Context, fd FD, flags FDFlags) (newfd FD, addr SocketAddress, errno Errno) {
 	if o.before != nil {
-		o.before(ctx, &SockAcceptSyscall{fd, flags, newfd, errno})
+		o.before(ctx, &SockAcceptSyscall{fd, flags, newfd, addr, errno})
 	}
-	newfd, errno = o.System.SockAccept(ctx, fd, flags)
+	newfd, addr, errno = o.System.SockAccept(ctx, fd, flags)
 	if o.after != nil {
-		o.after(ctx, &SockAcceptSyscall{fd, flags, newfd, errno})
+		o.after(ctx, &SockAcceptSyscall{fd, flags, newfd, addr, errno})
 	}
 	return
 }

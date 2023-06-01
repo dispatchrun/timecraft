@@ -842,14 +842,15 @@ func (c *Codec) DecodeRandomGet(buffer []byte) (result []byte, errno Errno, err 
 	return
 }
 
-func (c *Codec) EncodeSockAccept(buffer []byte, fd FD, flags FDFlags, newfd FD, errno Errno) []byte {
+func (c *Codec) EncodeSockAccept(buffer []byte, fd FD, flags FDFlags, newfd FD, addr SocketAddress, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeFDFlags(buffer, flags)
-	return encodeFD(buffer, newfd)
+	buffer = encodeFD(buffer, newfd)
+	return encodeAddr(buffer, addr)
 }
 
-func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD, errno Errno, err error) {
+func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD, addr SocketAddress, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
@@ -859,7 +860,10 @@ func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD,
 	if flags, buffer, err = decodeFDFlags(buffer); err != nil {
 		return
 	}
-	newfd, _, err = decodeFD(buffer)
+	if newfd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	addr, _, err = decodeAddr(buffer)
 	return
 }
 
