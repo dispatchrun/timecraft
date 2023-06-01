@@ -18,7 +18,7 @@ timecraft.src.go = \
 	$(wildcard */*/*.go) \
 	$(wildcard */*/*/*.go)
 
-timecraft: go.mod flatbuffers $(timecraft.src.go)
+timecraft: go.mod $(timecraft.src.go)
 	$(GO) build -o timecraft
 
 clean:
@@ -32,7 +32,7 @@ generate: flatbuffers
 flatbuffers: go.mod $(format.src.go)
 	$(GO) build ./format/...
 
-test: timecraft testdata
+test: testdata
 	$(GO) test ./...
 
 testdata: $(testdata.go.wasm)
