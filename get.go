@@ -358,7 +358,7 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry, qu
 
 func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[format.Record] {
 	type record struct {
-		offset  int64       // for sort
+		offset  int64       `text:"-"` // for sort
 		ID      string      `text:"ID (SEGMENT/OFFSET)"`
 		Segment int         `text:"SEGMENT"`
 		Time    human.Time  `text:"TIME"`
