@@ -109,10 +109,6 @@ var resources = [...]resource{
 	{
 		typ: "records",
 		alt: []string{"rec", "recs", "record"},
-		//		mediaType: format.TypeTimecraftRuntime,
-		//		get: getRecords,
-		//		describe:  describeRuntime,
-		//		lookup:    lookupRuntime,
 	},
 
 	{
@@ -362,8 +358,9 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry, qu
 
 func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[format.Record] {
 	type record struct {
+		offset  int64       // for sort
+		ID      string      `text:"ID (SEGMENT/OFFSET)"`
 		Segment int         `text:"SEGMENT"`
-		Offset  int64       `text:"OFFSET"`
 		Time    human.Time  `text:"TIME"`
 		Size    human.Bytes `text:"SIZE"`
 		Syscall string      `text:"SYSCALL"`
@@ -402,15 +399,15 @@ func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 
 	return newTableWriter(w, quiet,
 		func(r1, r2 record) bool {
-			return r1.Offset < r2.Offset
+			return r1.offset < r2.offset
 		},
 		func(r format.Record) (record, error) {
 			out := record{
+				offset:  r.Offset,
+				ID:      fmt.Sprintf("%s/%d", r.ProcessID, r.Offset),
 				Segment: int(r.Segment),
-				Offset:  r.Offset,
 				Time:    human.Time(r.Time),
 				Size:    human.Bytes(len(r.FunctionCall)),
-				//				Bytes:    fmt.Sprintf("%8x", human.ByteArray(r.FunctionCall)),
 				Syscall: "?",
 			}
 
