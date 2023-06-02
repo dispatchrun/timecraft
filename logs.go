@@ -19,8 +19,12 @@ Usage:	timecraft logs [options] <process id>
 
 Example:
 
-   $ timecraft logs f6e9acbc-0543-47df-9413-b99f569cfa3b
-   ...
+   $ timecraft run app.wasm
+   661fddee-347b-429e-81f5-f45ca153fbb7
+   Hello World!
+
+   $ timecraft logs 661fddee-347b-429e-81f5-f45ca153fbb7
+   Hello World!
 
 Options:
    -c, --config             Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
