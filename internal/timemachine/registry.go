@@ -23,11 +23,9 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-var (
-	// ErrNoRecords is an error returned when no log records could be found for
-	// a given process id.
-	ErrNoLogRecords = errors.New("process has no records")
-)
+// ErrNoRecords is an error returned when no log records could be found for
+// a given process id.
+var ErrNoLogRecords = errors.New("process has no records")
 
 type TimeRange struct {
 	Start, End time.Time
@@ -406,6 +404,70 @@ func (w *logSegmentWriter) Close() error {
 	err := w.writer.Close()
 	<-w.done
 	return err
+}
+
+func (reg *Registry) ListRecords(ctx context.Context, processID format.UUID, timeRange TimeRange) stream.ReadCloser[format.Record] {
+	ch := make(chan stream.Optional[format.Record])
+	ctx, cancel := context.WithCancel(ctx)
+
+	go func() {
+		defer close(ch)
+
+		// TODO: handle multiple log segments
+		logSegment, err := reg.ReadLogSegment(ctx, processID, 0)
+		if err != nil {
+			ch <- stream.Opt(format.Record{}, err)
+			return
+		}
+		defer logSegment.Close()
+		segmentReader := NewLogReader(logSegment, timeRange.Start)
+		defer segmentReader.Close()
+
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			batch, err := segmentReader.ReadRecordBatch()
+			if err == io.EOF {
+				return
+			}
+			if err != nil {
+				ch <- stream.Opt(format.Record{}, err)
+				return
+			}
+			it := stream.Iter[Record](batch)
+			offset := batch.FirstOffset()
+			for it.Next() {
+				r := it.Value()
+				call := append([]byte(nil), r.FunctionCall...)
+				out := stream.Opt(format.Record{
+					ProcessID:    processID,
+					Segment:      0,
+					Offset:       offset,
+					Time:         r.Time,
+					FunctionID:   r.FunctionID,
+					FunctionCall: call,
+				}, nil)
+				// Batches can be large. Check for context
+				// termination here as well to bail out early if
+				// requested.
+				select {
+				case ch <- out:
+				case <-ctx.Done():
+					return
+				}
+				offset++
+			}
+
+		}
+	}()
+
+	return stream.NewReadCloser(stream.ChanReader(ch), closerFunc(func() error {
+		cancel()
+		for range ch {
+		}
+		return nil
+	}))
 }
 
 func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID) stream.ReadCloser[format.LogSegment] {

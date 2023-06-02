@@ -17,14 +17,7 @@ import (
 // and analysis.
 type Reader struct {
 	records stream.Iterator[timemachine.Record]
-	codec   Codec
-
-	// Cache for decoded slices.
-	args          []string
-	iovecs        []wasi.IOVec
-	subscriptions []wasi.Subscription
-	events        []wasi.Event
-	entries       []wasi.DirEntry
+	decoder Decoder
 }
 
 // NewReader creates a Reader.
@@ -43,8 +36,24 @@ func (r *Reader) ReadSyscall() (time.Time, Syscall, error) {
 		}
 		return time.Time{}, nil, err
 	}
+	return r.decoder.Decode(r.records.Value())
+}
 
-	record := r.records.Value()
+// Decoder decodes syscalls from records.
+type Decoder struct {
+	codec Codec
+
+	// Cache for decoded slices.
+	args          []string
+	iovecs        []wasi.IOVec
+	subscriptions []wasi.Subscription
+	events        []wasi.Event
+	entries       []wasi.DirEntry
+}
+
+// Decode a syscall from a record. Slices in the returned syscall point to
+// internal cache buffers can are invalidated on the next Decode call.
+func (r *Decoder) Decode(record timemachine.Record) (time.Time, Syscall, error) {
 	// TODO: eliminate allocations by caching the Syscall
 	//  instances on *Reader
 	var syscall Syscall

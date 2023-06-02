@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/print/yamlprint"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 )
 
 const getUsage = `
@@ -105,6 +107,15 @@ var resources = [...]resource{
 	},
 
 	{
+		typ: "records",
+		alt: []string{"rec", "recs", "record"},
+		//		mediaType: format.TypeTimecraftRuntime,
+		//		get: getRecords,
+		//		describe:  describeRuntime,
+		//		lookup:    lookupRuntime,
+	},
+
+	{
 		typ:       "runtime",
 		alt:       []string{"rt", "runtimes"},
 		mediaType: format.TypeTimecraftRuntime,
@@ -129,8 +140,8 @@ func get(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(args) != 1 {
-		perrorf(`Expected exactly one resource type as argument` + useCmd("get"))
+	if len(args) < 1 {
+		perrorf(`Expected at least the resource type as argument` + useCmd("get"))
 		return exitCode(2)
 	}
 	resource, err := findResource("get", args[0])
@@ -138,6 +149,7 @@ func get(ctx context.Context, args []string) error {
 		perror(err)
 		return exitCode(2)
 	}
+	args = args[1:]
 	config, err := loadConfig()
 	if err != nil {
 		return err
@@ -165,6 +177,27 @@ func get(ctx context.Context, args []string) error {
 		defer writer.Close()
 
 		_, err = stream.Copy[*format.Manifest](writer, reader)
+		return err
+	}
+
+	if resource.typ == "records" {
+		if len(args) != 1 {
+			perrorf(`Expected the process id as argument` + useCmd("get records"))
+		}
+
+		processID, err := uuid.Parse(args[0])
+		if err != nil {
+			return err
+		}
+
+		reader := registry.ListRecords(ctx, processID, timeRange)
+		defer reader.Close()
+
+		writer := getRecords(ctx, os.Stdout, registry, quiet)
+		defer writer.Close()
+
+		_, err = stream.Copy[format.Record](writer, reader)
+
 		return err
 	}
 
@@ -317,6 +350,75 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry, qu
 				Version: r.Version,
 			}, nil
 		})
+}
+
+func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[format.Record] {
+	type record struct {
+		Segment int         `text:"SEGMENT"`
+		Offset  int64       `text:"OFFSET"`
+		Time    human.Time  `text:"TIME"`
+		Size    human.Bytes `text:"SIZE"`
+		Syscall string      `text:"SYSCALL"`
+	}
+	dec := wasicall.Decoder{}
+
+	humanType := func(x any) string {
+		t := reflect.TypeOf(x)
+		n := t.Name()
+		if n == "" {
+			return fmt.Sprintf("%T", x)
+		}
+		return n
+	}
+
+	humanTypes := func(x []any) string {
+		out := ""
+		for i, t := range x {
+			if i > 0 {
+				out += ","
+			}
+			out += humanType(t)
+		}
+		return out
+	}
+
+	humanSyscall := func(syscall wasicall.Syscall) string {
+		f := syscall.ID().String()
+		p := humanTypes(syscall.Params())
+		r := humanTypes(syscall.Results())
+		if len(syscall.Results()) > 1 {
+			r = "(" + r + ")"
+		}
+		return fmt.Sprintf("%s(%s) %s", f, p, r)
+	}
+
+	return newTableWriter(w, quiet,
+		func(r1, r2 record) bool {
+			return r1.Offset < r2.Offset
+		},
+		func(r format.Record) (record, error) {
+			out := record{
+				Segment: int(r.Segment),
+				Offset:  r.Offset,
+				Time:    human.Time(r.Time),
+				Size:    human.Bytes(len(r.FunctionCall)),
+				//				Bytes:    fmt.Sprintf("%8x", human.ByteArray(r.FunctionCall)),
+				Syscall: "?",
+			}
+
+			rec := timemachine.Record{
+				Time:         r.Time,
+				FunctionID:   r.FunctionID,
+				FunctionCall: r.FunctionCall,
+			}
+			_, syscall, err := dec.Decode(rec)
+			if err == nil {
+				out.Syscall = humanSyscall(syscall)
+			}
+
+			return out, nil
+		},
+	)
 }
 
 func getLogs(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Manifest] {

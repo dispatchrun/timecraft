@@ -237,9 +237,7 @@ func (r *LogRecordReader) Seek(offset int64, whence int) (int64, error) {
 	return seekTo, nil
 }
 
-var (
-	_ stream.ReadSeeker[Record] = (*LogRecordReader)(nil)
-)
+var _ stream.ReadSeeker[Record] = (*LogRecordReader)(nil)
 
 // LogWriter supports writing log segments to an io.Writer.
 type LogWriter struct {

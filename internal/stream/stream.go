@@ -64,6 +64,16 @@ type nopCloser[T any] struct{ reader Reader[T] }
 func (r *nopCloser[T]) Close() error                 { return nil }
 func (r *nopCloser[T]) Read(values []T) (int, error) { return r.reader.Read(values) }
 
+// ErrReadCloser is a ReadCloser that only contains an error to be read.
+func ErrReadCloser[T any](err error) ReadCloser[T] {
+	return errReadCloser[T]{err}
+}
+
+type errReadCloser[T any] struct{ error }
+
+func (r errReadCloser[T]) Close() error                 { return nil }
+func (r errReadCloser[T]) Read(values []T) (int, error) { return 0, r }
+
 type ReadSeeker[T any] interface {
 	Reader[T]
 	io.Seeker
