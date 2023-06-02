@@ -35,13 +35,6 @@ var get = tests{
 		assert.Equal(t, stderr, "")
 	},
 
-	"get logs on an empty time machine": func(t *testing.T) {
-		stdout, stderr, exitCode := timecraft(t, "get", "logs")
-		assert.Equal(t, exitCode, 0)
-		assert.Equal(t, stdout, "PROCESS ID  SEGMENTS  START  SIZE\n")
-		assert.Equal(t, stderr, "")
-	},
-
 	"get modules on an empty time machine": func(t *testing.T) {
 		stdout, stderr, exitCode := timecraft(t, "get", "modules")
 		assert.Equal(t, exitCode, 0)
@@ -52,7 +45,7 @@ var get = tests{
 	"get process on an empty time machine": func(t *testing.T) {
 		stdout, stderr, exitCode := timecraft(t, "get", "processes")
 		assert.Equal(t, exitCode, 0)
-		assert.Equal(t, stdout, "PROCESS ID  START\n")
+		assert.Equal(t, stdout, "PROCESS ID  START  SIZE\n")
 		assert.Equal(t, stderr, "")
 	},
 
@@ -72,17 +65,6 @@ var get = tests{
 		configID, stderr, exitCode := timecraft(t, "get", "conf", "-q")
 		assert.Equal(t, exitCode, 0)
 		assert.NotEqual(t, configID, "")
-		assert.Equal(t, stderr, "")
-	},
-
-	"get log after run": func(t *testing.T) {
-		stdout, processID, exitCode := timecraft(t, "run", "./testdata/go/sleep.wasm", "1ns")
-		assert.Equal(t, exitCode, 0)
-		assert.Equal(t, stdout, "sleeping for 1ns\n")
-
-		logID, stderr, exitCode := timecraft(t, "get", "log", "-q")
-		assert.Equal(t, exitCode, 0)
-		assert.Equal(t, logID, processID)
 		assert.Equal(t, stderr, "")
 	},
 
