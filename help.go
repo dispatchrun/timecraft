@@ -34,7 +34,11 @@ For a description of each command, run 'timecraft help <command>'.`
 
 func help(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft help", helpUsage)
-	args = parseFlags(flagSet, args)
+
+	args, err := parseFlags(flagSet, args)
+	if err != nil {
+		return err
+	}
 	if len(args) == 0 {
 		args = []string{"help"}
 	}
@@ -66,7 +70,8 @@ func help(ctx context.Context, args []string) error {
 		case "version":
 			msg = versionUsage
 		default:
-			return usageError("timecraft help %s: unknown command", cmd)
+			perrorf("timecraft help %s: unknown command", cmd)
+			return exitCode(2)
 		}
 
 		fmt.Println(strings.TrimSpace(msg))

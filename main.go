@@ -12,5 +12,5 @@ func init() {
 }
 
 func main() {
-	os.Exit(root(os.Args[1:]...))
+	os.Exit(Root(os.Args[1:]...))
 }

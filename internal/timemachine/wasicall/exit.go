@@ -201,7 +201,7 @@ func (s *exitSystem) RandomGet(ctx context.Context, b []byte) Errno {
 	panic(s.newExitError())
 }
 
-func (s *exitSystem) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errno) {
+func (s *exitSystem) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, SocketAddress, Errno) {
 	panic(s.newExitError())
 }
 

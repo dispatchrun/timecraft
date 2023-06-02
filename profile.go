@@ -71,8 +71,11 @@ func profile(ctx context.Context, args []string) error {
 	customVar(flagSet, &duration, "d", "duration")
 	customVar(flagSet, &startTime, "t", "start-time")
 	boolVar(flagSet, &quiet, "q", "quiet")
-	args = parseFlags(flagSet, args)
 
+	args, err := parseFlags(flagSet, args)
+	if err != nil {
+		return err
+	}
 	if len(args) != 1 {
 		return errors.New(`expected exactly one process id as argument`)
 	}
@@ -141,8 +144,9 @@ func profile(ctx context.Context, args []string) error {
 		endTime:    timeRange.End,
 		sampleRate: 1.0,
 	}
-	records.cpu = wzprof.NewCPUProfiler(wzprof.TimeFunc(records.now))
-	records.mem = wzprof.NewMemoryProfiler()
+	p := wzprof.ProfilingFor(module.Code)
+	records.cpu = p.CPUProfiler(wzprof.TimeFunc(records.now))
+	records.mem = p.MemoryProfiler()
 
 	ctx = context.WithValue(ctx,
 		experimental.FunctionListenerFactoryKey{},
@@ -160,6 +164,9 @@ func profile(ctx context.Context, args []string) error {
 		return err
 	}
 	defer compiledModule.Close(ctx)
+	if err := p.Prepare(compiledModule); err != nil {
+		return err
+	}
 
 	replay := wasicall.NewReplay(records)
 	defer replay.Close(ctx)
@@ -191,7 +198,7 @@ func profile(ctx context.Context, args []string) error {
 		}
 		if p != nil {
 			path := exports[typ]
-			fmt.Fprintf(os.Stderr, "==> writing %s profile to %s\n", typ, path)
+			perrorf("==> writing %s profile to %s", typ, path)
 			if err := wzprof.WriteProfile(path, p); err != nil {
 				return err
 			}
@@ -222,15 +229,14 @@ type recordProfiler struct {
 	cpuProfile *pprof.Profile
 	memProfile *pprof.Profile
 
-	firstTimestamp int64
-	lastTimestamp  int64
+	firstTimestamp time.Time
+	lastTimestamp  time.Time
 
 	startTime  time.Time
 	endTime    time.Time
 	started    bool
 	stopped    bool
 	sampleRate float64
-	symbols    wzprof.Symbolizer
 }
 
 func (r *recordProfiler) Read(records []timemachine.Record) (int, error) {
@@ -242,12 +248,12 @@ func (r *recordProfiler) Read(records []timemachine.Record) (int, error) {
 	}
 	n, err := r.records.Read(records[:1])
 	if n > 0 {
-		r.lastTimestamp = records[0].Timestamp()
-		if !r.started && !records[0].Time().Before(r.startTime) {
+		r.lastTimestamp = records[0].Time
+		if !r.started && !r.lastTimestamp.Before(r.startTime) {
 			r.firstTimestamp = r.lastTimestamp
 			r.start()
 		}
-		if !r.stopped && !records[0].Time().Before(r.endTime) {
+		if !r.stopped && !r.lastTimestamp.Before(r.endTime) {
 			r.stop()
 		}
 	}
@@ -255,7 +261,7 @@ func (r *recordProfiler) Read(records []timemachine.Record) (int, error) {
 }
 
 func (r *recordProfiler) now() int64 {
-	return r.lastTimestamp
+	return int64(r.lastTimestamp.Sub(r.firstTimestamp))
 }
 
 func (r *recordProfiler) start() {
@@ -268,13 +274,13 @@ func (r *recordProfiler) start() {
 func (r *recordProfiler) stop() {
 	if !r.stopped {
 		r.stopped = true
-		r.cpuProfile = r.cpu.StopProfile(r.sampleRate, r.symbols)
-		r.memProfile = r.mem.NewProfile(r.sampleRate, r.symbols)
+		r.cpuProfile = r.cpu.StopProfile(r.sampleRate)
+		r.memProfile = r.mem.NewProfile(r.sampleRate)
 		r.cpuProfile.TimeNanos = r.startTime.UnixNano()
 		r.memProfile.TimeNanos = r.startTime.UnixNano()
-		duration := r.lastTimestamp - r.firstTimestamp
-		r.cpuProfile.DurationNanos = duration
-		r.memProfile.DurationNanos = duration
+		duration := r.lastTimestamp.Sub(r.firstTimestamp)
+		r.cpuProfile.DurationNanos = int64(duration)
+		r.memProfile.DurationNanos = int64(duration)
 	}
 }
 
@@ -301,7 +307,7 @@ func createProfiles(reg *timemachine.Registry, processID format.UUID, profiles .
 		}(p)
 	}
 
-	var descriptors = make([]*format.Descriptor, 0, len(profiles))
+	descriptors := make([]*format.Descriptor, 0, len(profiles))
 	var lastErr error
 	for range profiles {
 		d, err := (<-ch).Value()

@@ -34,14 +34,6 @@ type RecordBatch struct {
 	offset uint32
 }
 
-// MakeRecordBatch creates a record batch from the specified buffer.
-//
-// The buffer must live as long as the record batch.
-func MakeRecordBatch(startTime time.Time, buffer []byte, reader io.Reader) (rb RecordBatch) {
-	rb.Reset(startTime, buffer, reader)
-	return
-}
-
 // Reset resets the record batch.
 func (b *RecordBatch) Reset(startTime time.Time, buf []byte, reader io.Reader) {
 	if b.records != nil {
@@ -56,7 +48,7 @@ func (b *RecordBatch) Reset(startTime time.Time, buf []byte, reader io.Reader) {
 	if len(buf) > 0 {
 		b.batch = *logsegment.GetSizePrefixedRootAsRecordBatch(buf, 0)
 		b.reader.R = reader
-		b.reader.N = int64(b.RecordsSize())
+		b.reader.N = b.Size()
 	} else {
 		b.batch = logsegment.RecordBatch{}
 		b.reader.R = nil
@@ -65,14 +57,13 @@ func (b *RecordBatch) Reset(startTime time.Time, buf []byte, reader io.Reader) {
 	b.offset = 0
 }
 
-// RecordsSize is the size of the adjacent record data.
-func (b *RecordBatch) RecordsSize() (size int) {
+// Size is the size of the adjacent record data.
+func (b *RecordBatch) Size() int64 {
 	if b.Compression() == Uncompressed {
-		size = int(b.UncompressedSize())
+		return int64(b.UncompressedSize())
 	} else {
-		size = int(b.CompressedSize())
+		return int64(b.CompressedSize())
 	}
-	return
 }
 
 // Compression returns the compression algorithm used to encode the record
@@ -84,6 +75,11 @@ func (b *RecordBatch) Compression() Compression {
 // FirstOffset returns the logical offset of the first record in the batch.
 func (b *RecordBatch) FirstOffset() int64 {
 	return b.batch.FirstOffset()
+}
+
+// NextOffset returns the offset of the first record after this batch.
+func (b *RecordBatch) NextOffset() int64 {
+	return b.batch.FirstOffset() + int64(b.NumRecords())
 }
 
 // FirstTimestamp returns the time of the first record in the batch.
@@ -133,7 +129,14 @@ func (b *RecordBatch) Read(records []Record) (int, error) {
 		if b.offset+size < b.offset || b.offset+size > uint32(len(batch)) {
 			return n, fmt.Errorf("cannot read record at [%d:%d+%d] as records buffer is length %d: %w", b.offset, b.offset, size, len(batch), io.ErrUnexpectedEOF)
 		}
-		records[n] = MakeRecord(b.startTime, batch[b.offset:b.offset+size+4])
+		i := 4 + b.offset
+		j := 4 + b.offset + size
+		r := logsegment.GetRootAsRecord(batch[i:j:j], 0)
+		records[n] = Record{
+			Time:         b.startTime.Add(time.Duration(r.Timestamp())),
+			FunctionID:   int(r.FunctionId()),
+			FunctionCall: r.FunctionCallBytes(),
+		}
 		b.offset += size + 4
 	}
 	return len(records), nil
@@ -148,7 +151,7 @@ func (b *RecordBatch) readRecords() ([]byte, error) {
 	if b.Compression() == Uncompressed {
 		recordsBufferPool = &uncompressedBufferPool
 	}
-	recordsBuffer := recordsBufferPool.Get(b.RecordsSize())
+	recordsBuffer := recordsBufferPool.Get(b.Size())
 
 	_, err := io.ReadFull(&b.reader, recordsBuffer.Data)
 	if err != nil {
@@ -166,7 +169,7 @@ func (b *RecordBatch) readRecords() ([]byte, error) {
 	}
 	defer recordsBufferPool.Put(recordsBuffer)
 
-	b.records = uncompressedBufferPool.Get(int(b.UncompressedSize()))
+	b.records = uncompressedBufferPool.Get(b.UncompressedSize())
 	return decompress(b.records.Data, recordsBuffer.Data, b.Compression())
 }
 

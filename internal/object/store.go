@@ -95,7 +95,7 @@ type Store interface {
 
 	// Reads an existing object from the store, returning a reader exposing its
 	// content.
-	ReadObject(ctx context.Context, name string) (io.ReadCloser, error)
+	ReadObject(ctx context.Context, name string) (io.ReadSeekCloser, error)
 
 	// Retrieves information about an object in the store.
 	StatObject(ctx context.Context, name string) (Info, error)
@@ -158,7 +158,7 @@ func (emptyStore) CreateObject(context.Context, string, io.Reader, ...Tag) error
 	return ErrReadOnly
 }
 
-func (emptyStore) ReadObject(context.Context, string) (io.ReadCloser, error) {
+func (emptyStore) ReadObject(context.Context, string) (io.ReadSeekCloser, error) {
 	return nil, ErrNotExist
 }
 
@@ -252,7 +252,7 @@ func (store dirStore) CreateObject(ctx context.Context, name string, data io.Rea
 	return nil
 }
 
-func (store dirStore) ReadObject(ctx context.Context, name string) (io.ReadCloser, error) {
+func (store dirStore) ReadObject(ctx context.Context, name string) (io.ReadSeekCloser, error) {
 	path, err := store.joinPath(name)
 	if err != nil {
 		return nil, err

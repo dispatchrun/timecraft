@@ -364,12 +364,12 @@ func (f *FallbackSystem) RandomGet(ctx context.Context, b []byte) Errno {
 	return errno
 }
 
-func (f *FallbackSystem) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errno) {
-	newfd, errno := f.System.SockAccept(ctx, fd, flags)
+func (f *FallbackSystem) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, SocketAddress, Errno) {
+	newfd, addr, errno := f.System.SockAccept(ctx, fd, flags)
 	if errno == ENOSYS {
 		return f.secondary.SockAccept(ctx, fd, flags)
 	}
-	return newfd, errno
+	return newfd, addr, errno
 }
 
 func (f *FallbackSystem) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, Errno) {

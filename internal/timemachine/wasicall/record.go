@@ -309,10 +309,10 @@ func (r *Recorder) RandomGet(ctx context.Context, b []byte) Errno {
 	return errno
 }
 
-func (r *Recorder) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errno) {
-	newfd, errno := r.system.SockAccept(ctx, fd, flags)
-	r.record(SockAccept, r.codec.EncodeSockAccept(r.buffer[:0], fd, flags, newfd, errno))
-	return newfd, errno
+func (r *Recorder) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, SocketAddress, Errno) {
+	newfd, addr, errno := r.system.SockAccept(ctx, fd, flags)
+	r.record(SockAccept, r.codec.EncodeSockAccept(r.buffer[:0], fd, flags, newfd, addr, errno))
+	return newfd, addr, errno
 }
 
 func (r *Recorder) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno {

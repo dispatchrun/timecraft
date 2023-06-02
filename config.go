@@ -35,12 +35,6 @@ var (
 	configPath human.Path = "~/.timecraft/config.yaml"
 )
 
-func init() {
-	if v := os.Getenv("TIMECRAFTCONFIG"); v != "" {
-		configPath = human.Path(v)
-	}
-}
-
 func config(ctx context.Context, args []string) error {
 	var (
 		edit   bool
@@ -50,7 +44,10 @@ func config(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft config", configUsage)
 	boolVar(flagSet, &edit, "edit")
 	customVar(flagSet, &output, "o", "output")
-	parseFlags(flagSet, args)
+
+	if _, err := parseFlags(flagSet, args); err != nil {
+		return err
+	}
 
 	r, path, err := openConfig()
 	if err != nil {
@@ -155,18 +152,18 @@ func value[T any](v T) nullable[T] {
 	return nullable[T]{value: v, exist: true}
 }
 
-func (v *nullable[T]) Value() (T, bool) {
+func (v nullable[T]) Value() (T, bool) {
 	return v.value, v.exist
 }
 
-func (v *nullable[T]) MarshalJSON() ([]byte, error) {
+func (v nullable[T]) MarshalJSON() ([]byte, error) {
 	if !v.exist {
 		return []byte("null"), nil
 	}
 	return json.Marshal(v.value)
 }
 
-func (v *nullable[T]) MarshalYAML() (any, error) {
+func (v nullable[T]) MarshalYAML() (any, error) {
 	if !v.exist {
 		return nil, nil
 	}
@@ -259,11 +256,11 @@ func (c *configuration) newRuntime(ctx context.Context) wazero.Runtime {
 		// user but still go ahead with the runtime instantiation.
 		path, err := cachePath.Resolve()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ERR: resolving timecraft cache location: %s\n", err)
+			perrorf("ERR: resolving timecraft cache location: %s", err)
 		} else {
 			cache, err = createCacheDirectory(path)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ERR: creating timecraft cache directory: %s\n", err)
+				perrorf("ERR: creating timecraft cache directory: %s", err)
 			} else {
 				config = config.WithCompilationCache(cache)
 			}

@@ -83,7 +83,7 @@ func (r *Replay) readRecord(syscall SyscallID) (timemachine.Record, bool) {
 		return timemachine.Record{}, false
 	}
 	record := r.records.Value()
-	if recordSyscall := SyscallID(record.FunctionID()); recordSyscall != syscall {
+	if recordSyscall := SyscallID(record.FunctionID); recordSyscall != syscall {
 		panic(&UnexpectedSyscallError{recordSyscall, syscall})
 	}
 	return record, true
@@ -94,7 +94,7 @@ func (r *Replay) ArgsSizesGet(ctx context.Context) (int, int, Errno) {
 	if !ok {
 		return 0, 0, ENOSYS
 	}
-	argCount, stringBytes, errno, err := r.codec.DecodeArgsSizesGet(record.FunctionCall())
+	argCount, stringBytes, errno, err := r.codec.DecodeArgsSizesGet(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -107,7 +107,7 @@ func (r *Replay) ArgsGet(ctx context.Context) (args []string, errno Errno) {
 		return nil, ENOSYS
 	}
 	var err error
-	r.args, errno, err = r.codec.DecodeArgsGet(record.FunctionCall(), r.args[:0])
+	r.args, errno, err = r.codec.DecodeArgsGet(record.FunctionCall, r.args[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -119,7 +119,7 @@ func (r *Replay) EnvironSizesGet(ctx context.Context) (int, int, Errno) {
 	if !ok {
 		return 0, 0, ENOSYS
 	}
-	envCount, stringBytes, errno, err := r.codec.DecodeEnvironSizesGet(record.FunctionCall())
+	envCount, stringBytes, errno, err := r.codec.DecodeEnvironSizesGet(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -132,7 +132,7 @@ func (r *Replay) EnvironGet(ctx context.Context) (env []string, errno Errno) {
 		return nil, ENOSYS
 	}
 	var err error
-	r.args, errno, err = r.codec.DecodeEnvironGet(record.FunctionCall(), r.args[:0])
+	r.args, errno, err = r.codec.DecodeEnvironGet(record.FunctionCall, r.args[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -144,7 +144,7 @@ func (r *Replay) ClockResGet(ctx context.Context, id ClockID) (Timestamp, Errno)
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordID, timestamp, errno, err := r.codec.DecodeClockResGet(record.FunctionCall())
+	recordID, timestamp, errno, err := r.codec.DecodeClockResGet(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -159,7 +159,7 @@ func (r *Replay) ClockTimeGet(ctx context.Context, id ClockID, precision Timesta
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordID, recordPrecision, timestamp, errno, err := r.codec.DecodeClockTimeGet(record.FunctionCall())
+	recordID, recordPrecision, timestamp, errno, err := r.codec.DecodeClockTimeGet(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -183,7 +183,7 @@ func (r *Replay) FDAdvise(ctx context.Context, fd FD, offset FileSize, length Fi
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordOffset, recordLength, recordAdvice, errno, err := r.codec.DecodeFDAdvise(record.FunctionCall())
+	recordFD, recordOffset, recordLength, recordAdvice, errno, err := r.codec.DecodeFDAdvise(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -213,7 +213,7 @@ func (r *Replay) FDAllocate(ctx context.Context, fd FD, offset FileSize, length 
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordOffset, recordLength, errno, err := r.codec.DecodeFDAllocate(record.FunctionCall())
+	recordFD, recordOffset, recordLength, errno, err := r.codec.DecodeFDAllocate(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -240,7 +240,7 @@ func (r *Replay) FDClose(ctx context.Context, fd FD) Errno {
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, errno, err := r.codec.DecodeFDClose(record.FunctionCall())
+	recordFD, errno, err := r.codec.DecodeFDClose(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -255,7 +255,7 @@ func (r *Replay) FDDataSync(ctx context.Context, fd FD) Errno {
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, errno, err := r.codec.DecodeFDDataSync(record.FunctionCall())
+	recordFD, errno, err := r.codec.DecodeFDDataSync(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -270,7 +270,7 @@ func (r *Replay) FDStatGet(ctx context.Context, fd FD) (FDStat, Errno) {
 	if !ok {
 		return FDStat{}, ENOSYS
 	}
-	recordFD, stat, errno, err := r.codec.DecodeFDStatGet(record.FunctionCall())
+	recordFD, stat, errno, err := r.codec.DecodeFDStatGet(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -285,7 +285,7 @@ func (r *Replay) FDStatSetFlags(ctx context.Context, fd FD, flags FDFlags) Errno
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordFlags, errno, err := r.codec.DecodeFDStatSetFlags(record.FunctionCall())
+	recordFD, recordFlags, errno, err := r.codec.DecodeFDStatSetFlags(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -309,7 +309,7 @@ func (r *Replay) FDStatSetRights(ctx context.Context, fd FD, rightsBase, rightsI
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordRightsBase, recordRightsInheriting, errno, err := r.codec.DecodeFDStatSetRights(record.FunctionCall())
+	recordFD, recordRightsBase, recordRightsInheriting, errno, err := r.codec.DecodeFDStatSetRights(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -336,7 +336,7 @@ func (r *Replay) FDFileStatGet(ctx context.Context, fd FD) (FileStat, Errno) {
 	if !ok {
 		return FileStat{}, ENOSYS
 	}
-	recordFD, stat, errno, err := r.codec.DecodeFDFileStatGet(record.FunctionCall())
+	recordFD, stat, errno, err := r.codec.DecodeFDFileStatGet(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -351,7 +351,7 @@ func (r *Replay) FDFileStatSetSize(ctx context.Context, fd FD, size FileSize) Er
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordSize, errno, err := r.codec.DecodeFDFileStatSetSize(record.FunctionCall())
+	recordFD, recordSize, errno, err := r.codec.DecodeFDFileStatSetSize(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -375,7 +375,7 @@ func (r *Replay) FDFileStatSetTimes(ctx context.Context, fd FD, accessTime, modi
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordAccessTime, recordModifyTime, recordFlags, errno, err := r.codec.DecodeFDFileStatSetTimes(record.FunctionCall())
+	recordFD, recordAccessTime, recordModifyTime, recordFlags, errno, err := r.codec.DecodeFDFileStatSetTimes(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -405,7 +405,7 @@ func (r *Replay) FDPread(ctx context.Context, fd FD, iovecs []IOVec, offset File
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPread(record.FunctionCall(), r.iovecs[:0])
+	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPread(record.FunctionCall, r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -436,7 +436,7 @@ func (r *Replay) FDPreStatGet(ctx context.Context, fd FD) (PreStat, Errno) {
 	if !ok {
 		return PreStat{}, ENOSYS
 	}
-	recordFD, stat, errno, err := r.codec.DecodeFDPreStatGet(record.FunctionCall())
+	recordFD, stat, errno, err := r.codec.DecodeFDPreStatGet(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -451,7 +451,7 @@ func (r *Replay) FDPreStatDirName(ctx context.Context, fd FD) (string, Errno) {
 	if !ok {
 		return "", ENOSYS
 	}
-	recordFD, name, errno, err := r.codec.DecodeFDPreStatDirName(record.FunctionCall())
+	recordFD, name, errno, err := r.codec.DecodeFDPreStatDirName(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -466,7 +466,7 @@ func (r *Replay) FDPwrite(ctx context.Context, fd FD, iovecs []IOVec, offset Fil
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPwrite(record.FunctionCall(), r.iovecs[:0])
+	recordFD, recordIOVecs, recordOffset, size, errno, err := r.codec.DecodeFDPwrite(record.FunctionCall, r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -494,7 +494,7 @@ func (r *Replay) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errno
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDRead(record.FunctionCall(), r.iovecs[:0])
+	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDRead(record.FunctionCall, r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -522,7 +522,7 @@ func (r *Replay) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cooki
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordEntries, recordCookie, recordBufferSizeBytes, count, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall(), r.entries[:0])
+	recordFD, recordEntries, recordCookie, recordBufferSizeBytes, count, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall, r.entries[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -554,7 +554,7 @@ func (r *Replay) FDRenumber(ctx context.Context, from, to FD) Errno {
 	if !ok {
 		return ENOSYS
 	}
-	recordFrom, recordTo, errno, err := r.codec.DecodeFDRenumber(record.FunctionCall())
+	recordFrom, recordTo, errno, err := r.codec.DecodeFDRenumber(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -578,7 +578,7 @@ func (r *Replay) FDSeek(ctx context.Context, fd FD, offset FileDelta, whence Whe
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordOffset, recordWhence, size, errno, err := r.codec.DecodeFDSeek(record.FunctionCall())
+	recordFD, recordOffset, recordWhence, size, errno, err := r.codec.DecodeFDSeek(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -605,7 +605,7 @@ func (r *Replay) FDSync(ctx context.Context, fd FD) Errno {
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, errno, err := r.codec.DecodeFDSync(record.FunctionCall())
+	recordFD, errno, err := r.codec.DecodeFDSync(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -620,7 +620,7 @@ func (r *Replay) FDTell(ctx context.Context, fd FD) (FileSize, Errno) {
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, size, errno, err := r.codec.DecodeFDTell(record.FunctionCall())
+	recordFD, size, errno, err := r.codec.DecodeFDTell(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -635,7 +635,7 @@ func (r *Replay) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errn
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDWrite(record.FunctionCall(), r.iovecs[:0])
+	recordFD, recordIOVecs, size, errno, err := r.codec.DecodeFDWrite(record.FunctionCall, r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -660,7 +660,7 @@ func (r *Replay) PathCreateDirectory(ctx context.Context, fd FD, path string) Er
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordPath, errno, err := r.codec.DecodePathCreateDirectory(record.FunctionCall())
+	recordFD, recordPath, errno, err := r.codec.DecodePathCreateDirectory(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -684,7 +684,7 @@ func (r *Replay) PathFileStatGet(ctx context.Context, fd FD, lookupFlags LookupF
 	if !ok {
 		return FileStat{}, ENOSYS
 	}
-	recordFD, recordLookupFlags, recordPath, stat, errno, err := r.codec.DecodePathFileStatGet(record.FunctionCall())
+	recordFD, recordLookupFlags, recordPath, stat, errno, err := r.codec.DecodePathFileStatGet(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -711,7 +711,7 @@ func (r *Replay) PathFileStatSetTimes(ctx context.Context, fd FD, lookupFlags Lo
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordLookupFlags, recordPath, recordAccessTime, recordModifyTime, recordFlags, errno, err := r.codec.DecodePathFileStatSetTimes(record.FunctionCall())
+	recordFD, recordLookupFlags, recordPath, recordAccessTime, recordModifyTime, recordFlags, errno, err := r.codec.DecodePathFileStatSetTimes(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -747,7 +747,7 @@ func (r *Replay) PathLink(ctx context.Context, oldFD FD, oldFlags LookupFlags, o
 	if !ok {
 		return ENOSYS
 	}
-	recordOldFD, recordOldFlags, recordOldPath, recordNewFD, recordNewPath, errno, err := r.codec.DecodePathLink(record.FunctionCall())
+	recordOldFD, recordOldFlags, recordOldPath, recordNewFD, recordNewPath, errno, err := r.codec.DecodePathLink(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -780,7 +780,7 @@ func (r *Replay) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, path
 	if !ok {
 		return -1, ENOSYS
 	}
-	recordFD, recordDirFlags, recordPath, recordOpenFlags, recordRightsBase, recordRightsInheriting, recordFDFlags, newfd, errno, err := r.codec.DecodePathOpen(record.FunctionCall())
+	recordFD, recordDirFlags, recordPath, recordOpenFlags, recordRightsBase, recordRightsInheriting, recordFDFlags, newfd, errno, err := r.codec.DecodePathOpen(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -819,7 +819,7 @@ func (r *Replay) PathReadLink(ctx context.Context, fd FD, path string, buffer []
 	if !ok {
 		return nil, ENOSYS
 	}
-	recordFD, recordPath, result, errno, err := r.codec.DecodePathReadLink(record.FunctionCall())
+	recordFD, recordPath, result, errno, err := r.codec.DecodePathReadLink(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -847,7 +847,7 @@ func (r *Replay) PathRemoveDirectory(ctx context.Context, fd FD, path string) Er
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordPath, errno, err := r.codec.DecodePathRemoveDirectory(record.FunctionCall())
+	recordFD, recordPath, errno, err := r.codec.DecodePathRemoveDirectory(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -871,7 +871,7 @@ func (r *Replay) PathRename(ctx context.Context, fd FD, oldPath string, newFD FD
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordOldPath, recordNewFD, recordNewPath, errno, err := r.codec.DecodePathRename(record.FunctionCall())
+	recordFD, recordOldPath, recordNewFD, recordNewPath, errno, err := r.codec.DecodePathRename(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -901,7 +901,7 @@ func (r *Replay) PathSymlink(ctx context.Context, oldPath string, fd FD, newPath
 	if !ok {
 		return ENOSYS
 	}
-	recordOldPath, recordFD, recordNewPath, errno, err := r.codec.DecodePathSymlink(record.FunctionCall())
+	recordOldPath, recordFD, recordNewPath, errno, err := r.codec.DecodePathSymlink(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -928,7 +928,7 @@ func (r *Replay) PathUnlinkFile(ctx context.Context, fd FD, path string) Errno {
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordPath, errno, err := r.codec.DecodePathUnlinkFile(record.FunctionCall())
+	recordFD, recordPath, errno, err := r.codec.DecodePathUnlinkFile(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -952,7 +952,7 @@ func (r *Replay) PollOneOff(ctx context.Context, subscriptions []Subscription, e
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordSubscriptions, recordEvents, errno, err := r.codec.DecodePollOneOff(record.FunctionCall(), r.subscriptions[:0], r.events[:0])
+	recordSubscriptions, recordEvents, errno, err := r.codec.DecodePollOneOff(record.FunctionCall, r.subscriptions[:0], r.events[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -979,7 +979,7 @@ func (r *Replay) ProcExit(ctx context.Context, exitCode ExitCode) Errno {
 	if !ok {
 		return ENOSYS
 	}
-	recordExitCode, errno, err := r.codec.DecodeProcExit(record.FunctionCall())
+	recordExitCode, errno, err := r.codec.DecodeProcExit(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -995,7 +995,7 @@ func (r *Replay) ProcRaise(ctx context.Context, signal Signal) Errno {
 	if !ok {
 		return ENOSYS
 	}
-	recordSignal, errno, err := r.codec.DecodeProcRaise(record.FunctionCall())
+	recordSignal, errno, err := r.codec.DecodeProcRaise(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1010,7 +1010,7 @@ func (r *Replay) SchedYield(ctx context.Context) Errno {
 	if !ok {
 		return ENOSYS
 	}
-	errno, err := r.codec.DecodeSchedYield(record.FunctionCall())
+	errno, err := r.codec.DecodeSchedYield(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1022,7 +1022,7 @@ func (r *Replay) RandomGet(ctx context.Context, buffer []byte) Errno {
 	if !ok {
 		return ENOSYS
 	}
-	recordBuffer, errno, err := r.codec.DecodeRandomGet(record.FunctionCall())
+	recordBuffer, errno, err := r.codec.DecodeRandomGet(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1033,12 +1033,12 @@ func (r *Replay) RandomGet(ctx context.Context, buffer []byte) Errno {
 	return errno
 }
 
-func (r *Replay) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errno) {
+func (r *Replay) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, SocketAddress, Errno) {
 	record, ok := r.readRecord(SockAccept)
 	if !ok {
-		return -1, ENOSYS
+		return -1, nil, ENOSYS
 	}
-	recordFD, recordFlags, newfd, errno, err := r.codec.DecodeSockAccept(record.FunctionCall())
+	recordFD, recordFlags, newfd, addr, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1054,7 +1054,7 @@ func (r *Replay) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Errn
 			panic(errors.Join(mismatch...))
 		}
 	}
-	return newfd, errno
+	return newfd, addr, errno
 }
 
 func (r *Replay) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno {
@@ -1062,7 +1062,7 @@ func (r *Replay) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno {
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordFlags, errno, err := r.codec.DecodeSockShutdown(record.FunctionCall())
+	recordFD, recordFlags, errno, err := r.codec.DecodeSockShutdown(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1086,7 +1086,7 @@ func (r *Replay) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIF
 	if !ok {
 		return 0, 0, ENOSYS
 	}
-	recordFD, recordIOVecs, recordIFlags, size, oflags, errno, err := r.codec.DecodeSockRecv(record.FunctionCall(), r.iovecs[:0])
+	recordFD, recordIOVecs, recordIFlags, size, oflags, errno, err := r.codec.DecodeSockRecv(record.FunctionCall, r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1117,7 +1117,7 @@ func (r *Replay) SockSend(ctx context.Context, fd FD, iovecs []IOVec, iflags SIF
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordIOVecs, recordIFlags, size, errno, err := r.codec.DecodeSockSend(record.FunctionCall())
+	recordFD, recordIOVecs, recordIFlags, size, errno, err := r.codec.DecodeSockSend(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1144,7 +1144,7 @@ func (r *Replay) SockOpen(ctx context.Context, protocolFamily ProtocolFamily, so
 	if !ok {
 		return -1, ENOSYS
 	}
-	recordProtocolFamily, recordSocketType, recordProtocol, recordRightsBase, recordRightsInheriting, newfd, errno, err := r.codec.DecodeSockOpen(record.FunctionCall())
+	recordProtocolFamily, recordSocketType, recordProtocol, recordRightsBase, recordRightsInheriting, newfd, errno, err := r.codec.DecodeSockOpen(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1177,7 +1177,7 @@ func (r *Replay) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errno 
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordAddr, errno, err := r.codec.DecodeSockBind(record.FunctionCall())
+	recordFD, recordAddr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1201,7 +1201,7 @@ func (r *Replay) SockConnect(ctx context.Context, fd FD, addr SocketAddress) Err
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordAddr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall())
+	recordFD, recordAddr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1225,7 +1225,7 @@ func (r *Replay) SockListen(ctx context.Context, fd FD, backlog int) Errno {
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordBacklog, errno, err := r.codec.DecodeSockListen(record.FunctionCall())
+	recordFD, recordBacklog, errno, err := r.codec.DecodeSockListen(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1249,7 +1249,7 @@ func (r *Replay) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags S
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordIOVecs, recordIFlags, recordAddr, size, errno, err := r.codec.DecodeSockSendTo(record.FunctionCall(), r.iovecs[:0])
+	recordFD, recordIOVecs, recordIFlags, recordAddr, size, errno, err := r.codec.DecodeSockSendTo(record.FunctionCall, r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1280,7 +1280,7 @@ func (r *Replay) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags
 	if !ok {
 		return 0, 0, nil, ENOSYS
 	}
-	recordFD, recordIOVecs, recordIFlags, size, oflags, addr, errno, err := r.codec.DecodeSockRecvFrom(record.FunctionCall(), r.iovecs[:0])
+	recordFD, recordIOVecs, recordIFlags, size, oflags, addr, errno, err := r.codec.DecodeSockRecvFrom(record.FunctionCall, r.iovecs[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1311,7 +1311,7 @@ func (r *Replay) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLev
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordLevel, recordOption, value, errno, err := r.codec.DecodeSockGetOptInt(record.FunctionCall())
+	recordFD, recordLevel, recordOption, value, errno, err := r.codec.DecodeSockGetOptInt(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1338,7 +1338,7 @@ func (r *Replay) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLev
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordLevel, recordOption, recordValue, errno, err := r.codec.DecodeSockSetOptInt(record.FunctionCall())
+	recordFD, recordLevel, recordOption, recordValue, errno, err := r.codec.DecodeSockSetOptInt(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1368,7 +1368,7 @@ func (r *Replay) SockLocalAddress(ctx context.Context, fd FD) (SocketAddress, Er
 	if !ok {
 		return nil, ENOSYS
 	}
-	recordFD, addr, errno, err := r.codec.DecodeSockLocalAddress(record.FunctionCall())
+	recordFD, addr, errno, err := r.codec.DecodeSockLocalAddress(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1383,7 +1383,7 @@ func (r *Replay) SockPeerAddress(ctx context.Context, fd FD) (SocketAddress, Err
 	if !ok {
 		return nil, ENOSYS
 	}
-	recordFD, addr, errno, err := r.codec.DecodeSockPeerAddress(record.FunctionCall())
+	recordFD, addr, errno, err := r.codec.DecodeSockPeerAddress(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}

@@ -15,7 +15,9 @@ Options:
 
 func version(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft version", versionUsage)
-	parseFlags(flagSet, args)
+	if _, err := parseFlags(flagSet, args); err != nil {
+		return err
+	}
 	fmt.Printf("timecraft %s\n", currentVersion())
 	return nil
 }

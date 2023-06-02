@@ -1,10 +1,10 @@
 package timemachine
 
 import (
-	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/buffer"
@@ -17,25 +17,27 @@ var frameBufferPool buffer.Pool
 
 // LogReader instances allow programs to read the content of a record log.
 type LogReader struct {
-	input      *bufio.Reader
-	bufferSize int
-	startTime  time.Time
-	batch      RecordBatch
-	batchFrame *buffer.Buffer
+	input            io.ReadSeeker
+	nextByteOffset   int64
+	nextRecordOffset int64
+	bufferSize       int64
+	startTime        time.Time
+	batch            RecordBatch
+	batchFrame       *buffer.Buffer
 }
 
 // NewLogReader construct a new log reader consuming input from the given
 // io.Reader.
-func NewLogReader(input io.Reader, startTime time.Time) *LogReader {
+func NewLogReader(input io.ReadSeeker, startTime time.Time) *LogReader {
 	return NewLogReaderSize(input, startTime, buffer.DefaultSize)
 }
 
 // NewLogReaderSize is like NewLogReader but it allows the program to configure
 // the read buffer size.
-func NewLogReaderSize(input io.Reader, startTime time.Time, bufferSize int) *LogReader {
+func NewLogReaderSize(input io.ReadSeeker, startTime time.Time, bufferSize int64) *LogReader {
 	return &LogReader{
 		startTime:  startTime,
-		input:      bufio.NewReaderSize(input, 64*1024),
+		input:      input,
 		bufferSize: buffer.Align(bufferSize, buffer.DefaultSize),
 	}
 }
@@ -44,34 +46,69 @@ func NewLogReaderSize(input io.Reader, startTime time.Time, bufferSize int) *Log
 func (r *LogReader) Close() error {
 	buffer.Release(&r.batchFrame, &frameBufferPool)
 	r.batch.Reset(r.startTime, nil, nil)
+	r.nextByteOffset = 0
+	r.nextRecordOffset = 0
 	return nil
+}
+
+// Seek positions r on the first record batch which contains the given record
+// offset.
+//
+// The whence value defines how to interpret the offset (see io.Seeker).
+func (r *LogReader) Seek(offset int64, whence int) (int64, error) {
+	nextRecordOffset, err := stream.Seek(r.nextRecordOffset, math.MaxInt64, offset, whence)
+	if err != nil {
+		return -1, err
+	}
+	// Seek was called with an offset which is before the current position,
+	// we have to rewind to the start and let the loop below seek the first
+	// batch which includes the record offset.
+	if nextRecordOffset < r.batch.NextOffset() {
+		_, err := r.input.Seek(0, io.SeekStart)
+		if err != nil {
+			return -1, err
+		}
+		r.batch.Reset(r.startTime, nil, nil)
+		r.nextByteOffset = 0
+	}
+	r.nextRecordOffset = nextRecordOffset
+	return nextRecordOffset, nil
 }
 
 // ReadRecordBatch reads the next record batch.
 //
-// The RecordBatch is only valid until the next call to ReadRecordBatch.
+// The RecordBatch is only valid until the next call to ReadRecordBatch or Seek.
 func (r *LogReader) ReadRecordBatch() (*RecordBatch, error) {
-	if r.batch.reader.N > 0 {
-		var err error
-		if s, ok := r.batch.reader.R.(io.Seeker); ok {
-			_, err = s.Seek(r.batch.reader.N, io.SeekCurrent)
-		} else {
-			_, err = io.Copy(io.Discard, &r.batch.reader)
+	for {
+		// There may be data left that was not consumed from the previous batch
+		// returned by ReadRecordBatch (e.g. if the program read the metadata
+		// and decided it wasn't interested in the batch). We know the byte
+		// offset of the current record batch
+		if r.batch.reader.N > 0 {
+			_, err := r.input.Seek(r.nextByteOffset, io.SeekStart)
+			if err != nil {
+				return nil, err
+			}
+			r.batch.reader.R = nil
+			r.batch.reader.N = 0
 		}
+
+		buffer.Release(&r.batchFrame, &frameBufferPool)
+
+		var err error
+		r.batchFrame, err = r.readFrame()
 		if err != nil {
 			return nil, err
 		}
-		r.batch.reader.R = nil
-		r.batch.reader.N = 0
+
+		r.batch.Reset(r.startTime, r.batchFrame.Data, r.input)
+		r.nextByteOffset = 4 + r.batchFrame.Size() + r.batch.Size()
+
+		if nextRecordOffset := r.batch.NextOffset(); nextRecordOffset >= r.nextRecordOffset {
+			r.nextRecordOffset = nextRecordOffset
+			return &r.batch, nil
+		}
 	}
-	buffer.Release(&r.batchFrame, &frameBufferPool)
-	var err error
-	r.batchFrame, err = r.readFrame()
-	if err != nil {
-		return nil, err
-	}
-	r.batch.Reset(r.startTime, r.batchFrame.Data, r.input)
-	return &r.batch, nil
 }
 
 func (r *LogReader) readFrame() (*buffer.Buffer, error) {
@@ -105,7 +142,7 @@ func (r *LogReader) readFrame() (*buffer.Buffer, error) {
 		f.Data = f.Data[:byteLength]
 	} else {
 		defer frameBufferPool.Put(f)
-		newFrame := buffer.New(byteLength)
+		newFrame := buffer.New(int64(byteLength))
 		copy(newFrame.Data, f.Data)
 		f = newFrame
 	}
@@ -120,6 +157,11 @@ func (r *LogReader) readFrame() (*buffer.Buffer, error) {
 	return f, nil
 }
 
+var (
+	_ io.Closer = (*LogReader)(nil)
+	_ io.Seeker = (*LogReader)(nil)
+)
+
 // LogRecordReader wraps a LogReader to help with reading individual records
 // in order.
 //
@@ -129,6 +171,8 @@ func (r *LogReader) readFrame() (*buffer.Buffer, error) {
 type LogRecordReader struct {
 	reader *LogReader
 	batch  *RecordBatch
+	offset int64
+	seekTo int64
 }
 
 // NewLogRecordReader creates a log record iterator.
@@ -139,7 +183,7 @@ func NewLogRecordReader(r *LogReader) *LogRecordReader {
 // Read reads records from r.
 //
 // The record values share memory buffer with the reader, they remain valid
-// until the next call to Read.
+// until the next call to Read or Seek.
 func (r *LogRecordReader) Read(records []Record) (int, error) {
 	for {
 		if r.batch == nil {
@@ -147,18 +191,54 @@ func (r *LogRecordReader) Read(records []Record) (int, error) {
 			if err != nil {
 				return 0, err
 			}
+			if b.NextOffset() < r.seekTo {
+				continue
+			}
 			r.batch = b
+			r.offset = b.FirstOffset()
 		}
+
 		n, err := r.batch.Read(records)
-		if n > 0 || err != io.EOF {
-			return n, nil
+		offset := r.offset
+		r.offset += int64(n)
+
+		if offset < r.seekTo {
+			if skip := r.seekTo - offset; skip < int64(n) {
+				n = copy(records, records[skip:])
+			} else {
+				n = 0
+			}
 		}
+
+		if n > 0 || err != io.EOF {
+			return n, err
+		}
+
 		r.batch = nil
 	}
 }
 
+// Seek positions the reader on the record at the given offset.
+//
+// The whence value defines how to interpret the offset (see io.Seeker).
+func (r *LogRecordReader) Seek(offset int64, whence int) (int64, error) {
+	seekTo, err := r.reader.Seek(offset, whence)
+	if err != nil {
+		return -1, err
+	}
+	if seekTo < r.offset {
+		r.batch, r.offset = nil, 0
+	} else if r.batch != nil {
+		if nextOffset := r.batch.NextOffset(); seekTo >= nextOffset {
+			r.batch, r.offset = nil, nextOffset
+		}
+	}
+	r.seekTo = seekTo
+	return seekTo, nil
+}
+
 var (
-	_ stream.Reader[Record] = (*LogRecordReader)(nil)
+	_ stream.ReadSeeker[Record] = (*LogRecordReader)(nil)
 )
 
 // LogWriter supports writing log segments to an io.Writer.

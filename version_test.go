@@ -9,29 +9,29 @@ import (
 
 var version = tests{
 	"show the version command help with the short option": func(t *testing.T) {
-		stdout, stderr, err := timecraft(t, "version", "-h")
-		assert.OK(t, err)
+		stdout, stderr, exitCode := timecraft(t, "version", "-h")
+		assert.Equal(t, exitCode, 0)
 		assert.HasPrefix(t, stdout, "Usage:\ttimecraft version\n")
 		assert.Equal(t, stderr, "")
 	},
 
 	"show the version command help with the long option": func(t *testing.T) {
-		stdout, stderr, err := timecraft(t, "version", "--help")
-		assert.OK(t, err)
+		stdout, stderr, exitCode := timecraft(t, "version", "--help")
+		assert.Equal(t, exitCode, 0)
 		assert.HasPrefix(t, stdout, "Usage:\ttimecraft version\n")
 		assert.Equal(t, stderr, "")
 	},
 
 	"the version starts with the prefix timecraft": func(t *testing.T) {
-		stdout, stderr, err := timecraft(t, "version")
-		assert.OK(t, err)
+		stdout, stderr, exitCode := timecraft(t, "version")
+		assert.Equal(t, exitCode, 0)
 		assert.HasPrefix(t, stdout, "timecraft ")
 		assert.Equal(t, stderr, "")
 	},
 
 	"the version number is not empty": func(t *testing.T) {
-		stdout, stderr, err := timecraft(t, "version")
-		assert.OK(t, err)
+		stdout, stderr, exitCode := timecraft(t, "version")
+		assert.Equal(t, exitCode, 0)
 		assert.Equal(t, stderr, "")
 
 		_, version, _ := strings.Cut(string(stdout), " ")
@@ -39,7 +39,7 @@ var version = tests{
 	},
 
 	"passing an unsupported flag to the command causes an error": func(t *testing.T) {
-		_, _, err := timecraft(t, "version", "-_")
-		assert.ExitError(t, err, 2)
+		_, _, exitCode := timecraft(t, "version", "-_")
+		assert.Equal(t, exitCode, 2)
 	},
 }
