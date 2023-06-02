@@ -19,6 +19,7 @@ Runtime Commands:
    replay    Replay a recorded trace of execution
 
 Debugging Commands:
+   logs      Print the logs for a module execution
    profile   Generate performance profile from execution records
 
 Other Commands:
@@ -61,6 +62,8 @@ func help(ctx context.Context, args []string) error {
 			msg = getUsage
 		case "help":
 			msg = helpUsage
+		case "logs":
+			msg = logsUsage
 		case "profile":
 			msg = profileUsage
 		case "run":
