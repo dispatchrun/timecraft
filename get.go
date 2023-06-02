@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 
@@ -359,43 +358,13 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry, qu
 func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[format.Record] {
 	type record struct {
 		offset  int64       `text:"-"` // for sort
-		ID      string      `text:"ID (SEGMENT/OFFSET)"`
+		ID      string      `text:"ID (LOG/OFFSET)"`
 		Segment int         `text:"SEGMENT"`
 		Time    human.Time  `text:"TIME"`
 		Size    human.Bytes `text:"SIZE"`
 		Syscall string      `text:"SYSCALL"`
 	}
 	dec := wasicall.Decoder{}
-
-	humanType := func(x any) string {
-		t := reflect.TypeOf(x)
-		n := t.Name()
-		if n == "" {
-			return fmt.Sprintf("%T", x)
-		}
-		return n
-	}
-
-	humanTypes := func(x []any) string {
-		out := ""
-		for i, t := range x {
-			if i > 0 {
-				out += ","
-			}
-			out += humanType(t)
-		}
-		return out
-	}
-
-	humanSyscall := func(syscall wasicall.Syscall) string {
-		f := syscall.ID().String()
-		p := humanTypes(syscall.Params())
-		r := humanTypes(syscall.Results())
-		if len(syscall.Results()) > 1 {
-			r = "(" + r + ")"
-		}
-		return fmt.Sprintf("%s(%s) %s", f, p, r)
-	}
 
 	return newTableWriter(w, quiet,
 		func(r1, r2 record) bool {
@@ -418,7 +387,7 @@ func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 			}
 			_, syscall, err := dec.Decode(rec)
 			if err == nil {
-				out.Syscall = humanSyscall(syscall)
+				out.Syscall = syscall.ID().String()
 			}
 
 			return out, nil
