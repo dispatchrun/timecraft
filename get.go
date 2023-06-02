@@ -193,7 +193,15 @@ func get(ctx context.Context, args []string) error {
 		reader := registry.ListRecords(ctx, processID, timeRange)
 		defer reader.Close()
 
-		writer := getRecords(ctx, os.Stdout, registry, quiet)
+		var writer stream.WriteCloser[format.Record]
+		switch output {
+		case "json":
+			writer = jsonprint.NewWriter[format.Record](os.Stdout)
+		case "yaml":
+			writer = yamlprint.NewWriter[format.Record](os.Stdout)
+		default:
+			writer = getRecords(ctx, os.Stdout, registry, quiet)
+		}
 		defer writer.Close()
 
 		_, err = stream.Copy[format.Record](writer, reader)
