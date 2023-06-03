@@ -11,6 +11,7 @@ import (
 
 // Record is a read-only record from the log.
 type Record struct {
+	Offset       int64
 	Time         time.Time
 	FunctionID   int
 	FunctionCall []byte
