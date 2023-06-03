@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/stream"
@@ -141,43 +142,46 @@ var (
 )
 
 type Event struct {
-	Time  time.Time          `json:"time"            yaml:"time"`
-	Type  EventType          `json:"type"            yaml:"type"`
-	Proto Protocol           `json:"protocol"        yaml:"protocol"`
-	Error wasi.Errno         `json:"error,omitempty" yaml:"error,omitempty"`
-	FD    wasi.FD            `json:"fd"              yaml:"fd"`
-	Addr  wasi.SocketAddress `json:"addr,omitempty"  yaml:"addr,omitempty"`
-	Peer  wasi.SocketAddress `json:"peer,omitempty"  yaml:"peer,omitempty"`
-	Data  []Bytes            `json:"data,omitempty"  yaml:"data,omitempty"`
+	Record int64      `json:"record"          yaml:"record"`
+	Time   time.Time  `json:"time"            yaml:"time"`
+	Type   EventType  `json:"type"            yaml:"type"`
+	Proto  Protocol   `json:"proto"           yaml:"proto"`
+	Error  wasi.Errno `json:"error,omitempty" yaml:"error,omitempty"`
+	FD     wasi.FD    `json:"fd"              yaml:"fd"`
+	Addr   net.Addr   `json:"addr,omitempty"  yaml:"addr,omitempty"`
+	Peer   net.Addr   `json:"peer,omitempty"  yaml:"peer,omitempty"`
+	Data   []Bytes    `json:"data,omitempty"  yaml:"data,omitempty"`
 }
 
 func (e Event) Format(w fmt.State, _ rune) {
-	fmt.Fprintf(w, `%s %s %s (fd=%d, size=%d, %s)
-    ADDR: %s
-    PEER: %s
-`,
+	src := e.Addr
+	dst := e.Peer
+
+	switch e.Type & EventTypeMask {
+	case Accept, Receive:
+		src, dst = dst, src
+	}
+
+	fmt.Fprintf(w, "%08X %s %s %s > %s: %s %d %v\n",
+		e.Record,
 		e.Time.In(time.Local).Format("2006/01/02 15:04:05.000000"),
 		e.Proto,
+		socketAddressString(src),
+		socketAddressString(dst),
 		e.Type,
-		e.FD,
 		iovecSize(e.Data),
 		e.Error,
-		socketAddressString(e.Addr),
-		socketAddressString(e.Peer),
 	)
 
 	if w.Flag('+') {
-		const separator = `
-------------------------------------------------------------------------------
-`
-		if e.Type == Receive || e.Type == Send {
-			fmt.Fprint(w, separator)
+		if (e.Type == Receive || e.Type == Send) && iovecSize(e.Data) > 0 {
+			fmt.Fprintln(w)
 			hexdump := hex.Dumper(w)
 			for _, iov := range e.Data {
 				_, _ = hexdump.Write(iov)
 			}
 			hexdump.Close()
-			fmt.Fprint(w, separator[1:])
+			fmt.Fprintln(w)
 		}
 	}
 }
@@ -189,7 +193,7 @@ func iovecSize(iovs []Bytes) (size wasi.Size) {
 	return size
 }
 
-func socketAddressString(addr wasi.SocketAddress) string {
+func socketAddressString(addr net.Addr) string {
 	if addr == nil {
 		return "?"
 	}
@@ -312,7 +316,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if errno == wasi.EAGAIN {
 				errno = wasi.ESUCCESS
 			}
-			if (errno == wasi.ESUCCESS) && (size == 0) {
+			if (errno == wasi.ESUCCESS) && (int32(size) <= 0) {
 				continue
 			}
 			socket, ok := r.sockets[fd]
@@ -332,7 +336,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if errno == wasi.EAGAIN {
 				errno = wasi.ESUCCESS
 			}
-			if (errno == wasi.ESUCCESS) && (size == 0) {
+			if (errno == wasi.ESUCCESS) && (int32(size) <= 0) {
 				continue
 			}
 			socket, ok := r.sockets[fd]
@@ -380,7 +384,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if errno == wasi.EAGAIN {
 				errno = wasi.ESUCCESS
 			}
-			if (errno == wasi.ESUCCESS) && (size == 0) {
+			if (errno == wasi.ESUCCESS) && (int32(size) <= 0) {
 				continue
 			}
 			socket, ok := r.sockets[fd]
@@ -400,7 +404,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if errno == wasi.EAGAIN {
 				errno = wasi.ESUCCESS
 			}
-			if (errno == wasi.ESUCCESS) && (size == 0) {
+			if (errno == wasi.ESUCCESS) && (int32(size) <= 0) {
 				continue
 			}
 			socket, ok := r.sockets[fd]
@@ -496,7 +500,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if errno == wasi.EAGAIN {
 				errno = wasi.ESUCCESS
 			}
-			if (errno == wasi.ESUCCESS) && (size == 0) {
+			if (errno == wasi.ESUCCESS) && (int32(size) <= 0) {
 				continue
 			}
 			socket, ok := r.sockets[fd]
@@ -517,7 +521,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if errno == wasi.EAGAIN {
 				errno = wasi.ESUCCESS
 			}
-			if (errno == wasi.ESUCCESS) && (size == 0) {
+			if (errno == wasi.ESUCCESS) && (int32(size) <= 0) {
 				continue
 			}
 			socket, ok := r.sockets[fd]

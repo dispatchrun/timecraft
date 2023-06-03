@@ -97,7 +97,7 @@ func trace(ctx context.Context, args []string) error {
 	default:
 		writer = textprint.NewWriter[nettrace.Event](os.Stdout,
 			textprint.Format[nettrace.Event](format),
-			textprint.Separator[nettrace.Event]("\n"),
+			textprint.Separator[nettrace.Event](""),
 		)
 	}
 	defer writer.Close()
