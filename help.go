@@ -28,8 +28,8 @@ Other Commands:
    version   Show the timecraft version information
 
 Global Options:
-   -c, --config  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
-   -h, --help    Show usage information
+   -c, --config path  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -h, --help         Show usage information
 
 For a description of each command, run 'timecraft help <command>'.`
 

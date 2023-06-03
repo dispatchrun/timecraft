@@ -22,8 +22,8 @@ Usage:	timecraft export <resource type> <resource id> <output file> [options]
    resource to stdout.
 
 Options:
-   -c, --config  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
-   -h, --help    Show this usage information
+   -c, --config path  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -h, --help         Show this usage information
 `
 
 func export(ctx context.Context, args []string) error {

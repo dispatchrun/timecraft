@@ -27,9 +27,9 @@ Example:
    Hello World!
 
 Options:
-   -c, --config             Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -c, --config path        Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help               Show this usage information
-   -n, --limit              Limit the number of log lines to print (default to no limit)
+   -n, --limit count        Limit the number of log lines to print (default to no limit)
    -t, --start-time time    Time at which the logr gets started (default to 1 minute)
 `
 

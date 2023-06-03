@@ -44,7 +44,7 @@ Examples:
    }
 
 Options:
-   -c, --config         Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -c, --config path    Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help           Show this usage information
    -o, --output format  Output format, one of: text, json, yaml
    -q, --quiet          Only display the resource ids
