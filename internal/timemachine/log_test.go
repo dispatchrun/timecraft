@@ -70,6 +70,14 @@ func TestReadRecordBatch(t *testing.T) {
 		firstOffset += int64(len(batch))
 	}
 
+	recordOffset := int64(0)
+	for _, batch := range batches {
+		for i := range batch {
+			batch[i].Offset = recordOffset
+			recordOffset++
+		}
+	}
+
 	reader := timemachine.NewLogReader(bytes.NewReader(buffer.Bytes()), startTime)
 	batchesRead := make([][]timemachine.Record, 0, len(batches))
 	for {

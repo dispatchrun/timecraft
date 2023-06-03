@@ -32,6 +32,7 @@ type RecordBatch struct {
 	// When reading records from the batch, this holds the current offset into
 	// the records buffer.
 	offset uint32
+	index  uint32
 }
 
 // Reset resets the record batch.
@@ -55,6 +56,7 @@ func (b *RecordBatch) Reset(startTime time.Time, buf []byte, reader io.Reader) {
 		b.reader.N = 0
 	}
 	b.offset = 0
+	b.index = 0
 }
 
 // Size is the size of the adjacent record data.
@@ -133,11 +135,13 @@ func (b *RecordBatch) Read(records []Record) (int, error) {
 		j := 4 + b.offset + size
 		r := logsegment.GetRootAsRecord(batch[i:j:j], 0)
 		records[n] = Record{
+			Offset:       b.FirstOffset() + int64(b.index),
 			Time:         b.startTime.Add(time.Duration(r.Timestamp())),
 			FunctionID:   int(r.FunctionId()),
 			FunctionCall: r.FunctionCallBytes(),
 		}
 		b.offset += size + 4
+		b.index++
 	}
 	return len(records), nil
 }
