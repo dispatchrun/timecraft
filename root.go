@@ -117,6 +117,8 @@ func Root(ctx context.Context, args ...string) int {
 		err = get(ctx, args)
 	case "help":
 		err = help(ctx, args)
+	case "logs":
+		err = logs(ctx, args)
 	case "profile":
 		err = profile(ctx, args)
 	case "run":

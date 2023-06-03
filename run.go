@@ -26,7 +26,7 @@ const runUsage = `
 Usage:	timecraft run [options] [--] <module> [args...]
 
 Options:
-   -c, --config                   Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -c, --config path              Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -D, --dial addr                Expose a socket connected to the specified address
    -e, --env name=value           Pass an environment variable to the guest module
        --fly-blind                Disable recording of the guest module execution
