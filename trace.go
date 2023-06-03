@@ -24,6 +24,7 @@ Options:
    -h, --help               Show this usage information
    -o, --output format      Output format, one of: text, json, yaml
    -t, --start-time time    Time at which the trace starts (default to 1 minute)
+   -v, --verbose            For text output, display more details about the trace
 `
 
 func trace(ctx context.Context, args []string) error {
@@ -31,12 +32,14 @@ func trace(ctx context.Context, args []string) error {
 		output    = outputFormat("text")
 		startTime = human.Time{}
 		duration  = human.Duration(1 * time.Minute)
+		verbose   = false
 	)
 
 	flagSet := newFlagSet("timecraft trace", traceUsage)
 	customVar(flagSet, &output, "o", "output")
 	customVar(flagSet, &duration, "d", "duration")
 	customVar(flagSet, &startTime, "t", "start-time")
+	boolVar(flagSet, &verbose, "v", "verbose")
 
 	args, err := parseFlags(flagSet, args)
 	if err != nil {
@@ -80,6 +83,11 @@ func trace(ctx context.Context, args []string) error {
 	logReader := timemachine.NewLogReader(logSegment, manifest.StartTime)
 	defer logReader.Close()
 
+	format := "%v"
+	if verbose {
+		format = "%+v"
+	}
+
 	var writer stream.WriteCloser[nettrace.Event]
 	switch output {
 	case "json":
@@ -88,6 +96,7 @@ func trace(ctx context.Context, args []string) error {
 		writer = yamlprint.NewWriter[nettrace.Event](os.Stdout)
 	default:
 		writer = textprint.NewWriter[nettrace.Event](os.Stdout,
+			textprint.Format[nettrace.Event](format),
 			textprint.Separator[nettrace.Event]("\n"),
 		)
 	}
