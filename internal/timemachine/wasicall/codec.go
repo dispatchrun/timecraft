@@ -1268,7 +1268,7 @@ func encodeIOVecs(buffer []byte, iovecs []IOVec) []byte {
 }
 
 func encodeIOVecsPrefix(buffer []byte, iovecs []IOVec, size Size) []byte {
-	if size == 0 {
+	if int32(size) <= 0 {
 		return encodeU32(buffer, 0)
 	}
 	prefixCount := 0
