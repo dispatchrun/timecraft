@@ -8,7 +8,7 @@ require (
 	github.com/google/pprof v0.0.0-20230510103437-eeec1cb781c3
 	github.com/google/uuid v1.3.0
 	github.com/klauspost/compress v1.16.5
-	github.com/stealthrocket/wasi-go v0.3.1
+	github.com/stealthrocket/wasi-go v0.3.2-0.20230604190248-9463acc8381d
 	github.com/stealthrocket/wazergo v0.19.0
 	github.com/stealthrocket/wzprof v0.1.5
 	github.com/tetratelabs/wazero v1.1.1-0.20230522055633-256b7a4bf970

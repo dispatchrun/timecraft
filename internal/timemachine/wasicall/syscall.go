@@ -570,13 +570,14 @@ type SockAcceptSyscall struct {
 	FD    FD
 	Flags FDFlags
 	NewFD FD
+	Peer  SocketAddress
 	Addr  SocketAddress
 	Errno Errno
 }
 
 func (s *SockAcceptSyscall) ID() SyscallID  { return SockAccept }
 func (s *SockAcceptSyscall) Params() []any  { return []any{s.FD, s.Flags} }
-func (s *SockAcceptSyscall) Results() []any { return []any{s.NewFD, s.Addr, s.Errno} }
+func (s *SockAcceptSyscall) Results() []any { return []any{s.NewFD, s.Peer, s.Addr, s.Errno} }
 func (s *SockAcceptSyscall) Error() Errno   { return s.Errno }
 func (s *SockAcceptSyscall) private()       {}
 
@@ -653,13 +654,14 @@ func (s *SockBindSyscall) private()       {}
 
 type SockConnectSyscall struct {
 	FD    FD
+	Peer  SocketAddress
 	Addr  SocketAddress
 	Errno Errno
 }
 
 func (s *SockConnectSyscall) ID() SyscallID  { return SockConnect }
-func (s *SockConnectSyscall) Params() []any  { return []any{s.FD, s.Addr} }
-func (s *SockConnectSyscall) Results() []any { return []any{s.Errno} }
+func (s *SockConnectSyscall) Params() []any  { return []any{s.FD, s.Peer} }
+func (s *SockConnectSyscall) Results() []any { return []any{s.Addr, s.Errno} }
 func (s *SockConnectSyscall) Error() Errno   { return s.Errno }
 func (s *SockConnectSyscall) private()       {}
 
@@ -746,17 +748,17 @@ func (s *SockLocalAddressSyscall) Results() []any { return []any{s.Addr, s.Errno
 func (s *SockLocalAddressSyscall) Error() Errno   { return s.Errno }
 func (s *SockLocalAddressSyscall) private()       {}
 
-type SockPeerAddressSyscall struct {
+type SockRemoteAddressSyscall struct {
 	FD    FD
 	Addr  SocketAddress
 	Errno Errno
 }
 
-func (s *SockPeerAddressSyscall) ID() SyscallID  { return SockPeerAddress }
-func (s *SockPeerAddressSyscall) Params() []any  { return []any{s.FD} }
-func (s *SockPeerAddressSyscall) Results() []any { return []any{s.Addr, s.Errno} }
-func (s *SockPeerAddressSyscall) Error() Errno   { return s.Errno }
-func (s *SockPeerAddressSyscall) private()       {}
+func (s *SockRemoteAddressSyscall) ID() SyscallID  { return SockRemoteAddress }
+func (s *SockRemoteAddressSyscall) Params() []any  { return []any{s.FD} }
+func (s *SockRemoteAddressSyscall) Results() []any { return []any{s.Addr, s.Errno} }
+func (s *SockRemoteAddressSyscall) Error() Errno   { return s.Errno }
+func (s *SockRemoteAddressSyscall) private()       {}
 
 // SyscallID is a system call identifier.
 type SyscallID int
@@ -818,7 +820,7 @@ const (
 	SockGetOptInt
 	SockSetOptInt
 	SockLocalAddress
-	SockPeerAddress
+	SockRemoteAddress
 )
 
 func (s SyscallID) String() string {
@@ -884,5 +886,5 @@ var syscallIDStrings = [...]string{
 	"SockGetOptInt",
 	"SockSetOptInt",
 	"SockLocalAddress",
-	"SockPeerAddress",
+	"SockRemoteAddress",
 }

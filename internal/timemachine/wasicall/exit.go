@@ -201,7 +201,7 @@ func (s *exitSystem) RandomGet(ctx context.Context, b []byte) Errno {
 	panic(s.newExitError())
 }
 
-func (s *exitSystem) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, SocketAddress, Errno) {
+func (s *exitSystem) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, SocketAddress, SocketAddress, Errno) {
 	panic(s.newExitError())
 }
 
@@ -225,7 +225,7 @@ func (s *exitSystem) SockBind(ctx context.Context, fd FD, addr SocketAddress) (e
 	panic(s.newExitError())
 }
 
-func (s *exitSystem) SockConnect(ctx context.Context, fd FD, addr SocketAddress) (errno Errno) {
+func (s *exitSystem) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (addr SocketAddress, errno Errno) {
 	panic(s.newExitError())
 }
 
@@ -253,7 +253,7 @@ func (s *exitSystem) SockLocalAddress(ctx context.Context, fd FD) (addr SocketAd
 	panic(s.newExitError())
 }
 
-func (s *exitSystem) SockPeerAddress(ctx context.Context, fd FD) (addr SocketAddress, errno Errno) {
+func (s *exitSystem) SockRemoteAddress(ctx context.Context, fd FD) (addr SocketAddress, errno Errno) {
 	panic(s.newExitError())
 }
 

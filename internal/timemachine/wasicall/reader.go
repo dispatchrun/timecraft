@@ -311,11 +311,11 @@ func (r *Reader) ReadSyscall() (time.Time, Syscall, error) {
 		}
 		syscall = &RandomGetSyscall{b, errno}
 	case SockAccept:
-		fd, flags, newfd, addr, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
+		fd, flags, newfd, peer, addr, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
 		if err != nil {
 			return time.Time{}, nil, &DecodeError{record, err}
 		}
-		syscall = &SockAcceptSyscall{fd, flags, newfd, addr, errno}
+		syscall = &SockAcceptSyscall{fd, flags, newfd, peer, addr, errno}
 	case SockShutdown:
 		fd, flags, errno, err := r.codec.DecodeSockShutdown(record.FunctionCall)
 		if err != nil {
@@ -348,11 +348,11 @@ func (r *Reader) ReadSyscall() (time.Time, Syscall, error) {
 		}
 		syscall = &SockBindSyscall{fd, addr, errno}
 	case SockConnect:
-		fd, addr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
+		fd, peer, addr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
 		if err != nil {
 			return time.Time{}, nil, &DecodeError{record, err}
 		}
-		syscall = &SockConnectSyscall{fd, addr, errno}
+		syscall = &SockConnectSyscall{fd, peer, addr, errno}
 	case SockListen:
 		fd, backlog, errno, err := r.codec.DecodeSockListen(record.FunctionCall)
 		if err != nil {
@@ -391,12 +391,12 @@ func (r *Reader) ReadSyscall() (time.Time, Syscall, error) {
 			return time.Time{}, nil, &DecodeError{record, err}
 		}
 		syscall = &SockLocalAddressSyscall{fd, addr, errno}
-	case SockPeerAddress:
-		fd, addr, errno, err := r.codec.DecodeSockPeerAddress(record.FunctionCall)
+	case SockRemoteAddress:
+		fd, addr, errno, err := r.codec.DecodeSockRemoteAddress(record.FunctionCall)
 		if err != nil {
 			return time.Time{}, nil, &DecodeError{record, err}
 		}
-		syscall = &SockPeerAddressSyscall{fd, addr, errno}
+		syscall = &SockRemoteAddressSyscall{fd, addr, errno}
 	default:
 		return time.Time{}, nil, fmt.Errorf("unknown syscall %d", record.FunctionID)
 	}

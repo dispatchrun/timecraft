@@ -70,7 +70,6 @@ const (
 	Receive
 	Send
 	Shutdown
-	Close
 	// extra flags associated with the Shut event type
 	ShutRD = 1 << 6
 	ShutWR = 1 << 7
@@ -98,8 +97,6 @@ func (t EventType) String() string {
 		default:
 			return "SHUT"
 		}
-	case Close:
-		return "CLOSE"
 	default:
 		return "NOP"
 	}
@@ -125,8 +122,6 @@ func (t *EventType) UnmarshalText(b []byte) error {
 		*t = Shutdown | ShutRD
 	case "SHUT (w)":
 		*t = Shutdown | ShutWR
-	case "CLOSE":
-		*t = Close
 	case "NOP", "":
 		*t = 0
 	default:
@@ -162,16 +157,23 @@ func (e Event) Format(w fmt.State, _ rune) {
 		src, dst = dst, src
 	}
 
-	fmt.Fprintf(w, "%08X %s %s %s > %s: %s %d %v\n",
-		e.Record,
+	if w.Flag('+') {
+		fmt.Fprintf(w, "[%d] ", e.Record)
+	}
+
+	fmt.Fprintf(w, "%s %s %s > %s: %s %s",
 		e.Time.In(time.Local).Format("2006/01/02 15:04:05.000000"),
 		e.Proto,
 		socketAddressString(src),
 		socketAddressString(dst),
 		e.Type,
-		iovecSize(e.Data),
-		e.Error,
-	)
+		errnoName(e.Error))
+
+	if e.Type == Receive || e.Type == Send {
+		fmt.Fprintf(w, " %d", iovecSize(e.Data))
+	}
+
+	fmt.Fprintln(w)
 
 	if w.Flag('+') {
 		if (e.Type == Receive || e.Type == Send) && iovecSize(e.Data) > 0 {
@@ -184,6 +186,13 @@ func (e Event) Format(w fmt.State, _ rune) {
 			fmt.Fprintln(w)
 		}
 	}
+}
+
+func errnoName(errno wasi.Errno) string {
+	if errno == wasi.ESUCCESS {
+		return "OK"
+	}
+	return errno.Name()
 }
 
 func iovecSize(iovs []Bytes) (size wasi.Size) {
@@ -200,16 +209,17 @@ func socketAddressString(addr net.Addr) string {
 	return addr.String()
 }
 
-func (e *Event) init(s *socket, time time.Time, typ EventType, errno wasi.Errno) {
+func (e *Event) init(offset int64, s *socket, time time.Time, typ EventType, errno wasi.Errno) {
 	*e = Event{
-		Time:  time,
-		Type:  typ,
-		Proto: s.proto,
-		Error: errno,
-		FD:    s.fd,
-		Addr:  s.addr,
-		Peer:  s.peer,
-		Data:  e.Data[:0],
+		Record: offset,
+		Time:   time,
+		Type:   typ,
+		Proto:  s.proto,
+		Error:  errno,
+		FD:     s.fd,
+		Addr:   s.addr,
+		Peer:   s.peer,
+		Data:   e.Data[:0],
 	}
 }
 
@@ -248,22 +258,6 @@ type socket struct {
 	peer  wasi.SocketAddress
 }
 
-func newSocket(proto Protocol, fd wasi.FD) *socket {
-	return &socket{
-		proto: proto,
-		fd:    fd,
-	}
-}
-
-func (s *socket) newClient(fd wasi.FD, addr wasi.SocketAddress) *socket {
-	return &socket{
-		proto: s.proto,
-		fd:    fd,
-		addr:  s.addr,
-		peer:  addr,
-	}
-}
-
 func (r *EventReader) Read(events []Event) (n int, err error) {
 	if cap(r.records) < len(events) {
 		r.records = make([]timemachine.Record, len(events))
@@ -289,7 +283,14 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 				continue
 			}
 			delete(r.sockets, fd)
-			events[n].init(socket, record.Time, Close, errno)
+			shutdown := Shutdown
+			if (socket.shut & wasi.ShutdownRD) == 0 {
+				shutdown |= ShutRD
+			}
+			if (socket.shut & wasi.ShutdownWR) == 0 {
+				shutdown |= ShutWR
+			}
+			events[n].init(record.Offset, socket, record.Time, shutdown, errno)
 			n++
 
 		case wasicall.FDRenumber:
@@ -323,7 +324,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if !ok {
 				continue
 			}
-			events[n].init(socket, record.Time, Receive, errno)
+			events[n].init(record.Offset, socket, record.Time, Receive, errno)
 			events[n].write(iovecs, size)
 			n++
 
@@ -343,12 +344,12 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if !ok {
 				continue
 			}
-			events[n].init(socket, record.Time, Send, errno)
+			events[n].init(record.Offset, socket, record.Time, Send, errno)
 			events[n].write(iovecs, size)
 			n++
 
 		case wasicall.SockAccept:
-			fd, _, newfd, addr, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
+			fd, _, newfd, peer, addr, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
 			if err != nil {
 				return n, err
 			}
@@ -356,7 +357,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if !ok {
 				// This condition may occur when using a preopen socket
 				// which has not been seen before by any other function.
-				server = newSocket(TCP, fd)
+				server = &socket{proto: TCP, fd: fd, addr: addr}
 				r.sockets[fd] = server
 			}
 			if errno == wasi.EAGAIN {
@@ -367,11 +368,11 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 				// interface returned the socket address that the client
 				// is connecting from, even if it's not part of the ABI,
 				// at least it would be recorded and we could access it.
-				client := server.newClient(newfd, addr)
+				client := &socket{proto: server.proto, fd: newfd, addr: addr, peer: peer}
 				r.sockets[newfd] = client
-				events[n].init(client, record.Time, Accept, 0)
+				events[n].init(record.Offset, client, record.Time, Accept, 0)
 			} else {
-				events[n].init(server, record.Time, Accept, errno)
+				events[n].init(record.Offset, server, record.Time, Accept, errno)
 			}
 			n++
 
@@ -391,7 +392,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if !ok {
 				continue
 			}
-			events[n].init(socket, record.Time, Receive, errno)
+			events[n].init(record.Offset, socket, record.Time, Receive, errno)
 			events[n].write(iovecs, size)
 			n++
 
@@ -411,7 +412,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if !ok {
 				continue
 			}
-			events[n].init(socket, record.Time, Send, errno)
+			events[n].init(record.Offset, socket, record.Time, Send, errno)
 			events[n].write(iovecs, size)
 			n++
 
@@ -438,7 +439,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if (flags & wasi.ShutdownWR) != 0 {
 				shutdown |= ShutWR
 			}
-			events[n].init(socket, record.Time, shutdown, 0)
+			events[n].init(record.Offset, socket, record.Time, shutdown, 0)
 			n++
 
 		case wasicall.SockOpen:
@@ -458,7 +459,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			default:
 				continue
 			}
-			socket := newSocket(proto, fd)
+			socket := &socket{proto: proto, fd: fd}
 			r.sockets[fd] = socket
 
 		case wasicall.SockBind:
@@ -476,7 +477,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			socket.addr = addr
 
 		case wasicall.SockConnect:
-			fd, addr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
+			fd, peer, addr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
 			if err != nil {
 				return n, err
 			}
@@ -487,8 +488,9 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if !ok {
 				continue
 			}
-			socket.peer = addr
-			events[n].init(socket, record.Time, Connect, errno)
+			socket.addr = addr
+			socket.peer = peer
+			events[n].init(record.Offset, socket, record.Time, Connect, errno)
 			n++
 
 		case wasicall.SockRecvFrom:
@@ -507,9 +509,9 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if !ok {
 				continue
 			}
-			events[n].init(socket, record.Time, Receive, errno)
+			events[n].init(record.Offset, socket, record.Time, Receive, errno)
 			events[n].write(iovecs, size)
-			events[n].Addr = addr
+			events[n].Peer = addr
 			n++
 
 		case wasicall.SockSendTo:
@@ -528,46 +530,10 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if !ok {
 				continue
 			}
-			events[n].init(socket, record.Time, Send, errno)
+			events[n].init(record.Offset, socket, record.Time, Send, errno)
 			events[n].write(iovecs, size)
 			events[n].Peer = addr
 			n++
-
-		case wasicall.SockLocalAddress:
-			fd, addr, errno, err := r.codec.DecodeSockLocalAddress(record.FunctionCall)
-			if err != nil {
-				return n, err
-			}
-			if errno != wasi.ESUCCESS {
-				continue
-			}
-			socket, ok := r.sockets[fd]
-			if !ok {
-				// This condition should only occur on preopen server
-				// sockets, so it is fair to assume they should use the
-				// TCP protocol
-				socket = newSocket(TCP, fd)
-				r.sockets[fd] = socket
-			}
-			socket.addr = addr
-
-		case wasicall.SockPeerAddress:
-			fd, addr, errno, err := r.codec.DecodeSockPeerAddress(record.FunctionCall)
-			if err != nil {
-				return n, err
-			}
-			if errno != wasi.ESUCCESS {
-				continue
-			}
-			socket, ok := r.sockets[fd]
-			if !ok {
-				// This condition should only occur on preopen server
-				// sockets, so it is fair to assume they should use the
-				// TCP protocol
-				socket = newSocket(TCP, fd)
-				r.sockets[fd] = socket
-			}
-			socket.peer = addr
 		}
 	}
 
