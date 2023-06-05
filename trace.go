@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"time"
 
@@ -88,22 +89,48 @@ func trace(ctx context.Context, args []string) error {
 		format = "%+v"
 	}
 
-	var writer stream.WriteCloser[nettrace.Event]
+	events := &nettrace.EventReader{
+		Records: timemachine.NewLogRecordReader(logReader),
+	}
+
+	/*
+		var writer stream.WriteCloser[nettrace.Event]
+		switch output {
+		case "json":
+			writer = jsonprint.NewWriter[nettrace.Event](os.Stdout)
+		case "yaml":
+			writer = yamlprint.NewWriter[nettrace.Event](os.Stdout)
+		default:
+			writer = textprint.NewWriter[nettrace.Event](os.Stdout,
+				textprint.Format[nettrace.Event](format),
+				textprint.Separator[nettrace.Event](""),
+			)
+		}
+		defer writer.Close()
+
+		_, err = stream.Copy[nettrace.Event](writer, events)
+	*/
+
+	var writer stream.WriteCloser[nettrace.Message]
 	switch output {
 	case "json":
-		writer = jsonprint.NewWriter[nettrace.Event](os.Stdout)
+		writer = jsonprint.NewWriter[nettrace.Message](os.Stdout)
 	case "yaml":
-		writer = yamlprint.NewWriter[nettrace.Event](os.Stdout)
+		writer = yamlprint.NewWriter[nettrace.Message](os.Stdout)
 	default:
-		writer = textprint.NewWriter[nettrace.Event](os.Stdout,
-			textprint.Format[nettrace.Event](format),
-			textprint.Separator[nettrace.Event](""),
+		writer = textprint.NewWriter[nettrace.Message](os.Stdout,
+			textprint.Format[nettrace.Message](format),
+			textprint.Separator[nettrace.Message]("\n"),
 		)
+		defer fmt.Println()
 	}
 	defer writer.Close()
 
-	_, err = stream.Copy[nettrace.Event](writer, &nettrace.EventReader{
-		Records: timemachine.NewLogRecordReader(logReader),
+	_, err = stream.Copy[nettrace.Message](writer, &nettrace.MessageReader{
+		Events: events,
+		Protos: []nettrace.ConnProtocol{
+			nettrace.HTTP1(),
+		},
 	})
 	return err
 }

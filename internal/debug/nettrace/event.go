@@ -2,7 +2,6 @@ package nettrace
 
 import (
 	"encoding"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -17,7 +16,7 @@ import (
 type Bytes []byte
 
 func (b Bytes) MarshalYAML() (any, error) {
-	return base64.StdEncoding.EncodeToString(b), nil
+	return string(b), nil
 }
 
 type Protocol uint8
@@ -162,7 +161,7 @@ func (e Event) Format(w fmt.State, _ rune) {
 	}
 
 	fmt.Fprintf(w, "%s %s %s > %s: %s %s",
-		e.Time.In(time.Local).Format("2006/01/02 15:04:05.000000"),
+		formatTime(e.Time),
 		e.Proto,
 		socketAddressString(src),
 		socketAddressString(dst),
@@ -186,6 +185,10 @@ func (e Event) Format(w fmt.State, _ rune) {
 			fmt.Fprintln(w)
 		}
 	}
+}
+
+func formatTime(t time.Time) string {
+	return t.In(time.Local).Format("2006/01/02 15:04:05.000000")
 }
 
 func errnoName(errno wasi.Errno) string {
