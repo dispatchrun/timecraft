@@ -139,6 +139,12 @@ func (reg *Registry) LookupProcess(ctx context.Context, hash format.Hash) (*form
 }
 
 func (reg *Registry) LookupRecord(ctx context.Context, processID format.UUID, offset int64) (format.Record, error) {
+	manifest, err := reg.LookupLogManifest(ctx, processID)
+	if err != nil {
+		return format.Record{}, err
+	}
+	delta := manifest.StartTime.Sub(time.Unix(0, 0))
+
 	// TODO: handle multiple log segments
 	logSegment, err := reg.ReadLogSegment(ctx, processID, 0)
 	if err != nil {
@@ -178,7 +184,7 @@ func (reg *Registry) LookupRecord(ctx context.Context, processID format.UUID, of
 				ProcessID:    processID,
 				Segment:      0,
 				Offset:       o,
-				Time:         r.Time,
+				Time:         r.Time.Add(delta),
 				FunctionID:   r.FunctionID,
 				FunctionCall: call,
 			}, nil
@@ -461,6 +467,13 @@ func (reg *Registry) ListRecords(ctx context.Context, processID format.UUID, tim
 	go func() {
 		defer close(ch)
 
+		manifest, err := reg.LookupLogManifest(ctx, processID)
+		if err != nil {
+			ch <- stream.Opt(format.Record{}, err)
+			return
+		}
+		delta := manifest.StartTime.Sub(time.Unix(0, 0))
+
 		// TODO: handle multiple log segments
 		logSegment, err := reg.ReadLogSegment(ctx, processID, 0)
 		if err != nil {
@@ -492,7 +505,7 @@ func (reg *Registry) ListRecords(ctx context.Context, processID format.UUID, tim
 					ProcessID:    processID,
 					Segment:      0,
 					Offset:       offset,
-					Time:         r.Time,
+					Time:         r.Time.Add(delta),
 					FunctionID:   r.FunctionID,
 					FunctionCall: call,
 				}, nil)
