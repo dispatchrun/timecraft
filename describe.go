@@ -953,15 +953,6 @@ func printHumanVal(w io.Writer, x any) {
 	}
 }
 
-func printHumanTypes(w io.Writer, x []any) {
-	for i, t := range x {
-		if i > 0 {
-			fmt.Fprintf(w, ",")
-		}
-		printHumanType(w, reflect.TypeOf(t))
-	}
-}
-
 type lineprefixer struct {
 	p []byte
 	w io.Writer
