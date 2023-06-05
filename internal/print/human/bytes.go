@@ -240,39 +240,3 @@ var (
 	_ flag.Value = (*Bytes)(nil)
 	_ flag.Value = (*Bytes)(nil)
 )
-
-type ByteArray []byte
-
-// Format satisfies the fmt.Formatter interface.
-//
-// The method supports the following formatting verbs:
-//
-//	d base 10
-//	x base 16
-//
-// Optional width can be given to limit the number of bytes shown.
-func (b ByteArray) Format(w fmt.State, v rune) {
-	cut, found := w.Width()
-	if cut > len(b) || !found {
-		cut = len(b)
-	}
-
-	s := "["
-
-	start := b[:cut]
-	more := len(b) > len(start)
-	f := "%#02" + string(v)
-
-	for i, x := range start {
-		if i > 0 {
-			s += " "
-		}
-		s += fmt.Sprintf(f, x)
-	}
-	if more {
-		s += "..."
-	}
-	s += "]"
-
-	_, _ = io.WriteString(w, s)
-}
