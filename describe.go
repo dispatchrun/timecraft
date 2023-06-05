@@ -14,6 +14,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	pprof "github.com/google/pprof/profile"
 	"github.com/google/uuid"
@@ -54,13 +55,16 @@ Options:
    -c, --config         Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help           Show this usage information
    -o, --output format  Output format, one of: text, json, yaml
+   -h, --hex            Display full binary values as hexadecimal when applicable
 `
 
 func describe(ctx context.Context, args []string) error {
 	output := outputFormat("text")
+	hex := false
 
 	flagSet := newFlagSet("timecraft describe", describeUsage)
 	customVar(flagSet, &output, "o", "output")
+	boolVar(flagSet, &hex, "h", "hex")
 
 	args, err := parseFlags(flagSet, args)
 	if err != nil {
@@ -99,7 +103,11 @@ func describe(ctx context.Context, args []string) error {
 		writer = yamlprint.NewWriter[any](os.Stdout)
 	default:
 		lookup = resource.describe
-		writer = textprint.NewWriter[any](os.Stdout)
+		format := "%v"
+		if hex {
+			format = "%x"
+		}
+		writer = textprint.NewWriter[any](os.Stdout, format)
 	}
 	defer writer.Close()
 
@@ -865,7 +873,8 @@ type recordDescriptor struct {
 	Syscall wasicall.Syscall `json:"syscall" yaml:"syscall"`
 }
 
-func (desc *recordDescriptor) Format(w fmt.State, _ rune) {
+func (desc *recordDescriptor) Format(w fmt.State, r rune) {
+	hex := r == 'x'
 	fmt.Fprintf(w, "Offset:  %d\n", desc.Record.Offset)
 	fmt.Fprintf(w, "Segment: %d\n", desc.Record.Segment)
 	fmt.Fprintf(w, "Process: %s\n", desc.Record.ProcessID)
@@ -874,21 +883,21 @@ func (desc *recordDescriptor) Format(w fmt.State, _ rune) {
 	fmt.Fprintf(w, "---\n")
 	fmt.Fprintf(w, "Host function: %s\n", desc.Syscall.ID().String())
 	fmt.Fprintf(w, "Parameters:")
-	printParams(w, desc.Syscall.Params())
+	printParams(w, hex, desc.Syscall.Params())
 	fmt.Fprintf(w, "Results:")
-	printParams(w, desc.Syscall.Results())
+	printParams(w, hex, desc.Syscall.Results())
 }
 
-func printParams(w io.Writer, x []any) {
+func printParams(w io.Writer, hex bool, x []any) {
 	if len(x) == 0 {
 		fmt.Fprintf(w, " none\n")
 	} else {
-		fmt.Fprintf(w, " \n")
+		fmt.Fprintf(w, "\n")
 		for i, p := range x {
 			fmt.Fprintf(w, "%d\ttype: ", i)
 			printHumanType(w, reflect.TypeOf(p))
 			fmt.Fprintf(w, "\tvalue: ")
-			printHumanVal(w, p)
+			printHumanVal(w, hex, p)
 			fmt.Fprintf(w, "\n")
 		}
 	}
@@ -933,7 +942,7 @@ func printHumanType(w io.Writer, t reflect.Type) {
 	fmt.Fprintf(w, "%s", n)
 }
 
-func printHumanVal(w io.Writer, x any) {
+func printHumanVal(w io.Writer, h bool, x any) {
 	switch v := x.(type) {
 	case wasi.FD, wasi.ExitCode:
 		fmt.Fprintf(w, "%d", v)
@@ -941,15 +950,31 @@ func printHumanVal(w io.Writer, x any) {
 		fmt.Fprintf(w, "%d (%s)", v, v)
 	case wasi.Size:
 		fmt.Fprintf(w, "%d (%s)", v, human.Bytes(v))
+	case []uint8:
+		printBytes(w, h, v)
 	case []wasi.IOVec:
 		fmt.Fprintf(w, "\n")
 		for _, x := range v {
-			o := hex.Dumper(prefixlines(nolastline(w), []byte("    | ")))
-			_, _ = o.Write(x)
-			o.Close()
+			printBytes(w, h, x)
 		}
 	default:
 		fmt.Fprintf(w, "%s", x)
+	}
+}
+
+func printBytes(w io.Writer, h bool, x []byte) {
+	if h {
+		fmt.Fprintf(w, "\n")
+		o := hex.Dumper(prefixlines(nolastline(w), []byte("    | ")))
+		_, _ = o.Write(x)
+		o.Close()
+	} else {
+		s := string(x)
+		if utf8.ValidString(s) {
+			fmt.Fprint(prefixlines(nolastline(w), []byte("    | ")), s)
+		} else {
+			fmt.Fprintf(w, "binary content, use --hex to display")
+		}
 	}
 }
 

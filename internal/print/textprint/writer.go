@@ -12,12 +12,16 @@ const (
 	separator = "--------------------------------------------------------------------------------\n"
 )
 
-func NewWriter[T any](w io.Writer) stream.WriteCloser[T] {
-	return &writer[T]{output: bufio.NewWriter(w)}
+func NewWriter[T any](w io.Writer, format string) stream.WriteCloser[T] {
+	return &writer[T]{
+		output: bufio.NewWriter(w),
+		format: format,
+	}
 }
 
 type writer[T any] struct {
 	output *bufio.Writer
+	format string
 	count  int
 }
 
@@ -28,7 +32,7 @@ func (w *writer[T]) Write(values []T) (int, error) {
 				return n, err
 			}
 		}
-		if _, err := fmt.Fprint(w.output, v); err != nil {
+		if _, err := fmt.Fprintf(w.output, w.format, v); err != nil {
 			return n, err
 		}
 	}
