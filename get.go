@@ -202,7 +202,6 @@ func get(ctx context.Context, args []string) error {
 		defer writer.Close()
 
 		_, err = stream.Copy[format.Record](writer, reader)
-
 		return err
 	}
 
