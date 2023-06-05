@@ -106,8 +106,8 @@ var resources = [...]resource{
 	},
 
 	{
-		typ: "records",
-		alt: []string{"rec", "recs", "record"},
+		typ: "record",
+		alt: []string{"rec", "recs", "records"},
 		// TODO lookup
 		describe: describeRecord,
 	},
