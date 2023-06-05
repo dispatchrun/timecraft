@@ -368,26 +368,6 @@ func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 	}
 	dec := wasicall.Decoder{}
 
-	humanSyscall := func(syscall wasicall.Syscall) string {
-		var w strings.Builder
-
-		w.WriteString(syscall.ID().String())
-		w.WriteString("(")
-		printHumanTypes(&w, syscall.Params())
-		w.WriteString(") ")
-
-		many := len(syscall.Results()) > 1
-		if many {
-			w.WriteString("(")
-		}
-		printHumanTypes(&w, syscall.Results())
-		if many {
-			w.WriteString(")")
-		}
-
-		return w.String()
-	}
-
 	return newTableWriter(w, quiet,
 		func(r1, r2 record) bool {
 			return r1.offset < r2.offset
@@ -409,7 +389,7 @@ func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 			}
 			_, syscall, err := dec.Decode(rec)
 			if err == nil {
-				out.Syscall = humanSyscall(syscall)
+				out.Syscall = syscall.ID().String()
 			} else {
 				out.Syscall = fmt.Sprintf("%d (ERR: %s)", r.FunctionID, err)
 			}
