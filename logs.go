@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"math"
-	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -84,7 +83,7 @@ func logs(ctx context.Context, args []string) error {
 	logReader := timemachine.NewLogReader(logSegment, manifest.StartTime)
 	defer logReader.Close()
 
-	_, err = io.Copy(os.Stdout, &stdio.Limit{
+	_, err = io.Copy(stdout, &stdio.Limit{
 		R: &stdio.Reader{
 			Records:   timemachine.NewLogRecordReader(logReader),
 			StartTime: time.Time(startTime),

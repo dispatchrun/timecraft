@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	pprof "github.com/google/pprof/profile"
@@ -208,11 +207,11 @@ func profile(ctx context.Context, args []string) error {
 	var writer stream.WriteCloser[*format.Descriptor]
 	switch output {
 	case "json":
-		writer = jsonprint.NewWriter[*format.Descriptor](os.Stdout)
+		writer = jsonprint.NewWriter[*format.Descriptor](stdout)
 	case "yaml":
-		writer = yamlprint.NewWriter[*format.Descriptor](os.Stdout)
+		writer = yamlprint.NewWriter[*format.Descriptor](stdout)
 	default:
-		writer = getProfiles(ctx, os.Stdout, registry, quiet)
+		writer = getProfiles(ctx, stdout, registry, quiet)
 	}
 	defer writer.Close()
 

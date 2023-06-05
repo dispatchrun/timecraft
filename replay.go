@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/google/uuid"
 	"github.com/stealthrocket/wasi-go"
@@ -98,7 +97,7 @@ func replay(ctx context.Context, args []string) error {
 	}, nil)
 	var system wasi.System = wasicall.NewFallbackSystem(replay, fallback)
 	if trace {
-		system = &wasi.Tracer{Writer: os.Stderr, System: system}
+		system = &wasi.Tracer{Writer: stderr, System: system}
 	}
 
 	// TODO: need to figure this out dynamically:

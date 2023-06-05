@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	_ "net/http/pprof"
 	"os"
 	"runtime"
@@ -49,8 +50,34 @@ Example:
 
 For a list of commands available, run 'timecraft help'.`
 
+type countWriter struct {
+	writer io.Writer
+	count  int
+}
+
+func (c *countWriter) Write(b []byte) (int, error) {
+	c.count++
+	return c.writer.Write(b)
+}
+
+var (
+	stdoutCounter = &countWriter{writer: os.Stdout}
+	stderrCounter = &countWriter{writer: os.Stderr}
+
+	//stdout = stdio.NewBuffer(stdoutCounter)
+	//stderr = stdio.NewBuffer(stderrCounter)
+	stdout = stdoutCounter
+	stderr = stderrCounter
+)
+
 // Root is the timecraft entrypoint.
 func Root(ctx context.Context, args ...string) int {
+	defer func() { fmt.Printf("%d writes to stderr\n", stderrCounter.count) }()
+	defer func() { fmt.Printf("%d writes to stdout\n", stdoutCounter.count) }()
+
+	//defer stderr.Flush()
+	//defer stdout.Flush()
+
 	if v := os.Getenv("TIMECRAFTCONFIG"); v != "" {
 		configPath = human.Path(v)
 	}
@@ -69,13 +96,13 @@ func Root(ctx context.Context, args ...string) int {
 
 	if err := flagSet.Parse(args); err != nil {
 		if !errors.Is(err, flag.ErrHelp) {
-			fmt.Println(err)
+			fmt.Fprintln(stderr, err)
 		}
 		return 0
 	}
 
 	if args = flagSet.Args(); len(args) == 0 {
-		fmt.Println(rootUsage)
+		fmt.Fprintln(stdout, rootUsage)
 		return 0
 	}
 
@@ -231,16 +258,16 @@ func (m stringMap) Set(value string) error {
 }
 
 func perror(args ...any) {
-	fmt.Fprintln(os.Stderr, args...)
+	fmt.Fprintln(stderr, args...)
 }
 
 func perrorf(msg string, args ...any) {
-	fmt.Fprintf(os.Stderr, msg+"\n", args...)
+	fmt.Fprintf(stderr, msg+"\n", args...)
 }
 
 func newFlagSet(cmd, usage string) *flag.FlagSet {
 	flagSet := flag.NewFlagSet(cmd, flag.ContinueOnError)
-	flagSet.Usage = func() { fmt.Println(usage) }
+	flagSet.Usage = func() { fmt.Fprintln(stdout, usage) }
 	customVar(flagSet, &configPath, "c", "config")
 	return flagSet
 }

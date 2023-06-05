@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -93,13 +92,13 @@ func describe(ctx context.Context, args []string) error {
 	switch output {
 	case "json":
 		lookup = resource.lookup
-		writer = jsonprint.NewWriter[any](os.Stdout)
+		writer = jsonprint.NewWriter[any](stdout)
 	case "yaml":
 		lookup = resource.lookup
-		writer = yamlprint.NewWriter[any](os.Stdout)
+		writer = yamlprint.NewWriter[any](stdout)
 	default:
 		lookup = resource.describe
-		writer = textprint.NewWriter[any](os.Stdout, textprint.Format[any](format))
+		writer = textprint.NewWriter[any](stdout, textprint.Format[any](format))
 	}
 	defer writer.Close()
 

@@ -108,7 +108,7 @@ func config(ctx context.Context, args []string) error {
 		return err
 	}
 
-	w := io.Writer(os.Stdout)
+	w := io.Writer(stdout)
 	for {
 		switch output {
 		case "json":

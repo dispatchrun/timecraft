@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -148,11 +147,11 @@ func get(ctx context.Context, args []string) error {
 		var writer stream.WriteCloser[*format.Manifest]
 		switch output {
 		case "json":
-			writer = jsonprint.NewWriter[*format.Manifest](os.Stdout)
+			writer = jsonprint.NewWriter[*format.Manifest](stdout)
 		case "yaml":
-			writer = yamlprint.NewWriter[*format.Manifest](os.Stdout)
+			writer = yamlprint.NewWriter[*format.Manifest](stdout)
 		default:
-			writer = getProcesses(ctx, os.Stdout, registry, quiet)
+			writer = getProcesses(ctx, stdout, registry, quiet)
 		}
 		defer writer.Close()
 
@@ -166,11 +165,11 @@ func get(ctx context.Context, args []string) error {
 	var writer stream.WriteCloser[*format.Descriptor]
 	switch output {
 	case "json":
-		writer = jsonprint.NewWriter[*format.Descriptor](os.Stdout)
+		writer = jsonprint.NewWriter[*format.Descriptor](stdout)
 	case "yaml":
-		writer = yamlprint.NewWriter[*format.Descriptor](os.Stdout)
+		writer = yamlprint.NewWriter[*format.Descriptor](stdout)
 	default:
-		writer = resource.get(ctx, os.Stdout, registry, quiet)
+		writer = resource.get(ctx, stdout, registry, quiet)
 	}
 	defer writer.Close()
 
