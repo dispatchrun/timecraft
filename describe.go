@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -965,92 +964,15 @@ func printHumanVal(w io.Writer, h bool, x any) {
 func printBytes(w io.Writer, h bool, x []byte) {
 	if h {
 		fmt.Fprintf(w, "\n")
-		o := hex.Dumper(prefixlines(nolastline(w), []byte("    | ")))
+		o := hex.Dumper(textprint.QuoteBytes(w))
 		_, _ = o.Write(x)
 		o.Close()
 	} else {
 		s := string(x)
 		if utf8.ValidString(s) {
-			fmt.Fprint(prefixlines(nolastline(w), []byte("    | ")), s)
+			fmt.Fprint(textprint.QuoteBytes(w), s)
 		} else {
 			fmt.Fprintf(w, "binary content, use --hex to display")
 		}
 	}
-}
-
-type lineprefixer struct {
-	p []byte
-	w io.Writer
-
-	start bool
-}
-
-func prefixlines(w io.Writer, prefix []byte) io.Writer {
-	return &lineprefixer{
-		p: prefix,
-		w: w,
-
-		start: true,
-	}
-}
-
-func (l *lineprefixer) Write(b []byte) (int, error) {
-	count := 0
-	for len(b) > 0 {
-		if l.start {
-			l.start = false
-			n, err := l.w.Write(l.p)
-			count += n
-			if err != nil {
-				return count, err
-			}
-		}
-
-		i := bytes.IndexByte(b, '\n')
-		if i == -1 {
-			i = len(b)
-		} else {
-			i++ // include \n
-			l.start = true
-		}
-		n, err := l.w.Write(b[:i])
-		count += n
-		if err != nil {
-			return count, err
-		}
-		b = b[i:]
-	}
-	return count, nil
-}
-
-func nolastline(w io.Writer) io.Writer {
-	return &nolastliner{w: w}
-}
-
-type nolastliner struct {
-	w   io.Writer
-	has bool
-}
-
-func (l *nolastliner) Write(b []byte) (int, error) {
-	if len(b) == 0 {
-		return 0, nil
-	}
-	count := 0
-	if l.has {
-		l.has = false
-		n, err := l.w.Write([]byte{'\n'})
-		count += n
-		if err != nil {
-			return count, err
-		}
-	}
-	i := bytes.LastIndexByte(b, '\n')
-	if i == len(b)-1 {
-		l.has = true
-		b = b[:i]
-	}
-	n, err := l.w.Write(b)
-	count += n
-	return count, err
 }
