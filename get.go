@@ -358,7 +358,6 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry, qu
 
 func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[format.Record] {
 	type record struct {
-		offset  int64       `text:"-"` // for sort
 		ID      string      `text:"RECORD ID"`
 		Segment int         `text:"SEGMENT"`
 		Time    human.Time  `text:"TIME"`
@@ -367,13 +366,9 @@ func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 	}
 	dec := wasicall.Decoder{}
 
-	return newTableWriter(w, quiet,
-		func(r1, r2 record) bool {
-			return r1.offset < r2.offset
-		},
+	return newTableWriter(w, quiet, nil,
 		func(r format.Record) (record, error) {
 			out := record{
-				offset:  r.Offset,
 				ID:      fmt.Sprintf("%s/%d", r.ProcessID, r.Offset),
 				Segment: int(r.Segment),
 				Time:    human.Time(r.Time),
