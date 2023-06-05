@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 
@@ -19,7 +18,6 @@ import (
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
-	"github.com/stealthrocket/wasi-go"
 )
 
 const getUsage = `
@@ -110,6 +108,8 @@ var resources = [...]resource{
 	{
 		typ: "records",
 		alt: []string{"rec", "recs", "record"},
+		// TODO lookup
+		describe: describeRecord,
 	},
 
 	{
@@ -368,66 +368,24 @@ func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 	}
 	dec := wasicall.Decoder{}
 
-	var humanType func(t reflect.Type) string
-	humanType = func(t reflect.Type) string {
-		switch t {
-		case reflect.TypeOf(wasi.FD(0)):
-			return "fd"
-		case reflect.TypeOf(wasi.ClockID(0)):
-			return "clock"
-		case reflect.TypeOf(wasi.Timestamp(0)):
-			return "time"
-		case reflect.TypeOf(wasi.IOVec(nil)):
-			return "io"
-		case reflect.TypeOf(wasi.Errno(0)):
-			return "errno"
-		case reflect.TypeOf(wasi.Size(0)):
-			return "size"
-		case reflect.TypeOf(wasi.PreStat{}):
-			return "prestat"
-		}
-
-		if t.Kind() == reflect.Slice {
-			return "[" + humanType(t.Elem()) + "]"
-		}
-
-		n := t.Name()
-		if n == "" {
-			return t.String()
-		}
-		return n
-	}
-
-	humanVal := func(x any) string {
-		switch v := x.(type) {
-		case wasi.FD:
-			return fmt.Sprintf("%d", v) // fmt.Sprintf("fd(%d)", v)
-			// errno?
-		}
-
-		t := reflect.TypeOf(x)
-		return humanType(t)
-	}
-
-	humanTypes := func(x []any) string {
-		out := ""
-		for i, t := range x {
-			if i > 0 {
-				out += ","
-			}
-			out += humanVal(t)
-		}
-		return out
-	}
-
 	humanSyscall := func(syscall wasicall.Syscall) string {
-		f := syscall.ID().String()
-		p := humanTypes(syscall.Params())
-		r := humanTypes(syscall.Results())
-		if len(syscall.Results()) > 1 {
-			r = "(" + r + ")"
+		var w strings.Builder
+
+		w.WriteString(syscall.ID().String())
+		w.WriteString("(")
+		printHumanTypes(&w, syscall.Params())
+		w.WriteString(") ")
+
+		many := len(syscall.Results()) > 1
+		if many {
+			w.WriteString("(")
 		}
-		return fmt.Sprintf("%s(%s) %s", f, p, r)
+		printHumanTypes(&w, syscall.Results())
+		if many {
+			w.WriteString(")")
+		}
+
+		return w.String()
 	}
 
 	return newTableWriter(w, quiet,
@@ -452,6 +410,8 @@ func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 			_, syscall, err := dec.Decode(rec)
 			if err == nil {
 				out.Syscall = humanSyscall(syscall)
+			} else {
+				out.Syscall = fmt.Sprintf("%d (ERR: %s)", r.FunctionID, err)
 			}
 
 			return out, nil

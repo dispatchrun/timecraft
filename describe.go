@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -21,6 +24,8 @@ import (
 	"github.com/stealthrocket/timecraft/internal/print/yamlprint"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
+	"github.com/stealthrocket/wasi-go"
 	"github.com/tetratelabs/wazero/api"
 	"golang.org/x/exp/slices"
 )
@@ -52,9 +57,7 @@ Options:
 `
 
 func describe(ctx context.Context, args []string) error {
-	var (
-		output = outputFormat("text")
-	)
+	output := outputFormat("text")
 
 	flagSet := newFlagSet("timecraft describe", describeUsage)
 	customVar(flagSet, &output, "o", "output")
@@ -295,6 +298,42 @@ func describeProfile(ctx context.Context, reg *timemachine.Registry, id string, 
 		profileType: d.Annotations["timecraft.profile.type"],
 		profile:     p,
 	}
+	return desc, nil
+}
+
+func describeRecord(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
+	s := strings.Split(id, "/")
+	if len(s) != 2 {
+		return nil, errors.New(`record id should have the form <process id>/<offset>`)
+	}
+	pid, err := uuid.Parse(s[0])
+	if err != nil {
+		return nil, errors.New(`malformed process id (not a UUID)`)
+	}
+	offset, err := strconv.ParseInt(s[1], 10, 64)
+	if err != nil {
+		return nil, errors.New(`malformed record offset (not an integer)`)
+	}
+
+	r, err := reg.LookupRecord(ctx, pid, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	rec := timemachine.Record{
+		Time:         r.Time,
+		FunctionID:   r.FunctionID,
+		FunctionCall: r.FunctionCall,
+	}
+
+	dec := wasicall.Decoder{}
+	_, syscall, _ := dec.Decode(rec)
+
+	desc := &recordDescriptor{
+		Record:  r,
+		Syscall: syscall,
+	}
+
 	return desc, nil
 }
 
@@ -819,4 +858,183 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, id string, conf
 		desc.Size += log.Size
 	}
 	return desc, nil
+}
+
+type recordDescriptor struct {
+	Record  format.Record    `json:"record"  yaml:"record"`
+	Syscall wasicall.Syscall `json:"syscall" yaml:"syscall"`
+}
+
+func (desc *recordDescriptor) Format(w fmt.State, _ rune) {
+	fmt.Fprintf(w, "Offset:  %d\n", desc.Record.Offset)
+	fmt.Fprintf(w, "Segment: %d\n", desc.Record.Segment)
+	fmt.Fprintf(w, "Process: %s\n", desc.Record.ProcessID)
+	fmt.Fprintf(w, "Time:    %s\n", human.Time(desc.Record.Time))
+	fmt.Fprintf(w, "Size:    %s\n", human.Bytes(len(desc.Record.FunctionCall)))
+	fmt.Fprintf(w, "---\n")
+	fmt.Fprintf(w, "Host function: %s\n", desc.Syscall.ID().String())
+	fmt.Fprintf(w, "Parameters:")
+	printParams(w, desc.Syscall.Params())
+	fmt.Fprintf(w, "Results:")
+	printParams(w, desc.Syscall.Results())
+}
+
+func printParams(w io.Writer, x []any) {
+	if len(x) == 0 {
+		fmt.Fprintf(w, " none\n")
+	} else {
+		fmt.Fprintf(w, " \n")
+		for i, p := range x {
+			fmt.Fprintf(w, "%d\ttype: ", i)
+			printHumanType(w, reflect.TypeOf(p))
+			fmt.Fprintf(w, "\tvalue: ")
+			printHumanVal(w, p)
+			fmt.Fprintf(w, "\n")
+		}
+	}
+}
+
+func printHumanType(w io.Writer, t reflect.Type) {
+	switch t {
+	case reflect.TypeOf(wasi.FD(0)):
+		fmt.Fprintf(w, "fd")
+		return
+	case reflect.TypeOf(wasi.ClockID(0)):
+		fmt.Fprintf(w, "clock")
+		return
+	case reflect.TypeOf(wasi.Timestamp(0)):
+		fmt.Fprintf(w, "time")
+		return
+	case reflect.TypeOf(wasi.IOVec(nil)):
+		fmt.Fprintf(w, "io")
+		return
+	case reflect.TypeOf(wasi.Errno(0)):
+		fmt.Fprintf(w, "errno")
+		return
+	case reflect.TypeOf(wasi.Size(0)):
+		fmt.Fprintf(w, "size")
+		return
+	case reflect.TypeOf(wasi.PreStat{}):
+		fmt.Fprintf(w, "prestat")
+		return
+	}
+
+	if t.Kind() == reflect.Slice {
+		fmt.Fprintf(w, "[")
+		printHumanType(w, t.Elem())
+		fmt.Fprintf(w, "]")
+		return
+	}
+
+	n := t.Name()
+	if n == "" {
+		n = t.String()
+	}
+	fmt.Fprintf(w, "%s", n)
+}
+
+func printHumanVal(w io.Writer, x any) {
+	switch v := x.(type) {
+	case wasi.FD:
+		fmt.Fprintf(w, "%d", v)
+	case wasi.Errno:
+		fmt.Fprintf(w, "%d (%s)", v, v)
+	case wasi.Size:
+		fmt.Fprintf(w, "%d (%s)", v, human.Bytes(v))
+	case []wasi.IOVec:
+		fmt.Fprintf(w, "\n")
+		for _, x := range v {
+			o := hex.Dumper(prefixlines(nolastline(w), []byte("    | ")))
+			_, _ = o.Write(x)
+			o.Close()
+		}
+	default:
+		fmt.Fprintf(w, "%s", x)
+	}
+}
+
+func printHumanTypes(w io.Writer, x []any) {
+	for i, t := range x {
+		if i > 0 {
+			fmt.Fprintf(w, ",")
+		}
+		printHumanType(w, reflect.TypeOf(t))
+	}
+}
+
+type lineprefixer struct {
+	p []byte
+	w io.Writer
+
+	start bool
+}
+
+func prefixlines(w io.Writer, prefix []byte) io.Writer {
+	return &lineprefixer{
+		p: prefix,
+		w: w,
+
+		start: true,
+	}
+}
+
+func (l *lineprefixer) Write(b []byte) (int, error) {
+	count := 0
+	for len(b) > 0 {
+		if l.start {
+			l.start = false
+			n, err := l.w.Write(l.p)
+			count += n
+			if err != nil {
+				return count, err
+			}
+		}
+
+		i := bytes.IndexByte(b, '\n')
+		if i == -1 {
+			i = len(b)
+		} else {
+			i++ // include \n
+			l.start = true
+		}
+		n, err := l.w.Write(b[:i])
+		count += n
+		if err != nil {
+			return count, err
+		}
+		b = b[i:]
+	}
+	return count, nil
+}
+
+func nolastline(w io.Writer) io.Writer {
+	return &nolastliner{w: w}
+}
+
+type nolastliner struct {
+	w   io.Writer
+	has bool
+}
+
+func (l *nolastliner) Write(b []byte) (int, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
+	count := 0
+	if l.has {
+		l.has = false
+		n, err := l.w.Write([]byte{'\n'})
+		count += n
+		if err != nil {
+			return count, err
+		}
+	}
+	i := bytes.LastIndexByte(b, '\n')
+	if i == len(b)-1 {
+		l.has = true
+		b = b[:i]
+	}
+	n, err := l.w.Write(b)
+	count += n
+	return count, err
 }

@@ -138,6 +138,54 @@ func (reg *Registry) LookupProcess(ctx context.Context, hash format.Hash) (*form
 	return process, reg.lookupObject(ctx, hash, process)
 }
 
+func (reg *Registry) LookupRecord(ctx context.Context, processID format.UUID, offset int64) (format.Record, error) {
+	// TODO: handle multiple log segments
+	logSegment, err := reg.ReadLogSegment(ctx, processID, 0)
+	if err != nil {
+		return format.Record{}, err
+	}
+	defer logSegment.Close()
+	segmentReader := NewLogReader(logSegment, time.Unix(0, 0))
+	defer segmentReader.Close()
+
+	for {
+		if ctx.Err() != nil {
+			return format.Record{}, ctx.Err()
+		}
+		batch, err := segmentReader.ReadRecordBatch()
+		if err == io.EOF {
+			return format.Record{}, object.ErrNotExist
+		}
+		if err != nil {
+			return format.Record{}, ctx.Err()
+		}
+		it := stream.Iter[Record](batch)
+		o := batch.FirstOffset()
+		for it.Next() {
+			if ctx.Err() != nil {
+				return format.Record{}, ctx.Err()
+			}
+			if o < offset {
+				o++
+				continue
+			}
+			if o > offset {
+				return format.Record{}, fmt.Errorf("requested offset was missed")
+			}
+			r := it.Value()
+			call := append([]byte(nil), r.FunctionCall...)
+			return format.Record{
+				ProcessID:    processID,
+				Segment:      0,
+				Offset:       o,
+				Time:         r.Time,
+				FunctionID:   r.FunctionID,
+				FunctionCall: call,
+			}, nil
+		}
+	}
+}
+
 func (reg *Registry) LookupProfile(ctx context.Context, hash format.Hash) (*profile.Profile, error) {
 	r, err := reg.Store.ReadObject(ctx, reg.objectKey(hash))
 	if err != nil {
