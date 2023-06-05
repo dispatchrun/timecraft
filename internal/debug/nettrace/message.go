@@ -12,17 +12,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Message interface {
-	Conn() Conn
+type Exchange interface {
+	Link() (src, dst net.Addr)
 
 	Time() time.Time
 
-	Data() []byte
+	Duration() time.Duration
 
+	Request() Message
+
+	Response() Message
+}
+
+type Message interface {
 	fmt.Formatter
-
 	json.Marshaler
-
 	yaml.Marshaler
 }
 
@@ -37,41 +41,46 @@ type ConnProtocol interface {
 }
 
 type Conn interface {
-	Protocol() ConnProtocol
+	Recv(now time.Time, data []byte)
 
-	LocalAddr() net.Addr
+	Send(now time.Time, data []byte)
 
-	RemoteAddr() net.Addr
+	Shut(now time.Time)
 
-	RecvMessage(now time.Time, data []byte, eof bool) (Message, int, error)
-
-	SendMessage(now time.Time, data []byte, eof bool) (Message, int, error)
+	Next(version uint64) Exchange
 }
 
-type MessageReader struct {
+type ExchangeReader struct {
 	Events stream.Reader[Event]
 	Protos []ConnProtocol
 
-	conns  map[wasi.FD]*connection
-	offset int
-	msgs   []Message
-	events [100]Event
+	conns     map[wasi.FD]*connection
+	exchanges []Exchange
+	offset    int
+	version   uint64
+	events    [100]Event
 }
 
-func (r *MessageReader) Read(msgs []Message) (n int, err error) {
+func (r *ExchangeReader) Read(exchanges []Exchange) (n int, err error) {
+	if len(r.Protos) == 0 {
+		return 0, io.EOF
+	}
+	if len(exchanges) == 0 {
+		return 0, nil
+	}
 	if r.conns == nil {
 		r.conns = make(map[wasi.FD]*connection)
 	}
 
 	for {
-		if r.offset < len(r.msgs) {
-			n = copy(msgs, r.msgs[r.offset:])
-			if r.offset += n; r.offset == len(r.msgs) {
-				r.offset, r.msgs = 0, r.msgs[:0]
-			}
+		if r.offset < len(r.exchanges) {
+			n = copy(exchanges, r.exchanges[r.offset:])
+			r.exchanges = r.exchanges[:copy(r.exchanges, r.exchanges[r.offset+n:])]
+			r.offset = 0
 			return n, nil
 		}
 
+		r.version++
 		numEvents, err := r.Events.Read(r.events[:])
 		if numEvents == 0 {
 			if err == nil {
@@ -97,63 +106,21 @@ func (r *MessageReader) Read(msgs []Message) (n int, err error) {
 				}
 
 			case Receive:
-				c := r.conns[event.FD]
-				if c == nil {
-					continue
-				}
-				if c.rEOF {
-					continue
-				}
-				c.recv.write(event.Data)
-				if !c.hasProto() {
-					c.setProto(c.recv.bytes(), r.Protos)
-				}
-				if c.hasProto() {
-					r.msgs, _ = c.recvMessages(r.msgs, event.Time, false)
+				if c := r.conns[event.FD]; c != nil {
+					c.recv(event.Time, event.Data, r.Protos)
+					r.exchanges = c.next(r.exchanges, r.version)
 				}
 
 			case Send:
-				c := r.conns[event.FD]
-				if c == nil {
-					continue
-				}
-				if c.wEOF {
-					continue
-				}
-				c.send.write(event.Data)
-				if !c.hasProto() {
-					c.setProto(c.send.bytes(), r.Protos)
-				}
-				if c.hasProto() {
-					r.msgs, _ = c.sendMessages(r.msgs, event.Time, false)
+				if c := r.conns[event.FD]; c != nil {
+					c.send(event.Time, event.Data, r.Protos)
+					r.exchanges = c.next(r.exchanges, r.version)
 				}
 
 			case Shutdown:
-				c := r.conns[event.FD]
-				if c == nil {
-					continue
-				}
-				shutdown := event.Type & EventFlagMask
-				if (shutdown & ShutRD) != 0 {
-					c.rEOF = true
-				}
-				if (shutdown & ShutWR) != 0 {
-					c.wEOF = true
-				}
-				if c.rEOF && c.wEOF {
-					delete(r.conns, event.FD)
-				}
-				if !c.hasProto() {
-					c.setProto(c.send.bytes(), r.Protos)
-					c.setProto(c.recv.bytes(), r.Protos)
-				}
-				if c.hasProto() {
-					if c.wEOF {
-						r.msgs, _ = c.sendMessages(r.msgs, event.Time, true)
-					}
-					if c.rEOF {
-						r.msgs, _ = c.recvMessages(r.msgs, event.Time, true)
-					}
+				if c := r.conns[event.FD]; c != nil {
+					c.shut(event.Time, event.Type, r.Protos)
+					r.exchanges = c.next(r.exchanges, r.version)
 				}
 			}
 		}
@@ -176,12 +143,6 @@ func (b *buffer) discard(n int) {
 	}
 }
 
-func (b *buffer) read(n int) []byte {
-	data := b.buffer[b.offset : b.offset+n]
-	b.offset += n
-	return data
-}
-
 func (b *buffer) write(iovs []Bytes) {
 	if b.offset == len(b.buffer) {
 		b.buffer = b.buffer[:0]
@@ -196,58 +157,11 @@ type connection struct {
 	conn Conn
 	addr net.Addr
 	peer net.Addr
-	recv buffer
-	send buffer
+	rbuf []byte
+	wbuf []byte
 	side direction
 	rEOF bool
 	wEOF bool
-}
-
-func (c *connection) hasProto() bool {
-	return c.conn != nil
-}
-
-func (c *connection) setProto(data []byte, protos []ConnProtocol) {
-	for _, proto := range protos {
-		if proto.CanRead(data) {
-			if c.side == server {
-				c.conn = proto.NewServer(c.addr, c.peer)
-			} else {
-				c.conn = proto.NewClient(c.addr, c.peer)
-			}
-			break
-		}
-	}
-}
-
-func (c *connection) recvMessages(msgs []Message, now time.Time, eof bool) ([]Message, error) {
-	for {
-		msg, size, err := c.conn.RecvMessage(now, c.recv.bytes(), eof)
-		if err != nil {
-			// TODO: how should we handle errors parsing the message?
-			return msgs, err
-		}
-		c.recv.discard(size)
-		if msg == nil {
-			return msgs, nil
-		}
-		msgs = append(msgs, msg)
-	}
-}
-
-func (c *connection) sendMessages(msgs []Message, now time.Time, eof bool) ([]Message, error) {
-	for {
-		msg, size, err := c.conn.SendMessage(now, c.send.bytes(), eof)
-		if err != nil {
-			// TODO: how should we handle errors parsing the message?
-			return msgs, err
-		}
-		c.send.discard(size)
-		if msg == nil {
-			return msgs, nil
-		}
-		msgs = append(msgs, msg)
-	}
 }
 
 type direction bool
@@ -256,3 +170,89 @@ const (
 	server direction = false
 	client direction = true
 )
+
+func (c *connection) setProto(now time.Time, data []byte, protos []ConnProtocol) {
+	for _, proto := range protos {
+		if proto.CanRead(data) {
+			if c.side == server {
+				c.conn = proto.NewServer(c.addr, c.peer)
+			} else {
+				c.conn = proto.NewClient(c.addr, c.peer)
+			}
+			c.conn.Recv(now, c.rbuf)
+			c.conn.Send(now, c.wbuf)
+			break
+		}
+	}
+}
+
+func (c *connection) shut(now time.Time, typ EventType, protos []ConnProtocol) {
+	if (typ & ShutRD) != 0 {
+		c.rEOF = true
+	}
+	if (typ & ShutWR) != 0 {
+		c.wEOF = true
+	}
+	if c.rEOF && c.wEOF && c.conn != nil {
+		c.conn.Shut(now)
+	}
+}
+
+func (c *connection) recv(now time.Time, iovs []Bytes, protos []ConnProtocol) {
+	if len(iovs) == 0 {
+		return
+	}
+
+	if c.conn == nil {
+		for i, iov := range iovs {
+			c.rbuf = append(c.rbuf, iov...)
+			c.setProto(now, c.rbuf, protos)
+			if c.conn != nil {
+				iovs = iovs[i+1:]
+				break
+			}
+		}
+	}
+
+	if c.conn != nil {
+		for _, iov := range iovs {
+			c.conn.Recv(now, iov)
+		}
+	}
+}
+
+func (c *connection) send(now time.Time, iovs []Bytes, protos []ConnProtocol) {
+	if len(iovs) == 0 {
+		return
+	}
+
+	if c.conn == nil {
+		for i, iov := range iovs {
+			c.wbuf = append(c.wbuf, iov...)
+			c.setProto(now, c.wbuf, protos)
+			if c.conn != nil {
+				iovs = iovs[i+1:]
+				break
+			}
+		}
+	}
+
+	if c.conn != nil {
+		for _, iov := range iovs {
+			c.conn.Send(now, iov)
+		}
+	}
+}
+
+func (c *connection) next(exchanges []Exchange, version uint64) []Exchange {
+	if c.conn != nil {
+		for {
+			e := c.conn.Next(version)
+			if e == nil {
+				break
+			}
+			exchanges = append(exchanges, e)
+		}
+	}
+	return exchanges
+}
