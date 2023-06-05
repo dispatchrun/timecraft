@@ -343,14 +343,14 @@ func (r *Recorder) SockOpen(ctx context.Context, pf ProtocolFamily, socketType S
 	return fd, errno
 }
 
-func (r *Recorder) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errno {
+func (r *Recorder) SockBind(ctx context.Context, fd FD, bind SocketAddress) (SocketAddress, Errno) {
 	s, ok := r.system.(SocketsExtension)
 	if !ok {
-		return ENOSYS
+		return nil, ENOSYS
 	}
-	errno := s.SockBind(ctx, fd, addr)
-	r.record(SockBind, r.codec.EncodeSockBind(r.buffer[:0], fd, addr, errno))
-	return errno
+	addr, errno := s.SockBind(ctx, fd, bind)
+	r.record(SockBind, r.codec.EncodeSockBind(r.buffer[:0], fd, bind, addr, errno))
+	return addr, errno
 }
 
 func (r *Recorder) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (SocketAddress, Errno) {

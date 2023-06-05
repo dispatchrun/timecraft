@@ -221,7 +221,7 @@ func (s *exitSystem) SockOpen(ctx context.Context, family ProtocolFamily, socket
 	panic(s.newExitError())
 }
 
-func (s *exitSystem) SockBind(ctx context.Context, fd FD, addr SocketAddress) (errno Errno) {
+func (s *exitSystem) SockBind(ctx context.Context, fd FD, bind SocketAddress) (addr SocketAddress, errno Errno) {
 	panic(s.newExitError())
 }
 

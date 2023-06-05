@@ -1172,12 +1172,12 @@ func (r *Replay) SockOpen(ctx context.Context, protocolFamily ProtocolFamily, so
 	return newfd, errno
 }
 
-func (r *Replay) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errno {
+func (r *Replay) SockBind(ctx context.Context, fd FD, bind SocketAddress) (SocketAddress, Errno) {
 	record, ok := r.readRecord(SockBind)
 	if !ok {
-		return ENOSYS
+		return nil, ENOSYS
 	}
-	recordFD, recordAddr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
+	recordFD, recordBind, recordAddr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1186,14 +1186,14 @@ func (r *Replay) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errno 
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "fd", fd, recordFD})
 		}
-		if addr != recordAddr {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "addr", addr, recordAddr})
+		if bind != recordBind {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "bind", bind, recordBind})
 		}
 		if len(mismatch) > 0 {
 			panic(errors.Join(mismatch...))
 		}
 	}
-	return errno
+	return recordAddr, errno
 }
 
 func (r *Replay) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (SocketAddress, Errno) {

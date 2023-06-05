@@ -463,7 +463,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			r.sockets[fd] = socket
 
 		case wasicall.SockBind:
-			fd, addr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
+			fd, _, addr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
 			if err != nil {
 				return n, err
 			}

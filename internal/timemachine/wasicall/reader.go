@@ -342,11 +342,11 @@ func (r *Reader) ReadSyscall() (time.Time, Syscall, error) {
 		}
 		syscall = &SockOpenSyscall{family, socketType, protocol, rightsBase, rightsInheriting, fd, errno}
 	case SockBind:
-		fd, addr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
+		fd, bind, addr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
 		if err != nil {
 			return time.Time{}, nil, &DecodeError{record, err}
 		}
-		syscall = &SockBindSyscall{fd, addr, errno}
+		syscall = &SockBindSyscall{fd, bind, addr, errno}
 	case SockConnect:
 		fd, peer, addr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
 		if err != nil {

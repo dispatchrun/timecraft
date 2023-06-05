@@ -642,13 +642,14 @@ func (s *SockOpenSyscall) private()       {}
 
 type SockBindSyscall struct {
 	FD    FD
+	Bind  SocketAddress
 	Addr  SocketAddress
 	Errno Errno
 }
 
 func (s *SockBindSyscall) ID() SyscallID  { return SockBind }
-func (s *SockBindSyscall) Params() []any  { return []any{s.FD, s.Addr} }
-func (s *SockBindSyscall) Results() []any { return []any{s.Errno} }
+func (s *SockBindSyscall) Params() []any  { return []any{s.FD, s.Bind} }
+func (s *SockBindSyscall) Results() []any { return []any{s.Addr, s.Errno} }
 func (s *SockBindSyscall) Error() Errno   { return s.Errno }
 func (s *SockBindSyscall) private()       {}
 

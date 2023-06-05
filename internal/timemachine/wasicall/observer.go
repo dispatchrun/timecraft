@@ -545,17 +545,17 @@ func (o *Observer) SockOpen(ctx context.Context, family ProtocolFamily, socketTy
 	return
 }
 
-func (o *Observer) SockBind(ctx context.Context, fd FD, addr SocketAddress) (errno Errno) {
+func (o *Observer) SockBind(ctx context.Context, fd FD, bind SocketAddress) (addr SocketAddress, errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
-		return ENOSYS
+		return nil, ENOSYS
 	}
 	if o.before != nil {
-		o.before(ctx, &SockBindSyscall{fd, addr, errno})
+		o.before(ctx, &SockBindSyscall{fd, bind, addr, errno})
 	}
-	errno = se.SockBind(ctx, fd, addr)
+	addr, errno = se.SockBind(ctx, fd, bind)
 	if o.after != nil {
-		o.after(ctx, &SockBindSyscall{fd, addr, errno})
+		o.after(ctx, &SockBindSyscall{fd, bind, addr, errno})
 	}
 	return
 }

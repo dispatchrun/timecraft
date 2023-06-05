@@ -414,22 +414,22 @@ fallback:
 	return se.SockOpen(ctx, family, socketType, protocol, rightsBase, rightsInheriting)
 }
 
-func (f *FallbackSystem) SockBind(ctx context.Context, fd FD, addr SocketAddress) (errno Errno) {
+func (f *FallbackSystem) SockBind(ctx context.Context, fd FD, bind SocketAddress) (addr SocketAddress, errno Errno) {
 	se, ok := f.System.(SocketsExtension)
 	if !ok {
 		goto fallback
 	}
-	errno = se.SockBind(ctx, fd, addr)
+	addr, errno = se.SockBind(ctx, fd, bind)
 	if errno == ENOSYS {
 		goto fallback
 	}
-	return errno
+	return addr, errno
 fallback:
 	se, ok = f.secondary.(SocketsExtension)
 	if !ok {
-		return ENOSYS
+		return nil, ENOSYS
 	}
-	return se.SockBind(ctx, fd, addr)
+	return se.SockBind(ctx, fd, bind)
 }
 
 func (f *FallbackSystem) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (addr SocketAddress, errno Errno) {

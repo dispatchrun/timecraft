@@ -976,17 +976,22 @@ func (c *Codec) DecodeSockOpen(buffer []byte) (family ProtocolFamily, socketType
 	return
 }
 
-func (c *Codec) EncodeSockBind(buffer []byte, fd FD, addr SocketAddress, errno Errno) []byte {
+func (c *Codec) EncodeSockBind(buffer []byte, fd FD, bind, addr SocketAddress, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	return encodeAddr(buffer, addr)
+	buffer = encodeAddr(buffer, bind)
+	buffer = encodeAddr(buffer, addr)
+	return buffer
 }
 
-func (c *Codec) DecodeSockBind(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
+func (c *Codec) DecodeSockBind(buffer []byte) (fd FD, bind, addr SocketAddress, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
 	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if bind, _, err = decodeAddr(buffer); err != nil {
 		return
 	}
 	addr, _, err = decodeAddr(buffer)
