@@ -935,7 +935,7 @@ func printHumanType(w io.Writer, t reflect.Type) {
 
 func printHumanVal(w io.Writer, x any) {
 	switch v := x.(type) {
-	case wasi.FD:
+	case wasi.FD, wasi.ExitCode:
 		fmt.Fprintf(w, "%d", v)
 	case wasi.Errno:
 		fmt.Fprintf(w, "%d (%s)", v, v)
