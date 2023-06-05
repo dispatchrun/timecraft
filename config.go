@@ -22,7 +22,7 @@ const configUsage = `
 Usage:	timecraft config [options]
 
 Options:
-   -c, --config         Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -c, --config path    Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
        --edit           Open $EDITOR to edit the configuration
    -h, --help           Show usage information
    -o, --output format  Output format, one of: text, json, yaml

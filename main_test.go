@@ -20,6 +20,7 @@ func TestTimecraft(t *testing.T) {
 	t.Run("export", export.run)
 	t.Run("get", get.run)
 	t.Run("help", help.run)
+	t.Run("logs", logs.run)
 	t.Run("root", root.run)
 	t.Run("run", run.run)
 	t.Run("unknown", unknown.run)

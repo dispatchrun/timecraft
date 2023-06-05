@@ -46,7 +46,7 @@ Example:
    (web page opens in browser)
 
 Options:
-   -c, --config             Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -c, --config path        Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -d, --duration duration  Amount of time that the profiler will be running for (default to the process up time)
        --export type:path   Exports the generated profiles, type is one of cpu or memory (may be repeated)
    -h, --help               Show this usage information

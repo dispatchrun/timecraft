@@ -19,6 +19,7 @@ Runtime Commands:
    replay    Replay a recorded trace of execution
 
 Debugging Commands:
+   logs      Print the logs for a module execution
    profile   Generate performance profile from execution records
 
 Other Commands:
@@ -27,8 +28,8 @@ Other Commands:
    version   Show the timecraft version information
 
 Global Options:
-   -c, --config  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
-   -h, --help    Show usage information
+   -c, --config path  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -h, --help         Show usage information
 
 For a description of each command, run 'timecraft help <command>'.`
 
@@ -61,6 +62,8 @@ func help(ctx context.Context, args []string) error {
 			msg = getUsage
 		case "help":
 			msg = helpUsage
+		case "logs":
+			msg = logsUsage
 		case "profile":
 			msg = profileUsage
 		case "run":

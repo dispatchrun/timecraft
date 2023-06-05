@@ -25,7 +25,7 @@ Usage:	timecraft get <resource type> [options]
 
    The get sub-command gives access to the state of the time machine registry.
    The command must be followed by the name of resources to display, which must
-   be one of config, log, module, process, profile, or runtime.
+   be one of config, module, process, profile, or runtime.
    (the command also accepts plurals and abbreviations of the resource names)
 
 Examples:
@@ -45,7 +45,7 @@ Examples:
    }
 
 Options:
-   -c, --config         Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -c, --config path    Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help           Show this usage information
    -o, --output format  Output format, one of: text, json, yaml
    -q, --quiet          Only display the resource ids
@@ -71,14 +71,6 @@ var resources = [...]resource{
 	},
 
 	{
-		typ:       "log",
-		alt:       []string{"logs"},
-		mediaType: format.TypeTimecraftManifest,
-		describe:  describeLog,
-		lookup:    describeLog,
-	},
-
-	{
 		typ:       "module",
 		alt:       []string{"mo", "mod", "mods", "modules"},
 		mediaType: format.TypeTimecraftModule,
@@ -91,7 +83,6 @@ var resources = [...]resource{
 		typ:       "process",
 		alt:       []string{"ps", "proc", "procs", "processes"},
 		mediaType: format.TypeTimecraftProcess,
-		get:       getProcesses,
 		describe:  describeProcess,
 		lookup:    lookupProcess,
 	},
@@ -156,9 +147,10 @@ func get(ctx context.Context, args []string) error {
 		return err
 	}
 
-	// We make a special case for the log segments because they are not
-	// immutable objects and therefore don't have descriptors.
-	if resource.typ == "log" {
+	// We make a special case for the processes segments because they are not
+	// immutable objects, some of the details we can print about processes
+	// come from reading the log segments.
+	if resource.typ == "process" {
 		reader := registry.ListLogManifests(ctx) // TODO: time range
 		defer reader.Close()
 
@@ -169,7 +161,7 @@ func get(ctx context.Context, args []string) error {
 		case "yaml":
 			writer = yamlprint.NewWriter[*format.Manifest](os.Stdout)
 		default:
-			writer = getLogs(ctx, os.Stdout, registry, quiet)
+			writer = getProcesses(ctx, os.Stdout, registry, quiet)
 		}
 		defer writer.Close()
 
@@ -275,24 +267,25 @@ func getModules(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 		})
 }
 
-func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Descriptor] {
-	type process struct {
-		ID        format.UUID `text:"PROCESS ID"`
+func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Manifest] {
+	type manifest struct {
+		ProcessID format.UUID `text:"PROCESS ID"`
 		StartTime human.Time  `text:"START"`
+		Size      human.Bytes `text:"SIZE"`
 	}
 	return newTableWriter(w, quiet,
-		func(p1, p2 process) bool {
-			return time.Time(p1.StartTime).Before(time.Time(p2.StartTime))
+		func(m1, m2 manifest) bool {
+			return time.Time(m1.StartTime).Before(time.Time(m2.StartTime))
 		},
-		func(desc *format.Descriptor) (process, error) {
-			p, err := reg.LookupProcess(ctx, desc.Digest)
-			if err != nil {
-				return process{}, err
+		func(m *format.Manifest) (manifest, error) {
+			manifest := manifest{
+				ProcessID: m.ProcessID,
+				StartTime: human.Time(m.StartTime),
 			}
-			return process{
-				ID:        p.ID,
-				StartTime: human.Time(p.StartTime),
-			}, nil
+			for _, segment := range m.Segments {
+				manifest.Size += human.Bytes(segment.Size)
+			}
+			return manifest, nil
 		})
 }
 
@@ -391,30 +384,6 @@ func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 			return out, nil
 		},
 	)
-}
-
-func getLogs(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Manifest] {
-	type manifest struct {
-		ProcessID format.UUID `text:"PROCESS ID"`
-		Segments  human.Count `text:"SEGMENTS"`
-		StartTime human.Time  `text:"START"`
-		Size      human.Bytes `text:"SIZE"`
-	}
-	return newTableWriter(w, quiet,
-		func(m1, m2 manifest) bool {
-			return time.Time(m1.StartTime).Before(time.Time(m2.StartTime))
-		},
-		func(m *format.Manifest) (manifest, error) {
-			manifest := manifest{
-				ProcessID: m.ProcessID,
-				Segments:  human.Count(len(m.Segments)),
-				StartTime: human.Time(m.StartTime),
-			}
-			for _, segment := range m.Segments {
-				manifest.Size += human.Bytes(segment.Size)
-			}
-			return manifest, nil
-		})
 }
 
 func newTableWriter[T1, T2 any](w io.Writer, quiet bool, orderBy func(T1, T1) bool, conv func(T2) (T1, error)) stream.WriteCloser[T2] {

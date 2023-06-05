@@ -19,9 +19,9 @@ const replayUsage = `
 Usage:	timecraft replay [options] <process id>
 
 Options:
-   -c, --config  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
-   -h, --help    Show this usage information
-   -T, --trace   Enable strace-like logging of host function calls
+   -c, --config path  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
+   -h, --help         Show this usage information
+   -T, --trace        Enable strace-like logging of host function calls
 `
 
 func replay(ctx context.Context, args []string) error {
