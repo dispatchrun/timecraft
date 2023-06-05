@@ -360,11 +360,11 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry, qu
 func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[format.Record] {
 	type record struct {
 		offset  int64       `text:"-"` // for sort
-		ID      string      `text:"ID (LOG/OFFSET)"`
+		ID      string      `text:"RECORD ID"`
 		Segment int         `text:"SEGMENT"`
 		Time    human.Time  `text:"TIME"`
 		Size    human.Bytes `text:"SIZE"`
-		Syscall string      `text:"SYSCALL"`
+		Syscall string      `text:"HOST FUNCTION"`
 	}
 	dec := wasicall.Decoder{}
 
