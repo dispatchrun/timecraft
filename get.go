@@ -373,17 +373,17 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry, qu
 func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[format.Record] {
 	type record struct {
 		ID      string      `text:"RECORD ID"`
+		Syscall string      `text:"HOST FUNCTION"`
 		Time    human.Time  `text:"TIME"`
 		Size    human.Bytes `text:"SIZE"`
-		Syscall string      `text:"HOST FUNCTION"`
 	}
 	return newTableWriter(w, quiet, nil,
 		func(r format.Record) (record, error) {
 			out := record{
 				ID:      r.ID,
-				Time:    human.Time(r.Time),
-				Size:    human.Bytes(r.Size),
 				Syscall: r.Function,
+				Size:    human.Bytes(r.Size),
+				Time:    human.Time(r.Time),
 			}
 			return out, nil
 		},
