@@ -223,7 +223,6 @@ func get(ctx context.Context, args []string) error {
 }
 
 func recordsDecoder(manifest *format.Manifest, from stream.Reader[timemachine.Record]) stream.Reader[format.Record] {
-	dec := wasicall.Decoder{}
 	return stream.ConvertReader[format.Record, timemachine.Record](from, func(x timemachine.Record) (format.Record, error) {
 		return format.Record{
 			ID:       fmt.Sprintf("%s/%d", manifest.ProcessID, x.Offset),
