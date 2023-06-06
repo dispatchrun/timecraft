@@ -364,10 +364,6 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 				continue
 			}
 			if errno == wasi.ESUCCESS {
-				// TODO: it would be really helpful if the wasi.System
-				// interface returned the socket address that the client
-				// is connecting from, even if it's not part of the ABI,
-				// at least it would be recorded and we could access it.
 				client := &socket{proto: server.proto, fd: newfd, addr: addr, peer: peer}
 				r.sockets[newfd] = client
 				events[n].init(record.Offset, client, record.Time, Accept, 0)
@@ -481,7 +477,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 			if err != nil {
 				return n, err
 			}
-			if errno != wasi.EINPROGRESS {
+			if errno != wasi.ESUCCESS && errno != wasi.EINPROGRESS {
 				continue
 			}
 			socket, ok := r.sockets[fd]
