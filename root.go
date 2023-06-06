@@ -27,6 +27,8 @@ import (
 	"runtime/pprof"
 	"strings"
 
+	"github.com/google/uuid"
+	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
@@ -125,6 +127,8 @@ func Root(ctx context.Context, args ...string) int {
 		err = run(ctx, args)
 	case "replay":
 		err = replay(ctx, args)
+	case "trace":
+		err = trace(ctx, args)
 	case "version":
 		err = version(ctx, args)
 	default:
@@ -287,4 +291,12 @@ func customVar(f *flag.FlagSet, dst flag.Value, name string, alias ...string) {
 	for _, name := range alias {
 		f.Var(dst, name, "")
 	}
+}
+
+func parseProcessID(s string) (format.UUID, error) {
+	processID, err := uuid.Parse(s)
+	if err != nil {
+		err = errors.New(`malformed process id passed as argument (not a UUID)`)
+	}
+	return processID, err
 }

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	pprof "github.com/google/pprof/profile"
-	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/print/jsonprint"
@@ -90,9 +89,9 @@ func profile(ctx context.Context, args []string) error {
 		}
 	}
 
-	processID, err := uuid.Parse(args[0])
+	processID, err := parseProcessID(args[0])
 	if err != nil {
-		return errors.New(`malformed process id passed as argument (not a UUID)`)
+		return err
 	}
 	config, err := loadConfig()
 	if err != nil {

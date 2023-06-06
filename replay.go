@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/google/uuid"
 	"github.com/stealthrocket/wasi-go"
 
 	"github.com/stealthrocket/timecraft/internal/timemachine"
@@ -40,9 +39,9 @@ func replay(ctx context.Context, args []string) error {
 		return errors.New(`expected exactly one process id as argument`)
 	}
 
-	processID, err := uuid.Parse(args[0])
+	processID, err := parseProcessID(args[0])
 	if err != nil {
-		return errors.New(`malformed process id passed as argument (not a UUID)`)
+		return err
 	}
 	config, err := loadConfig()
 	if err != nil {

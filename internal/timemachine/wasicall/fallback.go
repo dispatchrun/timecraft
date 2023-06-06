@@ -364,12 +364,12 @@ func (f *FallbackSystem) RandomGet(ctx context.Context, b []byte) Errno {
 	return errno
 }
 
-func (f *FallbackSystem) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, SocketAddress, Errno) {
-	newfd, addr, errno := f.System.SockAccept(ctx, fd, flags)
+func (f *FallbackSystem) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, SocketAddress, SocketAddress, Errno) {
+	newfd, peer, addr, errno := f.System.SockAccept(ctx, fd, flags)
 	if errno == ENOSYS {
 		return f.secondary.SockAccept(ctx, fd, flags)
 	}
-	return newfd, addr, errno
+	return newfd, peer, addr, errno
 }
 
 func (f *FallbackSystem) SockRecv(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, Errno) {
@@ -414,40 +414,40 @@ fallback:
 	return se.SockOpen(ctx, family, socketType, protocol, rightsBase, rightsInheriting)
 }
 
-func (f *FallbackSystem) SockBind(ctx context.Context, fd FD, addr SocketAddress) (errno Errno) {
+func (f *FallbackSystem) SockBind(ctx context.Context, fd FD, bind SocketAddress) (addr SocketAddress, errno Errno) {
 	se, ok := f.System.(SocketsExtension)
 	if !ok {
 		goto fallback
 	}
-	errno = se.SockBind(ctx, fd, addr)
+	addr, errno = se.SockBind(ctx, fd, bind)
 	if errno == ENOSYS {
 		goto fallback
 	}
-	return errno
+	return addr, errno
 fallback:
 	se, ok = f.secondary.(SocketsExtension)
 	if !ok {
-		return ENOSYS
+		return nil, ENOSYS
 	}
-	return se.SockBind(ctx, fd, addr)
+	return se.SockBind(ctx, fd, bind)
 }
 
-func (f *FallbackSystem) SockConnect(ctx context.Context, fd FD, addr SocketAddress) (errno Errno) {
+func (f *FallbackSystem) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (addr SocketAddress, errno Errno) {
 	se, ok := f.System.(SocketsExtension)
 	if !ok {
 		goto fallback
 	}
-	errno = se.SockConnect(ctx, fd, addr)
+	addr, errno = se.SockConnect(ctx, fd, peer)
 	if errno == ENOSYS {
 		goto fallback
 	}
-	return errno
+	return addr, errno
 fallback:
 	se, ok = f.secondary.(SocketsExtension)
 	if !ok {
-		return ENOSYS
+		return nil, ENOSYS
 	}
-	return se.SockConnect(ctx, fd, addr)
+	return se.SockConnect(ctx, fd, peer)
 }
 
 func (f *FallbackSystem) SockListen(ctx context.Context, fd FD, backlog int) (errno Errno) {
@@ -558,12 +558,12 @@ fallback:
 	return se.SockLocalAddress(ctx, fd)
 }
 
-func (f *FallbackSystem) SockPeerAddress(ctx context.Context, fd FD) (addr SocketAddress, errno Errno) {
+func (f *FallbackSystem) SockRemoteAddress(ctx context.Context, fd FD) (addr SocketAddress, errno Errno) {
 	se, ok := f.System.(SocketsExtension)
 	if !ok {
 		goto fallback
 	}
-	addr, errno = se.SockPeerAddress(ctx, fd)
+	addr, errno = se.SockRemoteAddress(ctx, fd)
 	if errno == ENOSYS {
 		goto fallback
 	}
@@ -573,7 +573,7 @@ fallback:
 	if !ok {
 		return nil, ENOSYS
 	}
-	return se.SockPeerAddress(ctx, fd)
+	return se.SockRemoteAddress(ctx, fd)
 }
 
 func (f *FallbackSystem) Close(ctx context.Context) error {

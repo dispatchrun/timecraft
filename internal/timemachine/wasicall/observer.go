@@ -486,13 +486,13 @@ func (o *Observer) RandomGet(ctx context.Context, b []byte) (errno Errno) {
 	return
 }
 
-func (o *Observer) SockAccept(ctx context.Context, fd FD, flags FDFlags) (newfd FD, addr SocketAddress, errno Errno) {
+func (o *Observer) SockAccept(ctx context.Context, fd FD, flags FDFlags) (newfd FD, peer, addr SocketAddress, errno Errno) {
 	if o.before != nil {
-		o.before(ctx, &SockAcceptSyscall{fd, flags, newfd, addr, errno})
+		o.before(ctx, &SockAcceptSyscall{fd, flags, newfd, peer, addr, errno})
 	}
-	newfd, addr, errno = o.System.SockAccept(ctx, fd, flags)
+	newfd, peer, addr, errno = o.System.SockAccept(ctx, fd, flags)
 	if o.after != nil {
-		o.after(ctx, &SockAcceptSyscall{fd, flags, newfd, addr, errno})
+		o.after(ctx, &SockAcceptSyscall{fd, flags, newfd, peer, addr, errno})
 	}
 	return
 }
@@ -545,32 +545,32 @@ func (o *Observer) SockOpen(ctx context.Context, family ProtocolFamily, socketTy
 	return
 }
 
-func (o *Observer) SockBind(ctx context.Context, fd FD, addr SocketAddress) (errno Errno) {
+func (o *Observer) SockBind(ctx context.Context, fd FD, bind SocketAddress) (addr SocketAddress, errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
-		return ENOSYS
+		return nil, ENOSYS
 	}
 	if o.before != nil {
-		o.before(ctx, &SockBindSyscall{fd, addr, errno})
+		o.before(ctx, &SockBindSyscall{fd, bind, addr, errno})
 	}
-	errno = se.SockBind(ctx, fd, addr)
+	addr, errno = se.SockBind(ctx, fd, bind)
 	if o.after != nil {
-		o.after(ctx, &SockBindSyscall{fd, addr, errno})
+		o.after(ctx, &SockBindSyscall{fd, bind, addr, errno})
 	}
 	return
 }
 
-func (o *Observer) SockConnect(ctx context.Context, fd FD, addr SocketAddress) (errno Errno) {
+func (o *Observer) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (addr SocketAddress, errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
-		return ENOSYS
+		return nil, ENOSYS
 	}
 	if o.before != nil {
-		o.before(ctx, &SockConnectSyscall{fd, addr, errno})
+		o.before(ctx, &SockConnectSyscall{fd, peer, addr, errno})
 	}
-	errno = se.SockConnect(ctx, fd, addr)
+	addr, errno = se.SockConnect(ctx, fd, peer)
 	if o.after != nil {
-		o.after(ctx, &SockConnectSyscall{fd, addr, errno})
+		o.after(ctx, &SockConnectSyscall{fd, peer, addr, errno})
 	}
 	return
 }
@@ -665,17 +665,17 @@ func (o *Observer) SockLocalAddress(ctx context.Context, fd FD) (addr SocketAddr
 	return
 }
 
-func (o *Observer) SockPeerAddress(ctx context.Context, fd FD) (addr SocketAddress, errno Errno) {
+func (o *Observer) SockRemoteAddress(ctx context.Context, fd FD) (addr SocketAddress, errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
 		return nil, ENOSYS
 	}
 	if o.before != nil {
-		o.before(ctx, &SockPeerAddressSyscall{fd, addr, errno})
+		o.before(ctx, &SockRemoteAddressSyscall{fd, addr, errno})
 	}
-	addr, errno = se.SockPeerAddress(ctx, fd)
+	addr, errno = se.SockRemoteAddress(ctx, fd)
 	if o.after != nil {
-		o.after(ctx, &SockPeerAddressSyscall{fd, addr, errno})
+		o.after(ctx, &SockRemoteAddressSyscall{fd, addr, errno})
 	}
 	return
 }

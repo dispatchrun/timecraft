@@ -842,18 +842,17 @@ func (c *Codec) DecodeRandomGet(buffer []byte) (result []byte, errno Errno, err 
 	return
 }
 
-func (c *Codec) EncodeSockAccept(buffer []byte, fd FD, flags FDFlags, newfd FD, addr SocketAddress, errno Errno) []byte {
+func (c *Codec) EncodeSockAccept(buffer []byte, fd FD, flags FDFlags, newfd FD, peer, addr SocketAddress, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeFDFlags(buffer, flags)
 	buffer = encodeFD(buffer, newfd)
-	if addr != nil {
-		buffer = encodeAddr(buffer, addr)
-	}
+	buffer = encodeAddr(buffer, peer)
+	buffer = encodeAddr(buffer, addr)
 	return buffer
 }
 
-func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD, addr SocketAddress, errno Errno, err error) {
+func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD, peer, addr SocketAddress, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
@@ -866,9 +865,10 @@ func (c *Codec) DecodeSockAccept(buffer []byte) (fd FD, flags FDFlags, newfd FD,
 	if newfd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if len(buffer) != 0 {
-		addr, _, err = decodeAddr(buffer)
+	if peer, buffer, err = decodeAddr(buffer); err != nil {
+		return
 	}
+	addr, _, err = decodeAddr(buffer)
 	return
 }
 
@@ -976,34 +976,44 @@ func (c *Codec) DecodeSockOpen(buffer []byte) (family ProtocolFamily, socketType
 	return
 }
 
-func (c *Codec) EncodeSockBind(buffer []byte, fd FD, addr SocketAddress, errno Errno) []byte {
+func (c *Codec) EncodeSockBind(buffer []byte, fd FD, bind, addr SocketAddress, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	return encodeAddr(buffer, addr)
+	buffer = encodeAddr(buffer, bind)
+	buffer = encodeAddr(buffer, addr)
+	return buffer
 }
 
-func (c *Codec) DecodeSockBind(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
+func (c *Codec) DecodeSockBind(buffer []byte) (fd FD, bind, addr SocketAddress, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
 	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if bind, _, err = decodeAddr(buffer); err != nil {
 		return
 	}
 	addr, _, err = decodeAddr(buffer)
 	return
 }
 
-func (c *Codec) EncodeSockConnect(buffer []byte, fd FD, addr SocketAddress, errno Errno) []byte {
+func (c *Codec) EncodeSockConnect(buffer []byte, fd FD, peer, addr SocketAddress, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
-	return encodeAddr(buffer, addr)
+	buffer = encodeAddr(buffer, peer)
+	buffer = encodeAddr(buffer, addr)
+	return buffer
 }
 
-func (c *Codec) DecodeSockConnect(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
+func (c *Codec) DecodeSockConnect(buffer []byte) (fd FD, peer, addr SocketAddress, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
 	if fd, buffer, err = decodeFD(buffer); err != nil {
+		return
+	}
+	if peer, buffer, err = decodeAddr(buffer); err != nil {
 		return
 	}
 	addr, _, err = decodeAddr(buffer)
@@ -1156,13 +1166,13 @@ func (c *Codec) DecodeSockLocalAddress(buffer []byte) (fd FD, addr SocketAddress
 	return
 }
 
-func (c *Codec) EncodeSockPeerAddress(buffer []byte, fd FD, addr SocketAddress, errno Errno) []byte {
+func (c *Codec) EncodeSockRemoteAddress(buffer []byte, fd FD, addr SocketAddress, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	return encodeAddr(buffer, addr)
 }
 
-func (c *Codec) DecodeSockPeerAddress(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
+func (c *Codec) DecodeSockRemoteAddress(buffer []byte) (fd FD, addr SocketAddress, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
@@ -1895,6 +1905,8 @@ func decodeDirEntries(buffer []byte, entries []DirEntry) (_ []DirEntry, _ []byte
 
 func encodeAddr(buffer []byte, addr SocketAddress) []byte {
 	switch a := addr.(type) {
+	case nil:
+		return encodeProtocolFamily(buffer, 0)
 	case *Inet4Address:
 		buffer = encodeProtocolFamily(buffer, Inet)
 		buffer = encodeInt(buffer, a.Port)
@@ -1919,6 +1931,8 @@ func decodeAddr(buffer []byte) (_ SocketAddress, _ []byte, err error) {
 	//  *Inet4Address and *Inet6Address to populate
 	var ip []byte
 	switch f {
+	case 0:
+		return nil, buffer, nil
 	case Inet:
 		var addr Inet4Address
 		if addr.Port, buffer, err = decodeInt(buffer); err != nil {
