@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	pprof "github.com/google/pprof/profile"
+	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/print/jsonprint"
