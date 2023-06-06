@@ -16,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	pprof "github.com/google/pprof/profile"
-	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/print/jsonprint"
@@ -367,7 +366,7 @@ func fetchRecord(ctx context.Context, reg *timemachine.Registry, id string, conf
 	if len(s) != 2 {
 		return nil, timemachine.Record{}, errors.New(`record id should have the form <process id>/<offset>`)
 	}
-	pid, err := uuid.Parse(s[0])
+	pid, err := parseProcessID(s[0])
 	if err != nil {
 		return nil, timemachine.Record{}, errors.New(`malformed process id (not a UUID)`)
 	}

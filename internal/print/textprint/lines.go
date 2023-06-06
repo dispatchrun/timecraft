@@ -9,7 +9,7 @@ type lineprefixer struct {
 	p []byte
 	w io.Writer
 
-	start bool
+	needsPrefix bool
 }
 
 func Prefixlines(w io.Writer, prefix []byte) io.Writer {
@@ -17,15 +17,15 @@ func Prefixlines(w io.Writer, prefix []byte) io.Writer {
 		p: prefix,
 		w: w,
 
-		start: true,
+		needsPrefix: true,
 	}
 }
 
 func (l *lineprefixer) Write(b []byte) (int, error) {
 	count := 0
 	for len(b) > 0 {
-		if l.start {
-			l.start = false
+		if l.needsPrefix {
+			l.needsPrefix = false
 			n, err := l.w.Write(l.p)
 			count += n
 			if err != nil {
@@ -38,7 +38,7 @@ func (l *lineprefixer) Write(b []byte) (int, error) {
 			i = len(b)
 		} else {
 			i++ // include \n
-			l.start = true
+			l.needsPrefix = true
 		}
 		n, err := l.w.Write(b[:i])
 		count += n

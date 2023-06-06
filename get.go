@@ -174,7 +174,7 @@ func get(ctx context.Context, args []string) error {
 			perrorf(`Expected the process id as argument` + useCmd("get records"))
 		}
 
-		processID, err := uuid.Parse(args[0])
+		processID, err := parseProcessID(args[0])
 		if err != nil {
 			return err
 		}
@@ -225,20 +225,14 @@ func get(ctx context.Context, args []string) error {
 func recordsDecoder(manifest *format.Manifest, from stream.Reader[timemachine.Record]) stream.Reader[format.Record] {
 	dec := wasicall.Decoder{}
 	return stream.ConvertReader[format.Record, timemachine.Record](from, func(x timemachine.Record) (format.Record, error) {
-		out := format.Record{
-			ID:      fmt.Sprintf("%s/%d", manifest.ProcessID, x.Offset),
-			Process: manifest.Process,
-			Offset:  x.Offset,
-			Size:    int64(len(x.FunctionCall)),
-			Time:    x.Time,
-		}
-		_, syscall, err := dec.Decode(x)
-		if err == nil {
-			out.Function = syscall.ID().String()
-		} else {
-			out.Function = fmt.Sprintf("%d (ERR: %s)", x.FunctionID, err)
-		}
-		return out, nil
+		return format.Record{
+			ID:       fmt.Sprintf("%s/%d", manifest.ProcessID, x.Offset),
+			Process:  manifest.Process,
+			Offset:   x.Offset,
+			Size:     int64(len(x.FunctionCall)),
+			Time:     x.Time,
+			Function: wasicall.SyscallID(x.FunctionID).String(),
+		}, nil
 	})
 }
 
