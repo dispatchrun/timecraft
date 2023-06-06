@@ -50,7 +50,7 @@ Options:
    -c, --config path    Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help           Show this usage information
    -o, --output format  Output format, one of: text, json, yaml
-   -h, --hex            Display full binary values as hexadecimal when applicable
+   -x, --hex            Display full binary values as hexadecimal when applicable
    -v, --verbose        For text output, display more details about the resource
 `
 
@@ -64,7 +64,7 @@ func describe(ctx context.Context, args []string) error {
 	flagSet := newFlagSet("timecraft describe", describeUsage)
 	customVar(flagSet, &output, "o", "output")
 	boolVar(flagSet, &verbose, "v", "verbose")
-	boolVar(flagSet, &hex, "h", "hex")
+	boolVar(flagSet, &hex, "x", "hex")
 
 	args, err := parseFlags(flagSet, args)
 	if err != nil {
@@ -305,39 +305,12 @@ func describeProfile(ctx context.Context, reg *timemachine.Registry, id string, 
 }
 
 func describeRecord(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
-	s := strings.Split(id, "/")
-	if len(s) != 2 {
-		return nil, errors.New(`record id should have the form <process id>/<offset>`)
-	}
-	pid, err := uuid.Parse(s[0])
-	if err != nil {
-		return nil, errors.New(`malformed process id (not a UUID)`)
-	}
-	offset, err := strconv.ParseInt(s[1], 10, 64)
-	if err != nil {
-		return nil, errors.New(`malformed record offset (not an integer)`)
-	}
-
-	r, err := reg.LookupRecord(ctx, pid, offset)
+	_, rec, err := fetchRecord(ctx, reg, id, config)
 	if err != nil {
 		return nil, err
 	}
 
-	rec := timemachine.Record{
-		Time:         r.Time,
-		FunctionID:   r.FunctionID,
-		FunctionCall: r.FunctionCall,
-	}
-
-	dec := wasicall.Decoder{}
-	_, syscall, _ := dec.Decode(rec)
-
-	desc := &recordDescriptor{
-		Record:  r,
-		Syscall: syscall,
-	}
-
-	return desc, nil
+	return recordDescriptor(rec), nil
 }
 
 func describeRuntime(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
@@ -387,6 +360,53 @@ func lookupProcess(ctx context.Context, reg *timemachine.Registry, id string, co
 
 func lookupProfile(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	return lookup(ctx, reg, id, (*timemachine.Registry).LookupProfile)
+}
+
+func fetchRecord(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (*format.Manifest, timemachine.Record, error) {
+	s := strings.Split(id, "/")
+	if len(s) != 2 {
+		return nil, timemachine.Record{}, errors.New(`record id should have the form <process id>/<offset>`)
+	}
+	pid, err := uuid.Parse(s[0])
+	if err != nil {
+		return nil, timemachine.Record{}, errors.New(`malformed process id (not a UUID)`)
+	}
+	offset, err := strconv.ParseInt(s[1], 10, 64)
+	if err != nil {
+		return nil, timemachine.Record{}, errors.New(`malformed record offset (not an integer)`)
+	}
+
+	manifest, err := reg.LookupLogManifest(ctx, pid)
+	if err != nil {
+		return nil, timemachine.Record{}, err
+	}
+
+	rec, err := reg.LookupRecord(ctx, manifest, offset)
+	return manifest, rec, err
+}
+
+func lookupRecord(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
+	manifest, rec, err := fetchRecord(ctx, reg, id, config)
+	if err != nil {
+		return format.Record{}, err
+	}
+
+	r := format.Record{
+		ID:      id,
+		Process: manifest.Process,
+		Offset:  rec.Offset,
+		Size:    int64(len(rec.FunctionCall)),
+		Time:    rec.Time,
+	}
+
+	dec := wasicall.Decoder{}
+	_, syscall, err := dec.Decode(rec)
+	if err == nil {
+		r.Function = syscall.ID().String()
+	} else {
+		r.Function = fmt.Sprintf("%d (ERR: %s)", rec.FunctionID, err)
+	}
+	return r, nil
 }
 
 func lookupRuntime(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
@@ -847,24 +867,26 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, processID forma
 	return logDescriptor(segs), nil
 }
 
-type recordDescriptor struct {
-	Record  format.Record    `json:"record"  yaml:"record"`
-	Syscall wasicall.Syscall `json:"syscall" yaml:"syscall"`
-}
+type recordDescriptor timemachine.Record
 
-func (desc *recordDescriptor) Format(w fmt.State, r rune) {
+func (desc recordDescriptor) Format(w fmt.State, r rune) {
 	hex := r == 'x'
-	fmt.Fprintf(w, "Offset:  %d\n", desc.Record.Offset)
-	fmt.Fprintf(w, "Segment: %d\n", desc.Record.Segment)
-	fmt.Fprintf(w, "Process: %s\n", desc.Record.ProcessID)
-	fmt.Fprintf(w, "Time:    %s\n", human.Time(desc.Record.Time))
-	fmt.Fprintf(w, "Size:    %s\n", human.Bytes(len(desc.Record.FunctionCall)))
+	fmt.Fprintf(w, "Offset:  %d\n", desc.Offset)
+	fmt.Fprintf(w, "Time:    %s\n", human.Time(desc.Time))
+	fmt.Fprintf(w, "Size:    %s\n", human.Bytes(len(desc.FunctionCall)))
 	fmt.Fprintf(w, "---\n")
-	fmt.Fprintf(w, "Host function: %s\n", desc.Syscall.ID().String())
-	fmt.Fprintf(w, "Parameters:")
-	printParams(w, hex, desc.Syscall.Params())
-	fmt.Fprintf(w, "Results:")
-	printParams(w, hex, desc.Syscall.Results())
+
+	dec := wasicall.Decoder{}
+	_, syscall, err := dec.Decode(timemachine.Record(desc))
+	if err == nil {
+		fmt.Fprintf(w, "Host function: %s\n", syscall.ID().String())
+		fmt.Fprintf(w, "Parameters:")
+		printParams(w, hex, syscall.Params())
+		fmt.Fprintf(w, "Results:")
+		printParams(w, hex, syscall.Results())
+	} else {
+		fmt.Fprintf(w, "Host function: %d (ERR: %s)", desc.FunctionID, err)
+	}
 }
 
 func printParams(w io.Writer, hex bool, x []any) {

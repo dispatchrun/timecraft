@@ -138,55 +138,46 @@ func (reg *Registry) LookupProcess(ctx context.Context, hash format.Hash) (*form
 	return process, reg.lookupObject(ctx, hash, process)
 }
 
-func (reg *Registry) LookupRecord(ctx context.Context, processID format.UUID, offset int64) (format.Record, error) {
-	manifest, err := reg.LookupLogManifest(ctx, processID)
-	if err != nil {
-		return format.Record{}, err
-	}
-	delta := manifest.StartTime.Sub(time.Unix(0, 0))
-
+func (reg *Registry) LookupRecord(ctx context.Context, process *format.Manifest, offset int64) (Record, error) {
 	// TODO: handle multiple log segments
-	logSegment, err := reg.ReadLogSegment(ctx, processID, 0)
+	logSegment, err := reg.ReadLogSegment(ctx, process.ProcessID, 0)
 	if err != nil {
-		return format.Record{}, err
+		return Record{}, err
 	}
 	defer logSegment.Close()
-	segmentReader := NewLogReader(logSegment, time.Unix(0, 0))
+	segmentReader := NewLogReader(logSegment, process.StartTime)
 	defer segmentReader.Close()
 
 	for {
 		if ctx.Err() != nil {
-			return format.Record{}, ctx.Err()
+			return Record{}, ctx.Err()
 		}
 		batch, err := segmentReader.ReadRecordBatch()
 		if err == io.EOF {
-			return format.Record{}, object.ErrNotExist
+			return Record{}, object.ErrNotExist
 		}
 		if err != nil {
-			return format.Record{}, ctx.Err()
+			return Record{}, ctx.Err()
 		}
 		it := stream.Iter[Record](batch)
 		o := batch.FirstOffset()
 		for it.Next() {
 			if ctx.Err() != nil {
-				return format.Record{}, ctx.Err()
+				return Record{}, ctx.Err()
 			}
 			if o < offset {
 				o++
 				continue
 			}
 			if o > offset {
-				return format.Record{}, fmt.Errorf("requested offset was missed")
+				return Record{}, fmt.Errorf("requested offset was missed")
 			}
 			r := it.Value()
-			call := append([]byte(nil), r.FunctionCall...)
-			return format.Record{
-				ProcessID:    processID,
-				Segment:      0,
+			return Record{
 				Offset:       o,
-				Time:         r.Time.Add(delta),
+				Time:         r.Time,
 				FunctionID:   r.FunctionID,
-				FunctionCall: call,
+				FunctionCall: append([]byte(nil), r.FunctionCall...),
 			}, nil
 		}
 	}
@@ -460,8 +451,8 @@ func (w *logSegmentWriter) Close() error {
 	return err
 }
 
-func (reg *Registry) ListRecords(ctx context.Context, processID format.UUID, timeRange TimeRange) stream.ReadCloser[format.Record] {
-	ch := make(chan stream.Optional[format.Record])
+func (reg *Registry) ListRecords(ctx context.Context, processID format.UUID, timeRange TimeRange) stream.ReadCloser[Record] {
+	ch := make(chan stream.Optional[Record])
 	ctx, cancel := context.WithCancel(ctx)
 
 	go func() {
@@ -469,19 +460,18 @@ func (reg *Registry) ListRecords(ctx context.Context, processID format.UUID, tim
 
 		manifest, err := reg.LookupLogManifest(ctx, processID)
 		if err != nil {
-			ch <- stream.Opt(format.Record{}, err)
+			ch <- stream.Opt(Record{}, err)
 			return
 		}
-		delta := manifest.StartTime.Sub(time.Unix(0, 0))
 
 		// TODO: handle multiple log segments
 		logSegment, err := reg.ReadLogSegment(ctx, processID, 0)
 		if err != nil {
-			ch <- stream.Opt(format.Record{}, err)
+			ch <- stream.Opt(Record{}, err)
 			return
 		}
 		defer logSegment.Close()
-		segmentReader := NewLogReader(logSegment, timeRange.Start)
+		segmentReader := NewLogReader(logSegment, manifest.StartTime)
 		defer segmentReader.Close()
 
 		for {
@@ -493,22 +483,27 @@ func (reg *Registry) ListRecords(ctx context.Context, processID format.UUID, tim
 				return
 			}
 			if err != nil {
-				ch <- stream.Opt(format.Record{}, err)
+				ch <- stream.Opt(Record{}, err)
 				return
 			}
+
 			it := stream.Iter[Record](batch)
 			offset := batch.FirstOffset()
 			for it.Next() {
 				r := it.Value()
-				call := append([]byte(nil), r.FunctionCall...)
-				out := stream.Opt(format.Record{
-					ProcessID:    processID,
-					Segment:      0,
+
+				if r.Time.Before(timeRange.Start) || r.Time.After(timeRange.End) {
+					offset++
+					continue
+				}
+
+				out := stream.Opt(Record{
 					Offset:       offset,
-					Time:         r.Time.Add(delta),
+					Time:         r.Time,
 					FunctionID:   r.FunctionID,
-					FunctionCall: call,
+					FunctionCall: append([]byte(nil), r.FunctionCall...),
 				}, nil)
+
 				// Batches can be large. Check for context
 				// termination here as well to bail out early if
 				// requested.

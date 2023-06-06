@@ -223,13 +223,12 @@ type LogSegment struct {
 }
 
 type Record struct {
-	ProcessID UUID
-	Segment   int64
-	Offset    int64
-
-	Time         time.Time
-	FunctionID   int
-	FunctionCall []byte
+	ID       string
+	Process  *Descriptor
+	Offset   int64
+	Size     int64
+	Time     time.Time
+	Function string
 }
 
 var (

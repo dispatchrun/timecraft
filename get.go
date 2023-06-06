@@ -97,10 +97,10 @@ var resources = [...]resource{
 	},
 
 	{
-		typ: "record",
-		alt: []string{"rec", "recs", "records"},
-		// TODO lookup
+		typ:      "record",
+		alt:      []string{"rec", "recs", "records"},
 		describe: describeRecord,
+		lookup:   lookupRecord,
 	},
 
 	{
@@ -179,8 +179,15 @@ func get(ctx context.Context, args []string) error {
 			return err
 		}
 
+		manifest, err := registry.LookupLogManifest(ctx, processID)
+		if err != nil {
+			return err
+		}
+
 		reader := registry.ListRecords(ctx, processID, timeRange)
 		defer reader.Close()
+
+		decoded := recordsDecoder(manifest, reader)
 
 		var writer stream.WriteCloser[format.Record]
 		switch output {
@@ -192,8 +199,8 @@ func get(ctx context.Context, args []string) error {
 			writer = getRecords(ctx, os.Stdout, registry, quiet)
 		}
 		defer writer.Close()
+		_, err = stream.Copy[format.Record](writer, decoded)
 
-		_, err = stream.Copy[format.Record](writer, reader)
 		return err
 	}
 
@@ -213,6 +220,26 @@ func get(ctx context.Context, args []string) error {
 
 	_, err = stream.Copy[*format.Descriptor](writer, reader)
 	return err
+}
+
+func recordsDecoder(manifest *format.Manifest, from stream.Reader[timemachine.Record]) stream.Reader[format.Record] {
+	dec := wasicall.Decoder{}
+	return stream.ConvertReader[format.Record, timemachine.Record](from, func(x timemachine.Record) (format.Record, error) {
+		out := format.Record{
+			ID:      fmt.Sprintf("%s/%d", manifest.ProcessID, x.Offset),
+			Process: manifest.Process,
+			Offset:  x.Offset,
+			Size:    int64(len(x.FunctionCall)),
+			Time:    x.Time,
+		}
+		_, syscall, err := dec.Decode(x)
+		if err == nil {
+			out.Function = syscall.ID().String()
+		} else {
+			out.Function = fmt.Sprintf("%d (ERR: %s)", x.FunctionID, err)
+		}
+		return out, nil
+	})
 }
 
 func getConfigs(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Descriptor] {
@@ -352,35 +379,18 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry, qu
 func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[format.Record] {
 	type record struct {
 		ID      string      `text:"RECORD ID"`
-		Segment int         `text:"SEGMENT"`
 		Time    human.Time  `text:"TIME"`
 		Size    human.Bytes `text:"SIZE"`
 		Syscall string      `text:"HOST FUNCTION"`
 	}
-	dec := wasicall.Decoder{}
-
 	return newTableWriter(w, quiet, nil,
 		func(r format.Record) (record, error) {
 			out := record{
-				ID:      fmt.Sprintf("%s/%d", r.ProcessID, r.Offset),
-				Segment: int(r.Segment),
+				ID:      r.ID,
 				Time:    human.Time(r.Time),
-				Size:    human.Bytes(len(r.FunctionCall)),
-				Syscall: "?",
+				Size:    human.Bytes(r.Size),
+				Syscall: r.Function,
 			}
-
-			rec := timemachine.Record{
-				Time:         r.Time,
-				FunctionID:   r.FunctionID,
-				FunctionCall: r.FunctionCall,
-			}
-			_, syscall, err := dec.Decode(rec)
-			if err == nil {
-				out.Syscall = syscall.ID().String()
-			} else {
-				out.Syscall = fmt.Sprintf("%d (ERR: %s)", r.FunctionID, err)
-			}
-
 			return out, nil
 		},
 	)
