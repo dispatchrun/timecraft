@@ -25,7 +25,7 @@ Usage:	timecraft get <resource type> [options]
 
    The get sub-command gives access to the state of the time machine registry.
    The command must be followed by the name of resources to display, which must
-   be one of config, module, process, profile, or runtime.
+   be one of config, module, process, profile, record, or runtime.
    (the command also accepts plurals and abbreviations of the resource names)
 
 Examples:
