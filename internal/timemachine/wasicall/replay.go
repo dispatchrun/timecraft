@@ -1033,12 +1033,12 @@ func (r *Replay) RandomGet(ctx context.Context, buffer []byte) Errno {
 	return errno
 }
 
-func (r *Replay) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, SocketAddress, Errno) {
+func (r *Replay) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, SocketAddress, SocketAddress, Errno) {
 	record, ok := r.readRecord(SockAccept)
 	if !ok {
-		return -1, nil, ENOSYS
+		return -1, nil, nil, ENOSYS
 	}
-	recordFD, recordFlags, newfd, addr, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
+	recordFD, recordFlags, newfd, peer, addr, errno, err := r.codec.DecodeSockAccept(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1054,7 +1054,7 @@ func (r *Replay) SockAccept(ctx context.Context, fd FD, flags FDFlags) (FD, Sock
 			panic(errors.Join(mismatch...))
 		}
 	}
-	return newfd, addr, errno
+	return newfd, peer, addr, errno
 }
 
 func (r *Replay) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Errno {
@@ -1172,12 +1172,12 @@ func (r *Replay) SockOpen(ctx context.Context, protocolFamily ProtocolFamily, so
 	return newfd, errno
 }
 
-func (r *Replay) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errno {
+func (r *Replay) SockBind(ctx context.Context, fd FD, bind SocketAddress) (SocketAddress, Errno) {
 	record, ok := r.readRecord(SockBind)
 	if !ok {
-		return ENOSYS
+		return nil, ENOSYS
 	}
-	recordFD, recordAddr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
+	recordFD, recordBind, recordAddr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1186,22 +1186,22 @@ func (r *Replay) SockBind(ctx context.Context, fd FD, addr SocketAddress) Errno 
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "fd", fd, recordFD})
 		}
-		if addr != recordAddr {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "addr", addr, recordAddr})
+		if bind != recordBind {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "bind", bind, recordBind})
 		}
 		if len(mismatch) > 0 {
 			panic(errors.Join(mismatch...))
 		}
 	}
-	return errno
+	return recordAddr, errno
 }
 
-func (r *Replay) SockConnect(ctx context.Context, fd FD, addr SocketAddress) Errno {
+func (r *Replay) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (SocketAddress, Errno) {
 	record, ok := r.readRecord(SockConnect)
 	if !ok {
-		return ENOSYS
+		return nil, ENOSYS
 	}
-	recordFD, recordAddr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
+	recordFD, recordPeer, recordAddr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1210,14 +1210,14 @@ func (r *Replay) SockConnect(ctx context.Context, fd FD, addr SocketAddress) Err
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockConnect, "fd", fd, recordFD})
 		}
-		if addr != recordAddr {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockConnect, "addr", addr, recordAddr})
+		if peer != recordPeer {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockConnect, "peer", peer, recordPeer})
 		}
 		if len(mismatch) > 0 {
 			panic(errors.Join(mismatch...))
 		}
 	}
-	return errno
+	return recordAddr, errno
 }
 
 func (r *Replay) SockListen(ctx context.Context, fd FD, backlog int) Errno {
@@ -1378,17 +1378,17 @@ func (r *Replay) SockLocalAddress(ctx context.Context, fd FD) (SocketAddress, Er
 	return addr, errno
 }
 
-func (r *Replay) SockPeerAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
-	record, ok := r.readRecord(SockPeerAddress)
+func (r *Replay) SockRemoteAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
+	record, ok := r.readRecord(SockRemoteAddress)
 	if !ok {
 		return nil, ENOSYS
 	}
-	recordFD, addr, errno, err := r.codec.DecodeSockPeerAddress(record.FunctionCall)
+	recordFD, addr, errno, err := r.codec.DecodeSockRemoteAddress(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
 	if r.strict && fd != recordFD {
-		panic(&UnexpectedSyscallParamError{SockPeerAddress, "fd", fd, recordFD})
+		panic(&UnexpectedSyscallParamError{SockRemoteAddress, "fd", fd, recordFD})
 	}
 	return addr, errno
 }

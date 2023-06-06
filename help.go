@@ -21,6 +21,7 @@ Runtime Commands:
 Debugging Commands:
    logs      Print the logs for a module execution
    profile   Generate performance profile from execution records
+   trace     Generate traces from execution records
 
 Other Commands:
    config    View or edit the timecraft configuration
@@ -70,6 +71,8 @@ func help(ctx context.Context, args []string) error {
 			msg = runUsage
 		case "replay":
 			msg = replayUsage
+		case "trace":
+			msg = traceUsage
 		case "version":
 			msg = versionUsage
 		default:

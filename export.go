@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 )
 
@@ -61,9 +60,9 @@ func export(ctx context.Context, args []string) error {
 
 	var hash format.Hash
 	if resource.typ == "process" {
-		processID, err := uuid.Parse(args[1])
+		processID, err := parseProcessID(args[1])
 		if err != nil {
-			return errors.New(`malformed process id (not a UUID)`)
+			return err
 		}
 		manifest, err := registry.LookupLogManifest(ctx, processID)
 		if err != nil {

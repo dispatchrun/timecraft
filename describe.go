@@ -16,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	pprof "github.com/google/pprof/profile"
-	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/print/jsonprint"
@@ -436,9 +435,9 @@ func descriptorAndData(desc *format.Descriptor, data any) any {
 }
 
 func lookupProcessByLogID(ctx context.Context, reg *timemachine.Registry, id string) (format.UUID, *format.Descriptor, *format.Process, error) {
-	processID, err := uuid.Parse(id)
+	processID, err := parseProcessID(id)
 	if err != nil {
-		return processID, nil, nil, errors.New(`malformed process id (not a UUID)`)
+		return processID, nil, nil, err
 	}
 	manifest, err := reg.LookupLogManifest(ctx, processID)
 	if err != nil {
