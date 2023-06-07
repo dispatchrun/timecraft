@@ -673,11 +673,13 @@ func (r *Replay) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errn
 			panic(errors.Join(mismatch...))
 		}
 	}
-	switch fd {
-	case r.stdout:
-		_ = writeIOVecs(r.Stdout, iovecs)
-	case r.stderr:
-		_ = writeIOVecs(r.Stderr, iovecs)
+	if fd != noneFD {
+		switch fd {
+		case r.stdout:
+			_ = writeIOVecs(r.Stdout, iovecs)
+		case r.stderr:
+			_ = writeIOVecs(r.Stderr, iovecs)
+		}
 	}
 	return size, errno
 }
