@@ -1178,7 +1178,7 @@ func (r *Replay) SockBind(ctx context.Context, fd FD, bind SocketAddress) (Socke
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "fd", fd, recordFD})
 		}
-		if bind != recordBind {
+		if !equalSocketAddress(bind, recordBind) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "bind", bind, recordBind})
 		}
 		if len(mismatch) > 0 {
@@ -1202,7 +1202,7 @@ func (r *Replay) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (So
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockConnect, "fd", fd, recordFD})
 		}
-		if peer != recordPeer {
+		if !equalSocketAddress(peer, recordPeer) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockConnect, "peer", peer, recordPeer})
 		}
 		if len(mismatch) > 0 {
@@ -1257,7 +1257,7 @@ func (r *Replay) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags S
 		if iflags != recordIFlags {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSendTo, "iflags", iflags, recordIFlags})
 		}
-		if addr != recordAddr {
+		if !equalSocketAddress(addr, recordAddr) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSendTo, "addr", addr, recordAddr})
 		}
 		if len(mismatch) > 0 {
@@ -1469,5 +1469,21 @@ func equalSubscription(a, b Subscription) bool {
 		return a.GetFDReadWrite() == b.GetFDReadWrite()
 	} else {
 		return false // invalid event type; cannot compare
+	}
+}
+
+func equalSocketAddress(a, b SocketAddress) bool {
+	switch at := a.(type) {
+	case *Inet4Address:
+		bt, ok := b.(*Inet4Address)
+		return ok && *at == *bt
+	case *Inet6Address:
+		bt, ok := b.(*Inet6Address)
+		return ok && *at == *bt
+	case *UnixAddress:
+		bt, ok := b.(*UnixAddress)
+		return ok && *at == *bt
+	default:
+		return false
 	}
 }
