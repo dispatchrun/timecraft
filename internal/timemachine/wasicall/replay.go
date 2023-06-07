@@ -67,14 +67,6 @@ func NewReplay(records stream.Reader[timemachine.Record]) *Replay {
 	return r
 }
 
-func (r *Replay) Preopen(hostfd int, path string, fdstat FDStat) FD {
-	panic("Replay cannot Preopen")
-}
-
-func (r *Replay) Register(hostfd int, fdstat FDStat) FD {
-	panic("Replay cannot Register")
-}
-
 func (r *Replay) readRecord(syscall SyscallID) (timemachine.Record, bool) {
 	if !r.records.Next() {
 		if err := r.records.Err(); err != nil {

@@ -8,9 +8,7 @@ import (
 
 // FallbackSystem wraps two System instances. If the first returns ENOSYS
 // for a particular system call, the call is forwarded to the second instance.
-//
-// Preopen and Register calls are forwarded to the primary system only.
-// Close however closes both systems.
+// Close closes both systems.
 type FallbackSystem struct {
 	System
 

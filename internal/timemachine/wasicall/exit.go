@@ -25,14 +25,6 @@ func (s *exitSystem) Close(ctx context.Context) error {
 	return nil
 }
 
-func (s *exitSystem) Preopen(hostfd int, path string, fdstat FDStat) FD {
-	return -1
-}
-
-func (s *exitSystem) Register(hostfd int, fdstat FDStat) FD {
-	return -1
-}
-
 func (s *exitSystem) ArgsSizesGet(ctx context.Context) (int, int, Errno) {
 	panic(s.newExitError())
 }
