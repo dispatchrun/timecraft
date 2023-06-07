@@ -814,10 +814,10 @@ func (r *Replay) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, path
 	return newfd, errno
 }
 
-func (r *Replay) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) ([]byte, Errno) {
+func (r *Replay) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) (int, Errno) {
 	record, ok := r.readRecord(PathReadLink)
 	if !ok {
-		return nil, ENOSYS
+		return 0, ENOSYS
 	}
 	recordFD, recordPath, result, errno, err := r.codec.DecodePathReadLink(record.FunctionCall)
 	if err != nil {
@@ -839,7 +839,7 @@ func (r *Replay) PathReadLink(ctx context.Context, fd FD, path string, buffer []
 		}
 	}
 	copy(buffer, result)
-	return buffer, errno
+	return len(result), errno
 }
 
 func (r *Replay) PathRemoveDirectory(ctx context.Context, fd FD, path string) Errno {

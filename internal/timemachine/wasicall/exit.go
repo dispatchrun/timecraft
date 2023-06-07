@@ -161,7 +161,7 @@ func (s *exitSystem) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, 
 	panic(s.newExitError())
 }
 
-func (s *exitSystem) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) ([]byte, Errno) {
+func (s *exitSystem) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) (int, Errno) {
 	panic(s.newExitError())
 }
 
