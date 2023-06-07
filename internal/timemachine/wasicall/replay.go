@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
@@ -34,6 +35,12 @@ import (
 // were encountered. In this case, the error will implement
 // interface{ Unwrap() []error }.
 type Replay struct {
+	Stdout io.Writer
+	Stderr io.Writer
+
+	stdout FD
+	stderr FD
+
 	records stream.Iterator[timemachine.Record]
 
 	// Codec is used to encode and decode system call inputs and outputs.
@@ -57,12 +64,20 @@ type Replay struct {
 	entries       []DirEntry
 }
 
+const noneFD = ^FD(0)
+
 var _ System = (*Replay)(nil)
 var _ SocketsExtension = (*Replay)(nil)
 
 // NewReplay creates a Replay.
 func NewReplay(records stream.Reader[timemachine.Record]) *Replay {
-	r := &Replay{strict: true}
+	r := &Replay{
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+		stdout: 1,
+		stderr: 2,
+		strict: true,
+	}
 	r.records.Reset(records)
 	return r
 }
@@ -238,6 +253,12 @@ func (r *Replay) FDClose(ctx context.Context, fd FD) Errno {
 	}
 	if r.strict && fd != recordFD {
 		panic(&UnexpectedSyscallParamError{FDClose, "fd", fd, recordFD})
+	}
+	switch fd {
+	case r.stdout:
+		r.stdout = noneFD
+	case r.stderr:
+		r.stderr = noneFD
 	}
 	return errno
 }
@@ -562,6 +583,14 @@ func (r *Replay) FDRenumber(ctx context.Context, from, to FD) Errno {
 			panic(errors.Join(mismatch...))
 		}
 	}
+	if errno == ESUCCESS {
+		switch from {
+		case r.stdout:
+			r.stdout = to
+		case r.stderr:
+			r.stderr = to
+		}
+	}
 	return errno
 }
 
@@ -644,7 +673,25 @@ func (r *Replay) FDWrite(ctx context.Context, fd FD, iovecs []IOVec) (Size, Errn
 			panic(errors.Join(mismatch...))
 		}
 	}
+	if fd != noneFD {
+		switch fd {
+		case r.stdout:
+			_ = writeIOVecs(r.Stdout, iovecs)
+		case r.stderr:
+			_ = writeIOVecs(r.Stderr, iovecs)
+		}
+	}
 	return size, errno
+}
+
+func writeIOVecs(w io.Writer, iovs []IOVec) error {
+	for _, iov := range iovs {
+		_, err := w.Write(iov)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Replay) PathCreateDirectory(ctx context.Context, fd FD, path string) Errno {

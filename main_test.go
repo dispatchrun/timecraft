@@ -21,6 +21,7 @@ func TestTimecraft(t *testing.T) {
 	t.Run("get", get.run)
 	t.Run("help", help.run)
 	t.Run("logs", logs.run)
+	t.Run("replay", replay.run)
 	t.Run("root", root.run)
 	t.Run("run", run.run)
 	t.Run("unknown", unknown.run)
@@ -92,8 +93,19 @@ func timecraft(t *testing.T, args ...string) (stdout, stderr string, exitCode in
 	errbuf := acquireBuffer()
 	defer releaseBuffer(errbuf)
 
-	wg := sync.WaitGroup{}
-	defer wg.Wait()
+	tmpdir := t.TempDir()
+
+	stdoutFile, err := os.Create(filepath.Join(tmpdir, "stdout"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdoutFile.Close()
+
+	stderrFile, err := os.Create(filepath.Join(tmpdir, "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stderrFile.Close()
 
 	defaultStdout := os.Stdout
 	defaultStderr := os.Stderr
@@ -101,32 +113,17 @@ func timecraft(t *testing.T, args ...string) (stdout, stderr string, exitCode in
 		os.Stdout = defaultStdout
 		os.Stderr = defaultStderr
 	}()
-
-	stdoutR, stdoutW, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stdoutR.Close()
-	defer stdoutW.Close()
-
-	stderrR, stderrW, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stderrR.Close()
-	defer stderrW.Close()
-
-	wg.Add(2)
-	go func() { defer wg.Done(); _, _ = outbuf.ReadFrom(stdoutR) }()
-	go func() { defer wg.Done(); _, _ = errbuf.ReadFrom(stderrR) }()
-
-	os.Stdout = stdoutW
-	os.Stderr = stderrW
+	os.Stdout = stdoutFile
+	os.Stderr = stderrFile
 
 	exitCode = main.Root(ctx, args...)
-	stdoutW.Close()
-	stderrW.Close()
-	wg.Wait()
+
+	if err = readFromFile(outbuf, stdoutFile.Name()); err != nil {
+		t.Fatal(err)
+	}
+	if err = readFromFile(errbuf, stderrFile.Name()); err != nil {
+		t.Fatal(err)
+	}
 
 	stdout = outbuf.String()
 	stdout = strings.TrimPrefix(stdout, "\n")
@@ -134,6 +131,20 @@ func timecraft(t *testing.T, args ...string) (stdout, stderr string, exitCode in
 	stderr = errbuf.String()
 	stderr = strings.TrimPrefix(stderr, "\n")
 	return
+}
+
+func readFromFile(buf *bytes.Buffer, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	s, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	buf.Grow(int(s.Size()))
+	_, err = buf.ReadFrom(f)
+	return err
 }
 
 var buffers sync.Pool
