@@ -25,7 +25,9 @@ Options:
 `
 
 func replay(ctx context.Context, args []string) error {
-	trace := false
+	var (
+		trace = false
+	)
 
 	flagSet := newFlagSet("timecraft replay", replayUsage)
 	boolVar(flagSet, &trace, "T", "trace")
