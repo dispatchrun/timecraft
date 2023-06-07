@@ -211,8 +211,11 @@ func (r *LogRecordReader) Read(records []Record) (int, error) {
 			}
 		}
 
-		if n > 0 || err != io.EOF {
-			return n, err
+		if n > 0 {
+			return n, nil
+		}
+		if err != io.EOF {
+			return 0, err
 		}
 
 		r.batch = nil
