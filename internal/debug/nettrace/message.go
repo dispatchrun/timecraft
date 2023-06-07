@@ -13,11 +13,11 @@ import (
 )
 
 type Message interface {
-	Conn() Conn
+	Link() (src, dst net.Addr)
+
+	Pair() int64
 
 	Time() time.Time
-
-	Data() []byte
 
 	fmt.Formatter
 
@@ -37,12 +37,6 @@ type ConnProtocol interface {
 }
 
 type Conn interface {
-	Protocol() ConnProtocol
-
-	LocalAddr() net.Addr
-
-	RemoteAddr() net.Addr
-
 	RecvMessage(now time.Time, data []byte, eof bool) (Message, int, error)
 
 	SendMessage(now time.Time, data []byte, eof bool) (Message, int, error)

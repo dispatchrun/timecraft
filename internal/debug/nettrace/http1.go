@@ -14,9 +14,7 @@ func HTTP1() ConnProtocol { return http1Protocol{} }
 
 type http1Protocol struct{}
 
-func (http1Protocol) Name() string {
-	return "HTTP"
-}
+func (http1Protocol) Name() string { return "HTTP" }
 
 func (http1Protocol) CanRead(msg []byte) bool {
 	i := bytes.Index(msg, []byte("\r\n"))
@@ -55,20 +53,52 @@ func (http1Protocol) NewServer(addr, peer net.Addr) Conn {
 }
 
 type http1Conn struct {
-	addr net.Addr
-	peer net.Addr
+	addr  net.Addr
+	peer  net.Addr
+	reqID int64
+	resID int64
 }
 
-func (c *http1Conn) Protocol() ConnProtocol {
-	return http1Protocol{}
+func (c *http1Conn) readRequest(now time.Time, msg []byte, eof bool, src, dst net.Addr) (Message, int, error) {
+	messageLength, err := http1ReadMessage(msg, eof)
+	if err != nil {
+		return nil, 0, err
+	}
+	if messageLength == 0 {
+		return nil, 0, nil
+	}
+	req := &http1Request{
+		http1Message: http1Message{
+			pair: c.reqID,
+			src:  src,
+			dst:  dst,
+			time: now,
+			data: msg[:messageLength],
+		},
+	}
+	c.reqID++
+	return req, messageLength, nil
 }
 
-func (c *http1Conn) LocalAddr() net.Addr {
-	return c.addr
-}
-
-func (c *http1Conn) RemoteAddr() net.Addr {
-	return c.peer
+func (c *http1Conn) readResponse(now time.Time, msg []byte, eof bool, src, dst net.Addr) (Message, int, error) {
+	messageLength, err := http1ReadMessage(msg, eof)
+	if err != nil {
+		return nil, 0, err
+	}
+	if messageLength == 0 {
+		return nil, 0, nil
+	}
+	res := &http1Response{
+		http1Message: http1Message{
+			pair: c.resID,
+			src:  src,
+			dst:  dst,
+			time: now,
+			data: msg[:messageLength],
+		},
+	}
+	c.resID++
+	return res, messageLength, nil
 }
 
 type http1ClientConn struct {
@@ -76,11 +106,11 @@ type http1ClientConn struct {
 }
 
 func (c *http1ClientConn) RecvMessage(now time.Time, data []byte, eof bool) (Message, int, error) {
-	return http1ReadResponse(c, now, data, eof)
+	return c.readResponse(now, data, eof, c.peer, c.addr)
 }
 
 func (c *http1ClientConn) SendMessage(now time.Time, data []byte, eof bool) (Message, int, error) {
-	return http1ReadRequest(c, now, data, eof)
+	return c.readRequest(now, data, eof, c.addr, c.peer)
 }
 
 type http1ServerConn struct {
@@ -88,11 +118,11 @@ type http1ServerConn struct {
 }
 
 func (c *http1ServerConn) RecvMessage(now time.Time, data []byte, eof bool) (Message, int, error) {
-	return http1ReadRequest(c, now, data, eof)
+	return c.readRequest(now, data, eof, c.peer, c.addr)
 }
 
 func (c *http1ServerConn) SendMessage(now time.Time, data []byte, eof bool) (Message, int, error) {
-	return http1ReadResponse(c, now, data, eof)
+	return c.readResponse(now, data, eof, c.addr, c.peer)
 }
 
 var (
@@ -100,55 +130,25 @@ var (
 	newLine              = []byte("\n")
 )
 
-type http1Request struct {
-	conn Conn
+type http1Message struct {
+	src  net.Addr
+	dst  net.Addr
+	pair int64
 	time time.Time
 	data []byte
 }
 
-func (req *http1Request) Conn() Conn      { return req.conn }
-func (req *http1Request) Time() time.Time { return req.time }
-func (req *http1Request) Data() []byte    { return req.data }
+func (msg *http1Message) Link() (net.Addr, net.Addr) { return msg.src, msg.dst }
 
-func (req *http1Request) Format(w fmt.State, v rune) {
-	http1FormatMessage(w, v, req.conn, req.time, req.data)
-}
+func (msg *http1Message) Pair() int64 { return msg.pair }
 
-func (req *http1Request) MarshalJSON() ([]byte, error) {
-	return []byte(`{}`), nil
-}
+func (msg *http1Message) Time() time.Time { return msg.time }
 
-func (req *http1Request) MarshalYAML() (any, error) {
-	return nil, nil
-}
-
-type http1Response struct {
-	conn Conn
-	time time.Time
-	data []byte
-}
-
-func (res *http1Response) Conn() Conn      { return res.conn }
-func (res *http1Response) Time() time.Time { return res.time }
-func (res *http1Response) Data() []byte    { return res.data }
-
-func (req *http1Response) Format(w fmt.State, v rune) {
-	http1FormatMessage(w, v, req.conn, req.time, req.data)
-}
-
-func (req *http1Response) MarshalJSON() ([]byte, error) {
-	return []byte(`{}`), nil
-}
-
-func (req *http1Response) MarshalYAML() (any, error) {
-	return nil, nil
-}
-
-func http1FormatMessage(w fmt.State, v rune, conn Conn, time time.Time, data []byte) {
+func (msg *http1Message) Format(w fmt.State, v rune) {
 	fmt.Fprintf(w, "%s HTTP %s > %s",
-		formatTime(time),
-		socketAddressString(conn.LocalAddr()),
-		socketAddressString(conn.RemoteAddr()))
+		formatTime(msg.time),
+		socketAddressString(msg.src),
+		socketAddressString(msg.dst))
 
 	if w.Flag('+') {
 		fmt.Fprintf(w, "\n")
@@ -156,12 +156,12 @@ func http1FormatMessage(w fmt.State, v rune, conn Conn, time time.Time, data []b
 		fmt.Fprintf(w, ": ")
 	}
 
-	header, body, _ := http1SplitMessage(data)
+	header, body, _ := http1SplitMessage(msg.data)
 	status, header := http1SplitLine(header)
 	status = bytes.TrimSpace(status)
-	w.Write(status)
 
 	if w.Flag('+') {
+		w.Write(status)
 		w.Write(newLine)
 
 		http1HeaderRange(header, func(name, value []byte) bool {
@@ -185,7 +185,37 @@ func http1FormatMessage(w fmt.State, v rune, conn Conn, time time.Time, data []b
 				fmt.Fprintf(w, "(binary content)")
 			}
 		}
+	} else {
+		status = bytes.TrimPrefix(status, []byte("HTTP/1.0 "))
+		status = bytes.TrimPrefix(status, []byte("HTTP/1.1 "))
+		status = bytes.TrimSuffix(status, []byte(" HTTP/1.0"))
+		status = bytes.TrimSuffix(status, []byte(" HTTP/1.1"))
+		w.Write(status)
 	}
+}
+
+type http1Request struct {
+	http1Message
+}
+
+func (req *http1Request) MarshalJSON() ([]byte, error) {
+	return []byte(`{}`), nil
+}
+
+func (req *http1Request) MarshalYAML() (any, error) {
+	return nil, nil
+}
+
+type http1Response struct {
+	http1Message
+}
+
+func (req *http1Response) MarshalJSON() ([]byte, error) {
+	return []byte(`{}`), nil
+}
+
+func (req *http1Response) MarshalYAML() (any, error) {
+	return nil, nil
 }
 
 func http1ReadMessage(msg []byte, eof bool) (n int, err error) {
@@ -223,38 +253,6 @@ func http1ReadMessage(msg []byte, eof bool) (n int, err error) {
 	}
 
 	return messageLength + contentLength, nil
-}
-
-func http1ReadRequest(conn Conn, now time.Time, msg []byte, eof bool) (Message, int, error) {
-	messageLength, err := http1ReadMessage(msg, eof)
-	if err != nil {
-		return nil, 0, err
-	}
-	if messageLength == 0 {
-		return nil, 0, nil
-	}
-	req := &http1Request{
-		conn: conn,
-		time: now,
-		data: msg[:messageLength],
-	}
-	return req, messageLength, nil
-}
-
-func http1ReadResponse(conn Conn, now time.Time, msg []byte, eof bool) (Message, int, error) {
-	messageLength, err := http1ReadMessage(msg, eof)
-	if err != nil {
-		return nil, 0, err
-	}
-	if messageLength == 0 {
-		return nil, 0, nil
-	}
-	res := &http1Response{
-		conn: conn,
-		time: now,
-		data: msg[:messageLength],
-	}
-	return res, messageLength, nil
 }
 
 func http1HeaderRange(header []byte, do func(name, value []byte) bool) {

@@ -23,6 +23,7 @@ Options:
    -c, --config             Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -d, --duration duration  Duration of the trace (default to the process uptime)
    -h, --help               Show this usage information
+   -m, --messages           Show protocol messages instead of low level connection data
    -o, --output format      Output format, one of: text, json, yaml
    -t, --start-time time    Time at which the trace starts (default to 1 minute)
    -v, --verbose            For text output, display more details about the trace
@@ -33,6 +34,7 @@ func trace(ctx context.Context, args []string) error {
 		output    = outputFormat("text")
 		startTime = human.Time{}
 		duration  = human.Duration(1 * time.Minute)
+		messages  = false
 		verbose   = false
 	)
 
@@ -40,6 +42,7 @@ func trace(ctx context.Context, args []string) error {
 	customVar(flagSet, &output, "o", "output")
 	customVar(flagSet, &duration, "d", "duration")
 	customVar(flagSet, &startTime, "t", "start-time")
+	boolVar(flagSet, &messages, "m", "messages")
 	boolVar(flagSet, &verbose, "v", "verbose")
 
 	args, err := parseFlags(flagSet, args)
@@ -93,7 +96,28 @@ func trace(ctx context.Context, args []string) error {
 		Records: timemachine.NewLogRecordReader(logReader),
 	}
 
-	/*
+	if messages {
+		var writer stream.WriteCloser[nettrace.Message]
+		switch output {
+		case "json":
+			writer = jsonprint.NewWriter[nettrace.Message](os.Stdout)
+		case "yaml":
+			writer = yamlprint.NewWriter[nettrace.Message](os.Stdout)
+		default:
+			writer = textprint.NewWriter[nettrace.Message](os.Stdout,
+				textprint.Format[nettrace.Message](format),
+				textprint.Separator[nettrace.Message]("\n"),
+			)
+			defer fmt.Println()
+		}
+		defer writer.Close()
+		_, err = stream.Copy[nettrace.Message](writer, &nettrace.MessageReader{
+			Events: events,
+			Protos: []nettrace.ConnProtocol{
+				nettrace.HTTP1(),
+			},
+		})
+	} else {
 		var writer stream.WriteCloser[nettrace.Event]
 		switch output {
 		case "json":
@@ -107,30 +131,7 @@ func trace(ctx context.Context, args []string) error {
 			)
 		}
 		defer writer.Close()
-
 		_, err = stream.Copy[nettrace.Event](writer, events)
-	*/
-
-	var writer stream.WriteCloser[nettrace.Message]
-	switch output {
-	case "json":
-		writer = jsonprint.NewWriter[nettrace.Message](os.Stdout)
-	case "yaml":
-		writer = yamlprint.NewWriter[nettrace.Message](os.Stdout)
-	default:
-		writer = textprint.NewWriter[nettrace.Message](os.Stdout,
-			textprint.Format[nettrace.Message](format),
-			textprint.Separator[nettrace.Message]("\n"),
-		)
-		defer fmt.Println()
 	}
-	defer writer.Close()
-
-	_, err = stream.Copy[nettrace.Message](writer, &nettrace.MessageReader{
-		Events: events,
-		Protos: []nettrace.ConnProtocol{
-			nettrace.HTTP1(),
-		},
-	})
 	return err
 }
