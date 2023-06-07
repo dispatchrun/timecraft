@@ -452,76 +452,22 @@ func (w *logSegmentWriter) Close() error {
 }
 
 func (reg *Registry) ListRecords(ctx context.Context, processID format.UUID, timeRange TimeRange) stream.ReadCloser[Record] {
-	ch := make(chan stream.Optional[Record])
-	ctx, cancel := context.WithCancel(ctx)
+	manifest, err := reg.LookupLogManifest(ctx, processID)
+	if err != nil {
+		return stream.ErrCloser[Record](err)
+	}
 
-	go func() {
-		defer close(ch)
+	// TODO: handle multiple log segments
+	logSegment, err := reg.ReadLogSegment(ctx, processID, 0)
+	if err != nil {
+		return stream.ErrCloser[Record](err)
+	}
+	segmentReader := NewLogReader(logSegment, manifest.StartTime)
+	recordReader := NewLogRecordReader(segmentReader)
 
-		manifest, err := reg.LookupLogManifest(ctx, processID)
-		if err != nil {
-			ch <- stream.Opt(Record{}, err)
-			return
-		}
-
-		// TODO: handle multiple log segments
-		logSegment, err := reg.ReadLogSegment(ctx, processID, 0)
-		if err != nil {
-			ch <- stream.Opt(Record{}, err)
-			return
-		}
-		defer logSegment.Close()
-		segmentReader := NewLogReader(logSegment, manifest.StartTime)
-		defer segmentReader.Close()
-
-		for {
-			if ctx.Err() != nil {
-				return
-			}
-			batch, err := segmentReader.ReadRecordBatch()
-			if err == io.EOF {
-				return
-			}
-			if err != nil {
-				ch <- stream.Opt(Record{}, err)
-				return
-			}
-
-			it := stream.Iter[Record](batch)
-			offset := batch.FirstOffset()
-			for it.Next() {
-				r := it.Value()
-
-				if r.Time.Before(timeRange.Start) || r.Time.After(timeRange.End) {
-					offset++
-					continue
-				}
-
-				out := stream.Opt(Record{
-					Offset:       offset,
-					Time:         r.Time,
-					FunctionID:   r.FunctionID,
-					FunctionCall: append([]byte(nil), r.FunctionCall...),
-				}, nil)
-
-				// Batches can be large. Check for context
-				// termination here as well to bail out early if
-				// requested.
-				select {
-				case ch <- out:
-				case <-ctx.Done():
-					return
-				}
-				offset++
-			}
-
-		}
-	}()
-
-	return stream.NewReadCloser(stream.ChanReader(ch), closerFunc(func() error {
-		cancel()
-		for range ch {
-		}
+	return stream.NewReadCloser[Record](recordReader, closerFunc(func() error {
+		segmentReader.Close()
+		logSegment.Close()
 		return nil
 	}))
 }
