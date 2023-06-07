@@ -672,7 +672,10 @@ func (c *Codec) DecodePathOpen(buffer []byte) (fd FD, dirFlags LookupFlags, path
 	if rightsInheriting, buffer, err = decodeRights(buffer); err != nil {
 		return
 	}
-	fdFlags, _, err = decodeFDFlags(buffer)
+	if fdFlags, buffer, err = decodeFDFlags(buffer); err != nil {
+		return
+	}
+	newfd, _, err = decodeFD(buffer)
 	return
 }
 
