@@ -6,8 +6,7 @@ type Iterator[T any] struct {
 	base Reader[T]
 	err  error
 	off  int
-	len  int
-	buf  [100]T
+	buf  []T
 }
 
 func Values[T any](it *Iterator[T]) ([]T, error) {
@@ -25,18 +24,12 @@ func Iter[T any](r Reader[T]) *Iterator[T] {
 func (it *Iterator[T]) Reset(r Reader[T]) {
 	it.base = r
 	it.err = nil
-	it.len = 0
 	it.off = 0
-
-	var zero T
-	clear := it.buf[:]
-	for i := range clear {
-		clear[i] = zero
-	}
+	it.buf = it.buf[:0]
 }
 
 func (it *Iterator[T]) Next() bool {
-	if it.off++; it.off < it.len {
+	if it.off++; it.off < len(it.buf) {
 		return true
 	}
 	return it.next()
@@ -51,11 +44,14 @@ func (it *Iterator[T]) next() bool {
 	if it.err != nil {
 		return false
 	}
+	if cap(it.buf) == 0 {
+		it.buf = make([]T, 256)
+	}
 	for {
-		n, err := it.base.Read(it.buf[:])
+		n, err := it.base.Read(it.buf[:cap(it.buf)])
 		it.err = err
 		it.off = 0
-		it.len = n
+		it.buf = it.buf[:n]
 		if n > 0 {
 			return true
 		}
