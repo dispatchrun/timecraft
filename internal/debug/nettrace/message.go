@@ -31,9 +31,9 @@ type ConnProtocol interface {
 
 	CanRead([]byte) bool
 
-	NewClient(addr, peer net.Addr) Conn
+	NewClient(fd wasi.FD, addr, peer net.Addr) Conn
 
-	NewServer(addr, peer net.Addr) Conn
+	NewServer(fd wasi.FD, addr, peer net.Addr) Conn
 }
 
 type Conn interface {
@@ -100,7 +100,7 @@ func (r *MessageReader) Read(msgs []Message) (n int, err error) {
 				}
 				c.recv.write(event.Data)
 				if !c.hasProto() {
-					c.setProto(c.recv.bytes(), r.Protos)
+					c.setProto(event.FD, c.recv.bytes(), r.Protos)
 				}
 				if c.hasProto() {
 					r.msgs, _ = c.recvMessages(r.msgs, event.Time, false)
@@ -116,7 +116,7 @@ func (r *MessageReader) Read(msgs []Message) (n int, err error) {
 				}
 				c.send.write(event.Data)
 				if !c.hasProto() {
-					c.setProto(c.send.bytes(), r.Protos)
+					c.setProto(event.FD, c.send.bytes(), r.Protos)
 				}
 				if c.hasProto() {
 					r.msgs, _ = c.sendMessages(r.msgs, event.Time, false)
@@ -138,8 +138,8 @@ func (r *MessageReader) Read(msgs []Message) (n int, err error) {
 					delete(r.conns, event.FD)
 				}
 				if !c.hasProto() {
-					c.setProto(c.send.bytes(), r.Protos)
-					c.setProto(c.recv.bytes(), r.Protos)
+					c.setProto(event.FD, c.send.bytes(), r.Protos)
+					c.setProto(event.FD, c.recv.bytes(), r.Protos)
 				}
 				if c.hasProto() {
 					if c.wEOF {
@@ -201,13 +201,13 @@ func (c *connection) hasProto() bool {
 	return c.conn != nil
 }
 
-func (c *connection) setProto(data []byte, protos []ConnProtocol) {
+func (c *connection) setProto(fd wasi.FD, data []byte, protos []ConnProtocol) {
 	for _, proto := range protos {
 		if proto.CanRead(data) {
 			if c.side == server {
-				c.conn = proto.NewServer(c.addr, c.peer)
+				c.conn = proto.NewServer(fd, c.addr, c.peer)
 			} else {
-				c.conn = proto.NewClient(c.addr, c.peer)
+				c.conn = proto.NewClient(fd, c.addr, c.peer)
 			}
 			break
 		}

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 	"unicode/utf8"
+
+	"github.com/stealthrocket/wasi-go"
 )
 
 func HTTP1() ConnProtocol { return http1Protocol{} }
@@ -34,20 +36,24 @@ func (http1Protocol) CanRead(msg []byte) bool {
 	return false
 }
 
-func (http1Protocol) NewClient(addr, peer net.Addr) Conn {
+func (http1Protocol) NewClient(fd wasi.FD, addr, peer net.Addr) Conn {
 	return &http1ClientConn{
 		http1Conn: http1Conn{
-			addr: addr,
-			peer: peer,
+			addr:  addr,
+			peer:  peer,
+			reqID: int64(fd) << 32,
+			resID: int64(fd) << 32,
 		},
 	}
 }
 
-func (http1Protocol) NewServer(addr, peer net.Addr) Conn {
+func (http1Protocol) NewServer(fd wasi.FD, addr, peer net.Addr) Conn {
 	return &http1ServerConn{
 		http1Conn: http1Conn{
-			addr: addr,
-			peer: peer,
+			addr:  addr,
+			peer:  peer,
+			reqID: int64(fd) << 32,
+			resID: int64(fd) << 32,
 		},
 	}
 }
