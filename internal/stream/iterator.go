@@ -7,7 +7,7 @@ type Iterator[T any] struct {
 	err  error
 	off  int
 	len  int
-	buf  [20]T
+	buf  [100]T
 }
 
 func Values[T any](it *Iterator[T]) ([]T, error) {
@@ -39,6 +39,12 @@ func (it *Iterator[T]) Next() bool {
 	if it.off++; it.off < it.len {
 		return true
 	}
+	return it.next()
+}
+
+// This is split out of Next so the hot code path incrementing the iterator
+// offset and checking if we exhausted all the buffered values can be inlined.
+func (it *Iterator[T]) next() bool {
 	if it.base == nil {
 		return false
 	}
