@@ -24,14 +24,14 @@ func (r *bufferedReadSeeker) Read(b []byte) (int, error) {
 	return n, err
 }
 
-func (r bufferedReadSeeker) Seek(offset int64, whence int) (int64, error) {
+func (r *bufferedReadSeeker) Seek(offset int64, whence int) (int64, error) {
 	offset, err := r.reader.Seek(offset, whence)
 	if err != nil {
 		return -1, err
 	}
 	endBufferedOffset := r.offset + int64(r.buffer.Buffered())
 	if offset >= r.offset && offset < endBufferedOffset {
-		r.buffer.Discard(int(offset - r.offset))
+		_, _ = r.buffer.Discard(int(offset - r.offset))
 	} else {
 		r.buffer.Reset(r.reader)
 	}
