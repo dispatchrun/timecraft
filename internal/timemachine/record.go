@@ -6,7 +6,6 @@ import (
 
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logsegment"
-	"github.com/stealthrocket/timecraft/internal/buffer"
 )
 
 // Record is a read-only record from the log.
@@ -31,7 +30,7 @@ type RecordBuilder struct {
 func (b *RecordBuilder) Reset(startTime time.Time) {
 	b.startTime = startTime
 	if b.builder == nil {
-		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
+		b.builder = flatbuffers.NewBuilder(defaultBufferSize)
 	} else {
 		b.builder.Reset()
 	}
@@ -85,7 +84,7 @@ func (b *RecordBuilder) Write(w io.Writer) (int, error) {
 
 func (b *RecordBuilder) build() {
 	if b.builder == nil {
-		b.builder = flatbuffers.NewBuilder(buffer.DefaultSize)
+		b.builder = flatbuffers.NewBuilder(defaultBufferSize)
 	}
 	functionCall := b.builder.CreateByteVector(b.functionCall)
 	logsegment.RecordStart(b.builder)

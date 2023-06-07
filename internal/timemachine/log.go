@@ -8,9 +8,13 @@ import (
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/stream"
+	"golang.org/x/exp/slices"
 )
 
-const maxFrameSize = (128 * 1024) - 4
+const (
+	defaultBufferSize = 4096
+	maxFrameSize      = (128 * 1024) - 4
+)
 
 // LogReader instances allow programs to read the content of a record log.
 type LogReader struct {
@@ -130,7 +134,7 @@ func (r *LogReader) readFrame() ([]byte, error) {
 	if byteLength <= cap(frame) {
 		frame = frame[:byteLength]
 	} else {
-		frame = append(frame[:0], make([]byte, byteLength)...)
+		frame = slices.Grow(frame[:0], byteLength)
 		r.batchFrame = frame
 	}
 

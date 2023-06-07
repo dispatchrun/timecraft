@@ -10,6 +10,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"golang.org/x/exp/slices"
 )
 
 func TestReadRecordBatch(t *testing.T) {
@@ -96,6 +97,7 @@ func TestReadRecordBatch(t *testing.T) {
 			r := iter.Value()
 			assert.Less(t, count, len(records))
 			records[count] = r
+			records[count].FunctionCall = slices.Clone(r.FunctionCall)
 			count++
 		}
 
