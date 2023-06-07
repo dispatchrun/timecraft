@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -21,15 +22,18 @@ Usage:	timecraft replay [options] <process id>
 Options:
    -c, --config path  Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help         Show this usage information
+   -q, --quiet        Do not output the recording of stdout/stderr during the replay
    -T, --trace        Enable strace-like logging of host function calls
 `
 
 func replay(ctx context.Context, args []string) error {
 	var (
+		quiet = false
 		trace = false
 	)
 
 	flagSet := newFlagSet("timecraft replay", replayUsage)
+	boolVar(flagSet, &quiet, "q", "quiet")
 	boolVar(flagSet, &trace, "T", "trace")
 
 	args, err := parseFlags(flagSet, args)
@@ -93,12 +97,25 @@ func replay(ctx context.Context, args []string) error {
 	replay := wasicall.NewReplay(records)
 	defer replay.Close(ctx)
 
+	if !quiet {
+		stdout := bufio.NewWriter(os.Stdout)
+		stderr := bufio.NewWriter(os.Stderr)
+		defer stderr.Flush()
+		defer stdout.Flush()
+		replay.Stdout = stdout
+		replay.Stderr = stderr
+	}
+
 	fallback := wasicall.NewObserver(nil, func(ctx context.Context, s wasicall.Syscall) {
 		panic(fmt.Sprintf("system call made after log EOF: %s", s.ID()))
 	}, nil)
-	var system wasi.System = wasicall.NewFallbackSystem(replay, fallback)
+
+	system := wasi.System(wasicall.NewFallbackSystem(replay, fallback))
 	if trace {
-		system = &wasi.Tracer{Writer: os.Stderr, System: system}
+		system = &wasi.Tracer{
+			Writer: os.Stderr,
+			System: system,
+		}
 	}
 
 	hostModule := wasi_snapshot_preview1.NewHostModule(imports.DetectExtensions(compiledModule)...)
