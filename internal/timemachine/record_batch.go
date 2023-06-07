@@ -49,7 +49,7 @@ func (b *RecordBatch) Reset(startTime time.Time, buf []byte, reader io.Reader) {
 	if len(buf) > 0 {
 		b.batch = *logsegment.GetSizePrefixedRootAsRecordBatch(buf, 0)
 		b.reader.R = reader
-		b.reader.N = b.Size()
+		b.reader.N = b.CompressedSize()
 	} else {
 		b.batch = logsegment.RecordBatch{}
 		b.reader.R = nil
@@ -57,15 +57,6 @@ func (b *RecordBatch) Reset(startTime time.Time, buf []byte, reader io.Reader) {
 	}
 	b.offset = 0
 	b.index = 0
-}
-
-// Size is the size of the adjacent record data.
-func (b *RecordBatch) Size() int64 {
-	if b.Compression() == Uncompressed {
-		return int64(b.UncompressedSize())
-	} else {
-		return int64(b.CompressedSize())
-	}
 }
 
 // Compression returns the compression algorithm used to encode the record
@@ -152,10 +143,12 @@ func (b *RecordBatch) readRecords() ([]byte, error) {
 	}
 
 	recordsBufferPool := &compressedBufferPool
+	recordsBufferSize := b.CompressedSize()
 	if b.Compression() == Uncompressed {
 		recordsBufferPool = &uncompressedBufferPool
+		recordsBufferSize = b.UncompressedSize()
 	}
-	recordsBuffer := recordsBufferPool.Get(b.Size())
+	recordsBuffer := recordsBufferPool.Get(recordsBufferSize)
 
 	_, err := io.ReadFull(&b.reader, recordsBuffer.Data)
 	if err != nil {
@@ -274,17 +267,21 @@ func (b *RecordBatchBuilder) build() {
 	b.builder.Reset()
 
 	b.records = b.uncompressed
+	uncompressedSize := uint32(len(b.uncompressed))
+	compressedSize := uncompressedSize
+
 	if b.compression != Uncompressed {
 		b.compressed = compress(b.compressed[:cap(b.compressed)], b.uncompressed, b.compression)
 		b.records = b.compressed
+		compressedSize = uint32(len(b.compressed))
 	}
 
 	logsegment.RecordBatchStart(b.builder)
 	logsegment.RecordBatchAddFirstOffset(b.builder, b.firstOffset)
 	logsegment.RecordBatchAddFirstTimestamp(b.builder, b.firstTimestamp)
 	logsegment.RecordBatchAddLastTimestamp(b.builder, b.lastTimestamp)
-	logsegment.RecordBatchAddCompressedSize(b.builder, uint32(len(b.compressed)))
-	logsegment.RecordBatchAddUncompressedSize(b.builder, uint32(len(b.uncompressed)))
+	logsegment.RecordBatchAddCompressedSize(b.builder, compressedSize)
+	logsegment.RecordBatchAddUncompressedSize(b.builder, uncompressedSize)
 	logsegment.RecordBatchAddChecksum(b.builder, checksum(b.records))
 	logsegment.RecordBatchAddNumRecords(b.builder, b.recordCount)
 	logsegment.RecordBatchAddCompression(b.builder, b.compression)

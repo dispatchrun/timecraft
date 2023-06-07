@@ -102,7 +102,8 @@ func (r *LogReader) ReadRecordBatch() (*RecordBatch, error) {
 		}
 
 		r.batch.Reset(r.startTime, r.batchFrame.Data, r.input)
-		r.nextByteOffset = 4 + r.batchFrame.Size() + r.batch.Size()
+		r.nextByteOffset += r.batchFrame.Size()
+		r.nextByteOffset += r.batch.CompressedSize()
 
 		if nextRecordOffset := r.batch.NextOffset(); nextRecordOffset >= r.nextRecordOffset {
 			r.nextRecordOffset = nextRecordOffset
