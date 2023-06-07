@@ -7,6 +7,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"golang.org/x/exp/slices"
 )
@@ -29,9 +30,9 @@ type LogReader struct {
 
 // NewLogReader construct a new log reader consuming input from the given
 // io.Reader.
-func NewLogReader(input io.ReadSeeker, startTime time.Time) *LogReader {
+func NewLogReader(input io.ReadSeeker, manifest *format.Manifest) *LogReader {
 	return &LogReader{
-		startTime: startTime,
+		startTime: manifest.StartTime,
 		input:     newBufferedReadSeeker(input, 256*1024),
 	}
 }
