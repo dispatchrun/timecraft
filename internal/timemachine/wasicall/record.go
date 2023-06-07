@@ -232,7 +232,7 @@ func (r *Recorder) PathLink(ctx context.Context, oldFD FD, oldFlags LookupFlags,
 func (r *Recorder) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, path string, openFlags OpenFlags, rightsBase, rightsInheriting Rights, fdFlags FDFlags) (FD, Errno) {
 	newfd, errno := r.system.PathOpen(ctx, fd, dirFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
 	r.record(PathOpen, r.codec.EncodePathOpen(r.buffer[:0], fd, dirFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags, newfd, errno))
-	return fd, errno
+	return newfd, errno
 }
 
 func (r *Recorder) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) (int, Errno) {
