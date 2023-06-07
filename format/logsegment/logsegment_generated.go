@@ -12,6 +12,8 @@ type RecordBatch struct {
 	_tab flatbuffers.Table
 }
 
+const RecordBatchIdentifier = "TL.0"
+
 func GetRootAsRecordBatch(buf []byte, offset flatbuffers.UOffsetT) *RecordBatch {
 	n := flatbuffers.GetUOffsetT(buf[offset:])
 	x := &RecordBatch{}
@@ -19,11 +21,29 @@ func GetRootAsRecordBatch(buf []byte, offset flatbuffers.UOffsetT) *RecordBatch 
 	return x
 }
 
+func FinishRecordBatchBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	identifierBytes := []byte(RecordBatchIdentifier)
+	builder.FinishWithFileIdentifier(offset, identifierBytes)
+}
+
+func RecordBatchBufferHasIdentifier(buf []byte) bool {
+	return flatbuffers.BufferHasIdentifier(buf, RecordBatchIdentifier)
+}
+
 func GetSizePrefixedRootAsRecordBatch(buf []byte, offset flatbuffers.UOffsetT) *RecordBatch {
 	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
 	x := &RecordBatch{}
 	x.Init(buf, n+offset+flatbuffers.SizeUint32)
 	return x
+}
+
+func FinishSizePrefixedRecordBatchBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	identifierBytes := []byte(RecordBatchIdentifier)
+	builder.FinishSizePrefixedWithFileIdentifier(offset, identifierBytes)
+}
+
+func SizePrefixedRecordBatchBufferHasIdentifier(buf []byte) bool {
+	return flatbuffers.SizePrefixedBufferHasIdentifier(buf, RecordBatchIdentifier)
 }
 
 func (rcv *RecordBatch) Init(buf []byte, i flatbuffers.UOffsetT) {
@@ -173,11 +193,19 @@ func GetRootAsRecord(buf []byte, offset flatbuffers.UOffsetT) *Record {
 	return x
 }
 
+func FinishRecordBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	builder.Finish(offset)
+}
+
 func GetSizePrefixedRootAsRecord(buf []byte, offset flatbuffers.UOffsetT) *Record {
 	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
 	x := &Record{}
 	x.Init(buf, n+offset+flatbuffers.SizeUint32)
 	return x
+}
+
+func FinishSizePrefixedRecordBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	builder.FinishSizePrefixed(offset)
 }
 
 func (rcv *Record) Init(buf []byte, i flatbuffers.UOffsetT) {
