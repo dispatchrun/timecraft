@@ -46,11 +46,19 @@ func GetRootAsHash(buf []byte, offset flatbuffers.UOffsetT) *Hash {
 	return x
 }
 
+func FinishHashBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	builder.Finish(offset)
+}
+
 func GetSizePrefixedRootAsHash(buf []byte, offset flatbuffers.UOffsetT) *Hash {
 	n := flatbuffers.GetUOffsetT(buf[offset+flatbuffers.SizeUint32:])
 	x := &Hash{}
 	x.Init(buf, n+offset+flatbuffers.SizeUint32)
 	return x
+}
+
+func FinishSizePrefixedHashBuffer(builder *flatbuffers.Builder, offset flatbuffers.UOffsetT) {
+	builder.FinishSizePrefixed(offset)
 }
 
 func (rcv *Hash) Init(buf []byte, i flatbuffers.UOffsetT) {
