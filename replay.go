@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -98,12 +97,8 @@ func replay(ctx context.Context, args []string) error {
 	defer replay.Close(ctx)
 
 	if !quiet {
-		stdout := bufio.NewWriter(os.Stdout)
-		stderr := bufio.NewWriter(os.Stderr)
-		defer stderr.Flush()
-		defer stdout.Flush()
-		replay.Stdout = stdout
-		replay.Stderr = stderr
+		replay.Stdout = os.Stdout
+		replay.Stderr = os.Stderr
 	}
 
 	fallback := wasicall.NewObserver(nil, func(ctx context.Context, s wasicall.Syscall) {
