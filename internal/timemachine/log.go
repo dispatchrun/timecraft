@@ -17,10 +17,9 @@ var frameBufferPool buffer.Pool
 
 // LogReader instances allow programs to read the content of a record log.
 type LogReader struct {
-	input            io.ReadSeeker
+	input            *bufferedReadSeeker
 	nextByteOffset   int64
 	nextRecordOffset int64
-	bufferSize       int64
 	startTime        time.Time
 	batch            RecordBatch
 	batchFrame       *buffer.Buffer
@@ -29,16 +28,9 @@ type LogReader struct {
 // NewLogReader construct a new log reader consuming input from the given
 // io.Reader.
 func NewLogReader(input io.ReadSeeker, startTime time.Time) *LogReader {
-	return NewLogReaderSize(input, startTime, buffer.DefaultSize)
-}
-
-// NewLogReaderSize is like NewLogReader but it allows the program to configure
-// the read buffer size.
-func NewLogReaderSize(input io.ReadSeeker, startTime time.Time, bufferSize int64) *LogReader {
 	return &LogReader{
-		startTime:  startTime,
-		input:      input,
-		bufferSize: buffer.Align(bufferSize, buffer.DefaultSize),
+		startTime: startTime,
+		input:     newBufferedReadSeeker(input, 256*1024),
 	}
 }
 
@@ -113,7 +105,7 @@ func (r *LogReader) ReadRecordBatch() (*RecordBatch, error) {
 }
 
 func (r *LogReader) readFrame() (*buffer.Buffer, error) {
-	f := frameBufferPool.Get(r.bufferSize)
+	f := frameBufferPool.Get(1024)
 
 	n, err := io.ReadFull(r.input, f.Data[:4])
 	if n < 4 {
