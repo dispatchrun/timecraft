@@ -43,16 +43,6 @@ func (r *Recorder) record(s SyscallID, b []byte) {
 	r.write(&r.builder)
 }
 
-func (r *Recorder) Preopen(hostfd int, path string, fdstat FDStat) FD {
-	// Preopen is not currently recorded.
-	return r.system.Preopen(hostfd, path, fdstat)
-}
-
-func (r *Recorder) Register(hostfd int, fdstat FDStat) FD {
-	// Register is not currently recorded.
-	return r.system.Register(hostfd, fdstat)
-}
-
 func (r *Recorder) ArgsSizesGet(ctx context.Context) (int, int, Errno) {
 	argCount, stringBytes, errno := r.system.ArgsSizesGet(ctx)
 	r.record(ArgsSizesGet, r.codec.EncodeArgsSizesGet(r.buffer[:0], argCount, stringBytes, errno))
@@ -245,12 +235,12 @@ func (r *Recorder) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, pa
 	return fd, errno
 }
 
-func (r *Recorder) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) ([]byte, Errno) {
-	result, errno := r.system.PathReadLink(ctx, fd, path, buffer)
+func (r *Recorder) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) (int, Errno) {
+	n, errno := r.system.PathReadLink(ctx, fd, path, buffer)
 	// Note: we do not capture the input buffer, just the part
 	// that was overwritten (result).
-	r.record(PathReadLink, r.codec.EncodePathReadLink(r.buffer[:0], fd, path, result, errno))
-	return result, errno
+	r.record(PathReadLink, r.codec.EncodePathReadLink(r.buffer[:0], fd, path, buffer[:n], errno))
+	return n, errno
 }
 
 func (r *Recorder) PathRemoveDirectory(ctx context.Context, fd FD, path string) Errno {

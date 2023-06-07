@@ -8,9 +8,7 @@ import (
 
 // FallbackSystem wraps two System instances. If the first returns ENOSYS
 // for a particular system call, the call is forwarded to the second instance.
-//
-// Preopen and Register calls are forwarded to the primary system only.
-// Close however closes both systems.
+// Close closes both systems.
 type FallbackSystem struct {
 	System
 
@@ -284,12 +282,12 @@ func (f *FallbackSystem) PathOpen(ctx context.Context, fd FD, dirFlags LookupFla
 	return newfd, errno
 }
 
-func (f *FallbackSystem) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) ([]byte, Errno) {
-	output, errno := f.System.PathReadLink(ctx, fd, path, buffer)
+func (f *FallbackSystem) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) (int, Errno) {
+	n, errno := f.System.PathReadLink(ctx, fd, path, buffer)
 	if errno == ENOSYS {
 		return f.secondary.PathReadLink(ctx, fd, path, buffer)
 	}
-	return output, errno
+	return n, errno
 }
 
 func (f *FallbackSystem) PathRemoveDirectory(ctx context.Context, fd FD, path string) Errno {

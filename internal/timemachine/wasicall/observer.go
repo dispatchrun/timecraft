@@ -376,13 +376,13 @@ func (o *Observer) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, pa
 	return
 }
 
-func (o *Observer) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) (output []byte, errno Errno) {
+func (o *Observer) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) (n int, errno Errno) {
 	if o.before != nil {
 		o.before(ctx, &PathReadLinkSyscall{fd, path, buffer, errno})
 	}
-	output, errno = o.System.PathReadLink(ctx, fd, path, buffer)
+	n, errno = o.System.PathReadLink(ctx, fd, path, buffer)
 	if o.after != nil {
-		o.after(ctx, &PathReadLinkSyscall{fd, path, output, errno})
+		o.after(ctx, &PathReadLinkSyscall{fd, path, buffer[:n], errno})
 	}
 	return
 }

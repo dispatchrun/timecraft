@@ -67,14 +67,6 @@ func NewReplay(records stream.Reader[timemachine.Record]) *Replay {
 	return r
 }
 
-func (r *Replay) Preopen(hostfd int, path string, fdstat FDStat) FD {
-	panic("Replay cannot Preopen")
-}
-
-func (r *Replay) Register(hostfd int, fdstat FDStat) FD {
-	panic("Replay cannot Register")
-}
-
 func (r *Replay) readRecord(syscall SyscallID) (timemachine.Record, bool) {
 	if !r.records.Next() {
 		if err := r.records.Err(); err != nil {
@@ -814,10 +806,10 @@ func (r *Replay) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, path
 	return newfd, errno
 }
 
-func (r *Replay) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) ([]byte, Errno) {
+func (r *Replay) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) (int, Errno) {
 	record, ok := r.readRecord(PathReadLink)
 	if !ok {
-		return nil, ENOSYS
+		return 0, ENOSYS
 	}
 	recordFD, recordPath, result, errno, err := r.codec.DecodePathReadLink(record.FunctionCall)
 	if err != nil {
@@ -839,7 +831,7 @@ func (r *Replay) PathReadLink(ctx context.Context, fd FD, path string, buffer []
 		}
 	}
 	copy(buffer, result)
-	return buffer, errno
+	return len(result), errno
 }
 
 func (r *Replay) PathRemoveDirectory(ctx context.Context, fd FD, path string) Errno {
@@ -1186,7 +1178,7 @@ func (r *Replay) SockBind(ctx context.Context, fd FD, bind SocketAddress) (Socke
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "fd", fd, recordFD})
 		}
-		if bind != recordBind {
+		if !equalSocketAddress(bind, recordBind) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockBind, "bind", bind, recordBind})
 		}
 		if len(mismatch) > 0 {
@@ -1210,7 +1202,7 @@ func (r *Replay) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (So
 		if fd != recordFD {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockConnect, "fd", fd, recordFD})
 		}
-		if peer != recordPeer {
+		if !equalSocketAddress(peer, recordPeer) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockConnect, "peer", peer, recordPeer})
 		}
 		if len(mismatch) > 0 {
@@ -1265,7 +1257,7 @@ func (r *Replay) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags S
 		if iflags != recordIFlags {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSendTo, "iflags", iflags, recordIFlags})
 		}
-		if addr != recordAddr {
+		if !equalSocketAddress(addr, recordAddr) {
 			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSendTo, "addr", addr, recordAddr})
 		}
 		if len(mismatch) > 0 {
@@ -1477,5 +1469,21 @@ func equalSubscription(a, b Subscription) bool {
 		return a.GetFDReadWrite() == b.GetFDReadWrite()
 	} else {
 		return false // invalid event type; cannot compare
+	}
+}
+
+func equalSocketAddress(a, b SocketAddress) bool {
+	switch at := a.(type) {
+	case *Inet4Address:
+		bt, ok := b.(*Inet4Address)
+		return ok && *at == *bt
+	case *Inet6Address:
+		bt, ok := b.(*Inet6Address)
+		return ok && *at == *bt
+	case *UnixAddress:
+		bt, ok := b.(*UnixAddress)
+		return ok && *at == *bt
+	default:
+		return false
 	}
 }

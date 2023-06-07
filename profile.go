@@ -16,6 +16,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
+	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
 	"github.com/stealthrocket/wzprof"
@@ -171,8 +172,7 @@ func profile(ctx context.Context, args []string) error {
 
 	system := wasicall.NewFallbackSystem(replay, wasicall.NewExitSystem(0))
 
-	// TODO: need to figure this out dynamically:
-	hostModule := wasi_snapshot_preview1.NewHostModule(wasi_snapshot_preview1.WasmEdgeV2)
+	hostModule := wasi_snapshot_preview1.NewHostModule(imports.DetectExtensions(compiledModule)...)
 	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 

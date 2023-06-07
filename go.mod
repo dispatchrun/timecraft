@@ -8,10 +8,10 @@ require (
 	github.com/google/pprof v0.0.0-20230510103437-eeec1cb781c3
 	github.com/google/uuid v1.3.0
 	github.com/klauspost/compress v1.16.5
-	github.com/stealthrocket/wasi-go v0.3.2
+	github.com/stealthrocket/wasi-go v0.3.6
 	github.com/stealthrocket/wazergo v0.19.0
 	github.com/stealthrocket/wzprof v0.1.5
-	github.com/tetratelabs/wazero v1.1.1-0.20230522055633-256b7a4bf970
+	github.com/tetratelabs/wazero v1.2.0
 	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
 	gopkg.in/yaml.v3 v3.0.1
 )
