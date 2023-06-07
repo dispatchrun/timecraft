@@ -17,6 +17,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/print/yamlprint"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 )
 
 const getUsage = `
@@ -24,7 +25,7 @@ Usage:	timecraft get <resource type> [options]
 
    The get sub-command gives access to the state of the time machine registry.
    The command must be followed by the name of resources to display, which must
-   be one of config, module, process, profile, or runtime.
+   be one of config, module, process, profile, record, or runtime.
    (the command also accepts plurals and abbreviations of the resource names)
 
 Examples:
@@ -96,6 +97,13 @@ var resources = [...]resource{
 	},
 
 	{
+		typ:      "record",
+		alt:      []string{"rec", "recs", "records"},
+		describe: describeRecord,
+		lookup:   lookupRecord,
+	},
+
+	{
 		typ:       "runtime",
 		alt:       []string{"rt", "runtimes"},
 		mediaType: format.TypeTimecraftRuntime,
@@ -120,8 +128,8 @@ func get(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(args) != 1 {
-		perrorf(`Expected exactly one resource type as argument` + useCmd("get"))
+	if len(args) < 1 {
+		perrorf(`Expected at least the resource type as argument` + useCmd("get"))
 		return exitCode(2)
 	}
 	resource, err := findResource("get", args[0])
@@ -129,6 +137,7 @@ func get(ctx context.Context, args []string) error {
 		perror(err)
 		return exitCode(2)
 	}
+	args = args[1:]
 	config, err := loadConfig()
 	if err != nil {
 		return err
@@ -160,6 +169,41 @@ func get(ctx context.Context, args []string) error {
 		return err
 	}
 
+	if resource.typ == "record" {
+		if len(args) != 1 {
+			perrorf(`Expected the process id as argument` + useCmd("get records"))
+		}
+
+		processID, err := parseProcessID(args[0])
+		if err != nil {
+			return err
+		}
+
+		manifest, err := registry.LookupLogManifest(ctx, processID)
+		if err != nil {
+			return err
+		}
+
+		reader := registry.ListRecords(ctx, processID, timeRange)
+		defer reader.Close()
+
+		decoded := recordsDecoder(manifest, reader)
+
+		var writer stream.WriteCloser[format.Record]
+		switch output {
+		case "json":
+			writer = jsonprint.NewWriter[format.Record](os.Stdout)
+		case "yaml":
+			writer = yamlprint.NewWriter[format.Record](os.Stdout)
+		default:
+			writer = getRecords(ctx, os.Stdout, registry, quiet)
+		}
+		defer writer.Close()
+		_, err = stream.Copy[format.Record](writer, decoded)
+
+		return err
+	}
+
 	reader := registry.ListResources(ctx, resource.mediaType, timeRange)
 	defer reader.Close()
 
@@ -176,6 +220,19 @@ func get(ctx context.Context, args []string) error {
 
 	_, err = stream.Copy[*format.Descriptor](writer, reader)
 	return err
+}
+
+func recordsDecoder(manifest *format.Manifest, from stream.Reader[timemachine.Record]) stream.Reader[format.Record] {
+	return stream.ConvertReader[format.Record, timemachine.Record](from, func(x timemachine.Record) (format.Record, error) {
+		return format.Record{
+			ID:       fmt.Sprintf("%s/%d", manifest.ProcessID, x.Offset),
+			Process:  manifest.Process,
+			Offset:   x.Offset,
+			Size:     int64(len(x.FunctionCall)),
+			Time:     x.Time,
+			Function: wasicall.SyscallID(x.FunctionID).String(),
+		}, nil
+	})
 }
 
 func getConfigs(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[*format.Descriptor] {
@@ -310,6 +367,26 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry, qu
 				Version: r.Version,
 			}, nil
 		})
+}
+
+func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, quiet bool) stream.WriteCloser[format.Record] {
+	type record struct {
+		ID      string      `text:"RECORD ID"`
+		Syscall string      `text:"HOST FUNCTION"`
+		Time    human.Time  `text:"TIME"`
+		Size    human.Bytes `text:"SIZE"`
+	}
+	return newTableWriter(w, quiet, nil,
+		func(r format.Record) (record, error) {
+			out := record{
+				ID:      r.ID,
+				Syscall: r.Function,
+				Size:    human.Bytes(r.Size),
+				Time:    human.Time(r.Time),
+			}
+			return out, nil
+		},
+	)
 }
 
 func newTableWriter[T1, T2 any](w io.Writer, quiet bool, orderBy func(T1, T1) bool, conv func(T2) (T1, error)) stream.WriteCloser[T2] {

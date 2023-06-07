@@ -2,14 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	"reflect"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	pprof "github.com/google/pprof/profile"
 	"github.com/stealthrocket/timecraft/format"
@@ -19,6 +23,8 @@ import (
 	"github.com/stealthrocket/timecraft/internal/print/yamlprint"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
+	"github.com/stealthrocket/wasi-go"
 	"github.com/tetratelabs/wazero/api"
 	"golang.org/x/exp/slices"
 )
@@ -43,6 +49,7 @@ Options:
    -c, --config path    Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -h, --help           Show this usage information
    -o, --output format  Output format, one of: text, json, yaml
+   -x, --hex            Display full binary values as hexadecimal when applicable
    -v, --verbose        For text output, display more details about the resource
 `
 
@@ -50,11 +57,13 @@ func describe(ctx context.Context, args []string) error {
 	var (
 		output  = outputFormat("text")
 		verbose = false
+		hex     = false
 	)
 
 	flagSet := newFlagSet("timecraft describe", describeUsage)
 	customVar(flagSet, &output, "o", "output")
 	boolVar(flagSet, &verbose, "v", "verbose")
+	boolVar(flagSet, &hex, "x", "hex")
 
 	args, err := parseFlags(flagSet, args)
 	if err != nil {
@@ -82,10 +91,15 @@ func describe(ctx context.Context, args []string) error {
 		return err
 	}
 
-	format := "%v"
-	if verbose {
-		format = "%+v"
+	verb := "v"
+	if hex {
+		verb = "x"
 	}
+	mod := ""
+	if verbose {
+		mod = "+"
+	}
+	format := "%" + mod + verb
 
 	var lookup func(context.Context, *timemachine.Registry, string, *configuration) (any, error)
 	var writer stream.WriteCloser[any]
@@ -289,6 +303,15 @@ func describeProfile(ctx context.Context, reg *timemachine.Registry, id string, 
 	return desc, nil
 }
 
+func describeRecord(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
+	_, rec, err := fetchRecord(ctx, reg, id, config)
+	if err != nil {
+		return nil, err
+	}
+
+	return recordDescriptor(rec), nil
+}
+
 func describeRuntime(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	d, err := reg.LookupDescriptor(ctx, format.ParseHash(id))
 	if err != nil {
@@ -336,6 +359,53 @@ func lookupProcess(ctx context.Context, reg *timemachine.Registry, id string, co
 
 func lookupProfile(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
 	return lookup(ctx, reg, id, (*timemachine.Registry).LookupProfile)
+}
+
+func fetchRecord(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (*format.Manifest, timemachine.Record, error) {
+	s := strings.Split(id, "/")
+	if len(s) != 2 {
+		return nil, timemachine.Record{}, errors.New(`record id should have the form <process id>/<offset>`)
+	}
+	pid, err := parseProcessID(s[0])
+	if err != nil {
+		return nil, timemachine.Record{}, errors.New(`malformed process id (not a UUID)`)
+	}
+	offset, err := strconv.ParseInt(s[1], 10, 64)
+	if err != nil {
+		return nil, timemachine.Record{}, errors.New(`malformed record offset (not an integer)`)
+	}
+
+	manifest, err := reg.LookupLogManifest(ctx, pid)
+	if err != nil {
+		return nil, timemachine.Record{}, err
+	}
+
+	rec, err := reg.LookupRecord(ctx, manifest, offset)
+	return manifest, rec, err
+}
+
+func lookupRecord(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
+	manifest, rec, err := fetchRecord(ctx, reg, id, config)
+	if err != nil {
+		return format.Record{}, err
+	}
+
+	r := format.Record{
+		ID:      id,
+		Process: manifest.Process,
+		Offset:  rec.Offset,
+		Size:    int64(len(rec.FunctionCall)),
+		Time:    rec.Time,
+	}
+
+	dec := wasicall.Decoder{}
+	_, syscall, err := dec.Decode(rec)
+	if err == nil {
+		r.Function = syscall.ID().String()
+	} else {
+		r.Function = fmt.Sprintf("%d (ERR: %s)", rec.FunctionID, err)
+	}
+	return r, nil
 }
 
 func lookupRuntime(ctx context.Context, reg *timemachine.Registry, id string, config *configuration) (any, error) {
@@ -794,4 +864,116 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, processID forma
 	})
 
 	return logDescriptor(segs), nil
+}
+
+type recordDescriptor timemachine.Record
+
+func (desc recordDescriptor) Format(w fmt.State, r rune) {
+	hex := r == 'x'
+	fmt.Fprintf(w, "Offset:  %d\n", desc.Offset)
+	fmt.Fprintf(w, "Time:    %s\n", human.Time(desc.Time))
+	fmt.Fprintf(w, "Size:    %s\n", human.Bytes(len(desc.FunctionCall)))
+	fmt.Fprintf(w, "---\n")
+
+	dec := wasicall.Decoder{}
+	_, syscall, err := dec.Decode(timemachine.Record(desc))
+	if err == nil {
+		fmt.Fprintf(w, "Host function: %s\n", syscall.ID().String())
+		fmt.Fprintf(w, "Parameters:")
+		printParams(w, hex, syscall.Params())
+		fmt.Fprintf(w, "Results:")
+		printParams(w, hex, syscall.Results())
+	} else {
+		fmt.Fprintf(w, "Host function: %d (ERR: %s)", desc.FunctionID, err)
+	}
+}
+
+func printParams(w io.Writer, hex bool, x []any) {
+	if len(x) == 0 {
+		fmt.Fprintf(w, " none\n")
+	} else {
+		fmt.Fprintf(w, "\n")
+		for i, p := range x {
+			fmt.Fprintf(w, "%d\ttype: ", i)
+			printHumanType(w, reflect.TypeOf(p))
+			fmt.Fprintf(w, "\tvalue: ")
+			printHumanVal(w, hex, p)
+			fmt.Fprintf(w, "\n")
+		}
+	}
+}
+
+func printHumanType(w io.Writer, t reflect.Type) {
+	switch t {
+	case reflect.TypeOf(wasi.FD(0)):
+		fmt.Fprintf(w, "fd")
+		return
+	case reflect.TypeOf(wasi.ClockID(0)):
+		fmt.Fprintf(w, "clock")
+		return
+	case reflect.TypeOf(wasi.Timestamp(0)):
+		fmt.Fprintf(w, "time")
+		return
+	case reflect.TypeOf(wasi.IOVec(nil)):
+		fmt.Fprintf(w, "io")
+		return
+	case reflect.TypeOf(wasi.Errno(0)):
+		fmt.Fprintf(w, "errno")
+		return
+	case reflect.TypeOf(wasi.Size(0)):
+		fmt.Fprintf(w, "size")
+		return
+	case reflect.TypeOf(wasi.PreStat{}):
+		fmt.Fprintf(w, "prestat")
+		return
+	}
+
+	if t.Kind() == reflect.Slice {
+		fmt.Fprintf(w, "[")
+		printHumanType(w, t.Elem())
+		fmt.Fprintf(w, "]")
+		return
+	}
+
+	n := t.Name()
+	if n == "" {
+		n = t.String()
+	}
+	fmt.Fprintf(w, "%s", n)
+}
+
+func printHumanVal(w io.Writer, h bool, x any) {
+	switch v := x.(type) {
+	case wasi.FD, wasi.ExitCode:
+		fmt.Fprintf(w, "%d", v)
+	case wasi.Errno:
+		fmt.Fprintf(w, "%d (%s)", v, v)
+	case wasi.Size:
+		fmt.Fprintf(w, "%d (%s)", v, human.Bytes(v))
+	case []uint8:
+		printBytes(w, h, v)
+	case []wasi.IOVec:
+		fmt.Fprintf(w, "\n")
+		for _, x := range v {
+			printBytes(w, h, x)
+		}
+	default:
+		fmt.Fprintf(w, "%s", x)
+	}
+}
+
+func printBytes(w io.Writer, h bool, x []byte) {
+	if h {
+		fmt.Fprintf(w, "\n")
+		o := hex.Dumper(textprint.QuoteBytes(w))
+		_, _ = o.Write(x)
+		o.Close()
+	} else {
+		s := string(x)
+		if utf8.ValidString(s) {
+			fmt.Fprint(textprint.QuoteBytes(w), s)
+		} else {
+			fmt.Fprintf(w, "binary content, use --hex to display")
+		}
+	}
 }

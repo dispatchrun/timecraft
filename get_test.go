@@ -25,7 +25,7 @@ var get = tests{
 		stdout, stderr, exitCode := timecraft(t, "get")
 		assert.Equal(t, exitCode, 2)
 		assert.Equal(t, stdout, "")
-		assert.HasPrefix(t, stderr, "Expected exactly one resource type as argument")
+		assert.HasPrefix(t, stderr, "Expected at least the resource type as argument")
 	},
 
 	"get configs on an empty time machine": func(t *testing.T) {

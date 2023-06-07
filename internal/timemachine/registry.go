@@ -23,11 +23,9 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-var (
-	// ErrNoRecords is an error returned when no log records could be found for
-	// a given process id.
-	ErrNoLogRecords = errors.New("process has no records")
-)
+// ErrNoRecords is an error returned when no log records could be found for
+// a given process id.
+var ErrNoLogRecords = errors.New("process has no records")
 
 type TimeRange struct {
 	Start, End time.Time
@@ -138,6 +136,51 @@ func (reg *Registry) LookupConfig(ctx context.Context, hash format.Hash) (*forma
 func (reg *Registry) LookupProcess(ctx context.Context, hash format.Hash) (*format.Process, error) {
 	process := new(format.Process)
 	return process, reg.lookupObject(ctx, hash, process)
+}
+
+func (reg *Registry) LookupRecord(ctx context.Context, process *format.Manifest, offset int64) (Record, error) {
+	// TODO: handle multiple log segments
+	logSegment, err := reg.ReadLogSegment(ctx, process.ProcessID, 0)
+	if err != nil {
+		return Record{}, err
+	}
+	defer logSegment.Close()
+	segmentReader := NewLogReader(logSegment, process.StartTime)
+	defer segmentReader.Close()
+
+	for {
+		if ctx.Err() != nil {
+			return Record{}, ctx.Err()
+		}
+		batch, err := segmentReader.ReadRecordBatch()
+		if err == io.EOF {
+			return Record{}, object.ErrNotExist
+		}
+		if err != nil {
+			return Record{}, ctx.Err()
+		}
+		it := stream.Iter[Record](batch)
+		o := batch.FirstOffset()
+		for it.Next() {
+			if ctx.Err() != nil {
+				return Record{}, ctx.Err()
+			}
+			if o < offset {
+				o++
+				continue
+			}
+			if o > offset {
+				return Record{}, fmt.Errorf("requested offset was missed")
+			}
+			r := it.Value()
+			return Record{
+				Offset:       o,
+				Time:         r.Time,
+				FunctionID:   r.FunctionID,
+				FunctionCall: append([]byte(nil), r.FunctionCall...),
+			}, nil
+		}
+	}
 }
 
 func (reg *Registry) LookupProfile(ctx context.Context, hash format.Hash) (*profile.Profile, error) {
@@ -406,6 +449,27 @@ func (w *logSegmentWriter) Close() error {
 	err := w.writer.Close()
 	<-w.done
 	return err
+}
+
+func (reg *Registry) ListRecords(ctx context.Context, processID format.UUID, timeRange TimeRange) stream.ReadCloser[Record] {
+	manifest, err := reg.LookupLogManifest(ctx, processID)
+	if err != nil {
+		return stream.ErrCloser[Record](err)
+	}
+
+	// TODO: handle multiple log segments
+	logSegment, err := reg.ReadLogSegment(ctx, processID, 0)
+	if err != nil {
+		return stream.ErrCloser[Record](err)
+	}
+	segmentReader := NewLogReader(logSegment, manifest.StartTime)
+	recordReader := NewLogRecordReader(segmentReader)
+
+	return stream.NewReadCloser[Record](recordReader, closerFunc(func() error {
+		segmentReader.Close()
+		logSegment.Close()
+		return nil
+	}))
 }
 
 func (reg *Registry) ListLogSegments(ctx context.Context, processID format.UUID) stream.ReadCloser[format.LogSegment] {

@@ -50,8 +50,7 @@ func (w *writer[T]) Write(values []T) (int, error) {
 				return n, err
 			}
 		}
-		_, err := fmt.Fprintf(w.output, w.format, v)
-		if err != nil {
+		if _, err := fmt.Fprintf(w.output, w.format, v); err != nil {
 			return n, err
 		}
 	}

@@ -222,6 +222,15 @@ type LogSegment struct {
 	CreatedAt time.Time `json:"createdAt" yaml:"createdAt"`
 }
 
+type Record struct {
+	ID       string
+	Process  *Descriptor
+	Offset   int64
+	Size     int64
+	Time     time.Time
+	Function string
+}
+
 var (
 	_ ResourceMarshaler = (*Descriptor)(nil)
 	_ ResourceMarshaler = (*Module)(nil)
