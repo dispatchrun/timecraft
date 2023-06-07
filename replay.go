@@ -9,6 +9,7 @@ import (
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
 
+	"github.com/stealthrocket/timecraft/internal/ioperf"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
@@ -76,7 +77,10 @@ func replay(ctx context.Context, args []string) error {
 	}
 	defer logSegment.Close()
 
-	logReader := timemachine.NewLogReader(logSegment, manifest.StartTime)
+	doubleBufferedReader := ioperf.NewDoubleBufferedReader(logSegment)
+	defer doubleBufferedReader.Close()
+
+	logReader := timemachine.NewLogReader(doubleBufferedReader, manifest.StartTime)
 	defer logReader.Close()
 
 	runtime := config.newRuntime(ctx)
