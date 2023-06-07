@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
@@ -79,7 +80,8 @@ func TestReadRecordBatch(t *testing.T) {
 		}
 	}
 
-	reader := timemachine.NewLogReader(bytes.NewReader(buffer.Bytes()), startTime)
+	manifest := &format.Manifest{StartTime: startTime}
+	reader := timemachine.NewLogReader(bytes.NewReader(buffer.Bytes()), manifest)
 	batchesRead := make([][]timemachine.Record, 0, len(batches))
 	for {
 		batch, err := reader.ReadRecordBatch()

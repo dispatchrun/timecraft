@@ -787,7 +787,7 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, processID forma
 			}
 			defer r.Close()
 
-			logReader := timemachine.NewLogReader(r, seg.CreatedAt)
+			logReader := timemachine.NewLogReader(r, m)
 			defer logReader.Close()
 
 			logSegment := logSegment{

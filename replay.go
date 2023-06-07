@@ -25,9 +25,7 @@ Options:
 `
 
 func replay(ctx context.Context, args []string) error {
-	var (
-		trace = false
-	)
+	trace := false
 
 	flagSet := newFlagSet("timecraft replay", replayUsage)
 	boolVar(flagSet, &trace, "T", "trace")
@@ -76,7 +74,7 @@ func replay(ctx context.Context, args []string) error {
 	}
 	defer logSegment.Close()
 
-	logReader := timemachine.NewLogReader(logSegment, manifest.StartTime)
+	logReader := timemachine.NewLogReader(logSegment, manifest)
 	defer logReader.Close()
 
 	runtime := config.newRuntime(ctx)

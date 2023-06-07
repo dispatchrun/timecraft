@@ -145,7 +145,7 @@ func (reg *Registry) LookupRecord(ctx context.Context, process *format.Manifest,
 		return Record{}, err
 	}
 	defer logSegment.Close()
-	segmentReader := NewLogReader(logSegment, process.StartTime)
+	segmentReader := NewLogReader(logSegment, process)
 	defer segmentReader.Close()
 
 	for {
@@ -462,7 +462,7 @@ func (reg *Registry) ListRecords(ctx context.Context, processID format.UUID, tim
 	if err != nil {
 		return stream.ErrCloser[Record](err)
 	}
-	segmentReader := NewLogReader(logSegment, manifest.StartTime)
+	segmentReader := NewLogReader(logSegment, manifest)
 	recordReader := NewLogRecordReader(segmentReader)
 
 	return stream.NewReadCloser[Record](recordReader, closerFunc(func() error {
