@@ -127,8 +127,6 @@ func (c *http1Conn) nextRequest(msg *Message) bool {
 func (c *http1Conn) nextResponse(msg *Message) bool {
 	start, end, data, err, ok := c.res.read()
 	if !ok {
-		return false
-
 		if c.Done() && c.resID < c.reqID {
 			// TODO: set the start time to the last event start time
 			err = io.ErrUnexpectedEOF
