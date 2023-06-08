@@ -13,20 +13,42 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Message interface {
-	Link() (src, dst net.Addr)
+type Link struct {
+	Src net.Addr
+	Dst net.Addr
+}
 
-	Pair() int64
+type Message struct {
+	Link Link
+	Pair int64
+	Time time.Time
+	Span time.Duration
+	Err  error
+	msg  ConnMessage
+}
 
-	Time() time.Time
+func (m Message) Format(w fmt.State, v rune) {
+	fmt.Fprintf(w, "%s %s %s > %s",
+		formatTime(m.Time),
+		m.msg.Conn().Protocol().Name(),
+		socketAddressString(m.Link.Src),
+		socketAddressString(m.Link.Dst))
 
-	Span() time.Duration
+	if w.Flag('+') {
+		fmt.Fprintf(w, "\n")
+	} else {
+		fmt.Fprintf(w, ": ")
+	}
 
-	fmt.Formatter
+	m.msg.Format(w, v)
+}
 
-	json.Marshaler
+func (m Message) MarshalJSON() ([]byte, error) {
+	return []byte(`{}`), nil
+}
 
-	yaml.Marshaler
+func (m Message) MarshalYAML() (any, error) {
+	return nil, nil
 }
 
 type ConnProtocol interface {
@@ -39,10 +61,22 @@ type ConnProtocol interface {
 	NewServer(fd wasi.FD, addr, peer net.Addr) Conn
 }
 
+type ConnMessage interface {
+	Conn() Conn
+
+	fmt.Formatter
+
+	json.Marshaler
+
+	yaml.Marshaler
+}
+
 type Conn interface {
+	Protocol() ConnProtocol
+
 	Observe(*Event)
 
-	Next() Message
+	Next(*Message) bool
 
 	Done() bool
 }
@@ -116,12 +150,14 @@ func (r *MessageReader) Read(msgs []Message) (n int, err error) {
 
 			c.Observe(e)
 			for {
-				if msg := c.Next(); msg != nil {
-					r.msgs = append(r.msgs, msg)
-				} else if c.Done() {
-					delete(r.conns, e.FD)
-					break
-				} else {
+				i := len(r.msgs)
+				r.msgs = append(r.msgs, Message{})
+
+				if !c.Next(&r.msgs[i]) {
+					r.msgs = r.msgs[:i]
+					if c.Done() {
+						delete(r.conns, e.FD)
+					}
 					break
 				}
 			}
@@ -223,6 +259,7 @@ type pendingConn struct {
 	newConn func(ConnProtocol, wasi.FD, net.Addr, net.Addr) Conn
 }
 
-func (*pendingConn) Observe(*Event) {}
-func (*pendingConn) Next() Message  { return nil }
-func (*pendingConn) Done() bool     { return false }
+func (*pendingConn) Protocol() ConnProtocol { return nil }
+func (*pendingConn) Next(*Message) bool     { return false }
+func (*pendingConn) Done() bool             { return false }
+func (*pendingConn) Observe(*Event)         {}

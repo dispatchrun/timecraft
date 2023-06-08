@@ -65,12 +65,16 @@ type http1Conn struct {
 	addr1 net.Addr
 	addr2 net.Addr
 	flag  uint
-	recv  buffer
-	send  buffer
-	req   *buffer
-	res   *buffer
+	recv  http1Parser
+	send  http1Parser
+	req   *http1Parser
+	res   *http1Parser
 	reqID int64
 	resID int64
+}
+
+func (c *http1Conn) Protocol() ConnProtocol {
+	return http1Protocol{}
 }
 
 func (c *http1Conn) Done() bool {
@@ -82,66 +86,58 @@ func (c *http1Conn) Observe(e *Event) {
 	// TODO: capture errors
 	switch e.Type.Type() {
 	case Receive:
-		c.recv.write(e.Time, e.Data)
+		c.recv.write(e.Time, e.Data, false)
 	case Send:
-		c.send.write(e.Time, e.Data)
+		c.send.write(e.Time, e.Data, false)
 	case Shutdown:
 		c.flag |= e.Type.Flag()
+		c.recv.write(e.Time, e.Data, (c.flag&ShutRD) != 0)
+		c.send.write(e.Time, e.Data, (c.flag&ShutWR) != 0)
 	}
 }
 
-func (c *http1Conn) Next() Message {
-	if msg := c.nextRequest(); msg != nil {
-		return msg
-	}
-	if msg := c.nextResponse(); msg != nil {
-		return msg
-	}
-	return nil
+func (c *http1Conn) Next(msg *Message) bool {
+	return c.nextRequest(msg) || c.nextResponse(msg)
 }
 
-func (c *http1Conn) nextRequest() Message {
-	n, err := http1ReadMessage(c.req.bytes, c.Done())
-	if err != nil {
-		return nil
+func (c *http1Conn) nextRequest(msg *Message) bool {
+	start, end, data, err, ok := c.req.read()
+	if !ok {
+		return false
 	}
-	if n == 0 {
-		return nil
-	}
-	start, end, data := c.req.slice(n)
 	c.reqID++
-	return &http1Request{
+	msg.Link = Link{Src: c.addr1, Dst: c.addr2}
+	msg.Pair = c.reqID
+	msg.Time = start
+	msg.Span = end.Sub(start)
+	msg.Err = err
+	msg.msg = &http1Request{
 		http1Message: http1Message{
-			pair: c.reqID,
-			src:  c.addr1,
-			dst:  c.addr2,
-			time: start,
-			span: end.Sub(start),
+			conn: c,
 			data: data,
 		},
 	}
+	return true
 }
 
-func (c *http1Conn) nextResponse() Message {
-	n, err := http1ReadMessage(c.res.bytes, c.Done())
-	if err != nil {
-		return nil
+func (c *http1Conn) nextResponse(msg *Message) bool {
+	start, end, data, err, ok := c.res.read()
+	if !ok {
+		return false
 	}
-	if n == 0 {
-		return nil
-	}
-	start, end, data := c.res.slice(n)
 	c.resID++
-	return &http1Response{
+	msg.Link = Link{Src: c.addr2, Dst: c.addr1}
+	msg.Pair = c.resID
+	msg.Time = start
+	msg.Span = end.Sub(start)
+	msg.Err = err
+	msg.msg = &http1Response{
 		http1Message: http1Message{
-			pair: c.resID,
-			src:  c.addr2,
-			dst:  c.addr1,
-			time: start,
-			span: end.Sub(start),
+			conn: c,
 			data: data,
 		},
 	}
+	return true
 }
 
 var (
@@ -152,61 +148,42 @@ var (
 )
 
 type http1Message struct {
-	src  net.Addr
-	dst  net.Addr
-	pair int64
-	time time.Time
-	span time.Duration
+	conn *http1Conn
 	data []byte
 }
 
-func (msg *http1Message) Link() (net.Addr, net.Addr) { return msg.src, msg.dst }
-
-func (msg *http1Message) Pair() int64 { return msg.pair }
-
-func (msg *http1Message) Time() time.Time { return msg.time }
-
-func (msg *http1Message) Span() time.Duration { return msg.span }
+func (msg *http1Message) Conn() Conn { return msg.conn }
 
 func (msg *http1Message) format(state fmt.State, verb rune, prefix []byte) {
-	fmt.Fprintf(state, "%s HTTP %s > %s",
-		formatTime(msg.time),
-		socketAddressString(msg.src),
-		socketAddressString(msg.dst))
-
-	if state.Flag('+') {
-		fmt.Fprintf(state, "\n")
-	} else {
-		fmt.Fprintf(state, ": ")
-	}
-
 	header, body, _ := http1SplitMessage(msg.data)
 	status, header := http1SplitLine(header)
-	status = bytes.TrimSpace(status)
+	status = http1TrimCRLFSuffix(status)
 
 	if state.Flag('+') {
 		w := textprint.NewPrefixWriter(state, prefix)
-		w.Write(status)
-		w.Write(newLine)
+		write := func(b []byte) { _, _ = w.Write(b) }
+		write(status)
+		write(newLine)
 
-		http1HeaderRange(header, func(name, value []byte) bool {
-			w.Write(name)
-			w.Write(http1HeaderSeparator)
-			w.Write(value)
-			w.Write(newLine)
+		unparsed := http1HeaderRange(header, func(name, value []byte) bool {
+			write(name)
+			write(http1HeaderSeparator)
+			write(http1TrimCRLFSuffix(value))
+			write(newLine)
 			return true
 		})
 
-		w.Write(newLine)
+		write(unparsed)
+		write(newLine)
 		switch verb {
 		case 'x':
-			hexdump := hex.Dumper(w)
+			hexdump := hex.Dumper(state)
 			_, _ = hexdump.Write(body)
 			hexdump.Close()
 
 		default:
 			if utf8.Valid(body) {
-				w.Write(body)
+				write(body)
 			} else {
 				fmt.Fprintf(w, "(binary content)")
 			}
@@ -252,83 +229,194 @@ func (res *http1Response) MarshalYAML() (any, error) {
 	return nil, nil
 }
 
-func http1ReadMessage(msg []byte, eof bool) (n int, err error) {
-	header, _, ok := http1SplitMessage(msg)
-	if !ok {
-		return 0, nil
-	}
-	messageLength := len(header)
-	contentLength := -1
-
-	statusLine, header := http1SplitLine(header)
-	http1HeaderRange(header, func(name, value []byte) bool {
-		// TODO: Transfer-Encoding
-		if !bytes.EqualFold(name, []byte("Content-Length")) {
-			return true
-		}
-		v, parseErr := strconv.ParseInt(string(value), 10, 32)
-		if parseErr != nil {
-			err = fmt.Errorf("malformed http content-length header: %w", parseErr)
-		} else if v < 0 {
-			err = fmt.Errorf("malformed http content-length header: %d", v)
-		} else {
-			contentLength = int(v)
-		}
-		return false
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	if contentLength >= 0 {
-		return messageLength + contentLength, nil
-	}
-
-	method, statusCode, _ := http1SplitStatusLine(statusLine)
-	if bytes.HasPrefix(method, []byte("HTTP")) {
-		switch string(statusCode) {
-		case "204":
-			return messageLength, nil
-		}
-	} else {
-		switch string(method) {
-		case "HEAD", "GET":
-			return messageLength, nil
-		}
-	}
-
-	if !eof {
-		// At this stage we know that there must be a body, but we don't have
-		// enough bytes to decode it all.
-		return 0, nil
-	}
-
-	// We exhausted all options, this indicates that the body extends until the
-	// connection has reached EOF, all remaining bytes are part of it.
-	return len(msg), nil
+type http1Parser struct {
+	buffer        buffer
+	headerLength  int
+	contentLength int
+	err           error
 }
 
-func http1HeaderRange(header []byte, do func(name, value []byte) bool) {
-	for len(header) > 0 {
-		var line []byte
-		line, header = http1SplitLine(header)
-		name, value := http1SplitHeaderLine(line)
+func (p *http1Parser) read() (start, end time.Time, data []byte, err error, ok bool) {
+	if p.headerLength == 0 || p.contentLength < 0 {
+		return
+	}
+	start, end, data = p.buffer.slice(p.headerLength + p.contentLength)
+	err = p.err
+	p.headerLength = 0
+	p.contentLength = 0
+	p.err = nil
+	return start, end, data, err, true
+}
+
+func (p *http1Parser) write(now time.Time, data []Bytes, eof bool) {
+	p.buffer.write(now, data)
+
+	if p.headerLength == 0 {
+		// TODO: set a limit to how large a http header may be
+		header, _, ok := http1SplitMessage(p.buffer.bytes)
+		if !ok {
+			return
+		}
+		p.headerLength = len(header)
+		p.contentLength = -1
+	}
+
+	if p.contentLength < 0 {
+		startLine, header := http1SplitLine(p.buffer.bytes[:p.headerLength])
+		http1HeaderRange(header, func(name, value []byte) bool {
+			// TODO: Transfer-Encoding
+			if !bytes.EqualFold(name, []byte("Content-Length")) {
+				return true
+			}
+			v, parseErr := strconv.ParseInt(string(value), 10, 32)
+			if parseErr != nil {
+				p.err = fmt.Errorf("malformed http content-length header: %w", parseErr)
+			} else if v < 0 {
+				p.err = fmt.Errorf("malformed http content-length header: %d", v)
+			} else {
+				p.contentLength = int(v)
+			}
+			return false
+		})
+
+		if p.contentLength >= 0 {
+			return
+		}
+
+		method, statusCode, _ := http1SplitStartLine(startLine)
+		if bytes.HasPrefix(method, []byte("HTTP")) {
+			switch string(statusCode) {
+			case "204":
+				p.contentLength = 0
+				return
+			}
+		} else {
+			switch string(method) {
+			case "HEAD", "GET":
+				p.contentLength = 0
+				return
+			}
+		}
+
+		if !eof {
+			// At this stage we know that there must be a body, but we don't have
+			// enough bytes to decode it all.
+			return
+		}
+
+		// We exhausted all options, this indicates that the body extends until the
+		// connection has reached EOF, all remaining bytes are part of it.
+		p.contentLength = len(p.buffer.bytes) - p.headerLength
+		return
+	}
+}
+
+func http1ParseFieldName(b []byte) (name, remain []byte) {
+	i := bytes.IndexByte(b, ':')
+	if i < 0 {
+		return nil, b
+	}
+	return b[:i:i], b[i+1:]
+}
+
+func http1ParseFieldValue(b []byte) (value, remain []byte) {
+	for len(b) > 0 {
+		var lws bool
+		lws, b = http1ParseLWS(b)
+		if lws {
+			continue
+		}
+		if http1HasCRLFPrefix(b) {
+			return value, b
+		}
+		var v []byte
+		v, b = http1ParseFieldContent(b)
+
+		if len(value) != 0 {
+			value = append(value, ' ')
+			value = append(value, v...)
+		} else {
+			value = v
+		}
+	}
+	return value, nil
+}
+
+func http1ParseFieldContent(b []byte) (content, remain []byte) {
+	i := bytes.Index(b, []byte("\r\n")) // simplify, just look for the potential end of header field
+	if i < 0 {
+		return b, nil
+	}
+	return b[:i:i], b[i:]
+}
+
+func http1ParseCRLF(b []byte) (ok bool, remain []byte) {
+	if http1HasCRLFPrefix(b) {
+		return true, b[2:]
+	}
+	return false, b
+}
+
+func http1ParseLWS(b []byte) (ok bool, remain []byte) {
+	switch {
+	case len(b) == 0:
+	case http1IsSpace(b[0]):
+		return true, b[1:]
+	case http1HasCRLFPrefix(b):
+		if len(b) > 2 && http1IsSpace(b[2]) {
+			return true, b[3:]
+		}
+	}
+	return false, b
+}
+
+func http1HeaderRange(header []byte, do func(name, value []byte) bool) []byte {
+	// message-header = field-name ":" [ field-value ]
+	// field-name     = token
+	// field-value    = *( field-content | LWS )
+	// field-content  = <the OCTETs making up the field-value
+	//                     and consisting of either *TEXT or combinations
+	//                     of token, separators, and quoted-string>
+	var name, value []byte
+	for {
+		name, header = http1ParseFieldName(header)
 		if len(name) == 0 {
+			break
+		}
+		value, header = http1ParseFieldValue(header)
+		if len(value) == 0 {
 			break
 		}
 		if !do(name, value) {
 			break
 		}
+		header = http1TrimCRLFPrefix(header)
 	}
+	if len(header) > 0 {
+		header = http1TrimCRLFPrefix(header)
+	}
+	return header
 }
 
-func http1SplitStatusLine(b []byte) (part1, part2, part3 []byte) {
-	part1, b, _ = split(b, []byte(" "))
-	part2, part3, _ = split(b, []byte(" "))
-	part1 = bytes.TrimSpace(part1)
-	part2 = bytes.TrimSpace(part2)
-	part3 = bytes.TrimSpace(part3)
-	return
+func http1SplitStartLine(b []byte) (part1, part2, part3 []byte) {
+	// start-line   = Request-Line | Status-Line
+	// Request-Line = Method SP Request-URI SP HTTP-Version CRLF
+	// Status-Line  = HTTP-Version SP Status-Code SP Reason-Phrase CRLF
+	i := bytes.IndexByte(b, ' ')
+	if i < 0 {
+		part1 = b
+		return
+	}
+	part1, b = b[:i], b[i+1:]
+
+	i = bytes.IndexByte(b, ' ')
+	if i < 0 {
+		part2 = b
+		return
+	}
+
+	part2, part3 = b[:i], b[i+1:]
+	return part1, part2, http1TrimCRLFSuffix(part3)
 }
 
 func http1SplitLine(b []byte) (line, next []byte) {
@@ -341,12 +429,20 @@ func http1SplitMessage(b []byte) (header, body []byte, ok bool) {
 	return
 }
 
-func http1SplitHeaderLine(b []byte) (name, value []byte) {
-	name, value, _ = split(b, []byte(":"))
-	name = bytes.TrimSpace(name)
-	name = bytes.TrimSuffix(name, []byte(":"))
-	value = bytes.TrimSpace(value)
-	return
+func http1IsSpace(b byte) bool {
+	return b == ' ' || b == '\t'
+}
+
+func http1HasCRLFPrefix(b []byte) bool {
+	return bytes.HasPrefix(b, []byte("\r\n"))
+}
+
+func http1TrimCRLFPrefix(b []byte) []byte {
+	return bytes.TrimPrefix(b, []byte("\r\n"))
+}
+
+func http1TrimCRLFSuffix(b []byte) []byte {
+	return bytes.TrimSuffix(b, []byte("\r\n"))
 }
 
 func split(b, sep []byte) (head, tail []byte, ok bool) {
