@@ -761,6 +761,20 @@ func (s *SockRemoteAddressSyscall) Results() []any { return []any{s.Addr, s.Errn
 func (s *SockRemoteAddressSyscall) Error() Errno   { return s.Errno }
 func (s *SockRemoteAddressSyscall) private()       {}
 
+type SockAddressInfoSyscall struct {
+	Name    string
+	Service string
+	Hint    AddressInfo
+	Res     []AddressInfo
+	Errno   Errno
+}
+
+func (s *SockAddressInfoSyscall) ID() SyscallID  { return SockAddressInfo }
+func (s *SockAddressInfoSyscall) Params() []any  { return []any{s.Name, s.Service, s.Hint} }
+func (s *SockAddressInfoSyscall) Results() []any { return []any{s.Res, s.Errno} }
+func (s *SockAddressInfoSyscall) Error() Errno   { return s.Errno }
+func (s *SockAddressInfoSyscall) private()       {}
+
 // SyscallID is a system call identifier.
 type SyscallID int
 
@@ -822,6 +836,7 @@ const (
 	SockSetOptInt
 	SockLocalAddress
 	SockRemoteAddress
+	SockAddressInfo
 )
 
 func (s SyscallID) String() string {
@@ -888,4 +903,5 @@ var syscallIDStrings = [...]string{
 	"SockSetOptInt",
 	"SockLocalAddress",
 	"SockRemoteAddress",
+	"SockAddressInfo",
 }

@@ -49,6 +49,7 @@ type Decoder struct {
 	subscriptions []wasi.Subscription
 	events        []wasi.Event
 	entries       []wasi.DirEntry
+	addrinfo      []wasi.AddressInfo
 }
 
 // Decode a syscall from a record. Slices in the returned syscall point to
@@ -406,6 +407,13 @@ func (r *Decoder) Decode(record timemachine.Record) (time.Time, Syscall, error) 
 			return time.Time{}, nil, &DecodeError{record, err}
 		}
 		syscall = &SockRemoteAddressSyscall{fd, addr, errno}
+	case SockAddressInfo:
+		name, service, hint, results, errno, err := r.codec.DecodeSockAddressInfo(record.FunctionCall, r.addrinfo[:0])
+		if err != nil {
+			return time.Time{}, nil, &DecodeError{record, err}
+		}
+		r.addrinfo = results
+		syscall = &SockAddressInfoSyscall{name, service, hint, results, errno}
 	default:
 		return time.Time{}, nil, fmt.Errorf("unknown syscall %d", record.FunctionID)
 	}

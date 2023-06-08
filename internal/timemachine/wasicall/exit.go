@@ -249,6 +249,10 @@ func (s *exitSystem) SockRemoteAddress(ctx context.Context, fd FD) (addr SocketA
 	panic(s.newExitError())
 }
 
+func (s *exitSystem) SockAddressInfo(ctx context.Context, name, service string, hints AddressInfo, results []AddressInfo) (int, Errno) {
+	panic(s.newExitError())
+}
+
 var (
 	_ SocketsExtension = (*exitSystem)(nil)
 )

@@ -237,13 +237,12 @@ func (r *Recorder) PathOpen(ctx context.Context, fd FD, dirFlags LookupFlags, pa
 
 func (r *Recorder) PathReadLink(ctx context.Context, fd FD, path string, buffer []byte) (int, Errno) {
 	n, errno := r.system.PathReadLink(ctx, fd, path, buffer)
-	// Note: we do not capture the input buffer, just the part
-	// that was overwritten (result).
-	var result []byte
-	if n >= 0 {
-		result = buffer[:n]
+	if n >= 0 && n <= len(buffer) {
+		buffer = buffer[:n]
+	} else {
+		buffer = buffer[:0]
 	}
-	r.record(PathReadLink, r.codec.EncodePathReadLink(r.buffer[:0], fd, path, result, errno))
+	r.record(PathReadLink, r.codec.EncodePathReadLink(r.buffer[:0], fd, path, buffer, errno))
 	return n, errno
 }
 
@@ -273,7 +272,12 @@ func (r *Recorder) PathUnlinkFile(ctx context.Context, fd FD, path string) Errno
 
 func (r *Recorder) PollOneOff(ctx context.Context, subscriptions []Subscription, events []Event) (int, Errno) {
 	n, errno := r.system.PollOneOff(ctx, subscriptions, events)
-	r.record(PollOneOff, r.codec.EncodePollOneOff(r.buffer[:0], subscriptions, events[:n], errno))
+	if n >= 0 && n <= len(events) {
+		events = events[:n]
+	} else {
+		events = events[:0]
+	}
+	r.record(PollOneOff, r.codec.EncodePollOneOff(r.buffer[:0], subscriptions, events, errno))
 	return n, errno
 }
 
@@ -425,6 +429,21 @@ func (r *Recorder) SockRemoteAddress(ctx context.Context, fd FD) (SocketAddress,
 	addr, errno := s.SockRemoteAddress(ctx, fd)
 	r.record(SockRemoteAddress, r.codec.EncodeSockRemoteAddress(r.buffer[:0], fd, addr, errno))
 	return addr, errno
+}
+
+func (r *Recorder) SockAddressInfo(ctx context.Context, name, service string, hints AddressInfo, results []AddressInfo) (int, Errno) {
+	s, ok := r.system.(SocketsExtension)
+	if !ok {
+		return 0, ENOSYS
+	}
+	n, errno := s.SockAddressInfo(ctx, name, service, hints, results)
+	if n >= 0 && n <= len(results) {
+		results = results[:n]
+	} else {
+		results = results[:0]
+	}
+	r.record(SockAddressInfo, r.codec.EncodeSockAddressInfo(r.buffer[:0], name, service, hints, results, errno))
+	return n, errno
 }
 
 func (r *Recorder) Close(ctx context.Context) error {

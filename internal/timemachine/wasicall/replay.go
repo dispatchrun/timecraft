@@ -62,6 +62,7 @@ type Replay struct {
 	subscriptions []Subscription
 	events        []Event
 	entries       []DirEntry
+	addrinfo      []AddressInfo
 }
 
 const noneFD = ^FD(0)
@@ -1430,6 +1431,38 @@ func (r *Replay) SockRemoteAddress(ctx context.Context, fd FD) (SocketAddress, E
 		panic(&UnexpectedSyscallParamError{SockRemoteAddress, "fd", fd, recordFD})
 	}
 	return addr, errno
+}
+
+func (r *Replay) SockAddressInfo(ctx context.Context, name, service string, hints AddressInfo, buffer []AddressInfo) (int, Errno) {
+	record, ok := r.readRecord(SockAddressInfo)
+	if !ok {
+		return 0, ENOSYS
+	}
+	recordName, recordService, recordHints, results, errno, err := r.codec.DecodeSockAddressInfo(record.FunctionCall, r.addrinfo[:0])
+	if err != nil {
+		panic(&DecodeError{record, err})
+	}
+	r.addrinfo = results
+	if r.strict {
+		var mismatch []error
+		if name != recordName {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockAddressInfo, "name", name, recordName})
+		}
+		if service != recordService {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockAddressInfo, "service", service, recordService})
+		}
+		if hints != recordHints {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockAddressInfo, "hints", hints, recordHints})
+		}
+		if len(buffer) < len(results) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{PathReadLink, "results", buffer, results})
+		}
+		if len(mismatch) > 0 {
+			panic(errors.Join(mismatch...))
+		}
+	}
+	copy(buffer, results)
+	return len(results), errno
 }
 
 func (r *Replay) Close(ctx context.Context) error {

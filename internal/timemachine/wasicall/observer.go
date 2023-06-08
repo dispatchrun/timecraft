@@ -381,8 +381,13 @@ func (o *Observer) PathReadLink(ctx context.Context, fd FD, path string, buffer 
 		o.before(ctx, &PathReadLinkSyscall{fd, path, buffer, errno})
 	}
 	n, errno = o.System.PathReadLink(ctx, fd, path, buffer)
+	if n >= 0 && n <= len(buffer) {
+		buffer = buffer[:n]
+	} else {
+		buffer = buffer[:0]
+	}
 	if o.after != nil {
-		o.after(ctx, &PathReadLinkSyscall{fd, path, buffer[:n], errno})
+		o.after(ctx, &PathReadLinkSyscall{fd, path, buffer, errno})
 	}
 	return
 }
@@ -436,8 +441,13 @@ func (o *Observer) PollOneOff(ctx context.Context, subscriptions []Subscription,
 		o.before(ctx, &PollOneOffSyscall{subscriptions, events, errno})
 	}
 	count, errno = o.System.PollOneOff(ctx, subscriptions, events)
+	if count >= 0 && count <= len(events) {
+		events = events[:count]
+	} else {
+		events = events[:0]
+	}
 	if o.after != nil {
-		o.after(ctx, &PollOneOffSyscall{subscriptions, events[:count], errno})
+		o.after(ctx, &PollOneOffSyscall{subscriptions, events, errno})
 	}
 	return
 }
@@ -676,6 +686,26 @@ func (o *Observer) SockRemoteAddress(ctx context.Context, fd FD) (addr SocketAdd
 	addr, errno = se.SockRemoteAddress(ctx, fd)
 	if o.after != nil {
 		o.after(ctx, &SockRemoteAddressSyscall{fd, addr, errno})
+	}
+	return
+}
+
+func (o *Observer) SockAddressInfo(ctx context.Context, name, service string, hints AddressInfo, results []AddressInfo) (n int, errno Errno) {
+	se, ok := o.System.(SocketsExtension)
+	if !ok {
+		return 0, ENOSYS
+	}
+	if o.before != nil {
+		o.before(ctx, &SockAddressInfoSyscall{name, service, hints, results, errno})
+	}
+	n, errno = se.SockAddressInfo(ctx, name, service, hints, results)
+	if n >= 0 && n <= len(results) {
+		results = results[:n]
+	} else {
+		results = results[:0]
+	}
+	if o.after != nil {
+		o.before(ctx, &SockAddressInfoSyscall{name, service, hints, results, errno})
 	}
 	return
 }

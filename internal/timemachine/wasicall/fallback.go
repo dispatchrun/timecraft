@@ -574,6 +574,24 @@ fallback:
 	return se.SockRemoteAddress(ctx, fd)
 }
 
+func (f *FallbackSystem) SockAddressInfo(ctx context.Context, name, service string, hints AddressInfo, results []AddressInfo) (n int, errno Errno) {
+	se, ok := f.System.(SocketsExtension)
+	if !ok {
+		goto fallback
+	}
+	n, errno = se.SockAddressInfo(ctx, name, service, hints, results)
+	if errno == ENOSYS {
+		goto fallback
+	}
+	return n, errno
+fallback:
+	se, ok = f.secondary.(SocketsExtension)
+	if !ok {
+		return 0, ENOSYS
+	}
+	return se.SockAddressInfo(ctx, name, service, hints, results)
+}
+
 func (f *FallbackSystem) Close(ctx context.Context) error {
 	err := f.System.Close(ctx)
 	err2 := f.secondary.Close(ctx)
