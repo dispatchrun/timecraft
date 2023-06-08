@@ -7,11 +7,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+type Bytes []byte
+
+func (b Bytes) MarshalYAML() (any, error) {
+	return string(b), nil
+}
 
 type UUID = uuid.UUID
 
@@ -229,6 +236,39 @@ type Record struct {
 	Size     int64
 	Time     time.Time
 	Function string
+}
+
+type Link struct {
+	Src net.Addr `json:"src" yaml:"src"`
+	Dst net.Addr `json:"dst" yaml:"dst"`
+}
+
+type Message struct {
+	Link Link          `json:"link"            yaml:"link"`
+	Time time.Time     `json:"time"            yaml:"time"`
+	Span time.Duration `json:"span"            yaml:"span"`
+	Err  string        `json:"error,omitempty" yaml:"error,omitempty"`
+	Msg  any           `json:"message"         yaml:"message"`
+}
+
+type Request struct {
+	Time time.Time     `json:"time"            yaml:"time"`
+	Span time.Duration `json:"span"            yaml:"span"`
+	Err  string        `json:"error,omitempty" yaml:"error,omitempty"`
+	Msg  any           `json:"message"         yaml:"message"`
+}
+
+type Response struct {
+	Time time.Time     `json:"time"            yaml:"time"`
+	Span time.Duration `json:"span"            yaml:"span"`
+	Err  string        `json:"error,omitempty" yaml:"error,omitempty"`
+	Msg  any           `json:"message"         yaml:"message"`
+}
+
+type Exchange struct {
+	Link Link     `json:"link"     yaml:"link"`
+	Req  Request  `json:"request"  yaml:"request"`
+	Res  Response `json:"response" yaml:"response"`
 }
 
 var (

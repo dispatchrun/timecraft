@@ -1,10 +1,12 @@
 package tracing
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"time"
 
+	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"golang.org/x/exp/slices"
 )
@@ -50,11 +52,29 @@ func (e Exchange) Format(w fmt.State, v rune) {
 }
 
 func (e Exchange) MarshalJSON() ([]byte, error) {
-	return []byte(`{}`), nil
+	return json.Marshal(e.marshal())
 }
 
 func (e Exchange) MarshalYAML() (any, error) {
-	return nil, nil
+	return e.marshal(), nil
+}
+
+func (e *Exchange) marshal() *format.Exchange {
+	return &format.Exchange{
+		Link: format.Link(e.Link),
+		Req: format.Request{
+			Time: e.Time,
+			Span: e.Req.Span,
+			Err:  errorString(e.Req.Err),
+			Msg:  e.Req.msg.Marshal(),
+		},
+		Res: format.Response{
+			Time: e.Time.Add(e.Res.Time),
+			Span: e.Res.Span,
+			Err:  errorString(e.Res.Err),
+			Msg:  e.Res.msg.Marshal(),
+		},
+	}
 }
 
 type ExchangeReader struct {

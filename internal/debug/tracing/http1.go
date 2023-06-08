@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/textproto"
 	"strconv"
 	"time"
 	"unicode/utf8"
 
+	"github.com/stealthrocket/timecraft/format"
+	"github.com/stealthrocket/timecraft/format/httpformat"
 	"github.com/stealthrocket/timecraft/internal/print/textprint"
 	"github.com/stealthrocket/wasi-go"
 )
@@ -162,15 +165,19 @@ type http1Message struct {
 
 func (msg *http1Message) Conn() Conn { return msg.conn }
 
+func (msg *http1Message) parse() (startLine, header, body []byte) {
+	header, body, _ = http1SplitMessage(msg.data)
+	startLine, header = http1SplitLine(header)
+	return http1TrimCRLFSuffix(startLine), header, body
+}
+
 func (msg *http1Message) format(state fmt.State, verb rune, prefix []byte) {
-	header, body, _ := http1SplitMessage(msg.data)
-	status, header := http1SplitLine(header)
-	status = http1TrimCRLFSuffix(status)
+	startLine, header, body := msg.parse()
 
 	if state.Flag('+') {
 		w := textprint.NewPrefixWriter(state, prefix)
 		write := func(b []byte) { _, _ = w.Write(b) }
-		write(status)
+		write(startLine)
 		write(newLine)
 
 		unparsed := http1HeaderRange(header, func(name, value []byte) bool {
@@ -197,11 +204,11 @@ func (msg *http1Message) format(state fmt.State, verb rune, prefix []byte) {
 			}
 		}
 	} else {
-		status = bytes.TrimPrefix(status, []byte("HTTP/1.0 "))
-		status = bytes.TrimPrefix(status, []byte("HTTP/1.1 "))
-		status = bytes.TrimSuffix(status, []byte(" HTTP/1.0"))
-		status = bytes.TrimSuffix(status, []byte(" HTTP/1.1"))
-		state.Write(status)
+		startLine = bytes.TrimPrefix(startLine, []byte("HTTP/1.0 "))
+		startLine = bytes.TrimPrefix(startLine, []byte("HTTP/1.1 "))
+		startLine = bytes.TrimSuffix(startLine, []byte(" HTTP/1.0"))
+		startLine = bytes.TrimSuffix(startLine, []byte(" HTTP/1.1"))
+		state.Write(startLine)
 	}
 }
 
@@ -213,12 +220,16 @@ func (req *http1Request) Format(w fmt.State, v rune) {
 	req.format(w, v, http1RequestFormatPrefix)
 }
 
-func (req *http1Request) MarshalJSON() ([]byte, error) {
-	return []byte(`{}`), nil
-}
-
-func (req *http1Request) MarshalYAML() (any, error) {
-	return nil, nil
+func (req *http1Request) Marshal() any {
+	startLine, header, body := req.parse()
+	method, path, proto := http1SplitStartLine(startLine)
+	return &httpformat.Request{
+		Proto:  string(proto),
+		Method: string(method),
+		Path:   string(path),
+		Header: http1FormatHeader(header),
+		Body:   format.Bytes(body),
+	}
 }
 
 type http1Response struct {
@@ -229,12 +240,33 @@ func (res *http1Response) Format(w fmt.State, v rune) {
 	res.format(w, v, http1ResponseFormatPrefix)
 }
 
-func (res *http1Response) MarshalJSON() ([]byte, error) {
-	return []byte(`{}`), nil
+func (res *http1Response) Marshal() any {
+	startLine, header, body := res.parse()
+	proto, statusCodeString, statusText := http1SplitStartLine(startLine)
+	statusCode, _ := strconv.Atoi(string(statusCodeString))
+	return &httpformat.Response{
+		Proto:      string(proto),
+		StatusCode: statusCode,
+		StatusText: string(statusText),
+		Header:     http1FormatHeader(header),
+		Body:       format.Bytes(body),
+	}
 }
 
-func (res *http1Response) MarshalYAML() (any, error) {
-	return nil, nil
+func http1FormatHeader(b []byte) httpformat.Header {
+	header := make(httpformat.Header)
+	http1HeaderRange(b, func(name, value []byte) bool {
+		k := textproto.CanonicalMIMEHeaderKey(string(name))
+		v, exist := header[k]
+		if exist {
+			v += ", " + string(value)
+		} else {
+			v = string(value)
+		}
+		header[k] = v
+		return true
+	})
+	return header
 }
 
 type http1Parser struct {
@@ -256,7 +288,7 @@ func (p *http1Parser) read() (start, end time.Time, data []byte, err error, ok b
 	return start, end, data, err, true
 }
 
-func (p *http1Parser) write(now time.Time, data []Bytes, eof bool) {
+func (p *http1Parser) write(now time.Time, data []format.Bytes, eof bool) {
 	p.buffer.write(now, data)
 
 	if p.headerLength == 0 {

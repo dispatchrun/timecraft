@@ -7,15 +7,15 @@ import (
 	"net"
 	"time"
 
+	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/wasi-go"
 	"golang.org/x/exp/slices"
-	"gopkg.in/yaml.v3"
 )
 
 type Link struct {
-	Src net.Addr
-	Dst net.Addr
+	Src net.Addr `json:"src" yaml:"src"`
+	Dst net.Addr `json:"dst" yaml:"dst"`
 }
 
 type Message struct {
@@ -45,11 +45,28 @@ func (m Message) Format(w fmt.State, v rune) {
 }
 
 func (m Message) MarshalJSON() ([]byte, error) {
-	return []byte(`{}`), nil
+	return json.Marshal(m.marshal())
 }
 
 func (m Message) MarshalYAML() (any, error) {
-	return nil, nil
+	return m.marshal(), nil
+}
+
+func (m *Message) marshal() *format.Message {
+	return &format.Message{
+		Link: format.Link(m.Link),
+		Time: m.Time,
+		Span: m.Span,
+		Err:  errorString(m.Err),
+		Msg:  m.msg.Marshal(),
+	}
+}
+
+func errorString(err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 type ConnProtocol interface {
@@ -65,11 +82,9 @@ type ConnProtocol interface {
 type ConnMessage interface {
 	Conn() Conn
 
+	Marshal() any
+
 	fmt.Formatter
-
-	json.Marshaler
-
-	yaml.Marshaler
 }
 
 type Conn interface {
@@ -244,7 +259,7 @@ func (b *buffer) slice(size int) (start, end time.Time, data []byte) {
 	return
 }
 
-func (b *buffer) write(now time.Time, iovs []Bytes) {
+func (b *buffer) write(now time.Time, iovs []format.Bytes) {
 	length := len(b.bytes)
 
 	for _, iov := range iovs {
