@@ -94,13 +94,11 @@ func (t *tableWriter[T]) Close() error {
 	}
 
 	if t.header {
-		for i, name := range columns {
-			if i != 0 {
-				if _, err := io.WriteString(tw, "\t"); err != nil {
-					return err
-				}
-			}
+		for _, name := range columns {
 			if _, err := io.WriteString(tw, name); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(tw, "\t"); err != nil {
 				return err
 			}
 		}
@@ -113,14 +111,12 @@ func (t *tableWriter[T]) Close() error {
 		v := valueOf(t.values, n)
 		w := io.Writer(tw)
 
-		for i, enc := range encoders {
-			if i != 0 {
-				_, err := io.WriteString(w, "\t")
-				if err != nil {
-					return err
-				}
-			}
+		for _, enc := range encoders {
 			if err := enc(w, v); err != nil {
+				return err
+			}
+			_, err := io.WriteString(w, "\t")
+			if err != nil {
 				return err
 			}
 		}

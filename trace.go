@@ -97,24 +97,26 @@ func trace(ctx context.Context, args []string) error {
 	}
 
 	if messages {
-		var writer stream.WriteCloser[nettrace.Message]
+		var writer stream.WriteCloser[nettrace.Exchange]
 		switch output {
 		case "json":
-			writer = jsonprint.NewWriter[nettrace.Message](os.Stdout)
+			writer = jsonprint.NewWriter[nettrace.Exchange](os.Stdout)
 		case "yaml":
-			writer = yamlprint.NewWriter[nettrace.Message](os.Stdout)
+			writer = yamlprint.NewWriter[nettrace.Exchange](os.Stdout)
 		default:
-			writer = textprint.NewWriter[nettrace.Message](os.Stdout,
-				textprint.Format[nettrace.Message](format),
-				textprint.Separator[nettrace.Message]("\n"),
+			writer = textprint.NewWriter[nettrace.Exchange](os.Stdout,
+				textprint.Format[nettrace.Exchange](format),
+				textprint.Separator[nettrace.Exchange]("\n"),
 			)
 			defer fmt.Println()
 		}
 		defer writer.Close()
-		_, err = stream.Copy[nettrace.Message](writer, &nettrace.MessageReader{
-			Events: events,
-			Protos: []nettrace.ConnProtocol{
-				nettrace.HTTP1(),
+		_, err = stream.Copy[nettrace.Exchange](writer, &nettrace.ExchangeReader{
+			Messages: &nettrace.MessageReader{
+				Events: events,
+				Protos: []nettrace.ConnProtocol{
+					nettrace.HTTP1(),
+				},
 			},
 		})
 	} else {

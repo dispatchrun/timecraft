@@ -20,11 +20,12 @@ type Link struct {
 
 type Message struct {
 	Link Link
-	Pair int64
 	Time time.Time
 	Span time.Duration
 	Err  error
-	msg  ConnMessage
+
+	id  int64
+	msg ConnMessage
 }
 
 func (m Message) Format(w fmt.State, v rune) {
@@ -96,7 +97,7 @@ func (r *MessageReader) Read(msgs []Message) (n int, err error) {
 	if r.conns == nil {
 		r.conns = make(map[wasi.FD]Conn)
 	}
-	if cap(r.events) == 0 {
+	if len(r.events) == 0 {
 		r.events = make([]Event, 1000)
 	}
 
@@ -109,10 +110,13 @@ func (r *MessageReader) Read(msgs []Message) (n int, err error) {
 			return n, nil
 		}
 
-		numEvents, err := r.Events.Read(r.events)
+		numEvents, err := stream.ReadFull(r.Events, r.events)
 		if numEvents == 0 {
-			if err == nil {
+			switch err {
+			case nil:
 				err = io.ErrNoProgress
+			case io.ErrUnexpectedEOF:
+				err = io.EOF
 			}
 			return 0, err
 		}
@@ -186,7 +190,6 @@ func (r *MessageReader) newConn(pc *pendingConn, e *Event) Conn {
 	for i := range pc.events {
 		conn.Observe(&pc.events[i])
 	}
-	conn.Observe(e)
 	r.conns[e.FD] = conn
 	return conn
 }

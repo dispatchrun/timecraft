@@ -4,6 +4,7 @@ import (
 	"encoding"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"time"
 
@@ -284,18 +285,17 @@ type socket struct {
 }
 
 func (r *EventReader) Read(events []Event) (n int, err error) {
+	if r.sockets == nil {
+		r.sockets = make(map[wasi.FD]*socket)
+	}
 	if cap(r.records) < len(events) {
 		r.records = make([]timemachine.Record, len(events))
 	} else {
 		r.records = r.records[:len(events)]
 	}
 
-	if r.sockets == nil {
-		r.sockets = make(map[wasi.FD]*socket)
-	}
-
 	for {
-		rn, err := r.Records.Read(r.records)
+		rn, err := stream.ReadFull(r.Records, r.records)
 
 		for _, record := range r.records[:rn] {
 			switch wasicall.SyscallID(record.FunctionID) {
@@ -560,6 +560,9 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 		}
 
 		if n > 0 || err != nil {
+			if err == io.ErrUnexpectedEOF {
+				err = io.EOF
+			}
 			return n, err
 		}
 	}

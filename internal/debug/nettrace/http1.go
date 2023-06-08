@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"time"
@@ -107,10 +108,10 @@ func (c *http1Conn) nextRequest(msg *Message) bool {
 	}
 	c.reqID++
 	msg.Link = Link{Src: c.addr1, Dst: c.addr2}
-	msg.Pair = c.reqID
 	msg.Time = start
 	msg.Span = end.Sub(start)
 	msg.Err = err
+	msg.id = c.reqID
 	msg.msg = &http1Request{
 		http1Message: http1Message{
 			conn: c,
@@ -124,13 +125,20 @@ func (c *http1Conn) nextResponse(msg *Message) bool {
 	start, end, data, err, ok := c.res.read()
 	if !ok {
 		return false
+
+		if c.Done() && c.resID < c.reqID {
+			// TODO: set the start time to the last event start time
+			err = io.ErrUnexpectedEOF
+		} else {
+			return false
+		}
 	}
 	c.resID++
 	msg.Link = Link{Src: c.addr2, Dst: c.addr1}
-	msg.Pair = c.resID
 	msg.Time = start
 	msg.Span = end.Sub(start)
 	msg.Err = err
+	msg.id = c.resID
 	msg.msg = &http1Response{
 		http1Message: http1Message{
 			conn: c,
@@ -183,9 +191,9 @@ func (msg *http1Message) format(state fmt.State, verb rune, prefix []byte) {
 
 		default:
 			if utf8.Valid(body) {
-				write(body)
+				state.Write(body)
 			} else {
-				fmt.Fprintf(w, "(binary content)")
+				fmt.Fprintf(state, "(binary content)")
 			}
 		}
 	} else {
