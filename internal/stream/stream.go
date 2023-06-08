@@ -197,3 +197,24 @@ func Copy[T any](w Writer[T], r Reader[T]) (int64, error) {
 		}
 	}
 }
+
+func ReadFull[T any](r Reader[T], buf []T) (int, error) {
+	return ReadAtLeast[T](r, buf, len(buf))
+}
+
+func ReadAtLeast[T any](r Reader[T], buf []T, min int) (n int, err error) {
+	if len(buf) < min {
+		return 0, io.ErrShortBuffer
+	}
+	for n < min && err == nil {
+		var rn int
+		rn, err = r.Read(buf[n:])
+		n += rn
+	}
+	if n >= min {
+		err = nil
+	} else if n > 0 && err == io.EOF {
+		err = io.ErrUnexpectedEOF
+	}
+	return
+}

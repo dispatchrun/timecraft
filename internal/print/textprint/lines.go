@@ -12,7 +12,7 @@ type lineprefixer struct {
 	needsPrefix bool
 }
 
-func Prefixlines(w io.Writer, prefix []byte) io.Writer {
+func NewPrefixWriter(w io.Writer, prefix []byte) io.Writer {
 	return &lineprefixer{
 		p: prefix,
 		w: w,
