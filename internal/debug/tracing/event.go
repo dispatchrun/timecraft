@@ -8,13 +8,18 @@ import (
 	"net"
 	"time"
 
-	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
 	"golang.org/x/exp/slices"
 )
+
+type Bytes []byte
+
+func (b Bytes) MarshalYAML() (any, error) {
+	return string(b), nil
+}
 
 type Protocol uint8
 
@@ -141,15 +146,15 @@ var (
 )
 
 type Event struct {
-	Record int64          `json:"record"          yaml:"record"`
-	Time   time.Time      `json:"time"            yaml:"time"`
-	Type   EventType      `json:"type"            yaml:"type"`
-	Proto  Protocol       `json:"proto"           yaml:"proto"`
-	Error  wasi.Errno     `json:"error,omitempty" yaml:"error,omitempty"`
-	FD     wasi.FD        `json:"fd"              yaml:"fd"`
-	Addr   net.Addr       `json:"addr,omitempty"  yaml:"addr,omitempty"`
-	Peer   net.Addr       `json:"peer,omitempty"  yaml:"peer,omitempty"`
-	Data   []format.Bytes `json:"data,omitempty"  yaml:"data,omitempty"`
+	Record int64      `json:"record"          yaml:"record"`
+	Time   time.Time  `json:"time"            yaml:"time"`
+	Type   EventType  `json:"type"            yaml:"type"`
+	Proto  Protocol   `json:"proto"           yaml:"proto"`
+	Error  wasi.Errno `json:"error,omitempty" yaml:"error,omitempty"`
+	FD     wasi.FD    `json:"fd"              yaml:"fd"`
+	Addr   net.Addr   `json:"addr,omitempty"  yaml:"addr,omitempty"`
+	Peer   net.Addr   `json:"peer,omitempty"  yaml:"peer,omitempty"`
+	Data   []Bytes    `json:"data,omitempty"  yaml:"data,omitempty"`
 }
 
 func (e Event) clone() Event {
@@ -216,7 +221,7 @@ func errnoName(errno wasi.Errno) string {
 	return errno.Name()
 }
 
-func iovecSize(iovs []format.Bytes) (size wasi.Size) {
+func iovecSize(iovs []Bytes) (size wasi.Size) {
 	for _, iov := range iovs {
 		size += wasi.Size(len(iov))
 	}
@@ -253,7 +258,7 @@ func (e *Event) write(iovs []wasi.IOVec, size wasi.Size) {
 		}
 		if iovLen != 0 {
 			size -= iovLen
-			e.Data = append(e.Data, format.Bytes(iov))
+			e.Data = append(e.Data, Bytes(iov))
 		}
 	}
 }

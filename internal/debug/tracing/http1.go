@@ -11,8 +11,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/stealthrocket/timecraft/format"
-	"github.com/stealthrocket/timecraft/format/httpformat"
 	"github.com/stealthrocket/timecraft/internal/print/textprint"
 	"github.com/stealthrocket/wasi-go"
 )
@@ -222,12 +220,12 @@ func (req *http1Request) Format(w fmt.State, v rune) {
 func (req *http1Request) Marshal() any {
 	startLine, header, body := req.parse()
 	method, path, proto := http1SplitStartLine(startLine)
-	return &httpformat.Request{
+	return &httpRequest{
 		Proto:  string(proto),
 		Method: string(method),
 		Path:   string(path),
 		Header: http1FormatHeader(header),
-		Body:   format.Bytes(body),
+		Body:   Bytes(body),
 	}
 }
 
@@ -243,17 +241,17 @@ func (res *http1Response) Marshal() any {
 	startLine, header, body := res.parse()
 	proto, statusCodeString, statusText := http1SplitStartLine(startLine)
 	statusCode, _ := strconv.Atoi(string(statusCodeString))
-	return &httpformat.Response{
+	return &httpResponse{
 		Proto:      string(proto),
 		StatusCode: statusCode,
 		StatusText: string(statusText),
 		Header:     http1FormatHeader(header),
-		Body:       format.Bytes(body),
+		Body:       Bytes(body),
 	}
 }
 
-func http1FormatHeader(b []byte) httpformat.Header {
-	header := make(httpformat.Header)
+func http1FormatHeader(b []byte) map[string]string {
+	header := make(map[string]string)
 	http1HeaderRange(b, func(name, value []byte) bool {
 		k := textproto.CanonicalMIMEHeaderKey(string(name))
 		v, exist := header[k]
@@ -287,7 +285,7 @@ func (p *http1Parser) read() (start, end time.Time, data []byte, err error, ok b
 	return start, end, data, err, true
 }
 
-func (p *http1Parser) write(now time.Time, data []format.Bytes, eof bool) {
+func (p *http1Parser) write(now time.Time, data []Bytes, eof bool) {
 	p.buffer.write(now, data)
 
 	if p.headerLength == 0 {

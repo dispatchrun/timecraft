@@ -7,17 +7,17 @@ import (
 	"net"
 	"time"
 
-	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/wasi-go"
 	"golang.org/x/exp/slices"
+	"gopkg.in/yaml.v3"
 )
 
 // Link represents a network connection initiated from a source address to a
 // local or remote destination.
 type Link struct {
-	Src net.Addr
-	Dst net.Addr
+	Src net.Addr `json:"src" yaml:"src"`
+	Dst net.Addr `json:"dst" yaml:"dst"`
 }
 
 // Message is a representation of a message exchanged between two network peers.
@@ -56,14 +56,22 @@ func (m Message) MarshalYAML() (any, error) {
 	return m.marshal(), nil
 }
 
-func (m *Message) marshal() *format.Message {
-	return &format.Message{
-		Link: format.Link(m.Link),
+func (m *Message) marshal() *message {
+	return &message{
+		Link: m.Link,
 		Time: m.Time,
 		Span: m.Span,
 		Err:  errorString(m.Err),
 		Msg:  m.msg.Marshal(),
 	}
+}
+
+type message struct {
+	Link Link          `json:"link"            yaml:"link"`
+	Time time.Time     `json:"time"            yaml:"time"`
+	Span time.Duration `json:"span"            yaml:"span"`
+	Err  string        `json:"error,omitempty" yaml:"error,omitempty"`
+	Msg  any           `json:"message"         yaml:"message"`
 }
 
 func errorString(err error) string {
@@ -72,6 +80,12 @@ func errorString(err error) string {
 	}
 	return ""
 }
+
+var (
+	_ fmt.Formatter  = Message{}
+	_ json.Marshaler = Message{}
+	_ yaml.Marshaler = Message{}
+)
 
 // ConnProtocol is an interface implemented by types which represent high level
 // connection-oriented protocols such as HTTP.
@@ -304,7 +318,7 @@ func (b *buffer) slice(size int) (start, end time.Time, data []byte) {
 	return
 }
 
-func (b *buffer) write(now time.Time, iovs []format.Bytes) {
+func (b *buffer) write(now time.Time, iovs []Bytes) {
 	length := len(b.bytes)
 
 	for _, iov := range iovs {

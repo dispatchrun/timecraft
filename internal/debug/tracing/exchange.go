@@ -6,9 +6,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"golang.org/x/exp/slices"
+	"gopkg.in/yaml.v3"
 )
 
 type Request struct {
@@ -61,16 +61,16 @@ func (e Exchange) MarshalYAML() (any, error) {
 	return e.marshal(), nil
 }
 
-func (e *Exchange) marshal() *format.Exchange {
-	return &format.Exchange{
-		Link: format.Link(e.Link),
-		Req: format.Request{
+func (e *Exchange) marshal() *exchange {
+	return &exchange{
+		Link: e.Link,
+		Req: request{
 			Time: e.Req.Time,
 			Span: e.Req.Span,
 			Err:  errorString(e.Req.Err),
 			Msg:  e.Req.msg.Marshal(),
 		},
-		Res: format.Response{
+		Res: response{
 			Time: e.Req.Time.Add(e.Res.Time),
 			Span: e.Res.Span,
 			Err:  errorString(e.Res.Err),
@@ -78,6 +78,32 @@ func (e *Exchange) marshal() *format.Exchange {
 		},
 	}
 }
+
+type request struct {
+	Time time.Time     `json:"time"            yaml:"time"`
+	Span time.Duration `json:"span"            yaml:"span"`
+	Err  string        `json:"error,omitempty" yaml:"error,omitempty"`
+	Msg  any           `json:"message"         yaml:"message"`
+}
+
+type response struct {
+	Time time.Time     `json:"time"            yaml:"time"`
+	Span time.Duration `json:"span"            yaml:"span"`
+	Err  string        `json:"error,omitempty" yaml:"error,omitempty"`
+	Msg  any           `json:"message"         yaml:"message"`
+}
+
+type exchange struct {
+	Link Link     `json:"link"     yaml:"link"`
+	Req  request  `json:"request"  yaml:"request"`
+	Res  response `json:"response" yaml:"response"`
+}
+
+var (
+	_ fmt.Formatter  = Exchange{}
+	_ json.Marshaler = Exchange{}
+	_ yaml.Marshaler = Exchange{}
+)
 
 // ExchangeReader is a reader of Exchange values. Instances of ExchangeReader
 // consume network messages from a reader of Message values and reconstruct the
