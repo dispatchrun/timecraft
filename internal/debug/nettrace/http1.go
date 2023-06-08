@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/stealthrocket/timecraft/internal/print/textprint"
 	"github.com/stealthrocket/wasi-go"
 )
 
@@ -18,12 +19,12 @@ type http1Protocol struct{}
 
 func (http1Protocol) Name() string { return "HTTP" }
 
-func (http1Protocol) CanRead(msg []byte) bool {
-	i := bytes.Index(msg, []byte("\r\n"))
+func (http1Protocol) CanHandle(data []byte) bool {
+	i := bytes.Index(data, []byte("\r\n"))
 	if i < 0 {
 		return false
 	}
-	switch line := msg[:i]; {
+	switch line := data[:i]; {
 	case bytes.HasPrefix(line, []byte("HTTP/1.1")):
 		return true
 	case bytes.HasSuffix(line, []byte("HTTP/1.1")):
@@ -37,103 +38,117 @@ func (http1Protocol) CanRead(msg []byte) bool {
 }
 
 func (http1Protocol) NewClient(fd wasi.FD, addr, peer net.Addr) Conn {
-	return &http1ClientConn{
-		http1Conn: http1Conn{
-			addr:  addr,
-			peer:  peer,
-			reqID: int64(fd) << 32,
-			resID: int64(fd) << 32,
-		},
+	conn := &http1Conn{
+		addr1: addr,
+		addr2: peer,
+		reqID: int64(fd) << 32,
+		resID: int64(fd) << 32,
 	}
+	conn.req = &conn.send
+	conn.res = &conn.recv
+	return conn
 }
 
 func (http1Protocol) NewServer(fd wasi.FD, addr, peer net.Addr) Conn {
-	return &http1ServerConn{
-		http1Conn: http1Conn{
-			addr:  addr,
-			peer:  peer,
-			reqID: int64(fd) << 32,
-			resID: int64(fd) << 32,
-		},
+	conn := &http1Conn{
+		addr1: peer,
+		addr2: addr,
+		reqID: int64(fd) << 32,
+		resID: int64(fd) << 32,
 	}
+	conn.req = &conn.recv
+	conn.res = &conn.send
+	return conn
 }
 
 type http1Conn struct {
-	addr  net.Addr
-	peer  net.Addr
+	addr1 net.Addr
+	addr2 net.Addr
+	flag  uint
+	recv  buffer
+	send  buffer
+	req   *buffer
+	res   *buffer
 	reqID int64
 	resID int64
 }
 
-func (c *http1Conn) readRequest(now time.Time, msg []byte, eof bool, src, dst net.Addr) (Message, int, error) {
-	messageLength, err := http1ReadMessage(msg, eof)
+func (c *http1Conn) Done() bool {
+	const shutdown = ShutRD | ShutWR
+	return (c.flag & shutdown) == shutdown
+}
+
+func (c *http1Conn) Observe(e *Event) {
+	// TODO: capture errors
+	switch e.Type.Type() {
+	case Receive:
+		c.recv.write(e.Time, e.Data)
+	case Send:
+		c.send.write(e.Time, e.Data)
+	case Shutdown:
+		c.flag |= e.Type.Flag()
+	}
+}
+
+func (c *http1Conn) Next() Message {
+	if msg := c.nextRequest(); msg != nil {
+		return msg
+	}
+	if msg := c.nextResponse(); msg != nil {
+		return msg
+	}
+	return nil
+}
+
+func (c *http1Conn) nextRequest() Message {
+	n, err := http1ReadMessage(c.req.bytes, c.Done())
 	if err != nil {
-		return nil, 0, err
+		return nil
 	}
-	if messageLength == 0 {
-		return nil, 0, nil
+	if n == 0 {
+		return nil
 	}
-	req := &http1Request{
+	start, end, data := c.req.slice(n)
+	c.reqID++
+	return &http1Request{
 		http1Message: http1Message{
 			pair: c.reqID,
-			src:  src,
-			dst:  dst,
-			time: now,
-			data: msg[:messageLength],
+			src:  c.addr1,
+			dst:  c.addr2,
+			time: start,
+			span: end.Sub(start),
+			data: data,
 		},
 	}
-	c.reqID++
-	return req, messageLength, nil
 }
 
-func (c *http1Conn) readResponse(now time.Time, msg []byte, eof bool, src, dst net.Addr) (Message, int, error) {
-	messageLength, err := http1ReadMessage(msg, eof)
+func (c *http1Conn) nextResponse() Message {
+	n, err := http1ReadMessage(c.res.bytes, c.Done())
 	if err != nil {
-		return nil, 0, err
+		return nil
 	}
-	if messageLength == 0 {
-		return nil, 0, nil
+	if n == 0 {
+		return nil
 	}
-	res := &http1Response{
+	start, end, data := c.res.slice(n)
+	c.resID++
+	return &http1Response{
 		http1Message: http1Message{
 			pair: c.resID,
-			src:  src,
-			dst:  dst,
-			time: now,
-			data: msg[:messageLength],
+			src:  c.addr2,
+			dst:  c.addr1,
+			time: start,
+			span: end.Sub(start),
+			data: data,
 		},
 	}
-	c.resID++
-	return res, messageLength, nil
-}
-
-type http1ClientConn struct {
-	http1Conn
-}
-
-func (c *http1ClientConn) RecvMessage(now time.Time, data []byte, eof bool) (Message, int, error) {
-	return c.readResponse(now, data, eof, c.peer, c.addr)
-}
-
-func (c *http1ClientConn) SendMessage(now time.Time, data []byte, eof bool) (Message, int, error) {
-	return c.readRequest(now, data, eof, c.addr, c.peer)
-}
-
-type http1ServerConn struct {
-	http1Conn
-}
-
-func (c *http1ServerConn) RecvMessage(now time.Time, data []byte, eof bool) (Message, int, error) {
-	return c.readRequest(now, data, eof, c.peer, c.addr)
-}
-
-func (c *http1ServerConn) SendMessage(now time.Time, data []byte, eof bool) (Message, int, error) {
-	return c.readResponse(now, data, eof, c.addr, c.peer)
 }
 
 var (
-	http1HeaderSeparator = []byte(": ")
-	newLine              = []byte("\n")
+	http1HeaderSeparator      = []byte(": ")
+	http1RequestFormatPrefix  = []byte("> ")
+	http1ResponseFormatPrefix = []byte("< ")
+	newLine                   = []byte("\n")
 )
 
 type http1Message struct {
@@ -141,6 +156,7 @@ type http1Message struct {
 	dst  net.Addr
 	pair int64
 	time time.Time
+	span time.Duration
 	data []byte
 }
 
@@ -150,23 +166,26 @@ func (msg *http1Message) Pair() int64 { return msg.pair }
 
 func (msg *http1Message) Time() time.Time { return msg.time }
 
-func (msg *http1Message) Format(w fmt.State, v rune) {
-	fmt.Fprintf(w, "%s HTTP %s > %s",
+func (msg *http1Message) Span() time.Duration { return msg.span }
+
+func (msg *http1Message) format(state fmt.State, verb rune, prefix []byte) {
+	fmt.Fprintf(state, "%s HTTP %s > %s",
 		formatTime(msg.time),
 		socketAddressString(msg.src),
 		socketAddressString(msg.dst))
 
-	if w.Flag('+') {
-		fmt.Fprintf(w, "\n")
+	if state.Flag('+') {
+		fmt.Fprintf(state, "\n")
 	} else {
-		fmt.Fprintf(w, ": ")
+		fmt.Fprintf(state, ": ")
 	}
 
 	header, body, _ := http1SplitMessage(msg.data)
 	status, header := http1SplitLine(header)
 	status = bytes.TrimSpace(status)
 
-	if w.Flag('+') {
+	if state.Flag('+') {
+		w := textprint.NewPrefixWriter(state, prefix)
 		w.Write(status)
 		w.Write(newLine)
 
@@ -178,7 +197,8 @@ func (msg *http1Message) Format(w fmt.State, v rune) {
 			return true
 		})
 
-		switch v {
+		w.Write(newLine)
+		switch verb {
 		case 'x':
 			hexdump := hex.Dumper(w)
 			_, _ = hexdump.Write(body)
@@ -196,12 +216,16 @@ func (msg *http1Message) Format(w fmt.State, v rune) {
 		status = bytes.TrimPrefix(status, []byte("HTTP/1.1 "))
 		status = bytes.TrimSuffix(status, []byte(" HTTP/1.0"))
 		status = bytes.TrimSuffix(status, []byte(" HTTP/1.1"))
-		w.Write(status)
+		state.Write(status)
 	}
 }
 
 type http1Request struct {
 	http1Message
+}
+
+func (req *http1Request) Format(w fmt.State, v rune) {
+	req.format(w, v, http1RequestFormatPrefix)
 }
 
 func (req *http1Request) MarshalJSON() ([]byte, error) {
@@ -216,11 +240,15 @@ type http1Response struct {
 	http1Message
 }
 
-func (req *http1Response) MarshalJSON() ([]byte, error) {
+func (res *http1Response) Format(w fmt.State, v rune) {
+	res.format(w, v, http1ResponseFormatPrefix)
+}
+
+func (res *http1Response) MarshalJSON() ([]byte, error) {
 	return []byte(`{}`), nil
 }
 
-func (req *http1Response) MarshalYAML() (any, error) {
+func (res *http1Response) MarshalYAML() (any, error) {
 	return nil, nil
 }
 
@@ -232,8 +260,9 @@ func http1ReadMessage(msg []byte, eof bool) (n int, err error) {
 	messageLength := len(header)
 	contentLength := -1
 
-	_, header = http1SplitLine(header)
+	statusLine, header := http1SplitLine(header)
 	http1HeaderRange(header, func(name, value []byte) bool {
+		// TODO: Transfer-Encoding
 		if !bytes.EqualFold(name, []byte("Content-Length")) {
 			return true
 		}
@@ -251,14 +280,32 @@ func http1ReadMessage(msg []byte, eof bool) (n int, err error) {
 		return 0, err
 	}
 
-	if contentLength < 0 {
-		if !eof {
-			return 0, nil
-		}
-		return len(msg), nil
+	if contentLength >= 0 {
+		return messageLength + contentLength, nil
 	}
 
-	return messageLength + contentLength, nil
+	method, statusCode, _ := http1SplitStatusLine(statusLine)
+	if bytes.HasPrefix(method, []byte("HTTP")) {
+		switch string(statusCode) {
+		case "204":
+			return messageLength, nil
+		}
+	} else {
+		switch string(method) {
+		case "HEAD", "GET":
+			return messageLength, nil
+		}
+	}
+
+	if !eof {
+		// At this stage we know that there must be a body, but we don't have
+		// enough bytes to decode it all.
+		return 0, nil
+	}
+
+	// We exhausted all options, this indicates that the body extends until the
+	// connection has reached EOF, all remaining bytes are part of it.
+	return len(msg), nil
 }
 
 func http1HeaderRange(header []byte, do func(name, value []byte) bool) {
@@ -273,6 +320,15 @@ func http1HeaderRange(header []byte, do func(name, value []byte) bool) {
 			break
 		}
 	}
+}
+
+func http1SplitStatusLine(b []byte) (part1, part2, part3 []byte) {
+	part1, b, _ = split(b, []byte(" "))
+	part2, part3, _ = split(b, []byte(" "))
+	part1 = bytes.TrimSpace(part1)
+	part2 = bytes.TrimSpace(part2)
+	part3 = bytes.TrimSpace(part3)
+	return
 }
 
 func http1SplitLine(b []byte) (line, next []byte) {

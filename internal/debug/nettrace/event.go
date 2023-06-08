@@ -11,6 +11,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
+	"golang.org/x/exp/slices"
 )
 
 type Bytes []byte
@@ -77,8 +78,16 @@ const (
 	EventFlagMask = 0b11000000
 )
 
+func (t EventType) Type() EventType {
+	return t & EventTypeMask
+}
+
+func (t EventType) Flag() uint {
+	return uint(t) & EventFlagMask
+}
+
 func (t EventType) String() string {
-	switch t & EventTypeMask {
+	switch t.Type() {
 	case Accept:
 		return "ACCEPT"
 	case Connect:
@@ -88,7 +97,7 @@ func (t EventType) String() string {
 	case Send:
 		return "SEND"
 	case Shutdown:
-		switch t & EventFlagMask {
+		switch t.Flag() {
 		case ShutRD:
 			return "SHUT (r)"
 		case ShutWR:
@@ -147,11 +156,24 @@ type Event struct {
 	Data   []Bytes    `json:"data,omitempty"  yaml:"data,omitempty"`
 }
 
+func (e Event) clone() Event {
+	e.Data = slices.Clone(e.Data)
+	size := iovecSize(e.Data)
+	data := make(Bytes, 0, size)
+	for i, iov := range e.Data {
+		off := len(data)
+		end := len(data) + len(iov)
+		data = append(data, iov...)
+		e.Data[i] = data[off:end:end]
+	}
+	return e
+}
+
 func (e Event) Format(w fmt.State, _ rune) {
 	src := e.Addr
 	dst := e.Peer
 
-	switch e.Type & EventTypeMask {
+	switch e.Type.Type() {
 	case Accept, Receive:
 		src, dst = dst, src
 	}

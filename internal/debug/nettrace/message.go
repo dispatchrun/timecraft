@@ -9,6 +9,7 @@ import (
 
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/wasi-go"
+	"golang.org/x/exp/slices"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,6 +19,8 @@ type Message interface {
 	Pair() int64
 
 	Time() time.Time
+
+	Span() time.Duration
 
 	fmt.Formatter
 
@@ -29,7 +32,7 @@ type Message interface {
 type ConnProtocol interface {
 	Name() string
 
-	CanRead([]byte) bool
+	CanHandle(data []byte) bool
 
 	NewClient(fd wasi.FD, addr, peer net.Addr) Conn
 
@@ -37,24 +40,30 @@ type ConnProtocol interface {
 }
 
 type Conn interface {
-	RecvMessage(now time.Time, data []byte, eof bool) (Message, int, error)
+	Observe(*Event)
 
-	SendMessage(now time.Time, data []byte, eof bool) (Message, int, error)
+	Next() Message
+
+	Done() bool
 }
 
 type MessageReader struct {
 	Events stream.Reader[Event]
 	Protos []ConnProtocol
 
-	conns  map[wasi.FD]*connection
-	offset int
+	conns  map[wasi.FD]Conn
+	buffer []byte
+	events []Event
 	msgs   []Message
-	events [100]Event
+	offset int
 }
 
 func (r *MessageReader) Read(msgs []Message) (n int, err error) {
 	if r.conns == nil {
-		r.conns = make(map[wasi.FD]*connection)
+		r.conns = make(map[wasi.FD]Conn)
+	}
+	if cap(r.events) == 0 {
+		r.events = make([]Event, 1000)
 	}
 
 	for {
@@ -66,7 +75,7 @@ func (r *MessageReader) Read(msgs []Message) (n int, err error) {
 			return n, nil
 		}
 
-		numEvents, err := r.Events.Read(r.events[:])
+		numEvents, err := r.Events.Read(r.events)
 		if numEvents == 0 {
 			if err == nil {
 				err = io.ErrNoProgress
@@ -74,179 +83,146 @@ func (r *MessageReader) Read(msgs []Message) (n int, err error) {
 			return 0, err
 		}
 
-		for _, event := range r.events[:numEvents] {
-			switch event.Type & EventTypeMask {
+		for i := range r.events[:numEvents] {
+			e := &r.events[i]
+
+			switch e.Type.Type() {
 			case Accept:
-				r.conns[event.FD] = &connection{
-					addr: event.Addr,
-					peer: event.Peer,
-					side: server,
+				r.conns[e.FD] = &pendingConn{
+					newConn: ConnProtocol.NewServer,
 				}
-
+				continue
 			case Connect:
-				r.conns[event.FD] = &connection{
-					addr: event.Addr,
-					peer: event.Peer,
-					side: client,
+				r.conns[e.FD] = &pendingConn{
+					newConn: ConnProtocol.NewClient,
 				}
+				continue
+			}
 
+			c := r.conns[e.FD]
+			switch e.Type.Type() {
 			case Receive:
-				c := r.conns[event.FD]
-				if c == nil {
-					continue
+				if pc, _ := c.(*pendingConn); pc != nil {
+					c = r.newConn(pc, e)
 				}
-				if c.rEOF {
-					continue
-				}
-				c.recv.write(event.Data)
-				if !c.hasProto() {
-					c.setProto(event.FD, c.recv.bytes(), r.Protos)
-				}
-				if c.hasProto() {
-					r.msgs, _ = c.recvMessages(r.msgs, event.Time, false)
-				}
-
 			case Send:
-				c := r.conns[event.FD]
-				if c == nil {
-					continue
+				if pc, _ := c.(*pendingConn); pc != nil {
+					c = r.newConn(pc, e)
 				}
-				if c.wEOF {
-					continue
-				}
-				c.send.write(event.Data)
-				if !c.hasProto() {
-					c.setProto(event.FD, c.send.bytes(), r.Protos)
-				}
-				if c.hasProto() {
-					r.msgs, _ = c.sendMessages(r.msgs, event.Time, false)
-				}
+			}
+			if c == nil {
+				continue
+			}
 
-			case Shutdown:
-				c := r.conns[event.FD]
-				if c == nil {
-					continue
-				}
-				shutdown := event.Type & EventFlagMask
-				if (shutdown & ShutRD) != 0 {
-					c.rEOF = true
-				}
-				if (shutdown & ShutWR) != 0 {
-					c.wEOF = true
-				}
-				if c.rEOF && c.wEOF {
-					delete(r.conns, event.FD)
-				}
-				if !c.hasProto() {
-					c.setProto(event.FD, c.send.bytes(), r.Protos)
-					c.setProto(event.FD, c.recv.bytes(), r.Protos)
-				}
-				if c.hasProto() {
-					if c.wEOF {
-						r.msgs, _ = c.sendMessages(r.msgs, event.Time, true)
-					}
-					if c.rEOF {
-						r.msgs, _ = c.recvMessages(r.msgs, event.Time, true)
-					}
+			c.Observe(e)
+			for {
+				if msg := c.Next(); msg != nil {
+					r.msgs = append(r.msgs, msg)
+				} else if c.Done() {
+					delete(r.conns, e.FD)
+					break
+				} else {
+					break
 				}
 			}
 		}
 	}
+}
+
+func (r *MessageReader) newConn(pc *pendingConn, e *Event) Conn {
+	data := r.buffer[:0]
+	defer func() { r.buffer = data }()
+
+	if len(pc.events) > 0 {
+		data = appendEventData(data, pc.events, e.Type.Type())
+	}
+	for _, iov := range e.Data {
+		data = append(data, iov...)
+	}
+
+	proto := findConnProtocol(r.Protos, data)
+	if proto == nil {
+		pc.events = append(pc.events, e.clone())
+		return nil
+	}
+
+	conn := pc.newConn(proto, e.FD, e.Addr, e.Peer)
+	for i := range pc.events {
+		conn.Observe(&pc.events[i])
+	}
+	conn.Observe(e)
+	r.conns[e.FD] = conn
+	return conn
+}
+
+func appendEventData(buf []byte, events []Event, eventType EventType) []byte {
+	for i := range events {
+		e := &events[i]
+		if e.Type.Type() == eventType {
+			for _, iov := range e.Data {
+				buf = append(buf, iov...)
+			}
+		}
+	}
+	return buf
+}
+
+func findConnProtocol(protos []ConnProtocol, data []byte) ConnProtocol {
+	for _, proto := range protos {
+		if proto.CanHandle(data) {
+			return proto
+		}
+	}
+	return nil
+}
+
+type timeslice struct {
+	time time.Time
+	size int
 }
 
 type buffer struct {
-	buffer []byte
-	offset int
+	times []timeslice
+	bytes []byte
 }
 
-func (b *buffer) bytes() []byte {
-	return b.buffer[b.offset:]
-}
+func (b *buffer) slice(size int) (start, end time.Time, data []byte) {
+	start = b.times[0].time
+	end = start
 
-func (b *buffer) discard(n int) {
-	if b.offset += n; b.offset == len(b.buffer) {
-		b.buffer = b.buffer[:0]
-		b.offset = 0
-	}
-}
-
-func (b *buffer) read(n int) []byte {
-	data := b.buffer[b.offset : b.offset+n]
-	b.offset += n
-	return data
-}
-
-func (b *buffer) write(iovs []Bytes) {
-	if b.offset == len(b.buffer) {
-		b.buffer = b.buffer[:0]
-		b.offset = 0
-	}
-	for _, iov := range iovs {
-		b.buffer = append(b.buffer, iov...)
-	}
-}
-
-type connection struct {
-	conn Conn
-	addr net.Addr
-	peer net.Addr
-	recv buffer
-	send buffer
-	side direction
-	rEOF bool
-	wEOF bool
-}
-
-func (c *connection) hasProto() bool {
-	return c.conn != nil
-}
-
-func (c *connection) setProto(fd wasi.FD, data []byte, protos []ConnProtocol) {
-	for _, proto := range protos {
-		if proto.CanRead(data) {
-			if c.side == server {
-				c.conn = proto.NewServer(fd, c.addr, c.peer)
-			} else {
-				c.conn = proto.NewClient(fd, c.addr, c.peer)
-			}
+	offset := 0
+	for i, ts := range b.times {
+		if offset += ts.size; offset >= size {
+			b.times[i].size -= offset - size
+			b.times = b.times[:copy(b.times, b.times[i:])]
 			break
 		}
+		end = ts.time
 	}
+
+	data = slices.Clone(b.bytes[:size])
+	b.bytes = b.bytes[:copy(b.bytes, b.bytes[size:])]
+	return
 }
 
-func (c *connection) recvMessages(msgs []Message, now time.Time, eof bool) ([]Message, error) {
-	for {
-		msg, size, err := c.conn.RecvMessage(now, c.recv.bytes(), eof)
-		if err != nil {
-			// TODO: how should we handle errors parsing the message?
-			return msgs, err
-		}
-		c.recv.discard(size)
-		if msg == nil {
-			return msgs, nil
-		}
-		msgs = append(msgs, msg)
+func (b *buffer) write(now time.Time, iovs []Bytes) {
+	length := len(b.bytes)
+
+	for _, iov := range iovs {
+		b.bytes = append(b.bytes, iov...)
 	}
+
+	b.times = append(b.times, timeslice{
+		time: now,
+		size: len(b.bytes) - length,
+	})
 }
 
-func (c *connection) sendMessages(msgs []Message, now time.Time, eof bool) ([]Message, error) {
-	for {
-		msg, size, err := c.conn.SendMessage(now, c.send.bytes(), eof)
-		if err != nil {
-			// TODO: how should we handle errors parsing the message?
-			return msgs, err
-		}
-		c.send.discard(size)
-		if msg == nil {
-			return msgs, nil
-		}
-		msgs = append(msgs, msg)
-	}
+type pendingConn struct {
+	events  []Event
+	newConn func(ConnProtocol, wasi.FD, net.Addr, net.Addr) Conn
 }
 
-type direction bool
-
-const (
-	server direction = false
-	client direction = true
-)
+func (*pendingConn) Observe(*Event) {}
+func (*pendingConn) Next() Message  { return nil }
+func (*pendingConn) Done() bool     { return false }
