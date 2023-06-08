@@ -224,7 +224,7 @@ func (req *http1Request) Marshal() any {
 		Proto:  string(proto),
 		Method: string(method),
 		Path:   string(path),
-		Header: http1FormatHeader(header),
+		Header: http1MakeHeader(header),
 		Body:   Bytes(body),
 	}
 }
@@ -245,22 +245,16 @@ func (res *http1Response) Marshal() any {
 		Proto:      string(proto),
 		StatusCode: statusCode,
 		StatusText: string(statusText),
-		Header:     http1FormatHeader(header),
+		Header:     http1MakeHeader(header),
 		Body:       Bytes(body),
 	}
 }
 
-func http1FormatHeader(b []byte) map[string]string {
-	header := make(map[string]string)
+func http1MakeHeader(b []byte) map[string][]string {
+	header := make(map[string][]string)
 	http1HeaderRange(b, func(name, value []byte) bool {
 		k := textproto.CanonicalMIMEHeaderKey(string(name))
-		v, exist := header[k]
-		if exist {
-			v += ", " + string(value)
-		} else {
-			v = string(value)
-		}
-		header[k] = v
+		header[k] = append(header[k], string(value))
 		return true
 	})
 	return header
