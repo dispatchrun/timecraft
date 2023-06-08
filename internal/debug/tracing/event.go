@@ -1,4 +1,4 @@
-package nettrace
+package tracing
 
 import (
 	"encoding"

@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/stealthrocket/timecraft/internal/debug/nettrace"
+	"github.com/stealthrocket/timecraft/internal/debug/tracing"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/print/jsonprint"
 	"github.com/stealthrocket/timecraft/internal/print/textprint"
@@ -23,7 +23,7 @@ Options:
    -c, --config             Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -d, --duration duration  Duration of the trace (default to the process uptime)
    -h, --help               Show this usage information
-   -m, --messages           Show protocol messages instead of low level connection data
+   -x, --exchange           Show protocol messages exchanged instead of low level connection events
    -o, --output format      Output format, one of: text, json, yaml
    -t, --start-time time    Time at which the trace starts (default to 1 minute)
    -v, --verbose            For text output, display more details about the trace
@@ -34,7 +34,7 @@ func trace(ctx context.Context, args []string) error {
 		output    = outputFormat("text")
 		startTime = human.Time{}
 		duration  = human.Duration(1 * time.Minute)
-		messages  = false
+		exchange  = false
 		verbose   = false
 	)
 
@@ -42,7 +42,7 @@ func trace(ctx context.Context, args []string) error {
 	customVar(flagSet, &output, "o", "output")
 	customVar(flagSet, &duration, "d", "duration")
 	customVar(flagSet, &startTime, "t", "start-time")
-	boolVar(flagSet, &messages, "m", "messages")
+	boolVar(flagSet, &exchange, "x", "exchange")
 	boolVar(flagSet, &verbose, "v", "verbose")
 
 	args, err := parseFlags(flagSet, args)
@@ -92,48 +92,48 @@ func trace(ctx context.Context, args []string) error {
 		format = "%+v"
 	}
 
-	events := &nettrace.EventReader{
+	events := &tracing.EventReader{
 		Records: timemachine.NewLogRecordReader(logReader),
 	}
 
-	if messages {
-		var writer stream.WriteCloser[nettrace.Exchange]
+	if exchange {
+		var writer stream.WriteCloser[tracing.Exchange]
 		switch output {
 		case "json":
-			writer = jsonprint.NewWriter[nettrace.Exchange](os.Stdout)
+			writer = jsonprint.NewWriter[tracing.Exchange](os.Stdout)
 		case "yaml":
-			writer = yamlprint.NewWriter[nettrace.Exchange](os.Stdout)
+			writer = yamlprint.NewWriter[tracing.Exchange](os.Stdout)
 		default:
-			writer = textprint.NewWriter[nettrace.Exchange](os.Stdout,
-				textprint.Format[nettrace.Exchange](format),
-				textprint.Separator[nettrace.Exchange]("\n"),
+			writer = textprint.NewWriter[tracing.Exchange](os.Stdout,
+				textprint.Format[tracing.Exchange](format),
+				textprint.Separator[tracing.Exchange]("\n"),
 			)
 			defer fmt.Println()
 		}
 		defer writer.Close()
-		_, err = stream.Copy[nettrace.Exchange](writer, &nettrace.ExchangeReader{
-			Messages: &nettrace.MessageReader{
+		_, err = stream.Copy[tracing.Exchange](writer, &tracing.ExchangeReader{
+			Messages: &tracing.MessageReader{
 				Events: events,
-				Protos: []nettrace.ConnProtocol{
-					nettrace.HTTP1(),
+				Protos: []tracing.ConnProtocol{
+					tracing.HTTP1(),
 				},
 			},
 		})
 	} else {
-		var writer stream.WriteCloser[nettrace.Event]
+		var writer stream.WriteCloser[tracing.Event]
 		switch output {
 		case "json":
-			writer = jsonprint.NewWriter[nettrace.Event](os.Stdout)
+			writer = jsonprint.NewWriter[tracing.Event](os.Stdout)
 		case "yaml":
-			writer = yamlprint.NewWriter[nettrace.Event](os.Stdout)
+			writer = yamlprint.NewWriter[tracing.Event](os.Stdout)
 		default:
-			writer = textprint.NewWriter[nettrace.Event](os.Stdout,
-				textprint.Format[nettrace.Event](format),
-				textprint.Separator[nettrace.Event](""),
+			writer = textprint.NewWriter[tracing.Event](os.Stdout,
+				textprint.Format[tracing.Event](format),
+				textprint.Separator[tracing.Event](""),
 			)
 		}
 		defer writer.Close()
-		_, err = stream.Copy[nettrace.Event](writer, events)
+		_, err = stream.Copy[tracing.Event](writer, events)
 	}
 	return err
 }
