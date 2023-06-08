@@ -12,6 +12,7 @@ import (
 )
 
 type Request struct {
+	Time time.Time
 	Span time.Duration
 	Err  error
 	msg  ConnMessage
@@ -24,16 +25,17 @@ type Response struct {
 	msg  ConnMessage
 }
 
+// Exchange values represent the exchange of a request and response between
+// network peers.
 type Exchange struct {
 	Link Link
-	Time time.Time
 	Req  Request
 	Res  Response
 }
 
 func (e Exchange) Format(w fmt.State, v rune) {
 	fmt.Fprintf(w, "%s %s %s > %s",
-		formatTime(e.Time.Add(e.Res.Time)),
+		formatTime(e.Req.Time.Add(e.Res.Time)),
 		e.Req.msg.Conn().Protocol().Name(),
 		socketAddressString(e.Link.Src),
 		socketAddressString(e.Link.Dst))
@@ -63,13 +65,13 @@ func (e *Exchange) marshal() *format.Exchange {
 	return &format.Exchange{
 		Link: format.Link(e.Link),
 		Req: format.Request{
-			Time: e.Time,
+			Time: e.Req.Time,
 			Span: e.Req.Span,
 			Err:  errorString(e.Req.Err),
 			Msg:  e.Req.msg.Marshal(),
 		},
 		Res: format.Response{
-			Time: e.Time.Add(e.Res.Time),
+			Time: e.Req.Time.Add(e.Res.Time),
 			Span: e.Res.Span,
 			Err:  errorString(e.Res.Err),
 			Msg:  e.Res.msg.Marshal(),
@@ -77,6 +79,9 @@ func (e *Exchange) marshal() *format.Exchange {
 	}
 }
 
+// ExchangeReader is a reader of Exchange values. Instances of ExchangeReader
+// consume network messages from a reader of Message values and reconstruct the
+// relationship between requests and responses.
 type ExchangeReader struct {
 	Messages stream.Reader[Message]
 
@@ -113,8 +118,8 @@ func (r *ExchangeReader) Read(exchanges []Exchange) (n int, err error) {
 				for _, req := range r.inflight {
 					r.exchanges = append(r.exchanges, Exchange{
 						Link: req.Link,
-						Time: req.Time,
 						Req: Request{
+							Time: req.Time,
 							Span: req.Span,
 							Err:  req.Err,
 							msg:  req.msg,
@@ -149,8 +154,8 @@ func (r *ExchangeReader) Read(exchanges []Exchange) (n int, err error) {
 				delete(r.inflight, m.id)
 				r.exchanges = append(r.exchanges, Exchange{
 					Link: req.Link,
-					Time: req.Time,
 					Req: Request{
+						Time: req.Time,
 						Span: req.Span,
 						Err:  req.Err,
 						msg:  req.msg,
@@ -171,8 +176,8 @@ func (r *ExchangeReader) Read(exchanges []Exchange) (n int, err error) {
 
 func sortExchanges(exchanges []Exchange) {
 	slices.SortFunc(exchanges, func(e1, e2 Exchange) bool {
-		t1 := e1.Time.Add(e1.Res.Time)
-		t2 := e2.Time.Add(e2.Res.Time)
+		t1 := e1.Req.Time.Add(e1.Res.Time + e1.Res.Span)
+		t2 := e2.Req.Time.Add(e2.Res.Time + e2.Res.Span)
 		return t1.Before(t2)
 	})
 }

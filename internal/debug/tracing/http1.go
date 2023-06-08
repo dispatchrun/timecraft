@@ -17,6 +17,7 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
+// HTTP1 is the implementation of the HTTP/1 protocol.
 func HTTP1() ConnProtocol { return http1Protocol{} }
 
 type http1Protocol struct{}

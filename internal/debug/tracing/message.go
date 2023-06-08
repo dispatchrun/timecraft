@@ -13,17 +13,21 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+// Link represents a network connection initiated from a source address to a
+// local or remote destination.
 type Link struct {
-	Src net.Addr `json:"src" yaml:"src"`
-	Dst net.Addr `json:"dst" yaml:"dst"`
+	Src net.Addr
+	Dst net.Addr
 }
 
+// Message is a representation of a message exchanged between two network peers.
 type Message struct {
 	Link Link
 	Time time.Time
 	Span time.Duration
 	Err  error
-
+	// The id is used for correlation between requests and responses when using
+	// an ExchangeReader.
 	id  int64
 	msg ConnMessage
 }
@@ -69,34 +73,75 @@ func errorString(err error) string {
 	return ""
 }
 
+// ConnProtocol is an interface implemented by types which represent high level
+// connection-oriented protocols such as HTTP.
 type ConnProtocol interface {
+	// Returns the name of the protocol.
+	//
+	// This value is used when printing protocol messages in a human readable
+	// format.
 	Name() string
 
+	// Given a data segment found at the beginning of a network connection,
+	// determine whether the protocol is able to decode it.
+	//
+	// This method is used to do automatic detection of the protocol being used
+	// when inspecting network events.
 	CanHandle(data []byte) bool
 
+	// Constructs a Conn instance intended to decode protocol messages exchanged
+	// over a client connection.
 	NewClient(fd wasi.FD, addr, peer net.Addr) Conn
 
+	// Constructs a Conn instance intended to decode protocol messages exchanged
+	// over a server connection.
 	NewServer(fd wasi.FD, addr, peer net.Addr) Conn
 }
 
+// ConnMessage represents a message read from a client or server connection.
 type ConnMessage interface {
+	// Returns the connection that the message was originally decoded from.
 	Conn() Conn
 
+	// Marshals the message into a representation intended to be marshaled to
+	// structured formats like JSON or YAML.
 	Marshal() any
 
+	// Formats the message to a human readable format.
 	fmt.Formatter
 }
 
+// Conn values represent client and server connections.
+//
+// The instances are intended to reconstruct the state of a connection from
+// observing a sequence of network events which contain data fragments seen
+// by the connection.
 type Conn interface {
+	// Returns the protocol that this Conn value was constructed from.
 	Protocol() ConnProtocol
 
+	// Observe is called when a network event is received for this connection.
+	//
+	// The receiver is expected to update its state by capturing the data
+	// fragments carried in the event.
 	Observe(*Event)
 
+	// After calls to Observe, the connection may receive a call to Next in
+	// order to consume the next message that was formed by the accumulation of
+	// data fragements from network events.
+	//
+	// The method writes to the Message value passed as argument, returning true
+	// if a message could be formed, and false otherwise.
 	Next(*Message) bool
 
+	// Indicates whether the connection has reached EOF, and has no more
+	// messages to read.
 	Done() bool
 }
 
+// MessageReader is a reader of Message values. Instances of MessageReader
+// consume network events from a reader of Event values and reconstruct network
+// messages exchanged over network connections.
 type MessageReader struct {
 	Events stream.Reader[Event]
 	Protos []ConnProtocol
