@@ -1,6 +1,7 @@
 import argparse
 import subprocess
 import sys
+import tempfile
 import os
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -24,5 +25,14 @@ PROG_ARGS = args.arg
 ENV_ARGS = [j for i in args.env for j in ["--env", i]]
 DIR_ARGS = [j for i in args.dir for j in ["--dir", i]]
 
-r = subprocess.run([TIMECRAFT, "run", "--restrict"] + ENV_ARGS + DIR_ARGS + [TEST_FILE] + PROG_ARGS)
-sys.exit(r.returncode)
+status = 0
+with tempfile.TemporaryDirectory() as tmpdir:
+    config_file = os.path.join(tmpdir, "config.yaml")
+    registry_dir = os.path.join(tmpdir, "registry")
+    with open(config_file, "w") as f:
+        f.write(f"registry:\n  location: {registry_dir}")
+
+    r = subprocess.run([TIMECRAFT, "run", "--restrict", "--config", config_file] + ENV_ARGS + DIR_ARGS + [TEST_FILE] + PROG_ARGS)
+    status = r.returncode
+
+sys.exit(status)
