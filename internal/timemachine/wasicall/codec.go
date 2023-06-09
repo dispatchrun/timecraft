@@ -744,13 +744,16 @@ func (c *Codec) DecodePathRename(buffer []byte) (fd FD, oldPath string, newFD FD
 
 func (c *Codec) EncodePathSymlink(buffer []byte, oldPath string, fd FD, newPath string, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
-	buffer = encodeFD(buffer, fd)
 	buffer = encodeString(buffer, oldPath)
+	buffer = encodeFD(buffer, fd)
 	return encodeString(buffer, newPath)
 }
 
 func (c *Codec) DecodePathSymlink(buffer []byte) (oldPath string, fd FD, newPath string, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
+		return
+	}
+	if oldPath, buffer, err = decodeString(buffer); err != nil {
 		return
 	}
 	if fd, buffer, err = decodeFD(buffer); err != nil {
