@@ -630,32 +630,32 @@ func (o *Observer) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, ifla
 	return
 }
 
-func (o *Observer) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (value int, errno Errno) {
+func (o *Observer) SockGetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (value SocketOptionValue, errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
-		return -1, ENOSYS
+		return nil, ENOSYS
 	}
 	if o.before != nil {
-		o.before(ctx, &SockGetOptIntSyscall{fd, level, option, value, errno})
+		o.before(ctx, &SockGetOptSyscall{fd, level, option, value, errno})
 	}
-	value, errno = se.SockGetOptInt(ctx, fd, level, option)
+	value, errno = se.SockGetOpt(ctx, fd, level, option)
 	if o.after != nil {
-		o.after(ctx, &SockGetOptIntSyscall{fd, level, option, value, errno})
+		o.after(ctx, &SockGetOptSyscall{fd, level, option, value, errno})
 	}
 	return
 }
 
-func (o *Observer) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value int) (errno Errno) {
+func (o *Observer) SockSetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue) (errno Errno) {
 	se, ok := o.System.(SocketsExtension)
 	if !ok {
 		return ENOSYS
 	}
 	if o.before != nil {
-		o.before(ctx, &SockSetOptIntSyscall{fd, level, option, value, errno})
+		o.before(ctx, &SockSetOptSyscall{fd, level, option, value, errno})
 	}
-	errno = se.SockSetOptInt(ctx, fd, level, option, value)
+	errno = se.SockSetOpt(ctx, fd, level, option, value)
 	if o.after != nil {
-		o.after(ctx, &SockSetOptIntSyscall{fd, level, option, value, errno})
+		o.after(ctx, &SockSetOptSyscall{fd, level, option, value, errno})
 	}
 	return
 }

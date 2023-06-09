@@ -1102,15 +1102,15 @@ func (c *Codec) DecodeSockRecvFrom(buffer []byte, iovecs []IOVec) (fd FD, _ []IO
 	return fd, iovecs, iflags, size, oflags, addr, errno, err
 }
 
-func (c *Codec) EncodeSockGetOptInt(buffer []byte, fd FD, level SocketOptionLevel, option SocketOption, value int, errno Errno) []byte {
+func (c *Codec) EncodeSockGetOpt(buffer []byte, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeSocketOptionLevel(buffer, level)
 	buffer = encodeSocketOption(buffer, option)
-	return encodeInt(buffer, value)
+	return encodeSocketOptionValue(buffer, value)
 }
 
-func (c *Codec) DecodeSockGetOptInt(buffer []byte) (fd FD, level SocketOptionLevel, option SocketOption, value int, errno Errno, err error) {
+func (c *Codec) DecodeSockGetOpt(buffer []byte) (fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
@@ -1123,19 +1123,19 @@ func (c *Codec) DecodeSockGetOptInt(buffer []byte) (fd FD, level SocketOptionLev
 	if option, buffer, err = decodeSocketOption(buffer); err != nil {
 		return
 	}
-	value, _, err = decodeInt(buffer)
+	value, _, err = decodeSocketOptionValue(buffer)
 	return
 }
 
-func (c *Codec) EncodeSockSetOptInt(buffer []byte, fd FD, level SocketOptionLevel, option SocketOption, value int, errno Errno) []byte {
+func (c *Codec) EncodeSockSetOpt(buffer []byte, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeSocketOptionLevel(buffer, level)
 	buffer = encodeSocketOption(buffer, option)
-	return encodeInt(buffer, value)
+	return encodeSocketOptionValue(buffer, value)
 }
 
-func (c *Codec) DecodeSockSetOptInt(buffer []byte) (fd FD, level SocketOptionLevel, option SocketOption, value int, errno Errno, err error) {
+func (c *Codec) DecodeSockSetOpt(buffer []byte) (fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
@@ -1148,7 +1148,7 @@ func (c *Codec) DecodeSockSetOptInt(buffer []byte) (fd FD, level SocketOptionLev
 	if option, buffer, err = decodeSocketOption(buffer); err != nil {
 		return
 	}
-	value, _, err = decodeInt(buffer)
+	value, _, err = decodeSocketOptionValue(buffer)
 	return
 }
 
@@ -2054,5 +2054,38 @@ func decodeSocketAddress(buffer []byte) (_ SocketAddress, _ []byte, err error) {
 		return &addr, buffer, nil
 	default:
 		return nil, buffer, fmt.Errorf("invalid or unsupported protocol family: %v", f)
+	}
+}
+
+const (
+	sockoptNil = 0x0
+	sockoptInt = 0x1
+)
+
+func encodeSocketOptionValue(buffer []byte, value SocketOptionValue) []byte {
+	switch v := value.(type) {
+	case nil:
+		return encodeInt(buffer, sockoptNil)
+	case IntValue:
+		buffer = encodeInt(buffer, sockoptInt)
+		return encodeInt(buffer, int(v))
+	default:
+		panic("cannot encode unsupported socket option value type")
+	}
+}
+
+func decodeSocketOptionValue(buffer []byte) (_ SocketOptionValue, _ []byte, err error) {
+	var typ int
+	if typ, buffer, err = decodeInt(buffer); err != nil {
+		return
+	}
+	switch typ {
+	case sockoptNil:
+		return nil, buffer, err
+	case sockoptInt:
+		v, buffer, err := decodeInt(buffer)
+		return IntValue(v), buffer, err
+	default:
+		return nil, buffer, fmt.Errorf("invalid or unsupported socket option value type: %v", typ)
 	}
 }

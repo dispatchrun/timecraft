@@ -1346,25 +1346,25 @@ func (r *Replay) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags
 	return size, oflags, addr, errno
 }
 
-func (r *Replay) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (int, Errno) {
-	record, ok := r.readRecord(SockGetOptInt)
+func (r *Replay) SockGetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (SocketOptionValue, Errno) {
+	record, ok := r.readRecord(SockGetOpt)
 	if !ok {
-		return 0, ENOSYS
+		return nil, ENOSYS
 	}
-	recordFD, recordLevel, recordOption, value, errno, err := r.codec.DecodeSockGetOptInt(record.FunctionCall)
+	recordFD, recordLevel, recordOption, value, errno, err := r.codec.DecodeSockGetOpt(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
 	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockGetOptInt, "fd", fd, recordFD})
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockGetOpt, "fd", fd, recordFD})
 		}
 		if level != recordLevel {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockGetOptInt, "level", level, recordLevel})
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockGetOpt, "level", level, recordLevel})
 		}
 		if option != recordOption {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockGetOptInt, "option", option, recordOption})
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockGetOpt, "option", option, recordOption})
 		}
 		if len(mismatch) > 0 {
 			panic(errors.Join(mismatch...))
@@ -1373,28 +1373,28 @@ func (r *Replay) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLev
 	return value, errno
 }
 
-func (r *Replay) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value int) Errno {
-	record, ok := r.readRecord(SockSetOptInt)
+func (r *Replay) SockSetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue) Errno {
+	record, ok := r.readRecord(SockSetOpt)
 	if !ok {
 		return ENOSYS
 	}
-	recordFD, recordLevel, recordOption, recordValue, errno, err := r.codec.DecodeSockSetOptInt(record.FunctionCall)
+	recordFD, recordLevel, recordOption, recordValue, errno, err := r.codec.DecodeSockSetOpt(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
 	if r.strict {
 		var mismatch []error
 		if fd != recordFD {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOptInt, "fd", fd, recordFD})
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOpt, "fd", fd, recordFD})
 		}
 		if level != recordLevel {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOptInt, "level", level, recordLevel})
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOpt, "level", level, recordLevel})
 		}
 		if option != recordOption {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOptInt, "option", option, recordOption})
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOpt, "option", option, recordOption})
 		}
-		if value != recordValue {
-			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOptInt, "value", value, recordValue})
+		if !equalSocketOptionValue(value, recordValue) {
+			mismatch = append(mismatch, &UnexpectedSyscallParamError{SockSetOpt, "value", value, recordValue})
 		}
 		if len(mismatch) > 0 {
 			panic(errors.Join(mismatch...))
@@ -1563,6 +1563,16 @@ func equalSocketAddress(a, b SocketAddress) bool {
 	case *UnixAddress:
 		bt, ok := b.(*UnixAddress)
 		return ok && *at == *bt
+	default:
+		return false
+	}
+}
+
+func equalSocketOptionValue(a, b SocketOptionValue) bool {
+	switch av := a.(type) {
+	case IntValue:
+		bv, ok := b.(IntValue)
+		return ok && av == bv
 	default:
 		return false
 	}
