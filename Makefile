@@ -32,13 +32,26 @@ generate: flatbuffers
 flatbuffers: go.mod $(format.src.go)
 	$(GO) build ./format/...
 
-test: testdata
+test: testdata wasi-testsuite
 	$(GO) test ./...
 
 testdata: $(testdata.go.wasm)
 
 testdata/go/%.wasm: testdata/go/%.go
 	GOARCH=wasm GOOS=wasip1 $(GO) build -o $@ $<
+
+wasi-testsuite: timecraft testdata/wasi-testsuite
+	python3 testdata/wasi-testsuite/test-runner/wasi_test_runner.py \
+		-t testdata/wasi-testsuite/tests/assemblyscript/testsuite \
+		   testdata/wasi-testsuite/tests/c/testsuite \
+		   testdata/wasi-testsuite/tests/rust/testsuite \
+		-r testdata/adapter.py
+	@rm -rf testdata/wasi-testsuite/tests/rust/testsuite/fs-tests.dir/*.cleanup
+
+testdata/wasi-testsuite: testdata/wasi-testsuite/.git
+
+testdata/wasi-testsuite/.git: .gitmodules
+	git submodule update --init --recursive -- testdata/wasi-testsuite
 
 # We run goimports because the flatc compiler sometimes adds an unused import of
 # strconv.
