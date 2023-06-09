@@ -709,33 +709,33 @@ func (s *SockRecvFromSyscall) Results() []any { return []any{s.Size, s.OFlags, s
 func (s *SockRecvFromSyscall) Error() Errno   { return s.Errno }
 func (s *SockRecvFromSyscall) private()       {}
 
-type SockGetOptIntSyscall struct {
+type SockGetOptSyscall struct {
 	FD     FD
 	Level  SocketOptionLevel
 	Option SocketOption
-	Value  int
+	Value  SocketOptionValue
 	Errno  Errno
 }
 
-func (s *SockGetOptIntSyscall) ID() SyscallID  { return SockGetOptInt }
-func (s *SockGetOptIntSyscall) Params() []any  { return []any{s.FD, s.Level, s.Option} }
-func (s *SockGetOptIntSyscall) Results() []any { return []any{s.Value, s.Errno} }
-func (s *SockGetOptIntSyscall) Error() Errno   { return s.Errno }
-func (s *SockGetOptIntSyscall) private()       {}
+func (s *SockGetOptSyscall) ID() SyscallID  { return SockGetOpt }
+func (s *SockGetOptSyscall) Params() []any  { return []any{s.FD, s.Level, s.Option} }
+func (s *SockGetOptSyscall) Results() []any { return []any{s.Value, s.Errno} }
+func (s *SockGetOptSyscall) Error() Errno   { return s.Errno }
+func (s *SockGetOptSyscall) private()       {}
 
-type SockSetOptIntSyscall struct {
+type SockSetOptSyscall struct {
 	FD     FD
 	Level  SocketOptionLevel
 	Option SocketOption
-	Value  int
+	Value  SocketOptionValue
 	Errno  Errno
 }
 
-func (s *SockSetOptIntSyscall) ID() SyscallID  { return SockSetOptInt }
-func (s *SockSetOptIntSyscall) Params() []any  { return []any{s.FD, s.Level, s.Option, s.Value} }
-func (s *SockSetOptIntSyscall) Results() []any { return []any{s.Errno} }
-func (s *SockSetOptIntSyscall) Error() Errno   { return s.Errno }
-func (s *SockSetOptIntSyscall) private()       {}
+func (s *SockSetOptSyscall) ID() SyscallID  { return SockSetOpt }
+func (s *SockSetOptSyscall) Params() []any  { return []any{s.FD, s.Level, s.Option, s.Value} }
+func (s *SockSetOptSyscall) Results() []any { return []any{s.Errno} }
+func (s *SockSetOptSyscall) Error() Errno   { return s.Errno }
+func (s *SockSetOptSyscall) private()       {}
 
 type SockLocalAddressSyscall struct {
 	FD    FD
@@ -832,8 +832,8 @@ const (
 	SockListen
 	SockSendTo
 	SockRecvFrom
-	SockGetOptInt
-	SockSetOptInt
+	SockGetOpt
+	SockSetOpt
 	SockLocalAddress
 	SockRemoteAddress
 	SockAddressInfo
@@ -899,8 +899,8 @@ var syscallIDStrings = [...]string{
 	"SockListen",
 	"SockSendTo",
 	"SockRecvFrom",
-	"SockGetOptInt",
-	"SockSetOptInt",
+	"SockGetOpt",
+	"SockSetOpt",
 	"SockLocalAddress",
 	"SockRemoteAddress",
 	"SockAddressInfo",

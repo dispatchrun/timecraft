@@ -391,23 +391,23 @@ func (r *Recorder) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, ifla
 	return n, oflags, addr, errno
 }
 
-func (r *Recorder) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (int, Errno) {
+func (r *Recorder) SockGetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (SocketOptionValue, Errno) {
 	s, ok := r.system.(SocketsExtension)
 	if !ok {
-		return 0, ENOSYS
+		return nil, ENOSYS
 	}
-	value, errno := s.SockGetOptInt(ctx, fd, level, option)
-	r.record(SockGetOptInt, r.codec.EncodeSockGetOptInt(r.buffer[:0], fd, level, option, value, errno))
+	value, errno := s.SockGetOpt(ctx, fd, level, option)
+	r.record(SockGetOpt, r.codec.EncodeSockGetOpt(r.buffer[:0], fd, level, option, value, errno))
 	return value, errno
 }
 
-func (r *Recorder) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value int) Errno {
+func (r *Recorder) SockSetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue) Errno {
 	s, ok := r.system.(SocketsExtension)
 	if !ok {
 		return ENOSYS
 	}
-	errno := s.SockSetOptInt(ctx, fd, level, option, value)
-	r.record(SockSetOptInt, r.codec.EncodeSockSetOptInt(r.buffer[:0], fd, level, option, value, errno))
+	errno := s.SockSetOpt(ctx, fd, level, option, value)
+	r.record(SockSetOpt, r.codec.EncodeSockSetOpt(r.buffer[:0], fd, level, option, value, errno))
 	return errno
 }
 

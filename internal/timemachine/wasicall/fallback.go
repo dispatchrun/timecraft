@@ -502,12 +502,12 @@ fallback:
 	return se.SockRecvFrom(ctx, fd, iovecs, flags)
 }
 
-func (f *FallbackSystem) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (value int, errno Errno) {
+func (f *FallbackSystem) SockGetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (value SocketOptionValue, errno Errno) {
 	se, ok := f.System.(SocketsExtension)
 	if !ok {
 		goto fallback
 	}
-	value, errno = se.SockGetOptInt(ctx, fd, level, option)
+	value, errno = se.SockGetOpt(ctx, fd, level, option)
 	if errno == ENOSYS {
 		goto fallback
 	}
@@ -515,17 +515,17 @@ func (f *FallbackSystem) SockGetOptInt(ctx context.Context, fd FD, level SocketO
 fallback:
 	se, ok = f.secondary.(SocketsExtension)
 	if !ok {
-		return 0, ENOSYS
+		return nil, ENOSYS
 	}
-	return se.SockGetOptInt(ctx, fd, level, option)
+	return se.SockGetOpt(ctx, fd, level, option)
 }
 
-func (f *FallbackSystem) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value int) (errno Errno) {
+func (f *FallbackSystem) SockSetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue) (errno Errno) {
 	se, ok := f.System.(SocketsExtension)
 	if !ok {
 		goto fallback
 	}
-	errno = se.SockSetOptInt(ctx, fd, level, option, value)
+	errno = se.SockSetOpt(ctx, fd, level, option, value)
 	if errno == ENOSYS {
 		goto fallback
 	}
@@ -535,7 +535,7 @@ fallback:
 	if !ok {
 		return ENOSYS
 	}
-	return se.SockSetOptInt(ctx, fd, level, option, value)
+	return se.SockSetOpt(ctx, fd, level, option, value)
 }
 
 func (f *FallbackSystem) SockLocalAddress(ctx context.Context, fd FD) (addr SocketAddress, errno Errno) {

@@ -233,11 +233,11 @@ func (s *exitSystem) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, fl
 	panic(s.newExitError())
 }
 
-func (s *exitSystem) SockGetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (value int, errno Errno) {
+func (s *exitSystem) SockGetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (value SocketOptionValue, errno Errno) {
 	panic(s.newExitError())
 }
 
-func (s *exitSystem) SockSetOptInt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value int) (errno Errno) {
+func (s *exitSystem) SockSetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue) (errno Errno) {
 	panic(s.newExitError())
 }
 
