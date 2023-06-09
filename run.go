@@ -28,10 +28,12 @@ Usage:	timecraft run [options] [--] <module> [args...]
 Options:
    -c, --config path              Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -D, --dial addr                Expose a socket connected to the specified address
+       --dir dir                  Expose a directory to the guest module
    -e, --env name=value           Pass an environment variable to the guest module
        --fly-blind                Disable recording of the guest module execution
    -h, --help                     Show this usage information
    -L, --listen addr              Expose a socket listening on the specified address
+       --restrict                 Do not automatically expose the environment and root directory to the guest module
    -S, --sockets extension        Enable a sockets extension, one of none, auto, path_open, wasmedgev1, wasmedgev2 (default to auto)
        --record-batch-size size   Number of records written per batch (default to 4096)
        --record-compression type  Compression to use when writing records, either snappy or zstd (default to zstd)
@@ -43,10 +45,12 @@ func run(ctx context.Context, args []string) error {
 		envs        stringList
 		listens     stringList
 		dials       stringList
+		dirs        stringList
 		batchSize   = human.Count(4096)
 		compression = compression("zstd")
 		sockets     = sockets("auto")
 		flyBlind    = false
+		restrict    = false
 		trace       = false
 	)
 
@@ -54,9 +58,11 @@ func run(ctx context.Context, args []string) error {
 	customVar(flagSet, &envs, "e", "env")
 	customVar(flagSet, &listens, "L", "listen")
 	customVar(flagSet, &dials, "D", "dial")
+	customVar(flagSet, &dirs, "dir")
 	customVar(flagSet, &sockets, "S", "sockets")
 	boolVar(flagSet, &trace, "T", "trace")
 	boolVar(flagSet, &flyBlind, "fly-blind")
+	boolVar(flagSet, &restrict, "restrict")
 	customVar(flagSet, &batchSize, "record-batch-size")
 	customVar(flagSet, &compression, "record-compression")
 
@@ -64,7 +70,9 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	envs = append(os.Environ(), envs...)
+	if !restrict {
+		envs = append(os.Environ(), envs...)
+	}
 	args = flagSet.Args()
 
 	if len(args) == 0 {
@@ -102,11 +110,15 @@ func run(ctx context.Context, args []string) error {
 	stdout := int(os.Stdout.Fd())
 	stderr := int(os.Stderr.Fd())
 
+	if !restrict {
+		dirs = append([]string{"/"}, dirs...)
+	}
+
 	builder := imports.NewBuilder().
 		WithName(wasmName).
 		WithArgs(args[1:]...).
 		WithEnv(envs...).
-		WithDirs("/").
+		WithDirs(dirs...).
 		WithListens(listens...).
 		WithDials(dials...).
 		WithStdio(stdin, stdout, stderr).
