@@ -3,11 +3,40 @@ package wasicall
 import (
 	"context"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/stealthrocket/wasi-go"
 )
 
-var validSyscalls = []Syscall{}
+var validSyscalls = []Syscall{
+	&ArgsSizesGetSyscall{},
+	&ArgsSizesGetSyscall{ArgCount: 3, StringBytes: 64, Errno: wasi.ESUCCESS},
+	&ArgsGetSyscall{Args: []string{"--help"}, Errno: wasi.ESUCCESS},
+	&ArgsGetSyscall{Errno: wasi.ENOTSUP},
+	&EnvironSizesGetSyscall{},
+	&EnvironSizesGetSyscall{EnvCount: 1, StringBytes: 2, Errno: wasi.ESUCCESS},
+	&ClockResGetSyscall{ClockID: wasi.Realtime, Timestamp: math.MaxUint64},
+	&ClockResGetSyscall{ClockID: wasi.Monotonic, Timestamp: 1111111},
+	&ClockResGetSyscall{ClockID: wasi.Monotonic, Errno: wasi.EINVAL},
+	&ClockTimeGetSyscall{ClockID: wasi.Realtime, Precision: wasi.Timestamp(time.Microsecond), Timestamp: wasi.Timestamp(time.Now().UnixNano())},
+	&ClockTimeGetSyscall{ClockID: wasi.Monotonic, Precision: wasi.Timestamp(time.Nanosecond), Timestamp: 1},
+	&ClockTimeGetSyscall{ClockID: wasi.Monotonic, Precision: wasi.Timestamp(time.Nanosecond), Errno: wasi.EINVAL},
+	&FDAdviseSyscall{FD: 1, Offset: 4096, Length: 64, Advice: wasi.WillNeed},
+	&FDAdviseSyscall{FD: 1, Offset: 4096, Length: 64, Advice: wasi.WillNeed, Errno: wasi.ENOTCAPABLE},
+	&FDAdviseSyscall{},
+	&FDAllocateSyscall{FD: 11, Offset: 1 << 30, Length: 1},
+	&FDAllocateSyscall{},
+	&FDAllocateSyscall{Errno: wasi.ENOTSUP},
+	&FDCloseSyscall{FD: 23},
+	&FDCloseSyscall{},
+	&FDCloseSyscall{Errno: wasi.EBADF},
+	&FDDataSyncSyscall{FD: math.MaxInt32},
+	&FDDataSyncSyscall{},
+	&FDDataSyncSyscall{Errno: wasi.EBADF},
+	&FDStatGetSyscall{FD: 1, Stat: wasi.FDStat{FileType: wasi.SocketStreamType, Flags: wasi.NonBlock, RightsBase: wasi.SockListenRights, RightsInheriting: wasi.SockConnectionRights | wasi.SockListenRights}},
+	&FDStatGetSyscall{FD: 23, Stat: wasi.FDStat{}, Errno: wasi.EBADF},
+}
 
 func syscallString(s Syscall) string {
 	return fmt.Sprintf("%s(%v) => %v", s.ID(), s.Params(), s.Results())
