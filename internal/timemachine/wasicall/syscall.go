@@ -764,13 +764,13 @@ func (s *SockRemoteAddressSyscall) private()       {}
 type SockAddressInfoSyscall struct {
 	Name    string
 	Service string
-	Hint    AddressInfo
+	Hints   AddressInfo
 	Res     []AddressInfo
 	Errno   Errno
 }
 
 func (s *SockAddressInfoSyscall) ID() SyscallID  { return SockAddressInfo }
-func (s *SockAddressInfoSyscall) Params() []any  { return []any{s.Name, s.Service, s.Hint} }
+func (s *SockAddressInfoSyscall) Params() []any  { return []any{s.Name, s.Service, s.Hints} }
 func (s *SockAddressInfoSyscall) Results() []any { return []any{s.Res, s.Errno} }
 func (s *SockAddressInfoSyscall) Error() Errno   { return s.Errno }
 func (s *SockAddressInfoSyscall) private()       {}
