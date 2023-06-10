@@ -12,7 +12,7 @@ import (
 )
 
 func TestRecord(t *testing.T) {
-	for _, syscall := range validSyscalls {
+	for _, syscall := range syscalls {
 		t.Run(syscallString(syscall), func(t *testing.T) {
 			startTime := time.Now()
 			var recordBytes []byte

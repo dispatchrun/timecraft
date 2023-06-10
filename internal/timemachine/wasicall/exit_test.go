@@ -12,7 +12,7 @@ func TestExitSystem(t *testing.T) {
 
 	system := &exitSystem{exitCode}
 
-	for _, syscall := range validSyscalls {
+	for _, syscall := range syscalls {
 		t.Run(syscallString(syscall), func(t *testing.T) {
 			defer func() {
 				if err := recover(); err != nil {

@@ -9,7 +9,7 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
-var validSyscalls = []Syscall{
+var syscalls = []Syscall{
 	&ArgsSizesGetSyscall{},
 	&ArgsSizesGetSyscall{ArgCount: 3, StringBytes: 64, Errno: wasi.ESUCCESS},
 	&ArgsGetSyscall{Args: []string{"--help"}, Errno: wasi.ESUCCESS},
@@ -36,6 +36,37 @@ var validSyscalls = []Syscall{
 	&FDDataSyncSyscall{Errno: wasi.EBADF},
 	&FDStatGetSyscall{FD: 1, Stat: wasi.FDStat{FileType: wasi.SocketStreamType, Flags: wasi.NonBlock, RightsBase: wasi.SockListenRights, RightsInheriting: wasi.SockConnectionRights | wasi.SockListenRights}},
 	&FDStatGetSyscall{FD: 23, Stat: wasi.FDStat{}, Errno: wasi.EBADF},
+	&FDStatGetSyscall{FD: 1, Stat: wasi.FDStat{FileType: 2, Flags: 3, RightsBase: 4, RightsInheriting: 5}, Errno: 6},
+	&FDStatSetFlagsSyscall{FD: math.MaxInt32 - 1, Flags: wasi.Append | wasi.Sync},
+	&FDStatSetFlagsSyscall{},
+	&FDStatSetFlagsSyscall{FD: 4, Errno: wasi.ENOENT},
+	&FDStatSetRightsSyscall{FD: 1, RightsBase: 2, RightsInheriting: 3, Errno: 4},
+	&FDStatSetRightsSyscall{FD: 5, RightsBase: wasi.AllRights, RightsInheriting: wasi.FileRights},
+	&FDStatSetRightsSyscall{FD: 5, Errno: wasi.ENOTCAPABLE},
+	&FDFileStatGetSyscall{FD: 6, Stat: wasi.FileStat{Device: ^wasi.Device(0), INode: ^wasi.INode(0), FileType: ^wasi.FileType(0), NLink: ^wasi.LinkCount(0), Size: ^wasi.FileSize(0), AccessTime: ^wasi.Timestamp(0), ModifyTime: ^wasi.Timestamp(0)}},
+	&FDFileStatGetSyscall{FD: 1, Stat: wasi.FileStat{Device: 2, INode: 3, FileType: 4, NLink: 5, Size: 6, AccessTime: 7, ModifyTime: 8}},
+	&FDFileStatGetSyscall{},
+	&FDFileStatSetSizeSyscall{FD: 1, Size: 4096, Errno: wasi.ESUCCESS},
+	&FDFileStatSetSizeSyscall{FD: 1, Size: 2, Errno: 3},
+	&FDFileStatSetSizeSyscall{},
+	&FDFileStatSetTimesSyscall{FD: 1, AccessTime: 2, ModifyTime: 3, Flags: wasi.AccessTimeNow | wasi.ModifyTimeNow},
+	&FDFileStatSetTimesSyscall{},
+	&FDPreadSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foo"), []byte("bar")}, Size: 6, Errno: wasi.ESUCCESS},
+	&FDPreadSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foobar")}, Offset: 3, Size: 6, Errno: wasi.ESUCCESS},
+	&FDPreadSyscall{},
+	&FDPreStatGetSyscall{FD: 9, Stat: wasi.PreStat{Type: ^wasi.PreOpenType(0), PreStatDir: wasi.PreStatDir{NameLength: ^wasi.Size(0)}}, Errno: wasi.ESUCCESS},
+	&FDPreStatGetSyscall{FD: 1, Stat: wasi.PreStat{Type: 2, PreStatDir: wasi.PreStatDir{NameLength: 3}}, Errno: 4},
+	&FDPreStatGetSyscall{},
+	&FDPwriteSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foo"), []byte("bar")}, Size: 6, Errno: wasi.ESUCCESS},
+	&FDPwriteSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foobar")}, Offset: 3, Size: 6, Errno: wasi.ESUCCESS},
+	&FDPwriteSyscall{},
+	&FDReadSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foo"), []byte("bar")}, Size: 6, Errno: wasi.ESUCCESS},
+	&FDReadSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foobar")}, Size: 6, Errno: wasi.ESUCCESS},
+	&FDReadSyscall{},
+	// FIXME
+	// &FDReadDirSyscall{FD: 1, Entries: []wasi.DirEntry{{Next: ^wasi.DirCookie(0), INode: ^wasi.INode(0), Type: ^wasi.FileType(0), Name: []byte("/foobar")}}, Cookie: ^wasi.DirCookie(0), BufferSizeBytes: math.MaxInt, Errno: wasi.ESUCCESS},
+	// &FDReadDirSyscall{FD: 1, Entries: []wasi.DirEntry{{Next: 2, INode: 3, Type: 4, Name: []byte("5")}, {Next: 6, INode: 7, Type: 8, Name: []byte("9")}}, Cookie: 10, BufferSizeBytes: 11, Errno: 12},
+	&FDReadDirSyscall{},
 }
 
 func syscallString(s Syscall) string {
@@ -139,7 +170,7 @@ func call(ctx context.Context, system SocketsSystem, syscall Syscall) Syscall {
 		r := *cast[*FDReadDirSyscall](syscall)
 		var n int
 		n, r.Errno = system.FDReadDir(ctx, s.FD, s.Entries, s.Cookie, s.BufferSizeBytes)
-		if n >= 0 && n < len(s.Entries) {
+		if n >= 0 && n <= len(s.Entries) {
 			s.Entries = s.Entries[:n]
 		} else {
 			panic("not implemented")

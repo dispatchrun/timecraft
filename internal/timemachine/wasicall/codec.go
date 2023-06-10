@@ -1237,11 +1237,11 @@ func decodeU64(b []byte) (uint64, []byte, error) {
 }
 
 func encodeInt(b []byte, v int) []byte {
-	return encodeU32(b, uint32(v))
+	return encodeU64(b, uint64(v))
 }
 
 func decodeInt(b []byte) (int, []byte, error) {
-	v, b, err := decodeU32(b)
+	v, b, err := decodeU64(b)
 	return int(v), b, err
 }
 
