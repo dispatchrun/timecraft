@@ -7,6 +7,8 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
+var validSyscalls = []Syscall{}
+
 func syscallString(s Syscall) string {
 	return fmt.Sprintf("%s(%v) => %v", s.ID(), s.Params(), s.Results())
 }
