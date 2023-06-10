@@ -144,7 +144,10 @@ func profile(ctx context.Context, args []string) error {
 		sampleRate: 1.0,
 	}
 	p := wzprof.ProfilingFor(module.Code)
-	records.cpu = p.CPUProfiler(wzprof.TimeFunc(records.now))
+	// Enable profiling of time spent in host functions because we don't have
+	// any I/O wait during a replay, so it gives a useful perspective of the
+	// CPU time spent processing the host call invocation.
+	records.cpu = p.CPUProfiler(wzprof.HostTime(true))
 	records.mem = p.MemoryProfiler()
 
 	ctx = context.WithValue(ctx,
@@ -257,10 +260,6 @@ func (r *recordProfiler) Read(records []timemachine.Record) (int, error) {
 		}
 	}
 	return n, err
-}
-
-func (r *recordProfiler) now() int64 {
-	return int64(r.lastTimestamp.Sub(r.firstTimestamp))
 }
 
 func (r *recordProfiler) start() {
