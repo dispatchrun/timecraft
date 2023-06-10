@@ -38,6 +38,19 @@ func TestFallback(t *testing.T) {
 		}
 	})
 
-	// TODO: check that the fallback system forwards args, and returns values, correctly
-	// TODO: check the case where either or both of the systems don't implement SocketsExtension
+	t.Run("replay through primary", func(t *testing.T) {
+		for _, syscall := range validSyscalls {
+			testReplay(t, syscall, func(replay SocketsSystem) SocketsSystem {
+				return NewFallbackSystem(replay, &exitSystem{exitCode})
+			})
+		}
+	})
+
+	t.Run("replay through fallback", func(t *testing.T) {
+		for _, syscall := range validSyscalls {
+			testReplay(t, syscall, func(replay SocketsSystem) SocketsSystem {
+				return NewFallbackSystem(errnoSystem(wasi.ENOSYS), replay)
+			})
+		}
+	})
 }
