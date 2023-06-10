@@ -11,14 +11,14 @@ import (
 func TestFallback(t *testing.T) {
 	const exitCode = 23
 
-	t.Run("no fallback", func(t *testing.T) {
+	t.Run("call primary", func(t *testing.T) {
 		system := NewFallbackSystem(errnoSystem(wasi.ESUCCESS), &exitSystem{exitCode})
 		for _, syscall := range validSyscalls {
-			pushParams(context.Background(), syscall, system)
+			call(context.Background(), system, syscall)
 		}
 	})
 
-	t.Run("fallback", func(t *testing.T) {
+	t.Run("call fallback", func(t *testing.T) {
 		system := NewFallbackSystem(errnoSystem(wasi.ENOSYS), &exitSystem{exitCode})
 		for _, syscall := range validSyscalls {
 			func() {
@@ -31,7 +31,7 @@ func TestFallback(t *testing.T) {
 					}
 				}()
 
-				pushParams(context.Background(), syscall, system)
+				call(context.Background(), system, syscall)
 
 				t.Fatal("expected the fallback system to be taken")
 			}()

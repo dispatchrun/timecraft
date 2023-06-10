@@ -3,6 +3,7 @@ package wasicall
 import (
 	"context"
 	"encoding/binary"
+	"reflect"
 	"testing"
 	"time"
 
@@ -16,10 +17,10 @@ func TestReplay(t *testing.T) {
 			startTime := time.Now()
 			var recordBytes []byte
 
-			recorder := NewRecorder(&pullResults{syscall}, startTime, func(b *timemachine.RecordBuilder) {
+			recorder := NewRecorder(&resultsSystem{syscall}, startTime, func(b *timemachine.RecordBuilder) {
 				recordBytes = b.Bytes()
 			})
-			pushParams(context.Background(), syscall, recorder)
+			call(context.Background(), recorder, syscall)
 
 			if recordBytes == nil {
 				t.Fatalf("record was not recorded")
@@ -35,8 +36,15 @@ func TestReplay(t *testing.T) {
 			replay := NewReplay(stream.NewReader(record))
 
 			// Call the replay system with the same params. It will panic if
-			// the recorded syscall differs.
-			pushParams(context.Background(), syscall, replay)
+			// the recorded syscall params differ.
+			syscallWithResults := call(context.Background(), replay, syscall)
+
+			// Now check that the syscall results match.
+			if !reflect.DeepEqual(syscall, syscallWithResults) {
+				t.Error("unexpected syscall results")
+				t.Logf("actual: %#v", syscallWithResults.Results())
+				t.Logf("expect: %#v", syscall.Results())
+			}
 		})
 	}
 }

@@ -22,7 +22,7 @@ func TestExitSystem(t *testing.T) {
 				}
 			}()
 
-			pushParams(context.Background(), syscall, system)
+			call(context.Background(), system, syscall)
 
 			t.Fatal("expected panic")
 		})

@@ -17,10 +17,10 @@ func TestRecord(t *testing.T) {
 			startTime := time.Now()
 			var recordBytes []byte
 
-			recorder := NewRecorder(&pullResults{syscall}, startTime, func(b *timemachine.RecordBuilder) {
+			recorder := NewRecorder(&resultsSystem{syscall}, startTime, func(b *timemachine.RecordBuilder) {
 				recordBytes = b.Bytes()
 			})
-			pushParams(context.Background(), syscall, recorder)
+			call(context.Background(), recorder, syscall)
 
 			if recordBytes == nil {
 				t.Fatalf("record was not recorded")
