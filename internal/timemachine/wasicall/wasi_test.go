@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"reflect"
+	"testing"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/tetratelabs/wazero/sys"
 )
@@ -125,6 +128,23 @@ var syscalls = []Syscall{
 	&SchedYieldSyscall{},
 	&RandomGetSyscall{B: []byte("xyzzy"), Errno: 1},
 	&RandomGetSyscall{B: []byte{}},
+	&SockAcceptSyscall{FD: 1, Flags: wasi.NonBlock, NewFD: 2, Peer: &wasi.Inet4Address{Addr: [4]byte{3, 4, 5, 6}, Port: 7}, Addr: &wasi.Inet6Address{Addr: [16]byte{8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23}, Port: 20}, Errno: 21},
+	&SockAcceptSyscall{},
+	&SockShutdownSyscall{FD: 1, Flags: 2, Errno: 3},
+	&SockShutdownSyscall{Flags: ^wasi.SDFlags(0)},
+	&SockShutdownSyscall{},
+	&SockRecvSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foo"), []byte("bar")}, IFlags: wasi.RecvPeek, Size: 6, OFlags: wasi.RecvDataTruncated, Errno: wasi.ENOTSOCK},
+	&SockRecvSyscall{},
+	&SockSendSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foo"), []byte("bar")}, IFlags: 2, Size: 6, Errno: wasi.ENOTSOCK},
+	&SockSendSyscall{},
+	&SockOpenSyscall{Family: ^wasi.ProtocolFamily(0), SocketType: ^wasi.SocketType(0), Protocol: ^wasi.Protocol(0), RightsBase: ^wasi.Rights(0), RightsInheriting: 1, FD: 2, Errno: 3},
+	&SockOpenSyscall{Family: wasi.InetFamily, SocketType: wasi.StreamSocket, Protocol: wasi.TCPProtocol, RightsBase: wasi.SockListenRights, RightsInheriting: wasi.SockConnectionRights, FD: 1, Errno: wasi.ESUCCESS},
+	&SockOpenSyscall{},
+	// &SockBindSyscall{FD: 1, Bind: &wasi.UnixAddress{Name: "foo"}, Addr: &wasi.UnixAddress{"bar"}, Errno: 2},
+	&SockBindSyscall{FD: 1, Bind: &wasi.Inet4Address{Addr: [4]byte{127, 0, 0, 1}, Port: 0}, Addr: &wasi.Inet4Address{Addr: [4]byte{127, 0, 0, 1}, Port: 45980}, Errno: wasi.ESUCCESS},
+	&SockBindSyscall{},
+	&SockConnectSyscall{FD: 1, Peer: &wasi.Inet4Address{Addr: [4]byte{127, 0, 0, 1}, Port: 0}, Addr: &wasi.Inet4Address{Addr: [4]byte{127, 0, 0, 1}, Port: 45980}, Errno: wasi.ESUCCESS},
+	&SockConnectSyscall{},
 }
 
 func syscallString(s Syscall) string {
@@ -136,10 +156,7 @@ func suppressProcExit(s Syscall) {
 	if !ok {
 		return
 	}
-
 	if err := recover(); err != nil {
-		// The Replay instance calls panic(sys.ExitError) for ProcExit.
-		// Catch and suppress here.
 		if e, ok := err.(*sys.ExitError); !ok || wasi.ExitCode(e.ExitCode()) != pe.ExitCode {
 			panic(err)
 		}
@@ -346,7 +363,7 @@ func call(ctx context.Context, system wasi.System, syscall Syscall) Syscall {
 		return &r
 	case *SockRecvSyscall:
 		r := *cast[*SockRecvSyscall](syscall)
-		r.Size, r.OFlags, s.Errno = system.SockRecv(ctx, s.FD, s.IOVecs, s.IFlags)
+		r.Size, r.OFlags, r.Errno = system.SockRecv(ctx, s.FD, s.IOVecs, s.IFlags)
 		return &r
 	case *SockSendSyscall:
 		r := *cast[*SockSendSyscall](syscall)
@@ -358,11 +375,11 @@ func call(ctx context.Context, system wasi.System, syscall Syscall) Syscall {
 		return &r
 	case *SockBindSyscall:
 		r := *cast[*SockBindSyscall](syscall)
-		r.Addr, r.Errno = system.SockBind(ctx, s.FD, s.Addr)
+		r.Addr, r.Errno = system.SockBind(ctx, s.FD, s.Bind)
 		return &r
 	case *SockConnectSyscall:
 		r := *cast[*SockConnectSyscall](syscall)
-		r.Addr, r.Errno = system.SockConnect(ctx, s.FD, s.Addr)
+		r.Addr, r.Errno = system.SockConnect(ctx, s.FD, s.Peer)
 		return &r
 	case *SockListenSyscall:
 		r := *cast[*SockListenSyscall](syscall)
@@ -709,3 +726,64 @@ func (p *resultsSystem) SockAddressInfo(ctx context.Context, name, service strin
 }
 
 var _ wasi.System = (*resultsSystem)(nil)
+
+func assertSyscallEqual(t *testing.T, actual, expect Syscall) {
+	if actual.ID() != expect.ID() {
+		t.Fatalf("syscalls did not match: got %s, expect %s", actual.ID(), expect.ID())
+	}
+	assertSyscallParamsOrResultsEqual(t, "params", actual.Params(), expect.Params())
+	assertSyscallParamsOrResultsEqual(t, "results", actual.Results(), expect.Results())
+}
+
+func assertSyscallParamsOrResultsEqual(t *testing.T, which string, actual, expect []any) {
+	if len(actual) != len(expect) {
+		t.Errorf("syscall %s did not match", which)
+		t.Log("actual:")
+		spew.Dump(actual)
+		t.Log("expect:")
+		spew.Dump(expect)
+	}
+	for i := range actual {
+		assertSyscallValueEqual(t, fmt.Sprintf("%s[%d]", which, i), actual[i], expect[i])
+	}
+}
+
+func assertSyscallValueEqual(t *testing.T, which string, actual, expect any) {
+	if reflect.DeepEqual(actual, expect) {
+		return
+	}
+	switch a := actual.(type) {
+	case wasi.SocketAddress:
+		b, ok := expect.(wasi.SocketAddress)
+		if !ok {
+			t.Fatalf("syscall %s did not match, got %#v, expect %#v", which, actual, expect)
+		}
+		assertSocketAddressEqual(t, a, b)
+	default:
+		panic(fmt.Sprintf("not implemented: %T / %T", actual, expect))
+	}
+}
+
+func assertSocketAddressEqual(t *testing.T, actual, expect wasi.SocketAddress) {
+	if actual == nil {
+		if expect != nil {
+			t.Fatalf("unexpected socket address: got %#v, expect %#v", actual, expect)
+		}
+		return
+	}
+	var equal bool
+	switch at := actual.(type) {
+	case *wasi.Inet4Address:
+		et, ok := expect.(*wasi.Inet4Address)
+		equal = ok && *at == *et
+	case *wasi.Inet6Address:
+		et, ok := expect.(*wasi.Inet6Address)
+		equal = ok && *at == *et
+	case *wasi.UnixAddress:
+		et, ok := expect.(*wasi.UnixAddress)
+		equal = ok && *at == *et
+	}
+	if !equal {
+		t.Fatalf("unexpected socket address: got %#v, expect %#v", actual, expect)
+	}
+}

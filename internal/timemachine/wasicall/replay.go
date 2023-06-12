@@ -1216,7 +1216,7 @@ func (r *Replay) SockBind(ctx context.Context, fd FD, bind SocketAddress) (Socke
 	if !ok {
 		return nil, ENOSYS
 	}
-	recordFD, recordBind, recordAddr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
+	recordFD, recordBind, addr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1232,7 +1232,7 @@ func (r *Replay) SockBind(ctx context.Context, fd FD, bind SocketAddress) (Socke
 			panic(errors.Join(mismatch...))
 		}
 	}
-	return recordAddr, errno
+	return addr, errno
 }
 
 func (r *Replay) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (SocketAddress, Errno) {
@@ -1240,7 +1240,7 @@ func (r *Replay) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (So
 	if !ok {
 		return nil, ENOSYS
 	}
-	recordFD, recordPeer, recordAddr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
+	recordFD, recordPeer, addr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1256,7 +1256,7 @@ func (r *Replay) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (So
 			panic(errors.Join(mismatch...))
 		}
 	}
-	return recordAddr, errno
+	return addr, errno
 }
 
 func (r *Replay) SockListen(ctx context.Context, fd FD, backlog int) Errno {
@@ -1552,6 +1552,9 @@ func equalSubscription(a, b Subscription) bool {
 }
 
 func equalSocketAddress(a, b SocketAddress) bool {
+	if a == nil {
+		return b == nil
+	}
 	switch at := a.(type) {
 	case *Inet4Address:
 		bt, ok := b.(*Inet4Address)
@@ -1568,6 +1571,9 @@ func equalSocketAddress(a, b SocketAddress) bool {
 }
 
 func equalSocketOptionValue(a, b SocketOptionValue) bool {
+	if a == nil {
+		return b == nil
+	}
 	switch av := a.(type) {
 	case IntValue:
 		bv, ok := b.(IntValue)

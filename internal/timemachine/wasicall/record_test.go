@@ -2,10 +2,8 @@ package wasicall
 
 import (
 	"context"
-	"reflect"
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 )
@@ -35,13 +33,7 @@ func TestRecord(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(syscall, recordSyscall) {
-				t.Errorf("invalid write")
-				t.Log("Actual:")
-				spew.Dump(recordSyscall)
-				t.Log("Expect:")
-				spew.Dump(syscall)
-			}
+			assertSyscallEqual(t, recordSyscall, syscall)
 		})
 	}
 }

@@ -390,7 +390,7 @@ func (f *fallbackSystem) SockShutdown(ctx context.Context, fd FD, flags SDFlags)
 func (f *fallbackSystem) SockOpen(ctx context.Context, family ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase, rightsInheriting Rights) (newfd FD, errno Errno) {
 	newfd, errno = f.primary.SockOpen(ctx, family, socketType, protocol, rightsBase, rightsInheriting)
 	if errno == ENOSYS {
-		return f.primary.SockOpen(ctx, family, socketType, protocol, rightsBase, rightsInheriting)
+		return f.secondary.SockOpen(ctx, family, socketType, protocol, rightsBase, rightsInheriting)
 	}
 	return newfd, errno
 }
@@ -398,7 +398,7 @@ func (f *fallbackSystem) SockOpen(ctx context.Context, family ProtocolFamily, so
 func (f *fallbackSystem) SockBind(ctx context.Context, fd FD, bind SocketAddress) (addr SocketAddress, errno Errno) {
 	addr, errno = f.primary.SockBind(ctx, fd, bind)
 	if errno == ENOSYS {
-		return f.primary.SockBind(ctx, fd, bind)
+		return f.secondary.SockBind(ctx, fd, bind)
 	}
 	return addr, errno
 }
@@ -406,7 +406,7 @@ func (f *fallbackSystem) SockBind(ctx context.Context, fd FD, bind SocketAddress
 func (f *fallbackSystem) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (addr SocketAddress, errno Errno) {
 	addr, errno = f.primary.SockConnect(ctx, fd, peer)
 	if errno == ENOSYS {
-		return f.primary.SockConnect(ctx, fd, peer)
+		return f.secondary.SockConnect(ctx, fd, peer)
 	}
 	return addr, errno
 }
@@ -414,7 +414,7 @@ func (f *fallbackSystem) SockConnect(ctx context.Context, fd FD, peer SocketAddr
 func (f *fallbackSystem) SockListen(ctx context.Context, fd FD, backlog int) (errno Errno) {
 	errno = f.primary.SockListen(ctx, fd, backlog)
 	if errno == ENOSYS {
-		return f.primary.SockListen(ctx, fd, backlog)
+		return f.secondary.SockListen(ctx, fd, backlog)
 	}
 	return errno
 }
@@ -422,7 +422,7 @@ func (f *fallbackSystem) SockListen(ctx context.Context, fd FD, backlog int) (er
 func (f *fallbackSystem) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, flags SIFlags, addr SocketAddress) (size Size, errno Errno) {
 	size, errno = f.primary.SockSendTo(ctx, fd, iovecs, flags, addr)
 	if errno == ENOSYS {
-		return f.primary.SockSendTo(ctx, fd, iovecs, flags, addr)
+		return f.secondary.SockSendTo(ctx, fd, iovecs, flags, addr)
 	}
 	return size, errno
 }
@@ -430,7 +430,7 @@ func (f *fallbackSystem) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, 
 func (f *fallbackSystem) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, flags RIFlags) (size Size, oflags ROFlags, addr SocketAddress, errno Errno) {
 	size, oflags, addr, errno = f.primary.SockRecvFrom(ctx, fd, iovecs, flags)
 	if errno == ENOSYS {
-		return f.primary.SockRecvFrom(ctx, fd, iovecs, flags)
+		return f.secondary.SockRecvFrom(ctx, fd, iovecs, flags)
 	}
 	return size, oflags, addr, errno
 }
@@ -438,7 +438,7 @@ func (f *fallbackSystem) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec
 func (f *fallbackSystem) SockGetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (value SocketOptionValue, errno Errno) {
 	value, errno = f.primary.SockGetOpt(ctx, fd, level, option)
 	if errno == ENOSYS {
-		return f.primary.SockGetOpt(ctx, fd, level, option)
+		return f.secondary.SockGetOpt(ctx, fd, level, option)
 	}
 	return value, errno
 }
@@ -446,7 +446,7 @@ func (f *fallbackSystem) SockGetOpt(ctx context.Context, fd FD, level SocketOpti
 func (f *fallbackSystem) SockSetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue) (errno Errno) {
 	errno = f.primary.SockSetOpt(ctx, fd, level, option, value)
 	if errno == ENOSYS {
-		return f.primary.SockSetOpt(ctx, fd, level, option, value)
+		return f.secondary.SockSetOpt(ctx, fd, level, option, value)
 	}
 	return errno
 }
@@ -454,7 +454,7 @@ func (f *fallbackSystem) SockSetOpt(ctx context.Context, fd FD, level SocketOpti
 func (f *fallbackSystem) SockLocalAddress(ctx context.Context, fd FD) (addr SocketAddress, errno Errno) {
 	addr, errno = f.primary.SockLocalAddress(ctx, fd)
 	if errno == ENOSYS {
-		return f.primary.SockLocalAddress(ctx, fd)
+		return f.secondary.SockLocalAddress(ctx, fd)
 	}
 	return addr, errno
 }
@@ -462,7 +462,7 @@ func (f *fallbackSystem) SockLocalAddress(ctx context.Context, fd FD) (addr Sock
 func (f *fallbackSystem) SockRemoteAddress(ctx context.Context, fd FD) (addr SocketAddress, errno Errno) {
 	addr, errno = f.primary.SockRemoteAddress(ctx, fd)
 	if errno == ENOSYS {
-		return f.primary.SockRemoteAddress(ctx, fd)
+		return f.secondary.SockRemoteAddress(ctx, fd)
 	}
 	return addr, errno
 }
@@ -470,7 +470,7 @@ func (f *fallbackSystem) SockRemoteAddress(ctx context.Context, fd FD) (addr Soc
 func (f *fallbackSystem) SockAddressInfo(ctx context.Context, name, service string, hints AddressInfo, results []AddressInfo) (n int, errno Errno) {
 	n, errno = f.primary.SockAddressInfo(ctx, name, service, hints, results)
 	if errno == ENOSYS {
-		return f.primary.SockAddressInfo(ctx, name, service, hints, results)
+		return f.secondary.SockAddressInfo(ctx, name, service, hints, results)
 	}
 	return n, errno
 }

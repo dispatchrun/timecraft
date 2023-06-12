@@ -2,7 +2,6 @@ package wasicall
 
 import (
 	"context"
-	"reflect"
 	"testing"
 
 	"github.com/stealthrocket/timecraft/internal/stream"
@@ -48,10 +47,5 @@ func testReplay(t *testing.T, syscall Syscall, wrapSystem func(s wasi.System) wa
 	// the recorded syscall params differ.
 	syscallWithResults := call(context.Background(), replay, syscall)
 
-	// Now check that the syscall results match.
-	if !reflect.DeepEqual(syscall, syscallWithResults) {
-		t.Error("unexpected syscall results")
-		t.Logf("actual: %#v", syscallWithResults.Results())
-		t.Logf("expect: %#v", syscall.Results())
-	}
+	assertSyscallEqual(t, syscallWithResults, syscall)
 }

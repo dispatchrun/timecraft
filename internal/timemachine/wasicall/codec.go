@@ -993,7 +993,7 @@ func (c *Codec) DecodeSockBind(buffer []byte) (fd FD, bind, addr SocketAddress, 
 	if fd, buffer, err = decodeFD(buffer); err != nil {
 		return
 	}
-	if bind, _, err = decodeSocketAddress(buffer); err != nil {
+	if bind, buffer, err = decodeSocketAddress(buffer); err != nil {
 		return
 	}
 	addr, _, err = decodeSocketAddress(buffer)
@@ -1996,6 +1996,9 @@ func decodeDirEntries(buffer []byte, entries []DirEntry) (_ []DirEntry, _ []byte
 }
 
 func encodeSocketAddress(buffer []byte, addr SocketAddress) []byte {
+	if addr == nil {
+		return encodeProtocolFamily(buffer, 0)
+	}
 	switch a := addr.(type) {
 	case nil:
 		return encodeProtocolFamily(buffer, 0)
@@ -2062,6 +2065,9 @@ const (
 )
 
 func encodeSocketOptionValue(buffer []byte, value SocketOptionValue) []byte {
+	if value == nil {
+		return encodeInt(buffer, sockoptNil)
+	}
 	switch v := value.(type) {
 	case nil:
 		return encodeInt(buffer, sockoptNil)

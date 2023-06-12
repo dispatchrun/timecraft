@@ -197,10 +197,6 @@ func (e errnoSystem) SockShutdown(ctx context.Context, fd FD, flags SDFlags) Err
 	return Errno(e)
 }
 
-func (e errnoSystem) Close(ctx context.Context) error {
-	return nil
-}
-
 func (e errnoSystem) SockOpen(ctx context.Context, family ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase, rightsInheriting Rights) (FD, Errno) {
 	return -1, Errno(e)
 }
@@ -243,4 +239,8 @@ func (e errnoSystem) SockRemoteAddress(ctx context.Context, fd FD) (SocketAddres
 
 func (e errnoSystem) SockAddressInfo(ctx context.Context, name, service string, hints AddressInfo, results []AddressInfo) (int, Errno) {
 	return 0, Errno(e)
+}
+
+func (e errnoSystem) Close(ctx context.Context) error {
+	return nil
 }
