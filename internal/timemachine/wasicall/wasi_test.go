@@ -63,14 +63,25 @@ var syscalls = []Syscall{
 	&FDReadSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foo"), []byte("bar")}, Size: 6, Errno: wasi.ESUCCESS},
 	&FDReadSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foobar")}, Size: 6, Errno: wasi.ESUCCESS},
 	&FDReadSyscall{},
-	// FIXME
 	&FDReadDirSyscall{FD: 1, Entries: []wasi.DirEntry{{Next: ^wasi.DirCookie(0), INode: ^wasi.INode(0), Type: ^wasi.FileType(0), Name: []byte("/foobar")}}, Cookie: ^wasi.DirCookie(0), BufferSizeBytes: math.MaxInt, Errno: wasi.ESUCCESS},
 	&FDReadDirSyscall{FD: 1, Entries: []wasi.DirEntry{{Next: 2, INode: 3, Type: 4, Name: []byte("5")}, {Next: 6, INode: 7, Type: 8, Name: []byte("9")}}, Cookie: 10, BufferSizeBytes: 11, Errno: 12},
 	&FDReadDirSyscall{},
-
-	// TODO: fill out remaining syscalls, and fix any issues that arise
-	// TODO: extra test cases for where only the prefix is stored (e.g. fd_read/fd_pread/sock_recv/sock_recv_from)
-	// TODO: extra test cases for in/out params (e.g. fd_readdir/path_readlink/poll_oneoff/sock_getaddrinfo)
+	&FDRenumberSyscall{From: ^wasi.FD(0), To: ^wasi.FD(0), Errno: ^wasi.Errno(0)},
+	&FDRenumberSyscall{From: 1, To: 2, Errno: 3},
+	&FDRenumberSyscall{},
+	&FDSeekSyscall{FD: math.MaxInt32, Offset: ^wasi.FileDelta(0), Whence: ^wasi.Whence(0), Errno: 45},
+	&FDSeekSyscall{FD: 1, Offset: 2, Whence: 3, Errno: 4, Size: 5},
+	&FDSeekSyscall{FD: math.MinInt32, Offset: -1, Whence: 0, Errno: 4, Size: ^wasi.FileSize(0)},
+	&FDSeekSyscall{},
+	&FDSyncSyscall{FD: math.MaxInt32},
+	&FDSyncSyscall{FD: 1, Errno: 2},
+	&FDSyncSyscall{},
+	&FDTellSyscall{FD: math.MaxInt32, Size: math.MaxUint64},
+	&FDTellSyscall{FD: 1, Size: 2, Errno: 3},
+	&FDTellSyscall{},
+	&FDWriteSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foo"), []byte("bar")}, Size: 6, Errno: wasi.ESUCCESS},
+	&FDWriteSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foobar")}, Size: 6, Errno: wasi.ESUCCESS},
+	&FDWriteSyscall{},
 }
 
 func syscallString(s Syscall) string {
