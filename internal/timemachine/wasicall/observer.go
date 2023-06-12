@@ -254,13 +254,18 @@ func (o *Observer) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (size Size
 	return
 }
 
-func (o *Observer) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int) (count int, errno Errno) {
+func (o *Observer) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int) (n int, errno Errno) {
 	if o.before != nil {
-		o.before(ctx, &FDReadDirSyscall{fd, entries, cookie, bufferSizeBytes, count, errno})
+		o.before(ctx, &FDReadDirSyscall{fd, entries, cookie, bufferSizeBytes, errno})
 	}
-	count, errno = o.System.FDReadDir(ctx, fd, entries, cookie, bufferSizeBytes)
+	n, errno = o.System.FDReadDir(ctx, fd, entries, cookie, bufferSizeBytes)
+	if n >= 0 && n <= len(entries) {
+		entries = entries[:n]
+	} else {
+		entries = entries[:0]
+	}
 	if o.after != nil {
-		o.after(ctx, &FDReadDirSyscall{fd, entries, cookie, bufferSizeBytes, count, errno})
+		o.after(ctx, &FDReadDirSyscall{fd, entries, cookie, bufferSizeBytes, errno})
 	}
 	return
 }

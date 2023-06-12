@@ -10,7 +10,7 @@ import (
 func TestExitSystem(t *testing.T) {
 	const exitCode = 23
 
-	system := &exitSystem{exitCode}
+	system := NewExitSystem(exitCode)
 
 	for _, syscall := range syscalls {
 		t.Run(syscallString(syscall), func(t *testing.T) {

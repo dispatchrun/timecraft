@@ -412,16 +412,15 @@ func (c *Codec) DecodeFDRead(buffer []byte, iovecs []IOVec) (fd FD, _ []IOVec, s
 	return fd, iovecs, size, errno, err
 }
 
-func (c *Codec) EncodeFDReadDir(buffer []byte, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int, count int, errno Errno) []byte {
+func (c *Codec) EncodeFDReadDir(buffer []byte, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int, errno Errno) []byte {
 	buffer = encodeErrno(buffer, errno)
 	buffer = encodeFD(buffer, fd)
 	buffer = encodeDirEntries(buffer, entries)
 	buffer = encodeDirCookie(buffer, cookie)
-	buffer = encodeInt(buffer, bufferSizeBytes)
-	return encodeInt(buffer, count)
+	return encodeInt(buffer, bufferSizeBytes)
 }
 
-func (c *Codec) DecodeFDReadDir(buffer []byte, entries []DirEntry) (fd FD, _ []DirEntry, cookie DirCookie, bufferSizeBytes int, count int, errno Errno, err error) {
+func (c *Codec) DecodeFDReadDir(buffer []byte, entries []DirEntry) (fd FD, _ []DirEntry, cookie DirCookie, bufferSizeBytes int, errno Errno, err error) {
 	if errno, buffer, err = decodeErrno(buffer); err != nil {
 		return
 	}
@@ -434,11 +433,8 @@ func (c *Codec) DecodeFDReadDir(buffer []byte, entries []DirEntry) (fd FD, _ []D
 	if cookie, buffer, err = decodeDirCookie(buffer); err != nil {
 		return
 	}
-	if bufferSizeBytes, buffer, err = decodeInt(buffer); err != nil {
-		return
-	}
-	count, _, err = decodeInt(buffer)
-	return fd, entries, cookie, bufferSizeBytes, count, errno, err
+	bufferSizeBytes, _, err = decodeInt(buffer)
+	return fd, entries, cookie, bufferSizeBytes, errno, err
 }
 
 func (c *Codec) EncodeFDRenumber(buffer []byte, from, to FD, errno Errno) []byte {

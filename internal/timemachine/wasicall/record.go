@@ -170,7 +170,12 @@ func (r *Recorder) FDRead(ctx context.Context, fd FD, iovecs []IOVec) (Size, Err
 
 func (r *Recorder) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cookie DirCookie, bufferSizeBytes int) (int, Errno) {
 	n, errno := r.system.FDReadDir(ctx, fd, entries, cookie, bufferSizeBytes)
-	r.record(FDReadDir, r.codec.EncodeFDReadDir(r.buffer[:0], fd, entries, cookie, bufferSizeBytes, n, errno))
+	if n >= 0 && n <= len(entries) {
+		entries = entries[:n]
+	} else {
+		entries = entries[:0]
+	}
+	r.record(FDReadDir, r.codec.EncodeFDReadDir(r.buffer[:0], fd, entries, cookie, bufferSizeBytes, errno))
 	return n, errno
 }
 

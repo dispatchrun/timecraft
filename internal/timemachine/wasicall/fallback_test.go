@@ -12,14 +12,14 @@ func TestFallback(t *testing.T) {
 	const exitCode = 23
 
 	t.Run("call primary", func(t *testing.T) {
-		system := NewFallbackSystem(errnoSystem(wasi.ESUCCESS), &exitSystem{exitCode})
+		system := NewFallbackSystem(NewErrnoSystem(wasi.ESUCCESS), NewExitSystem(exitCode))
 		for _, syscall := range syscalls {
 			call(context.Background(), system, syscall)
 		}
 	})
 
 	t.Run("call fallback", func(t *testing.T) {
-		system := NewFallbackSystem(errnoSystem(wasi.ENOSYS), &exitSystem{exitCode})
+		system := NewFallbackSystem(NewErrnoSystem(wasi.ENOSYS), NewExitSystem(exitCode))
 		for _, syscall := range syscalls {
 			func() {
 				defer func() {
@@ -41,7 +41,7 @@ func TestFallback(t *testing.T) {
 	t.Run("replay through primary", func(t *testing.T) {
 		for _, syscall := range syscalls {
 			testReplay(t, syscall, func(replay wasi.System) wasi.System {
-				return NewFallbackSystem(replay, &exitSystem{exitCode})
+				return NewFallbackSystem(replay, NewExitSystem(exitCode))
 			})
 		}
 	})
@@ -49,7 +49,7 @@ func TestFallback(t *testing.T) {
 	t.Run("replay through fallback", func(t *testing.T) {
 		for _, syscall := range syscalls {
 			testReplay(t, syscall, func(replay wasi.System) wasi.System {
-				return NewFallbackSystem(errnoSystem(wasi.ENOSYS), replay)
+				return NewFallbackSystem(NewErrnoSystem(wasi.ENOSYS), replay)
 			})
 		}
 	})

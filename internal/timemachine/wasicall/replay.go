@@ -535,7 +535,7 @@ func (r *Replay) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cooki
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordEntries, recordCookie, recordBufferSizeBytes, count, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall, r.entries[:0])
+	recordFD, recordEntries, recordCookie, recordBufferSizeBytes, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall, r.entries[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -559,7 +559,7 @@ func (r *Replay) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cooki
 		}
 	}
 	copy(entries, recordEntries)
-	return count, errno
+	return len(recordEntries), errno
 }
 
 func (r *Replay) FDRenumber(ctx context.Context, from, to FD) Errno {

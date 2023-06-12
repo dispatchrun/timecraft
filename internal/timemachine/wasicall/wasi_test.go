@@ -64,9 +64,13 @@ var syscalls = []Syscall{
 	&FDReadSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foobar")}, Size: 6, Errno: wasi.ESUCCESS},
 	&FDReadSyscall{},
 	// FIXME
-	// &FDReadDirSyscall{FD: 1, Entries: []wasi.DirEntry{{Next: ^wasi.DirCookie(0), INode: ^wasi.INode(0), Type: ^wasi.FileType(0), Name: []byte("/foobar")}}, Cookie: ^wasi.DirCookie(0), BufferSizeBytes: math.MaxInt, Errno: wasi.ESUCCESS},
-	// &FDReadDirSyscall{FD: 1, Entries: []wasi.DirEntry{{Next: 2, INode: 3, Type: 4, Name: []byte("5")}, {Next: 6, INode: 7, Type: 8, Name: []byte("9")}}, Cookie: 10, BufferSizeBytes: 11, Errno: 12},
+	&FDReadDirSyscall{FD: 1, Entries: []wasi.DirEntry{{Next: ^wasi.DirCookie(0), INode: ^wasi.INode(0), Type: ^wasi.FileType(0), Name: []byte("/foobar")}}, Cookie: ^wasi.DirCookie(0), BufferSizeBytes: math.MaxInt, Errno: wasi.ESUCCESS},
+	&FDReadDirSyscall{FD: 1, Entries: []wasi.DirEntry{{Next: 2, INode: 3, Type: 4, Name: []byte("5")}, {Next: 6, INode: 7, Type: 8, Name: []byte("9")}}, Cookie: 10, BufferSizeBytes: 11, Errno: 12},
 	&FDReadDirSyscall{},
+
+	// TODO: fill out remaining syscalls, and fix any issues that arise
+	// TODO: extra test cases for where only the prefix is stored (e.g. fd_read/fd_pread/sock_recv/sock_recv_from)
+	// TODO: extra test cases for in/out params (e.g. fd_readdir/path_readlink/poll_oneoff/sock_getaddrinfo)
 }
 
 func syscallString(s Syscall) string {
@@ -166,7 +170,7 @@ func call(ctx context.Context, system wasi.System, syscall Syscall) Syscall {
 		var n int
 		n, r.Errno = system.FDReadDir(ctx, s.FD, s.Entries, s.Cookie, s.BufferSizeBytes)
 		if n >= 0 && n <= len(s.Entries) {
-			s.Entries = s.Entries[:n]
+			r.Entries = s.Entries[:n]
 		} else {
 			panic("not implemented")
 		}
@@ -216,7 +220,7 @@ func call(ctx context.Context, system wasi.System, syscall Syscall) Syscall {
 		var n int
 		n, r.Errno = system.PathReadLink(ctx, s.FD, s.Path, s.Output)
 		if n >= 0 && n <= len(s.Output) {
-			s.Output = s.Output[:n]
+			r.Output = s.Output[:n]
 		} else {
 			panic("not implemented")
 		}
@@ -242,7 +246,7 @@ func call(ctx context.Context, system wasi.System, syscall Syscall) Syscall {
 		var n int
 		n, r.Errno = system.PollOneOff(ctx, s.Subscriptions, s.Events)
 		if n >= 0 && n <= len(s.Events) {
-			s.Events = s.Events[:n]
+			r.Events = s.Events[:n]
 		} else {
 			panic("not implemented")
 		}
@@ -324,7 +328,7 @@ func call(ctx context.Context, system wasi.System, syscall Syscall) Syscall {
 		var n int
 		n, r.Errno = system.SockAddressInfo(ctx, s.Name, s.Service, s.Hints, s.Res)
 		if n >= 0 && n <= len(s.Res) {
-			s.Res = s.Res[:n]
+			r.Res = s.Res[:n]
 		} else {
 			panic("not implemented")
 		}
@@ -636,239 +640,3 @@ func (p *resultsSystem) SockAddressInfo(ctx context.Context, name, service strin
 }
 
 var _ wasi.System = (*resultsSystem)(nil)
-
-type errnoSystem wasi.Errno
-
-func (e errnoSystem) ArgsSizesGet(ctx context.Context) (argCount int, stringBytes int, errno wasi.Errno) {
-	return 0, 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) ArgsGet(ctx context.Context) ([]string, wasi.Errno) {
-	return nil, wasi.Errno(e)
-}
-
-func (e errnoSystem) EnvironSizesGet(ctx context.Context) (argCount int, stringBytes int, errno wasi.Errno) {
-	return 0, 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) EnvironGet(ctx context.Context) ([]string, wasi.Errno) {
-	return nil, wasi.Errno(e)
-}
-
-func (e errnoSystem) ClockResGet(ctx context.Context, id wasi.ClockID) (wasi.Timestamp, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) ClockTimeGet(ctx context.Context, id wasi.ClockID, precision wasi.Timestamp) (wasi.Timestamp, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) FDAdvise(ctx context.Context, fd wasi.FD, offset wasi.FileSize, length wasi.FileSize, advice wasi.Advice) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) FDAllocate(ctx context.Context, fd wasi.FD, offset wasi.FileSize, length wasi.FileSize) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) FDClose(ctx context.Context, fd wasi.FD) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) FDDataSync(ctx context.Context, fd wasi.FD) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) FDStatGet(ctx context.Context, fd wasi.FD) (wasi.FDStat, wasi.Errno) {
-	return wasi.FDStat{}, wasi.Errno(e)
-}
-
-func (e errnoSystem) FDStatSetFlags(ctx context.Context, fd wasi.FD, flags wasi.FDFlags) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) FDStatSetRights(ctx context.Context, fd wasi.FD, rightsBase, rightsInheriting wasi.Rights) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) FDFileStatGet(ctx context.Context, fd wasi.FD) (wasi.FileStat, wasi.Errno) {
-	return wasi.FileStat{}, wasi.Errno(e)
-}
-
-func (e errnoSystem) FDFileStatSetSize(ctx context.Context, fd wasi.FD, size wasi.FileSize) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) FDFileStatSetTimes(ctx context.Context, fd wasi.FD, accessTime, modifyTime wasi.Timestamp, flags wasi.FSTFlags) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) FDPread(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) FDPreStatGet(ctx context.Context, fd wasi.FD) (wasi.PreStat, wasi.Errno) {
-	return wasi.PreStat{}, wasi.Errno(e)
-}
-
-func (e errnoSystem) FDPreStatDirName(ctx context.Context, fd wasi.FD) (string, wasi.Errno) {
-	return "", wasi.Errno(e)
-}
-
-func (e errnoSystem) FDPwrite(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) FDRead(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) FDReadDir(ctx context.Context, fd wasi.FD, entries []wasi.DirEntry, cookie wasi.DirCookie, bufferSizeBytes int) (int, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) FDRenumber(ctx context.Context, from, to wasi.FD) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) FDSeek(ctx context.Context, fd wasi.FD, offset wasi.FileDelta, whence wasi.Whence) (wasi.FileSize, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) FDSync(ctx context.Context, fd wasi.FD) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) FDTell(ctx context.Context, fd wasi.FD) (wasi.FileSize, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) FDWrite(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) PathCreateDirectory(ctx context.Context, fd wasi.FD, path string) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) PathFileStatGet(ctx context.Context, fd wasi.FD, lookupFlags wasi.LookupFlags, path string) (wasi.FileStat, wasi.Errno) {
-	return wasi.FileStat{}, wasi.Errno(e)
-}
-
-func (e errnoSystem) PathFileStatSetTimes(ctx context.Context, fd wasi.FD, lookupFlags wasi.LookupFlags, path string, accessTime, modifyTime wasi.Timestamp, flags wasi.FSTFlags) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) PathLink(ctx context.Context, oldFD wasi.FD, oldFlags wasi.LookupFlags, oldPath string, newFD wasi.FD, newPath string) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) PathOpen(ctx context.Context, fd wasi.FD, dirFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (wasi.FD, wasi.Errno) {
-	return -1, wasi.Errno(e)
-}
-
-func (e errnoSystem) PathReadLink(ctx context.Context, fd wasi.FD, path string, buffer []byte) (int, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) PathRemoveDirectory(ctx context.Context, fd wasi.FD, path string) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) PathRename(ctx context.Context, fd wasi.FD, oldPath string, newFD wasi.FD, newPath string) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) PathSymlink(ctx context.Context, oldPath string, fd wasi.FD, newPath string) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) PathUnlinkFile(ctx context.Context, fd wasi.FD, path string) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) PollOneOff(ctx context.Context, subscriptions []wasi.Subscription, events []wasi.Event) (int, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) ProcExit(ctx context.Context, exitCode wasi.ExitCode) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) ProcRaise(ctx context.Context, signal wasi.Signal) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) SchedYield(ctx context.Context) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) RandomGet(ctx context.Context, b []byte) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) SockAccept(ctx context.Context, fd wasi.FD, flags wasi.FDFlags) (wasi.FD, wasi.SocketAddress, wasi.SocketAddress, wasi.Errno) {
-	return -1, nil, nil, wasi.Errno(e)
-}
-
-func (e errnoSystem) SockRecv(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
-	return 0, 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) SockSend(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) SockShutdown(ctx context.Context, fd wasi.FD, flags wasi.SDFlags) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) Close(ctx context.Context) error {
-	return nil
-}
-
-func (e errnoSystem) SockOpen(ctx context.Context, family wasi.ProtocolFamily, socketType wasi.SocketType, protocol wasi.Protocol, rightsBase, rightsInheriting wasi.Rights) (wasi.FD, wasi.Errno) {
-	return -1, wasi.Errno(e)
-}
-
-func (e errnoSystem) SockBind(ctx context.Context, fd wasi.FD, addr wasi.SocketAddress) (wasi.SocketAddress, wasi.Errno) {
-	return nil, wasi.Errno(e)
-}
-
-func (e errnoSystem) SockConnect(ctx context.Context, fd wasi.FD, addr wasi.SocketAddress) (wasi.SocketAddress, wasi.Errno) {
-	return nil, wasi.Errno(e)
-}
-
-func (e errnoSystem) SockListen(ctx context.Context, fd wasi.FD, backlog int) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) SockSendTo(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-func (e errnoSystem) SockRecvFrom(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno) {
-	return 0, 0, nil, wasi.Errno(e)
-}
-
-func (e errnoSystem) SockGetOpt(ctx context.Context, fd wasi.FD, level wasi.SocketOptionLevel, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
-	return nil, wasi.Errno(e)
-}
-
-func (e errnoSystem) SockSetOpt(ctx context.Context, fd wasi.FD, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
-	return wasi.Errno(e)
-}
-
-func (e errnoSystem) SockLocalAddress(ctx context.Context, fd wasi.FD) (wasi.SocketAddress, wasi.Errno) {
-	return nil, wasi.Errno(e)
-}
-
-func (e errnoSystem) SockRemoteAddress(ctx context.Context, fd wasi.FD) (wasi.SocketAddress, wasi.Errno) {
-	return nil, wasi.Errno(e)
-}
-
-func (e errnoSystem) SockAddressInfo(ctx context.Context, name, service string, hints wasi.AddressInfo, results []wasi.AddressInfo) (int, wasi.Errno) {
-	return 0, wasi.Errno(e)
-}
-
-var _ wasi.System = (*errnoSystem)(nil)

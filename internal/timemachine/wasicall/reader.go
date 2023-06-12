@@ -191,12 +191,12 @@ func (r *Decoder) Decode(record timemachine.Record) (time.Time, Syscall, error) 
 		r.iovecs = iovecs
 		syscall = &FDReadSyscall{fd, iovecs, size, errno}
 	case FDReadDir:
-		fd, entries, cookie, bufferSizeBytes, count, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall, r.entries[:0])
+		fd, entries, cookie, bufferSizeBytes, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall, r.entries[:0])
 		if err != nil {
 			return time.Time{}, nil, &DecodeError{record, err}
 		}
 		r.entries = entries
-		syscall = &FDReadDirSyscall{fd, entries, cookie, bufferSizeBytes, count, errno}
+		syscall = &FDReadDirSyscall{fd, entries, cookie, bufferSizeBytes, errno}
 	case FDRenumber:
 		from, to, errno, err := r.codec.DecodeFDRenumber(record.FunctionCall)
 		if err != nil {

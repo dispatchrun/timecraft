@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 )
@@ -40,8 +41,10 @@ func TestRecord(t *testing.T) {
 			}
 			if !reflect.DeepEqual(syscall, recordSyscall) {
 				t.Errorf("invalid record")
-				t.Log("actual:", syscallString(recordSyscall))
-				t.Log("expect:", syscallString(syscall))
+				t.Log("Actual:")
+				spew.Dump(recordSyscall)
+				t.Log("Expect:")
+				spew.Dump(syscall)
 			}
 		})
 	}
