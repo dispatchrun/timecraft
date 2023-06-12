@@ -6,9 +6,10 @@ import (
 	. "github.com/stealthrocket/wasi-go"
 )
 
-// NewFallbackSystem creates a System that wraps two other System instances.
-// Calls are forwarded to the primary system, and then forwarded to the
-// secondary system when the primary returns ENOSYS.
+// NewFallbackSystem creates a wasi.System that wraps two other wasi.System
+// instances, a primary and a secondary. Calls are first forwarded to the
+// primary system, and then forwarded to the secondary system when the primary
+// returns wasi.ENOSYS.
 func NewFallbackSystem(primary, secondary System) System {
 	return &fallbackSystem{primary, secondary}
 }

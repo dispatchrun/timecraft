@@ -7,8 +7,7 @@ import (
 	"github.com/tetratelabs/wazero/sys"
 )
 
-// NewExitSystem constructs a WASI System which exits all calls with the given
-// exit code.
+// NewExitSystem creates a wasi.System that exits all calls with the exit code.
 func NewExitSystem(exitCode int) System {
 	return &exitSystem{exitCode: exitCode}
 }
@@ -19,10 +18,6 @@ type exitSystem struct {
 
 func (s *exitSystem) newExitError() *sys.ExitError {
 	return sys.NewExitError(uint32(s.exitCode))
-}
-
-func (s *exitSystem) Close(ctx context.Context) error {
-	return nil
 }
 
 func (s *exitSystem) ArgsSizesGet(ctx context.Context) (int, int, Errno) {
@@ -251,4 +246,8 @@ func (s *exitSystem) SockRemoteAddress(ctx context.Context, fd FD) (addr SocketA
 
 func (s *exitSystem) SockAddressInfo(ctx context.Context, name, service string, hints AddressInfo, results []AddressInfo) (int, Errno) {
 	panic(s.newExitError())
+}
+
+func (s *exitSystem) Close(ctx context.Context) error {
+	return nil
 }

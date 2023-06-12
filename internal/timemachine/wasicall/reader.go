@@ -15,16 +15,17 @@ import (
 // This is similar to Replay, but it allows the caller to drive the
 // consumption of log records, and is required for offline consumption
 // and analysis.
-type Reader struct {
-	records stream.Iterator[timemachine.Record]
-	decoder Decoder
-}
 
 // NewReader creates a Reader.
 func NewReader(records stream.Reader[timemachine.Record]) *Reader {
 	r := &Reader{}
 	r.records.Reset(records)
 	return r
+}
+
+type Reader struct {
+	records stream.Iterator[timemachine.Record]
+	decoder Decoder
 }
 
 // ReadSyscall reads a recorded system call.

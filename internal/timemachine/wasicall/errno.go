@@ -6,8 +6,7 @@ import (
 	. "github.com/stealthrocket/wasi-go"
 )
 
-// NewErrnoSystem constructs a WASI System which returns an errno
-// for all calls.
+// NewErrnoSystem creates a wasi.System that returns an errno for all calls.
 func NewErrnoSystem(errno Errno) System {
 	return errnoSystem(errno)
 }
