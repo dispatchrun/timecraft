@@ -16,17 +16,6 @@ type Record struct {
 	FunctionCall []byte
 }
 
-// MakeRecord creates a Record from its serialized representation.
-func MakeRecord(b []byte, startTime time.Time, offset int64) Record {
-	r := logsegment.GetRootAsRecord(b, 0)
-	return Record{
-		Offset:       offset,
-		Time:         startTime.Add(time.Duration(r.Timestamp())),
-		FunctionID:   int(r.FunctionId()),
-		FunctionCall: r.FunctionCallBytes(),
-	}
-}
-
 // RecordBuilder is a builder for records.
 type RecordBuilder struct {
 	startTime    time.Time

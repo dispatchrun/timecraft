@@ -2,10 +2,8 @@ package wasicall
 
 import (
 	"context"
-	"encoding/binary"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/stealthrocket/timecraft/internal/stream"
@@ -15,24 +13,22 @@ import (
 func TestRecord(t *testing.T) {
 	for _, syscall := range syscalls {
 		t.Run(syscallString(syscall), func(t *testing.T) {
-			startTime := time.Now()
+			var recordID SyscallID
 			var recordBytes []byte
 
-			recorder := NewRecorder(&resultsSystem{syscall}, startTime, func(b *timemachine.RecordBuilder) {
-				recordBytes = b.Bytes()
+			recorder := NewRecorder(&resultsSystem{syscall}, func(id SyscallID, b []byte) {
+				recordID = id
+				recordBytes = b
 			})
 			call(context.Background(), recorder, syscall)
 
 			if recordBytes == nil {
-				t.Fatalf("record was not recorded")
+				t.Fatalf("write was not recorded")
+			} else if recordID != syscall.ID() {
+				t.Fatalf("unexpected recorded syscall ID: got %v, expect %v", recordID, syscall.ID())
 			}
 
-			size, recordBytes := binary.LittleEndian.Uint32(recordBytes[:4]), recordBytes[4:]
-			if size != uint32(len(recordBytes)) {
-				t.Fatalf("record size prefix is missing or incorrect: got %d, expect %d", size, len(recordBytes))
-			}
-
-			record := timemachine.MakeRecord(recordBytes, startTime, 0)
+			record := timemachine.Record{FunctionID: int(recordID), FunctionCall: recordBytes}
 
 			reader := NewReader(stream.NewReader(record))
 			_, recordSyscall, err := reader.ReadSyscall()
@@ -40,7 +36,7 @@ func TestRecord(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !reflect.DeepEqual(syscall, recordSyscall) {
-				t.Errorf("invalid record")
+				t.Errorf("invalid write")
 				t.Log("Actual:")
 				spew.Dump(recordSyscall)
 				t.Log("Expect:")

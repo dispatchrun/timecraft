@@ -25,11 +25,11 @@ import (
 // When an error occurs, the replay will panic and the execution of the
 // WebAssembly module will be halted. The following errors may occur:
 //   - ReadError: there was an error reading from the log
-//   - DecodeError: there was an error decoding a record from the log
+//   - DecodeError: there was an error decoding a write from the log
 //   - UnexpectedSyscallError: a system call was made that did not match the
-//     next record in the log
+//     next write in the log
 //   - UnexpectedSyscallParamError: a system call was made with input that
-//     did not match the next record in the log
+//     did not match the next write in the log
 //
 // The error may also be a compound error, indicating that multiple errors
 // were encountered. In this case, the error will implement

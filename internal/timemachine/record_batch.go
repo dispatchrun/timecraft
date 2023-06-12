@@ -116,7 +116,13 @@ func (b *RecordBatch) Read(records []Record) (int, error) {
 		}
 		i := 4 + b.offset
 		j := 4 + b.offset + size
-		records[n] = MakeRecord(batch[i:j:j], b.startTime, b.FirstOffset()+int64(b.index))
+		r := logsegment.GetRootAsRecord(batch[i:j:j], 0)
+		records[n] = Record{
+			Offset:       b.FirstOffset() + int64(b.index),
+			Time:         b.startTime.Add(time.Duration(r.Timestamp())),
+			FunctionID:   int(r.FunctionId()),
+			FunctionCall: r.FunctionCallBytes(),
+		}
 		b.offset += size + 4
 		b.index++
 	}

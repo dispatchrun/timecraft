@@ -53,7 +53,7 @@ type Decoder struct {
 	addrinfo      []wasi.AddressInfo
 }
 
-// Decode a syscall from a record. Slices in the returned syscall point to
+// Decode a syscall from a write. Slices in the returned syscall point to
 // internal cache buffers can are invalidated on the next Decode call.
 func (r *Decoder) Decode(record timemachine.Record) (time.Time, Syscall, error) {
 	// TODO: eliminate allocations by caching the Syscall
