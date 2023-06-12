@@ -172,6 +172,7 @@ func get(ctx context.Context, args []string) error {
 	if resource.typ == "record" {
 		if len(args) != 1 {
 			perrorf(`Expected the process id as argument` + useCmd("get records"))
+			return exitCode(2)
 		}
 
 		processID, err := parseProcessID(args[0])
