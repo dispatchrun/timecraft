@@ -13,6 +13,8 @@ import (
 func TestReplay(t *testing.T) {
 	for _, syscall := range syscalls {
 		t.Run(syscallString(syscall), func(t *testing.T) {
+			defer suppressProcExit(syscall)
+
 			testReplay(t, syscall, nil)
 		})
 	}

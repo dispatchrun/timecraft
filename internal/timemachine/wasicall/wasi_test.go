@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stealthrocket/wasi-go"
+	"github.com/tetratelabs/wazero/sys"
 )
 
 var syscalls = []Syscall{
@@ -102,10 +103,47 @@ var syscalls = []Syscall{
 	&PathSymlinkSyscall{},
 	&PathUnlinkFileSyscall{FD: ^wasi.FD(0), Path: "foobar", Errno: ^wasi.Errno(0)},
 	&PathUnlinkFileSyscall{},
+	&PollOneOffSyscall{
+		Subscriptions: []wasi.Subscription{
+			wasi.MakeSubscriptionFDReadWrite(^wasi.UserData(0), wasi.FDReadEvent, wasi.SubscriptionFDReadWrite{FD: 2}),
+			wasi.MakeSubscriptionFDReadWrite(^wasi.UserData(0)-1, wasi.FDWriteEvent, wasi.SubscriptionFDReadWrite{FD: 3}),
+			wasi.MakeSubscriptionClock(^wasi.UserData(0)-2, wasi.SubscriptionClock{ID: wasi.Monotonic, Timeout: ^wasi.Timestamp(0), Precision: 1, Flags: wasi.Abstime}),
+			wasi.MakeSubscriptionClock(^wasi.UserData(0)-3, wasi.SubscriptionClock{ID: ^wasi.ClockID(0), Flags: ^wasi.SubscriptionClockFlags(0)}),
+		},
+		Events: []wasi.Event{
+			{UserData: ^wasi.UserData(0), Errno: wasi.ECANCELED, EventType: wasi.FDReadEvent, FDReadWrite: wasi.EventFDReadWrite{NBytes: 1, Flags: wasi.Hangup}},
+			{UserData: ^wasi.UserData(0) - 3, EventType: wasi.ClockEvent},
+		},
+		Errno: wasi.ESUCCESS,
+	},
+	&PollOneOffSyscall{},
+	&ProcExitSyscall{ExitCode: ^wasi.ExitCode(0), Errno: wasi.ESUCCESS},
+	&ProcExitSyscall{},
+	&ProcRaiseSyscall{Signal: ^wasi.Signal(0), Errno: 2},
+	&ProcRaiseSyscall{},
+	&SchedYieldSyscall{Errno: 1},
+	&SchedYieldSyscall{},
+	&RandomGetSyscall{B: []byte("xyzzy"), Errno: 1},
+	&RandomGetSyscall{B: []byte{}},
 }
 
 func syscallString(s Syscall) string {
 	return fmt.Sprintf("%s(%v) => %v", s.ID(), s.Params(), s.Results())
+}
+
+func suppressProcExit(s Syscall) {
+	pe, ok := s.(*ProcExitSyscall)
+	if !ok {
+		return
+	}
+
+	if err := recover(); err != nil {
+		// The Replay instance calls panic(sys.ExitError) for ProcExit.
+		// Catch and suppress here.
+		if e, ok := err.(*sys.ExitError); !ok || wasi.ExitCode(e.ExitCode()) != pe.ExitCode {
+			panic(err)
+		}
+	}
 }
 
 // call pushes Syscall params into a wasi.System and returns
