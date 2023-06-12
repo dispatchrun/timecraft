@@ -20,7 +20,6 @@ type Recorder struct {
 }
 
 var _ System = (*Recorder)(nil)
-var _ SocketsExtension = (*Recorder)(nil)
 
 // NewRecorder creates a Recorder.
 //
@@ -332,111 +331,67 @@ func (r *Recorder) SockSend(ctx context.Context, fd FD, iovecs []IOVec, iflags S
 }
 
 func (r *Recorder) SockOpen(ctx context.Context, pf ProtocolFamily, socketType SocketType, protocol Protocol, rightsBase, rightsInheriting Rights) (FD, Errno) {
-	s, ok := r.system.(SocketsExtension)
-	if !ok {
-		return -1, ENOSYS
-	}
-	fd, errno := s.SockOpen(ctx, pf, socketType, protocol, rightsBase, rightsInheriting)
+	fd, errno := r.system.SockOpen(ctx, pf, socketType, protocol, rightsBase, rightsInheriting)
 	r.record(SockOpen, r.codec.EncodeSockOpen(r.buffer[:0], pf, socketType, protocol, rightsBase, rightsInheriting, fd, errno))
 	return fd, errno
 }
 
 func (r *Recorder) SockBind(ctx context.Context, fd FD, bind SocketAddress) (SocketAddress, Errno) {
-	s, ok := r.system.(SocketsExtension)
-	if !ok {
-		return nil, ENOSYS
-	}
-	addr, errno := s.SockBind(ctx, fd, bind)
+	addr, errno := r.system.SockBind(ctx, fd, bind)
 	r.record(SockBind, r.codec.EncodeSockBind(r.buffer[:0], fd, bind, addr, errno))
 	return addr, errno
 }
 
 func (r *Recorder) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (SocketAddress, Errno) {
-	s, ok := r.system.(SocketsExtension)
-	if !ok {
-		return nil, ENOSYS
-	}
-	addr, errno := s.SockConnect(ctx, fd, peer)
+	addr, errno := r.system.SockConnect(ctx, fd, peer)
 	r.record(SockConnect, r.codec.EncodeSockConnect(r.buffer[:0], fd, peer, addr, errno))
 	return addr, errno
 }
 
 func (r *Recorder) SockListen(ctx context.Context, fd FD, backlog int) Errno {
-	s, ok := r.system.(SocketsExtension)
-	if !ok {
-		return ENOSYS
-	}
-	errno := s.SockListen(ctx, fd, backlog)
+	errno := r.system.SockListen(ctx, fd, backlog)
 	r.record(SockListen, r.codec.EncodeSockListen(r.buffer[:0], fd, backlog, errno))
 	return errno
 }
 
 func (r *Recorder) SockSendTo(ctx context.Context, fd FD, iovecs []IOVec, iflags SIFlags, addr SocketAddress) (Size, Errno) {
-	s, ok := r.system.(SocketsExtension)
-	if !ok {
-		return 0, ENOSYS
-	}
-	n, errno := s.SockSendTo(ctx, fd, iovecs, iflags, addr)
+	n, errno := r.system.SockSendTo(ctx, fd, iovecs, iflags, addr)
 	r.record(SockSendTo, r.codec.EncodeSockSendTo(r.buffer[:0], fd, iovecs, iflags, addr, n, errno))
 	return n, errno
 }
 
 func (r *Recorder) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, iflags RIFlags) (Size, ROFlags, SocketAddress, Errno) {
-	s, ok := r.system.(SocketsExtension)
-	if !ok {
-		return 0, 0, nil, ENOSYS
-	}
-	n, oflags, addr, errno := s.SockRecvFrom(ctx, fd, iovecs, iflags)
+	n, oflags, addr, errno := r.system.SockRecvFrom(ctx, fd, iovecs, iflags)
 	r.record(SockRecvFrom, r.codec.EncodeSockRecvFrom(r.buffer[:0], fd, iovecs, iflags, n, oflags, addr, errno))
 	return n, oflags, addr, errno
 }
 
 func (r *Recorder) SockGetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (SocketOptionValue, Errno) {
-	s, ok := r.system.(SocketsExtension)
-	if !ok {
-		return nil, ENOSYS
-	}
-	value, errno := s.SockGetOpt(ctx, fd, level, option)
+	value, errno := r.system.SockGetOpt(ctx, fd, level, option)
 	r.record(SockGetOpt, r.codec.EncodeSockGetOpt(r.buffer[:0], fd, level, option, value, errno))
 	return value, errno
 }
 
 func (r *Recorder) SockSetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue) Errno {
-	s, ok := r.system.(SocketsExtension)
-	if !ok {
-		return ENOSYS
-	}
-	errno := s.SockSetOpt(ctx, fd, level, option, value)
+	errno := r.system.SockSetOpt(ctx, fd, level, option, value)
 	r.record(SockSetOpt, r.codec.EncodeSockSetOpt(r.buffer[:0], fd, level, option, value, errno))
 	return errno
 }
 
 func (r *Recorder) SockLocalAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
-	s, ok := r.system.(SocketsExtension)
-	if !ok {
-		return nil, ENOSYS
-	}
-	addr, errno := s.SockLocalAddress(ctx, fd)
+	addr, errno := r.system.SockLocalAddress(ctx, fd)
 	r.record(SockLocalAddress, r.codec.EncodeSockLocalAddress(r.buffer[:0], fd, addr, errno))
 	return addr, errno
 }
 
 func (r *Recorder) SockRemoteAddress(ctx context.Context, fd FD) (SocketAddress, Errno) {
-	s, ok := r.system.(SocketsExtension)
-	if !ok {
-		return nil, ENOSYS
-	}
-	addr, errno := s.SockRemoteAddress(ctx, fd)
+	addr, errno := r.system.SockRemoteAddress(ctx, fd)
 	r.record(SockRemoteAddress, r.codec.EncodeSockRemoteAddress(r.buffer[:0], fd, addr, errno))
 	return addr, errno
 }
 
 func (r *Recorder) SockAddressInfo(ctx context.Context, name, service string, hints AddressInfo, results []AddressInfo) (int, Errno) {
-	s, ok := r.system.(SocketsExtension)
-	if !ok {
-		return 0, ENOSYS
-	}
-	n, errno := s.SockAddressInfo(ctx, name, service, hints, results)
+	n, errno := r.system.SockAddressInfo(ctx, name, service, hints, results)
 	if n >= 0 && n <= len(results) {
 		results = results[:n]
 	} else {

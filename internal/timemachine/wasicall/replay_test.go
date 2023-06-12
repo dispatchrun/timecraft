@@ -9,6 +9,7 @@ import (
 
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/stealthrocket/wasi-go"
 )
 
 func TestReplay(t *testing.T) {
@@ -19,7 +20,7 @@ func TestReplay(t *testing.T) {
 	}
 }
 
-func testReplay(t *testing.T, syscall Syscall, wrapSystem func(s SocketsSystem) SocketsSystem) {
+func testReplay(t *testing.T, syscall Syscall, wrapSystem func(s wasi.System) wasi.System) {
 	startTime := time.Now()
 	var recordBytes []byte
 
@@ -39,7 +40,7 @@ func testReplay(t *testing.T, syscall Syscall, wrapSystem func(s SocketsSystem) 
 
 	record := timemachine.MakeRecord(recordBytes, startTime, 0)
 
-	var replay SocketsSystem = NewReplay(stream.NewReader(record))
+	var replay wasi.System = NewReplay(stream.NewReader(record))
 
 	if wrapSystem != nil {
 		replay = wrapSystem(replay)

@@ -73,14 +73,9 @@ func syscallString(s Syscall) string {
 	return fmt.Sprintf("%s(%v) => %v", s.ID(), s.Params(), s.Results())
 }
 
-type SocketsSystem interface {
-	wasi.System
-	wasi.SocketsExtension
-}
-
 // call pushes Syscall params into a wasi.System and returns
 // a copy of the Syscall instance that includes the results.
-func call(ctx context.Context, system SocketsSystem, syscall Syscall) Syscall {
+func call(ctx context.Context, system wasi.System, syscall Syscall) Syscall {
 	switch s := syscall.(type) {
 	case *ArgsSizesGetSyscall:
 		r := *cast[*ArgsSizesGetSyscall](syscall)
@@ -641,7 +636,6 @@ func (p *resultsSystem) SockAddressInfo(ctx context.Context, name, service strin
 }
 
 var _ wasi.System = (*resultsSystem)(nil)
-var _ wasi.SocketsExtension = (*resultsSystem)(nil)
 
 type errnoSystem wasi.Errno
 
@@ -878,4 +872,3 @@ func (e errnoSystem) SockAddressInfo(ctx context.Context, name, service string, 
 }
 
 var _ wasi.System = (*errnoSystem)(nil)
-var _ wasi.SocketsExtension = (*errnoSystem)(nil)

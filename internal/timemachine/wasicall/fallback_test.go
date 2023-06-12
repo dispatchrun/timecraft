@@ -40,7 +40,7 @@ func TestFallback(t *testing.T) {
 
 	t.Run("replay through primary", func(t *testing.T) {
 		for _, syscall := range syscalls {
-			testReplay(t, syscall, func(replay SocketsSystem) SocketsSystem {
+			testReplay(t, syscall, func(replay wasi.System) wasi.System {
 				return NewFallbackSystem(replay, &exitSystem{exitCode})
 			})
 		}
@@ -48,7 +48,7 @@ func TestFallback(t *testing.T) {
 
 	t.Run("replay through fallback", func(t *testing.T) {
 		for _, syscall := range syscalls {
-			testReplay(t, syscall, func(replay SocketsSystem) SocketsSystem {
+			testReplay(t, syscall, func(replay wasi.System) wasi.System {
 				return NewFallbackSystem(errnoSystem(wasi.ENOSYS), replay)
 			})
 		}

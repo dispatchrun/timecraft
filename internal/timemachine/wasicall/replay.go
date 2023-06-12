@@ -68,7 +68,6 @@ type Replay struct {
 const noneFD = ^FD(0)
 
 var _ System = (*Replay)(nil)
-var _ SocketsExtension = (*Replay)(nil)
 
 // NewReplay creates a Replay.
 func NewReplay(records stream.Reader[timemachine.Record]) *Replay {
