@@ -27,8 +27,12 @@ func main() {
 		&TimecraftServer{},
 		connect.WithCodec(grpc.Codec{}),
 	))
-	handler := h2c.NewHandler(mux, &http2.Server{})
-	if err := http.ListenAndServe("localhost:8080", handler); err != nil {
+	server := &http.Server{
+		Addr:    "localhost:8080",
+		Handler: h2c.NewHandler(mux, &http2.Server{}),
+		// TODO: timeouts/limits
+	}
+	if err := server.ListenAndServe(); err != nil {
 		panic(err)
 	}
 }

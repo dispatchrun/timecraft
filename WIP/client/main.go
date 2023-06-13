@@ -2,18 +2,31 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"log"
+	"net"
 	"net/http"
 
 	"github.com/bufbuild/connect-go"
 	"github.com/planetscale/vtprotobuf/codec/grpc"
 	v1 "github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1"
 	"github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1/serverv1connect"
+	"golang.org/x/net/http2"
 )
 
 func main() {
+	h2cClient := &http.Client{
+		Transport: &http2.Transport{
+			AllowHTTP: true,
+			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, network, addr)
+			},
+			// TODO: timeouts/limits
+		},
+	}
 	client := serverv1connect.NewTimecraftServiceClient(
-		http.DefaultClient,
+		h2cClient,
 		"http://localhost:8080/",
 		connect.WithCodec(grpc.Codec{}),
 	)
