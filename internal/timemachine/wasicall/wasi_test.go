@@ -145,6 +145,43 @@ var syscalls = []Syscall{
 	&SockBindSyscall{},
 	&SockConnectSyscall{FD: 1, Peer: &wasi.Inet4Address{Addr: [4]byte{127, 0, 0, 1}, Port: 0}, Addr: &wasi.Inet4Address{Addr: [4]byte{127, 0, 0, 1}, Port: 45980}, Errno: wasi.ESUCCESS},
 	&SockConnectSyscall{},
+	&SockListenSyscall{FD: 1, Backlog: 2, Errno: 3},
+	&SockListenSyscall{},
+	&SockSendToSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foo"), []byte("bar")}, IFlags: ^wasi.SIFlags(0), Addr: &wasi.Inet4Address{Addr: [4]byte{1, 2, 3, 4}, Port: 5}, Size: 6, Errno: 7},
+	&SockSendToSyscall{},
+	&SockRecvFromSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foo"), []byte("bar")}, IFlags: ^wasi.RIFlags(0), Addr: &wasi.Inet4Address{Addr: [4]byte{1, 2, 3, 4}, Port: 5}, OFlags: 8, Size: 6, Errno: 7},
+	&SockRecvFromSyscall{},
+	&SockGetOptSyscall{FD: 1, Level: wasi.SocketLevel, Option: wasi.Broadcast, Value: wasi.IntValue(1), Errno: 0},
+	&SockGetOptSyscall{FD: 1, Level: ^wasi.SocketOptionLevel(0), Option: ^wasi.SocketOption(0), Value: nil, Errno: 1},
+	&SockGetOptSyscall{},
+	&SockSetOptSyscall{FD: 1, Level: wasi.SocketLevel, Option: wasi.Broadcast, Value: wasi.IntValue(1), Errno: 0},
+	&SockSetOptSyscall{FD: 1, Level: ^wasi.SocketOptionLevel(0), Option: ^wasi.SocketOption(0), Value: nil, Errno: 1},
+	&SockSetOptSyscall{},
+	&SockLocalAddressSyscall{FD: 1, Addr: &wasi.Inet4Address{Addr: [4]byte{2, 3, 4, 5}, Port: 6}, Errno: 7},
+	&SockLocalAddressSyscall{},
+	&SockRemoteAddressSyscall{FD: 1, Addr: &wasi.Inet4Address{Addr: [4]byte{2, 3, 4, 5}, Port: 6}, Errno: 7},
+	&SockRemoteAddressSyscall{},
+	&SockAddressInfoSyscall{
+		Name:    "example.com",
+		Service: "http",
+		Hints: wasi.AddressInfo{
+			Flags:      ^wasi.AddressInfoFlags(0),
+			Family:     ^wasi.ProtocolFamily(0),
+			SocketType: ^wasi.SocketType(0),
+			Protocol:   ^wasi.Protocol(0),
+		},
+		Res: []wasi.AddressInfo{
+			{
+				Address:       &wasi.Inet4Address{Addr: [4]byte{2, 3, 4, 5}, Port: 6},
+				CanonicalName: "foo",
+			},
+			{
+				Address:       &wasi.Inet6Address{Addr: [16]byte{8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23}, Port: 20},
+				CanonicalName: "bar",
+			},
+		},
+	},
+	&SockAddressInfoSyscall{},
 }
 
 func syscallString(s Syscall) string {
