@@ -294,13 +294,12 @@ type FDReadDirSyscall struct {
 	Entries         []DirEntry
 	Cookie          DirCookie
 	BufferSizeBytes int
-	Count           int
 	Errno           Errno
 }
 
 func (s *FDReadDirSyscall) ID() SyscallID  { return FDReadDir }
 func (s *FDReadDirSyscall) Params() []any  { return []any{s.FD, s.Entries, s.Cookie, s.BufferSizeBytes} }
-func (s *FDReadDirSyscall) Results() []any { return []any{s.Count, s.Errno} }
+func (s *FDReadDirSyscall) Results() []any { return []any{len(s.Entries), s.Errno} }
 func (s *FDReadDirSyscall) Error() Errno   { return s.Errno }
 func (s *FDReadDirSyscall) private()       {}
 
@@ -519,7 +518,7 @@ type PollOneOffSyscall struct {
 
 func (s *PollOneOffSyscall) ID() SyscallID  { return PollOneOff }
 func (s *PollOneOffSyscall) Params() []any  { return []any{s.Subscriptions, s.Events} }
-func (s *PollOneOffSyscall) Results() []any { return []any{s.Errno} }
+func (s *PollOneOffSyscall) Results() []any { return []any{len(s.Events), s.Errno} }
 func (s *PollOneOffSyscall) Error() Errno   { return s.Errno }
 func (s *PollOneOffSyscall) private()       {}
 
@@ -764,13 +763,13 @@ func (s *SockRemoteAddressSyscall) private()       {}
 type SockAddressInfoSyscall struct {
 	Name    string
 	Service string
-	Hint    AddressInfo
+	Hints   AddressInfo
 	Res     []AddressInfo
 	Errno   Errno
 }
 
 func (s *SockAddressInfoSyscall) ID() SyscallID  { return SockAddressInfo }
-func (s *SockAddressInfoSyscall) Params() []any  { return []any{s.Name, s.Service, s.Hint} }
+func (s *SockAddressInfoSyscall) Params() []any  { return []any{s.Name, s.Service, s.Hints} }
 func (s *SockAddressInfoSyscall) Results() []any { return []any{s.Res, s.Errno} }
 func (s *SockAddressInfoSyscall) Error() Errno   { return s.Errno }
 func (s *SockAddressInfoSyscall) private()       {}

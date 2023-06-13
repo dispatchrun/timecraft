@@ -107,10 +107,7 @@ func replay(ctx context.Context, args []string) error {
 
 	system := wasi.System(wasicall.NewFallbackSystem(replay, fallback))
 	if trace {
-		system = &wasi.Tracer{
-			Writer: os.Stderr,
-			System: system,
-		}
+		system = wasi.Trace(os.Stderr, system)
 	}
 
 	hostModule := wasi_snapshot_preview1.NewHostModule(imports.DetectExtensions(compiledModule)...)

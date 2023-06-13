@@ -196,8 +196,13 @@ func run(ctx context.Context, args []string) error {
 		defer recordWriter.Flush()
 
 		builder = builder.WithWrappers(func(s wasi.System) wasi.System {
-			return wasicall.NewRecorder(s, startTime, func(record *timemachine.RecordBuilder) {
-				if err := recordWriter.WriteRecord(record); err != nil {
+			var b timemachine.RecordBuilder
+			return wasicall.NewRecorder(s, func(id wasicall.SyscallID, syscallBytes []byte) {
+				b.Reset(startTime)
+				b.SetTimestamp(time.Now())
+				b.SetFunctionID(int(id))
+				b.SetFunctionCall(syscallBytes)
+				if err := recordWriter.WriteRecord(&b); err != nil {
 					panic(err)
 				}
 			})

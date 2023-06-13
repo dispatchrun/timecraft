@@ -15,16 +15,17 @@ import (
 // This is similar to Replay, but it allows the caller to drive the
 // consumption of log records, and is required for offline consumption
 // and analysis.
-type Reader struct {
-	records stream.Iterator[timemachine.Record]
-	decoder Decoder
-}
 
 // NewReader creates a Reader.
 func NewReader(records stream.Reader[timemachine.Record]) *Reader {
 	r := &Reader{}
 	r.records.Reset(records)
 	return r
+}
+
+type Reader struct {
+	records stream.Iterator[timemachine.Record]
+	decoder Decoder
 }
 
 // ReadSyscall reads a recorded system call.
@@ -52,7 +53,7 @@ type Decoder struct {
 	addrinfo      []wasi.AddressInfo
 }
 
-// Decode a syscall from a record. Slices in the returned syscall point to
+// Decode a syscall from a write. Slices in the returned syscall point to
 // internal cache buffers can are invalidated on the next Decode call.
 func (r *Decoder) Decode(record timemachine.Record) (time.Time, Syscall, error) {
 	// TODO: eliminate allocations by caching the Syscall
@@ -191,12 +192,12 @@ func (r *Decoder) Decode(record timemachine.Record) (time.Time, Syscall, error) 
 		r.iovecs = iovecs
 		syscall = &FDReadSyscall{fd, iovecs, size, errno}
 	case FDReadDir:
-		fd, entries, cookie, bufferSizeBytes, count, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall, r.entries[:0])
+		fd, entries, cookie, bufferSizeBytes, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall, r.entries[:0])
 		if err != nil {
 			return time.Time{}, nil, &DecodeError{record, err}
 		}
 		r.entries = entries
-		syscall = &FDReadDirSyscall{fd, entries, cookie, bufferSizeBytes, count, errno}
+		syscall = &FDReadDirSyscall{fd, entries, cookie, bufferSizeBytes, errno}
 	case FDRenumber:
 		from, to, errno, err := r.codec.DecodeFDRenumber(record.FunctionCall)
 		if err != nil {

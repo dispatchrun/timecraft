@@ -25,11 +25,11 @@ import (
 // When an error occurs, the replay will panic and the execution of the
 // WebAssembly module will be halted. The following errors may occur:
 //   - ReadError: there was an error reading from the log
-//   - DecodeError: there was an error decoding a record from the log
+//   - DecodeError: there was an error decoding a write from the log
 //   - UnexpectedSyscallError: a system call was made that did not match the
-//     next record in the log
+//     next write in the log
 //   - UnexpectedSyscallParamError: a system call was made with input that
-//     did not match the next record in the log
+//     did not match the next write in the log
 //
 // The error may also be a compound error, indicating that multiple errors
 // were encountered. In this case, the error will implement
@@ -68,7 +68,6 @@ type Replay struct {
 const noneFD = ^FD(0)
 
 var _ System = (*Replay)(nil)
-var _ SocketsExtension = (*Replay)(nil)
 
 // NewReplay creates a Replay.
 func NewReplay(records stream.Reader[timemachine.Record]) *Replay {
@@ -536,7 +535,7 @@ func (r *Replay) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cooki
 	if !ok {
 		return 0, ENOSYS
 	}
-	recordFD, recordEntries, recordCookie, recordBufferSizeBytes, count, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall, r.entries[:0])
+	recordFD, recordEntries, recordCookie, recordBufferSizeBytes, errno, err := r.codec.DecodeFDReadDir(record.FunctionCall, r.entries[:0])
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -560,7 +559,7 @@ func (r *Replay) FDReadDir(ctx context.Context, fd FD, entries []DirEntry, cooki
 		}
 	}
 	copy(entries, recordEntries)
-	return count, errno
+	return len(recordEntries), errno
 }
 
 func (r *Replay) FDRenumber(ctx context.Context, from, to FD) Errno {
@@ -1217,7 +1216,7 @@ func (r *Replay) SockBind(ctx context.Context, fd FD, bind SocketAddress) (Socke
 	if !ok {
 		return nil, ENOSYS
 	}
-	recordFD, recordBind, recordAddr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
+	recordFD, recordBind, addr, errno, err := r.codec.DecodeSockBind(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1233,7 +1232,7 @@ func (r *Replay) SockBind(ctx context.Context, fd FD, bind SocketAddress) (Socke
 			panic(errors.Join(mismatch...))
 		}
 	}
-	return recordAddr, errno
+	return addr, errno
 }
 
 func (r *Replay) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (SocketAddress, Errno) {
@@ -1241,7 +1240,7 @@ func (r *Replay) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (So
 	if !ok {
 		return nil, ENOSYS
 	}
-	recordFD, recordPeer, recordAddr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
+	recordFD, recordPeer, addr, errno, err := r.codec.DecodeSockConnect(record.FunctionCall)
 	if err != nil {
 		panic(&DecodeError{record, err})
 	}
@@ -1257,7 +1256,7 @@ func (r *Replay) SockConnect(ctx context.Context, fd FD, peer SocketAddress) (So
 			panic(errors.Join(mismatch...))
 		}
 	}
-	return recordAddr, errno
+	return addr, errno
 }
 
 func (r *Replay) SockListen(ctx context.Context, fd FD, backlog int) Errno {
@@ -1553,6 +1552,9 @@ func equalSubscription(a, b Subscription) bool {
 }
 
 func equalSocketAddress(a, b SocketAddress) bool {
+	if a == nil {
+		return b == nil
+	}
 	switch at := a.(type) {
 	case *Inet4Address:
 		bt, ok := b.(*Inet4Address)
@@ -1569,6 +1571,9 @@ func equalSocketAddress(a, b SocketAddress) bool {
 }
 
 func equalSocketOptionValue(a, b SocketOptionValue) bool {
+	if a == nil {
+		return b == nil
+	}
 	switch av := a.(type) {
 	case IntValue:
 		bv, ok := b.(IntValue)
