@@ -2005,11 +2005,11 @@ func encodeSocketAddress(buffer []byte, addr SocketAddress) []byte {
 	case *Inet4Address:
 		buffer = encodeProtocolFamily(buffer, InetFamily)
 		buffer = encodeInt(buffer, a.Port)
-		return encodeBytes(buffer, a.Addr[:])
+		return append(buffer, a.Addr[:]...)
 	case *Inet6Address:
 		buffer = encodeProtocolFamily(buffer, Inet6Family)
 		buffer = encodeInt(buffer, a.Port)
-		return encodeBytes(buffer, a.Addr[:])
+		return append(buffer, a.Addr[:]...)
 	case *UnixAddress:
 		panic("unix domain sockets are not implemented") // waiting for upstream support
 	default:
@@ -2024,7 +2024,6 @@ func decodeSocketAddress(buffer []byte) (_ SocketAddress, _ []byte, err error) {
 	}
 	// TODO: eliminate these allocations by having the caller pass in a
 	//  *Inet4Address and *Inet6Address to populate
-	var ip []byte
 	switch f {
 	case 0:
 		return nil, buffer, nil
@@ -2033,27 +2032,21 @@ func decodeSocketAddress(buffer []byte) (_ SocketAddress, _ []byte, err error) {
 		if addr.Port, buffer, err = decodeInt(buffer); err != nil {
 			return
 		}
-		if ip, buffer, err = decodeBytes(buffer); err != nil {
-			return
+		if len(buffer) < 4 {
+			return nil, buffer, fmt.Errorf("invalid IPv4 length: %v", len(buffer))
 		}
-		if len(ip) != 4 {
-			return nil, buffer, fmt.Errorf("invalid IPv4 length: %v", len(ip))
-		}
-		copy(addr.Addr[:], ip)
-		return &addr, buffer, nil
+		copy(addr.Addr[:], buffer[:4])
+		return &addr, buffer[4:], nil
 	case Inet6Family:
 		var addr Inet6Address
 		if addr.Port, buffer, err = decodeInt(buffer); err != nil {
 			return
 		}
-		if ip, buffer, err = decodeBytes(buffer); err != nil {
-			return
+		if len(buffer) < 16 {
+			return nil, buffer, fmt.Errorf("invalid IPv6 length: %v", len(buffer))
 		}
-		if len(ip) != 16 {
-			return nil, buffer, fmt.Errorf("invalid IPv6 length: %v", len(ip))
-		}
-		copy(addr.Addr[:], ip)
-		return &addr, buffer, nil
+		copy(addr.Addr[:], buffer[:16])
+		return &addr, buffer[16:], nil
 	default:
 		return nil, buffer, fmt.Errorf("invalid or unsupported protocol family: %v", f)
 	}
