@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package timecraft.server.v1;
+
+message SubmitTaskRequest {
+    string name = 1;
+}
+
+message SubmitTaskResponse {
+    int32 code = 1;
+}
+
+service TimecraftService {
+  rpc SubmitTask(SubmitTaskRequest) returns (SubmitTaskResponse) {}
+}
