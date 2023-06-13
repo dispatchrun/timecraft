@@ -20,7 +20,7 @@ func main() {
 			AllowHTTP: true,
 			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
 				var d net.Dialer
-				return d.DialContext(ctx, network, addr)
+				return d.DialContext(ctx, "unix", "/tmp/timecraft.sock")
 			},
 			// TODO: timeouts/limits
 		},

@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
 
 	"github.com/bufbuild/connect-go"
 	"github.com/planetscale/vtprotobuf/codec/grpc"
@@ -32,7 +34,12 @@ func main() {
 		Handler: h2c.NewHandler(mux, &http2.Server{}),
 		// TODO: timeouts/limits
 	}
-	if err := server.ListenAndServe(); err != nil {
+	os.Remove("/tmp/timecraft.sock")
+	l, err := net.Listen("unix", "/tmp/timecraft.sock")
+	if err != nil {
+		panic(err)
+	}
+	if err := server.Serve(l); err != nil {
 		panic(err)
 	}
 }
