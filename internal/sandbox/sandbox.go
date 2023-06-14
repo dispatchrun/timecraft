@@ -8,7 +8,8 @@ import (
 
 type anyFile interface {
 	wasi.File[anyFile]
-	poll(wasi.EventType) event
+	hook(ev wasi.EventType, ch chan<- struct{})
+	poll(ev wasi.EventType) bool
 }
 
 // defaultFile is useful to declare all file methods as not implemented by

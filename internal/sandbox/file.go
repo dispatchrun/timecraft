@@ -10,16 +10,6 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
-var (
-	// Files are always ready for reading and writing so we associate them
-	// a closed event (which never blocks).
-	alwaysReady = make(event)
-)
-
-func init() {
-	close(alwaysReady)
-}
-
 type file struct {
 	defaultFile
 	fsys fs.FS
@@ -35,8 +25,16 @@ func openFile(fsys fs.FS, path string) (*file, error) {
 	return &file{fsys: fsys, file: f, path: path}, nil
 }
 
-func (f *file) poll(wasi.EventType) event {
-	return alwaysReady
+func (f *file) hook(ev wasi.EventType, ch chan<- struct{}) {
+	// files are always ready for both reading and writing
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+func (f *file) poll(ev wasi.EventType) bool {
+	return true
 }
 
 func (f *file) FDClose(ctx context.Context) wasi.Errno {

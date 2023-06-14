@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 	"io/fs"
-	"reflect"
+	"sync"
 	"time"
 
 	"github.com/stealthrocket/wasi-go"
@@ -45,34 +45,38 @@ type System struct {
 	rand  io.Reader
 	fsys  fs.FS
 	wasi.FileTable[anyFile]
-	stdin  pipe
-	stdout pipe
-	stderr pipe
+	lock   *sync.Mutex
+	stdin  *pipe
+	stdout *pipe
+	stderr *pipe
 	root   wasi.FD
-	subs   []wasi.Subscription
-	poll   []reflect.SelectCase
+	poll   chan struct{}
 }
 
 func New(opts ...Option) *System {
+	lock := new(sync.Mutex)
+
 	s := &System{
-		stdin:  makePipe(),
-		stdout: makePipe(),
-		stderr: makePipe(),
+		lock:   lock,
+		stdin:  newPipe(lock),
+		stdout: newPipe(lock),
+		stderr: newPipe(lock),
+		poll:   make(chan struct{}, 1),
 	}
 
 	for _, opt := range opts {
 		opt(s)
 	}
 
-	s.Preopen(&s.stdin, "/dev/stdin", wasi.FDStat{
+	s.Preopen(s.stdin, "/dev/stdin", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDWriteRight,
 	})
-	s.Preopen(&s.stdout, "/dev/stdout", wasi.FDStat{
+	s.Preopen(s.stdout, "/dev/stdout", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDReadRight,
 	})
-	s.Preopen(&s.stderr, "/dev/stderr", wasi.FDStat{
+	s.Preopen(s.stderr, "/dev/stderr", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDReadRight,
 	})
@@ -92,15 +96,15 @@ func New(opts ...Option) *System {
 }
 
 func (s *System) Stdin() io.WriteCloser {
-	return nil
+	return s.stdin
 }
 
 func (s *System) Stdout() io.ReadCloser {
-	return nil
+	return s.stdout
 }
 
 func (s *System) Stderr() io.ReadCloser {
-	return nil
+	return s.stderr
 }
 
 func (s *System) FS() fs.FS {
@@ -245,122 +249,140 @@ func (s *System) SockAddressInfo(ctx context.Context, name, service string, hint
 	return 0, wasi.ENOSYS
 }
 
+type timeout struct {
+	duration time.Duration
+	subindex int
+}
+
 func (s *System) PollOneOff(ctx context.Context, subscriptions []wasi.Subscription, events []wasi.Event) (int, wasi.Errno) {
-	/*
-		if len(subscriptions) == 0 || len(events) < len(subscriptions) {
-			return 0, wasi.EINVAL
-		}
+	numEvents, timeout, errno := s.pollOneoffScatter(subscriptions, events)
+	if errno != wasi.ESUCCESS {
+		return numEvents, errno
+	}
 
-		subs := s.subs[:0]
-		poll := s.poll[:0]
-		defer func() {
-			for i := range poll {
-				poll[i] = reflect.SelectCase{}
-			}
-			s.subs = subs
-			s.poll = poll
-		}()
-
-		numEvents := 0
-		timeout := time.Duration(-1)
-		realtime := time.Time{}
-		monotonic := time.Time{}
-
-		if s.time != nil {
-			realtime = s.time()
-			monontonic = realtime.Sub(s.epoch)
-		}
-
-		for i, sub := range subscriptions {
-			switch sub.EventType {
-			case wasi.ClockEvent:
-				switch sub.ID {
-				case wasi.Realtime:
-					if !realtime.IsZero() {
-
-					}
-				case wasi.Monotonic:
-					if !monotonic.IsZero() {
-
-					}
-				}
-
-				events[numEvents] = wasi.Event{
-					UserData:  sub.UserData,
-					Errno:     wasi.ENOSYS,
-					EventType: sub.EventType,
-				}
-				numEvents++
-
-			case wasi.FDReadEvent, wasi.FDWriteEvent:
-				f, _, errno := s.LookupFD(sub.GetFDReadWrite().FD, 0)
-				if errno != wasi.ESUCCESS {
-					events[numEvents] = wasi.Event{
-						UserData:  sub.UserData,
-						Errno:     errno,
-						EventType: sub.EventType,
-					}
-					numEvents++
-				} else {
-					subs = append(subs, sub)
-					poll = append(poll, reflect.SelectCase{
-						Dir:  reflect.SelectRecv,
-						Chan: reflect.ValueOf(f.poll(sub.EventType)),
-					})
-				}
-			}
-		}
-
-		if numEvents > 0 {
-			return numEvents, wasi.ESUCCESS
-		}
-
-		switch {
-		case timeout == 0:
-			poll = append(poll, reflect.SelectCase{
-				Dir: reflect.SelectDefault,
-			})
-		case timeout > 0:
-			t := time.NewTimer(timeout)
+	if timeout.duration != 0 && numEvents == 0 {
+		var deadline <-chan time.Time
+		if timeout.duration > 0 {
+			t := time.NewTimer(timeout.duration)
 			defer t.Stop()
-			poll = append(poll, reflect.SelectCase{
-				Dir:  reflect.SelectRecv,
-				Chan: reflect.ValueOf(t.C),
-			})
+			deadline = t.C
 		}
-
-		poll = append(poll, reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(ctx.Done()),
-		})
-
-		chosen, _, _ := reflect.Select(poll)
-		if chosen == len(poll)-1 {
-			return 0, wasi.MakeErrno(ctx.Err())
-		}
-
-		n := len(poll) - 1
-		switch {
-		case timeout == 0:
-			n--
-		case timeout > 0:
-		}
-
-		for i, poll := range poll[:len(poll)-1] {
-			_, recv := poll.Chan.TryRecv()
-			if recv || i == chosen {
-				events[numEvents] = wasi.Event{
-					UserData:  subs[i].UserData,
-					EventType: subs[i].EventType,
-					FDReadWrite: wasi.EventFDReadWrite{
-						NBytes: 1, // at least one byte is available
-					},
-				}
-				numEvents++
+		select {
+		case <-s.poll:
+		case <-deadline:
+			events[numEvents] = wasi.Event{
+				UserData:  subscriptions[timeout.subindex].UserData,
+				EventType: subscriptions[timeout.subindex].EventType,
 			}
+			numEvents++
+		case <-ctx.Done():
+			panic(ctx.Err())
 		}
-	*/
-	return 0, wasi.ENOSYS
+	}
+
+	numEvents += s.pollOneoffGather(subscriptions, events[numEvents:])
+	return numEvents, wasi.ESUCCESS
+}
+
+func (s *System) pollOneoffScatter(subscriptions []wasi.Subscription, events []wasi.Event) (numEvents int, timeout timeout, errno wasi.Errno) {
+	if len(subscriptions) == 0 || len(events) < len(subscriptions) {
+		return numEvents, timeout, wasi.EINVAL
+	}
+
+	timeout.duration = -1
+	var unixEpoch = time.Unix(0, 0).UTC()
+	var now time.Time
+	if s.time != nil {
+		now = s.time()
+	}
+
+	setTimeout := func(i int, d time.Duration) {
+		if d < 0 {
+			d = 0
+		}
+		if d < timeout.duration {
+			timeout.subindex = i
+			timeout.duration = d
+		}
+	}
+
+	reportError := func(sub wasi.Subscription, errno wasi.Errno) {
+		events[numEvents] = wasi.Event{
+			UserData:  sub.UserData,
+			EventType: sub.EventType,
+			Errno:     errno,
+		}
+		numEvents++
+	}
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	for i, sub := range subscriptions {
+		switch sub.EventType {
+		case wasi.ClockEvent:
+			clock := sub.GetClock()
+
+			var epoch time.Time
+			switch clock.ID {
+			case wasi.Realtime:
+				epoch = unixEpoch
+			case wasi.Monotonic:
+				epoch = s.epoch
+			default:
+				reportError(sub, wasi.ENOSYS)
+				continue
+			}
+
+			if (clock.Flags & wasi.Abstime) != 0 {
+				deadline := epoch.Add(time.Duration(clock.Timeout + clock.Precision))
+				setTimeout(i, now.Sub(deadline))
+			} else {
+				setTimeout(i, time.Duration(clock.Timeout+clock.Precision))
+			}
+
+		case wasi.FDReadEvent, wasi.FDWriteEvent:
+			f, _, errno := s.LookupFD(sub.GetFDReadWrite().FD, 0)
+			if errno != wasi.ESUCCESS {
+				reportError(sub, errno)
+			} else {
+				f.hook(sub.EventType, s.poll)
+			}
+
+		default:
+			reportError(sub, wasi.ENOTSUP)
+		}
+	}
+
+	return numEvents, timeout, wasi.ESUCCESS
+}
+
+func (s *System) pollOneoffGather(subscriptions []wasi.Subscription, events []wasi.Event) (numEvents int) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	for _, sub := range subscriptions {
+		switch sub.EventType {
+		case wasi.FDReadEvent, wasi.FDWriteEvent:
+			f, _, _ := s.LookupFD(sub.GetFDReadWrite().FD, 0)
+			if f == nil {
+				continue
+			}
+			if !f.poll(sub.EventType) {
+				continue
+			}
+			events[numEvents] = wasi.Event{
+				UserData:  sub.UserData,
+				EventType: sub.EventType,
+				FDReadWrite: wasi.EventFDReadWrite{
+					NBytes: 1, // we don't know how many bytes are available but it's at least one
+				},
+			}
+			numEvents++
+		}
+	}
+
+	return numEvents
 }
 
 var (

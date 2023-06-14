@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"sync"
 	"testing"
 	"testing/iotest"
 
@@ -11,14 +12,9 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
-func newPipe() *pipe {
-	p := makePipe()
-	return &p
-}
-
 func TestPipeRead(t *testing.T) {
 	b := bytes.Repeat([]byte("1234567890"), 1000)
-	p := newPipe()
+	p := newPipe(new(sync.Mutex))
 
 	go func() {
 		defer p.Close()
@@ -33,7 +29,7 @@ func TestPipeRead(t *testing.T) {
 
 func TestPipeWrite(t *testing.T) {
 	b := bytes.Repeat([]byte("1234567890"), 1000)
-	p := newPipe()
+	p := newPipe(new(sync.Mutex))
 
 	go func() {
 		defer p.Close()
