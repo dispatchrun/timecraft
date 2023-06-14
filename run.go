@@ -101,10 +101,10 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	// FIXME: defer serverListener.Close()
+	defer serverListener.Close()
 
 	go func() {
-		if err := timecraftServer.Serve(serverListener); err != nil {
+		if err := timecraftServer.Serve(serverListener); err != nil && !errors.Is(err, net.ErrClosed) {
 			panic(err) // TODO: better error handling
 		}
 	}()
