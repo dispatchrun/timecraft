@@ -4,16 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stealthrocket/timecraft/client"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/print/human"
+	"github.com/stealthrocket/timecraft/internal/server"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
@@ -74,7 +78,6 @@ func run(ctx context.Context, args []string) error {
 		envs = append(os.Environ(), envs...)
 	}
 	args = flagSet.Args()
-
 	if len(args) == 0 {
 		return errors.New(`missing "--" separator before the module path`)
 	}
@@ -87,6 +90,24 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	timecraftServer := server.TimecraftServer{
+		Version: currentVersion(),
+	}
+	serverSocket := path.Join(os.TempDir(), fmt.Sprintf("timecraft.%s.sock", uuid.NewString()))
+	defer os.Remove(serverSocket)
+
+	serverListener, err := net.Listen("unix", serverSocket)
+	if err != nil {
+		return err
+	}
+	// FIXME: defer serverListener.Close()
+
+	go func() {
+		if err := timecraftServer.Serve(serverListener); err != nil {
+			panic(err) // TODO: better error handling
+		}
+	}()
 
 	wasmPath := args[0]
 	wasmName := filepath.Base(wasmPath)
@@ -122,8 +143,24 @@ func run(ctx context.Context, args []string) error {
 		WithListens(listens...).
 		WithDials(dials...).
 		WithStdio(stdin, stdout, stderr).
-		WithSocketsExtension(string(sockets), wasmModule).
-		WithTracer(trace, os.Stderr)
+		WithSocketsExtension(string(sockets), wasmModule)
+
+	var wrappers []func(wasi.System) wasi.System
+
+	wrappers = append(wrappers, func(system wasi.System) wasi.System {
+		return &server.VirtualSocketsSystem{
+			System: system,
+			Sockets: map[wasi.UnixAddress]wasi.UnixAddress{
+				{Name: client.Socket}: {Name: serverSocket},
+			},
+		}
+	})
+
+	if trace {
+		wrappers = append(wrappers, func(system wasi.System) wasi.System {
+			return wasi.Trace(os.Stderr, system)
+		})
+	}
 
 	if !flyBlind {
 		var c timemachine.Compression
@@ -195,7 +232,7 @@ func run(ctx context.Context, args []string) error {
 		recordWriter := timemachine.NewLogRecordWriter(logWriter, int(batchSize), c)
 		defer recordWriter.Flush()
 
-		builder = builder.WithWrappers(func(s wasi.System) wasi.System {
+		wrappers = append(wrappers, func(s wasi.System) wasi.System {
 			var b timemachine.RecordBuilder
 			return wasicall.NewRecorder(s, func(id wasicall.SyscallID, syscallBytes []byte) {
 				b.Reset(startTime)
@@ -210,6 +247,8 @@ func run(ctx context.Context, args []string) error {
 
 		fmt.Fprintf(os.Stderr, "%s\n", processID)
 	}
+
+	builder = builder.WithWrappers(wrappers...)
 
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

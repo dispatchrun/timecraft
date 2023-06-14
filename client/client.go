@@ -11,9 +11,10 @@ import (
 	"golang.org/x/net/http2"
 )
 
-// Socket is the socket that timecraft guests connect to to interact with
-// the timecraft server on the host.
-const Socket = "/tmp/timecraft.sock"
+// Socket is the socket that timecraft guests connect to in order to
+// interact with the timecraft server on the host. Note that this is a
+// virtual socket.
+const Socket = "timecraft.sock"
 
 var httpClient = &http.Client{
 	Transport: &http2.Transport{
