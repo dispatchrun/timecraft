@@ -1,4 +1,4 @@
-package server
+package timecraft
 
 import (
 	"context"
@@ -13,13 +13,13 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
-// TimecraftServer is a gRPC server that's available to guests.
-type TimecraftServer struct {
+// Server is a gRPC server that's available to guests.
+type Server struct {
 	Version string
 }
 
-// Serve serves the TimecraftServer using the specified net.Listener.
-func (t *TimecraftServer) Serve(l net.Listener) error {
+// Serve serves using the specified net.Listener.
+func (t *Server) Serve(l net.Listener) error {
 	mux := http.NewServeMux()
 	mux.Handle(serverv1connect.NewTimecraftServiceHandler(
 		&grpcServer{t},
@@ -34,7 +34,7 @@ func (t *TimecraftServer) Serve(l net.Listener) error {
 }
 
 type grpcServer struct {
-	t *TimecraftServer
+	t *Server
 }
 
 func (s *grpcServer) Version(ctx context.Context, req *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {

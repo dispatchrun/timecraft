@@ -13,11 +13,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stealthrocket/timecraft/client"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/print/human"
-	"github.com/stealthrocket/timecraft/internal/server"
+	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
@@ -91,7 +90,7 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	timecraftServer := server.TimecraftServer{
+	server := timecraft.Server{
 		Version: currentVersion(),
 	}
 	serverSocket := path.Join(os.TempDir(), fmt.Sprintf("timecraft.%s.sock", uuid.NewString()))
@@ -104,7 +103,7 @@ func run(ctx context.Context, args []string) error {
 	defer serverListener.Close()
 
 	go func() {
-		if err := timecraftServer.Serve(serverListener); err != nil && !errors.Is(err, net.ErrClosed) {
+		if err := server.Serve(serverListener); err != nil && !errors.Is(err, net.ErrClosed) {
 			panic(err) // TODO: better error handling
 		}
 	}()
@@ -148,7 +147,7 @@ func run(ctx context.Context, args []string) error {
 	var wrappers []func(wasi.System) wasi.System
 
 	wrappers = append(wrappers, func(system wasi.System) wasi.System {
-		return server.NewVirtualSocketsSystem(system, map[string]string{client.Socket: serverSocket})
+		return timecraft.NewVirtualSocketsSystem(system, map[string]string{timecraft.Socket: serverSocket})
 	})
 
 	if trace {

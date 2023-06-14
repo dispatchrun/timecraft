@@ -1,4 +1,4 @@
-package client
+package timecraft
 
 import (
 	"context"
@@ -11,10 +11,14 @@ import (
 	"golang.org/x/net/http2"
 )
 
-// Socket is the socket that timecraft guests connect to in order to
-// interact with the timecraft server on the host. Note that this is a
-// virtual socket.
-const Socket = "timecraft.sock"
+// NewClient creates a timecraft client.
+func NewClient() (*Client, error) {
+	grpcClient := serverv1connect.NewTimecraftServiceClient(httpClient, "http://timecraft/", connect.WithCodec(grpc.Codec{}))
+
+	return &Client{
+		grpcClient: grpcClient,
+	}, nil
+}
 
 var httpClient = &http.Client{
 	Transport: &http2.Transport{
@@ -24,16 +28,7 @@ var httpClient = &http.Client{
 	},
 }
 
-// NewClient creates a client to the timecraft server.
-func NewClient() (*Client, error) {
-	grpcClient := serverv1connect.NewTimecraftServiceClient(httpClient, "http://timecraft/", connect.WithCodec(grpc.Codec{}))
-
-	return &Client{
-		grpcClient: grpcClient,
-	}, nil
-}
-
-// Client is a client to server.TimecraftServer.
+// Client is a timecraft client.
 type Client struct {
 	grpcClient serverv1connect.TimecraftServiceClient
 }
