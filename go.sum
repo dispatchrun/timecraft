@@ -18,10 +18,10 @@ github.com/klauspost/compress v1.16.5/go.mod h1:ntbaceVETuRiXiv4DpjP66DpAtAGkEQs
 github.com/planetscale/vtprotobuf v0.4.0 h1:NEI+g4woRaAZgeZ3sAvbtyvMBRjIv5kE7EWYQ8m4JwY=
 github.com/planetscale/vtprotobuf v0.4.0/go.mod h1:wm1N3qk9G/4+VM1WhpkLbvY/d8+0PbwYYpP5P5VhTks=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/stealthrocket/net v0.1.4-0.20230614003435-7cd9906ee6ec h1:8r2ROFPgGXJnJdbum+sjaw8LNwpG03RV4TyNS5kUIss=
-github.com/stealthrocket/net v0.1.4-0.20230614003435-7cd9906ee6ec/go.mod h1:VvoFod9pYC9mo+bEg2NQB/D+KVOjxfhZjZ5zyvozq7M=
-github.com/stealthrocket/wasi-go v0.6.0 h1:EMuSFNb8heVyqIWcRCijHSvIsPA2H+63BGKhOm54zW0=
-github.com/stealthrocket/wasi-go v0.6.0/go.mod h1:rOWFtohO7+CPUUsWvPX5JZBUKXz6kDbsADWbcbROILA=
+github.com/stealthrocket/net v0.1.4 h1:Wy0bAeu5Y3iiQM1fgsjZOES9AsB0nsXuDK21A3JfPIk=
+github.com/stealthrocket/net v0.1.4/go.mod h1:VvoFod9pYC9mo+bEg2NQB/D+KVOjxfhZjZ5zyvozq7M=
+github.com/stealthrocket/wasi-go v0.6.3 h1:uTy5dYLezb7vUVSsZ5kgdaCD7y63wyeyj5Ykve39b4g=
+github.com/stealthrocket/wasi-go v0.6.3/go.mod h1:rOWFtohO7+CPUUsWvPX5JZBUKXz6kDbsADWbcbROILA=
 github.com/stealthrocket/wazergo v0.19.1 h1:BPrITETPgSFwiytwmToO0MbUC/+RGC39JScz1JmmG6c=
 github.com/stealthrocket/wazergo v0.19.1/go.mod h1:riI0hxw4ndZA5e6z7PesHg2BtTftcZaMxRcoiGGipTs=
 github.com/stealthrocket/wzprof v0.1.5 h1:abEwQF9KtqV7UQ0hWk7431vul9/FxOg1eRCqwEKo9/4=
