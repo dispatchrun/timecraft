@@ -8,6 +8,7 @@ import (
 	"net"
 
 	"github.com/stealthrocket/net/wasip1"
+	"github.com/stealthrocket/timecraft/internal/timecraft"
 )
 
 func dialContext(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
