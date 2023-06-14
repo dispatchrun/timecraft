@@ -30,7 +30,7 @@ func main() {
 	}
 	client := serverv1connect.NewTimecraftServiceClient(
 		h2cClient,
-		"http://localhost:8080/",
+		"http://timecraft/",
 		connect.WithCodec(grpc.Codec{}),
 	)
 	req := connect.NewRequest(&v1.SubmitTaskRequest{

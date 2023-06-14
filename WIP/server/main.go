@@ -18,7 +18,7 @@ import (
 type TimecraftServer struct{}
 
 func (s *TimecraftServer) SubmitTask(ctx context.Context, req *connect.Request[v1.SubmitTaskRequest]) (*connect.Response[v1.SubmitTaskResponse], error) {
-	fmt.Println("Submitting taskgrpcurl:", req.Msg.Name)
+	fmt.Println("Submitting task:", req.Msg.Name)
 	res := connect.NewResponse(&v1.SubmitTaskResponse{Code: 202})
 	return res, nil
 }
@@ -30,7 +30,7 @@ func main() {
 		connect.WithCodec(grpc.Codec{}),
 	))
 	server := &http.Server{
-		Addr:    "localhost:8080",
+		Addr:    "timecraft",
 		Handler: h2c.NewHandler(mux, &http2.Server{}),
 		// TODO: timeouts/limits
 	}
