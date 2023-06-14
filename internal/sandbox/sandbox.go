@@ -8,10 +8,7 @@ import (
 
 type anyFile interface {
 	wasi.File[anyFile]
-
-	//PollRead(ch chan<- anyFile) wasi.Errno
-
-	//PollWrite(chn chan<- anyFile) wasi.Errno
+	poll(wasi.EventType) event
 }
 
 // defaultFile is useful to declare all file methods as not implemented by

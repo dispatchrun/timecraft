@@ -4,55 +4,130 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"reflect"
 	"time"
 
 	"github.com/stealthrocket/wasi-go"
 	"github.com/tetratelabs/wazero/sys"
+	"golang.org/x/exp/slices"
 )
 
-type System struct {
-	Args []string
-	Env  []string
+type Option func(*System)
 
-	Epoch time.Time
-	Time  func() time.Time
-
-	Rand io.Reader
-
-	FS fs.FS
-
-	wasi.FileTable[anyFile]
+func Args(args ...string) Option {
+	args = slices.Clone(args)
+	return func(s *System) { s.args = args }
 }
 
-func (s *System) Mount(ctx context.Context) (wasi.FD, error) {
-	f, err := openFile(s.FS, ".")
-	if err != nil {
-		return -1, err
+func Env(env ...string) Option {
+	env = slices.Clone(env)
+	return func(s *System) { s.env = env }
+}
+
+func Time(time func() time.Time) Option {
+	epoch := time()
+	return func(s *System) { s.epoch, s.time = epoch, time }
+}
+
+func Rand(rand io.Reader) Option {
+	return func(s *System) { s.rand = rand }
+}
+
+func FS(fsys fs.FS) Option {
+	return func(s *System) { s.fsys = fsys }
+}
+
+type System struct {
+	args  []string
+	env   []string
+	epoch time.Time
+	time  func() time.Time
+	rand  io.Reader
+	fsys  fs.FS
+	wasi.FileTable[anyFile]
+	stdin  pipe
+	stdout pipe
+	stderr pipe
+	root   wasi.FD
+	subs   []wasi.Subscription
+	poll   []reflect.SelectCase
+}
+
+func New(opts ...Option) *System {
+	s := &System{
+		stdin:  makePipe(),
+		stdout: makePipe(),
+		stderr: makePipe(),
 	}
-	fd := s.Preopen(f, "/", wasi.FDStat{
-		FileType:         wasi.DirectoryType,
-		RightsBase:       wasi.DirectoryRights,
-		RightsInheriting: wasi.DirectoryRights | wasi.FileRights,
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	s.Preopen(&s.stdin, "/dev/stdin", wasi.FDStat{
+		FileType:   wasi.CharacterDeviceType,
+		RightsBase: wasi.TTYRights & ^wasi.FDWriteRight,
 	})
-	return fd, nil
+	s.Preopen(&s.stdout, "/dev/stdout", wasi.FDStat{
+		FileType:   wasi.CharacterDeviceType,
+		RightsBase: wasi.TTYRights & ^wasi.FDReadRight,
+	})
+	s.Preopen(&s.stderr, "/dev/stderr", wasi.FDStat{
+		FileType:   wasi.CharacterDeviceType,
+		RightsBase: wasi.TTYRights & ^wasi.FDReadRight,
+	})
+
+	if s.fsys != nil {
+		f, err := openFile(s.fsys, ".")
+		if err != nil {
+			panic(err)
+		}
+		s.root = s.Preopen(f, "/", wasi.FDStat{
+			FileType:         wasi.DirectoryType,
+			RightsBase:       wasi.DirectoryRights,
+			RightsInheriting: wasi.DirectoryRights | wasi.FileRights,
+		})
+	}
+	return s
+}
+
+func (s *System) Stdin() io.WriteCloser {
+	return nil
+}
+
+func (s *System) Stdout() io.ReadCloser {
+	return nil
+}
+
+func (s *System) Stderr() io.ReadCloser {
+	return nil
+}
+
+func (s *System) FS() fs.FS {
+	if s.fsys == nil {
+		return nil
+	}
+	// TODO: if we have a use case for it, we might want to pass the context
+	// as argument to the method so we can propagate it to the method calls.
+	return wasi.FS(context.TODO(), s, s.root)
 }
 
 func (s *System) ArgsSizesGet(ctx context.Context) (argCount, stringBytes int, errno wasi.Errno) {
-	argCount, stringBytes = wasi.SizesGet(s.Args)
+	argCount, stringBytes = wasi.SizesGet(s.args)
 	return
 }
 
 func (s *System) ArgsGet(ctx context.Context) ([]string, wasi.Errno) {
-	return s.Args, wasi.ESUCCESS
+	return s.args, wasi.ESUCCESS
 }
 
 func (s *System) EnvironSizesGet(ctx context.Context) (envCount, stringBytes int, errno wasi.Errno) {
-	envCount, stringBytes = wasi.SizesGet(s.Env)
+	envCount, stringBytes = wasi.SizesGet(s.env)
 	return
 }
 
 func (s *System) EnvironGet(ctx context.Context) ([]string, wasi.Errno) {
-	return s.Env, wasi.ESUCCESS
+	return s.env, wasi.ESUCCESS
 }
 
 func (s *System) ClockResGet(ctx context.Context, id wasi.ClockID) (wasi.Timestamp, wasi.Errno) {
@@ -69,18 +144,18 @@ func (s *System) ClockResGet(ctx context.Context, id wasi.ClockID) (wasi.Timesta
 }
 
 func (s *System) ClockTimeGet(ctx context.Context, id wasi.ClockID, precision wasi.Timestamp) (wasi.Timestamp, wasi.Errno) {
-	if s.Time == nil {
+	if s.time == nil {
 		return 0, wasi.ENOSYS
 	}
-	now := s.Time()
+	now := s.time()
 	switch id {
 	case wasi.Realtime:
 		return wasi.Timestamp(now.UnixNano()), wasi.ESUCCESS
 	case wasi.Monotonic:
-		if s.Epoch.IsZero() {
+		if s.epoch.IsZero() {
 			return 0, wasi.ENOTSUP
 		}
-		return wasi.Timestamp(now.Sub(s.Epoch)), wasi.ESUCCESS
+		return wasi.Timestamp(now.Sub(s.epoch)), wasi.ESUCCESS
 	case wasi.ProcessCPUTimeID, wasi.ThreadCPUTimeID:
 		return 0, wasi.ENOTSUP
 	default:
@@ -101,10 +176,10 @@ func (s *System) SchedYield(ctx context.Context) wasi.Errno {
 }
 
 func (s *System) RandomGet(ctx context.Context, b []byte) wasi.Errno {
-	if s.Rand == nil {
+	if s.rand == nil {
 		return wasi.ENOSYS
 	}
-	if _, err := io.ReadFull(s.Rand, b); err != nil {
+	if _, err := io.ReadFull(s.rand, b); err != nil {
 		return wasi.EIO
 	}
 	return wasi.ESUCCESS
@@ -171,6 +246,120 @@ func (s *System) SockAddressInfo(ctx context.Context, name, service string, hint
 }
 
 func (s *System) PollOneOff(ctx context.Context, subscriptions []wasi.Subscription, events []wasi.Event) (int, wasi.Errno) {
+	/*
+		if len(subscriptions) == 0 || len(events) < len(subscriptions) {
+			return 0, wasi.EINVAL
+		}
+
+		subs := s.subs[:0]
+		poll := s.poll[:0]
+		defer func() {
+			for i := range poll {
+				poll[i] = reflect.SelectCase{}
+			}
+			s.subs = subs
+			s.poll = poll
+		}()
+
+		numEvents := 0
+		timeout := time.Duration(-1)
+		realtime := time.Time{}
+		monotonic := time.Time{}
+
+		if s.time != nil {
+			realtime = s.time()
+			monontonic = realtime.Sub(s.epoch)
+		}
+
+		for i, sub := range subscriptions {
+			switch sub.EventType {
+			case wasi.ClockEvent:
+				switch sub.ID {
+				case wasi.Realtime:
+					if !realtime.IsZero() {
+
+					}
+				case wasi.Monotonic:
+					if !monotonic.IsZero() {
+
+					}
+				}
+
+				events[numEvents] = wasi.Event{
+					UserData:  sub.UserData,
+					Errno:     wasi.ENOSYS,
+					EventType: sub.EventType,
+				}
+				numEvents++
+
+			case wasi.FDReadEvent, wasi.FDWriteEvent:
+				f, _, errno := s.LookupFD(sub.GetFDReadWrite().FD, 0)
+				if errno != wasi.ESUCCESS {
+					events[numEvents] = wasi.Event{
+						UserData:  sub.UserData,
+						Errno:     errno,
+						EventType: sub.EventType,
+					}
+					numEvents++
+				} else {
+					subs = append(subs, sub)
+					poll = append(poll, reflect.SelectCase{
+						Dir:  reflect.SelectRecv,
+						Chan: reflect.ValueOf(f.poll(sub.EventType)),
+					})
+				}
+			}
+		}
+
+		if numEvents > 0 {
+			return numEvents, wasi.ESUCCESS
+		}
+
+		switch {
+		case timeout == 0:
+			poll = append(poll, reflect.SelectCase{
+				Dir: reflect.SelectDefault,
+			})
+		case timeout > 0:
+			t := time.NewTimer(timeout)
+			defer t.Stop()
+			poll = append(poll, reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(t.C),
+			})
+		}
+
+		poll = append(poll, reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(ctx.Done()),
+		})
+
+		chosen, _, _ := reflect.Select(poll)
+		if chosen == len(poll)-1 {
+			return 0, wasi.MakeErrno(ctx.Err())
+		}
+
+		n := len(poll) - 1
+		switch {
+		case timeout == 0:
+			n--
+		case timeout > 0:
+		}
+
+		for i, poll := range poll[:len(poll)-1] {
+			_, recv := poll.Chan.TryRecv()
+			if recv || i == chosen {
+				events[numEvents] = wasi.Event{
+					UserData:  subs[i].UserData,
+					EventType: subs[i].EventType,
+					FDReadWrite: wasi.EventFDReadWrite{
+						NBytes: 1, // at least one byte is available
+					},
+				}
+				numEvents++
+			}
+		}
+	*/
 	return 0, wasi.ENOSYS
 }
 
