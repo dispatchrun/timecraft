@@ -2008,7 +2008,8 @@ func encodeSocketAddress(buffer []byte, addr SocketAddress) []byte {
 		buffer = encodeInt(buffer, a.Port)
 		return append(buffer, a.Addr[:]...)
 	case *UnixAddress:
-		panic("unix domain sockets are not implemented") // waiting for upstream support
+		buffer = encodeProtocolFamily(buffer, UnixFamily)
+		return encodeString(buffer, a.Name)
 	default:
 		panic("cannot encode unsupported socket address type")
 	}
@@ -2044,6 +2045,10 @@ func decodeSocketAddress(buffer []byte) (_ SocketAddress, _ []byte, err error) {
 		}
 		copy(addr.Addr[:], buffer[:16])
 		return &addr, buffer[16:], nil
+	case UnixFamily:
+		var addr UnixAddress
+		addr.Name, buffer, err = decodeString(buffer)
+		return &addr, buffer, err
 	default:
 		return nil, buffer, fmt.Errorf("invalid or unsupported protocol family: %v", f)
 	}
