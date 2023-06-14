@@ -6,11 +6,6 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
-// Socket is the socket that timecraft guests connect to in order to
-// interact with the timecraft server on the host. Note that this is a
-// virtual socket.
-const Socket = "timecraft.sock"
-
 // NewVirtualSocketsSystem creates a wasi.System that translates unix socket
 // addresses.
 func NewVirtualSocketsSystem(system wasi.System, sockets map[string]string) wasi.System {

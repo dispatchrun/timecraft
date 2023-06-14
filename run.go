@@ -19,6 +19,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
+	"github.com/stealthrocket/timecraft/sdk"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/tetratelabs/wazero"
@@ -147,7 +148,7 @@ func run(ctx context.Context, args []string) error {
 	var wrappers []func(wasi.System) wasi.System
 
 	wrappers = append(wrappers, func(system wasi.System) wasi.System {
-		return timecraft.NewVirtualSocketsSystem(system, map[string]string{timecraft.Socket: serverSocket})
+		return timecraft.NewVirtualSocketsSystem(system, map[string]string{sdk.ServerSocket: serverSocket})
 	})
 
 	if trace {

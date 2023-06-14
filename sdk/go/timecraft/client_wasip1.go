@@ -8,10 +8,10 @@ import (
 	"net"
 
 	"github.com/stealthrocket/net/wasip1"
-	"github.com/stealthrocket/timecraft/internal/timecraft"
+	"github.com/stealthrocket/timecraft/sdk"
 )
 
 func dialContext(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
 	var d wasip1.Dialer
-	return d.DialContext(ctx, "unix", timecraft.Socket)
+	return d.DialContext(ctx, "unix", sdk.ServerSocket)
 }
