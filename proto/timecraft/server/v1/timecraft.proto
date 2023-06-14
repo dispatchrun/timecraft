@@ -2,14 +2,12 @@ syntax = "proto3";
 
 package timecraft.server.v1;
 
-message SubmitTaskRequest {
-    string name = 1;
-}
+message VersionRequest {}
 
-message SubmitTaskResponse {
-    int32 code = 1;
+message VersionResponse {
+    string version = 1;
 }
 
 service TimecraftService {
-  rpc SubmitTask(SubmitTaskRequest) returns (SubmitTaskResponse) {}
+  rpc Version(VersionRequest) returns (VersionResponse) {}
 }
