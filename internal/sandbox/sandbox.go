@@ -6,10 +6,10 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
-type anyFile interface {
-	wasi.File[anyFile]
-	hook(ev wasi.EventType, ch chan<- struct{})
-	poll(ev wasi.EventType) bool
+type File interface {
+	wasi.File[File]
+	Hook(ev wasi.EventType, ch chan<- struct{})
+	Poll(ev wasi.EventType) bool
 }
 
 // defaultFile is useful to declare all file methods as not implemented by
@@ -87,11 +87,11 @@ func (defaultFile) PathFileStatSetTimes(ctx context.Context, lookupFlags wasi.Lo
 	return wasi.EBADF
 }
 
-func (defaultFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir anyFile, newPath string) wasi.Errno {
+func (defaultFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir File, newPath string) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (defaultFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (anyFile, wasi.Errno) {
+func (defaultFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
 	return nil, wasi.EBADF
 }
 
@@ -103,7 +103,7 @@ func (defaultFile) PathRemoveDirectory(ctx context.Context, path string) wasi.Er
 	return wasi.EBADF
 }
 
-func (defaultFile) PathRename(ctx context.Context, oldPath string, newDir anyFile, newPath string) wasi.Errno {
+func (defaultFile) PathRename(ctx context.Context, oldPath string, newDir File, newPath string) wasi.Errno {
 	return wasi.EBADF
 }
 

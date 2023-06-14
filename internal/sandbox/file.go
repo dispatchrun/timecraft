@@ -25,18 +25,6 @@ func openFile(fsys fs.FS, path string) (*file, error) {
 	return &file{fsys: fsys, file: f, path: path}, nil
 }
 
-func (f *file) hook(ev wasi.EventType, ch chan<- struct{}) {
-	// files are always ready for both reading and writing
-	select {
-	case ch <- struct{}{}:
-	default:
-	}
-}
-
-func (f *file) poll(ev wasi.EventType) bool {
-	return true
-}
-
 func (f *file) FDClose(ctx context.Context) wasi.Errno {
 	return wasi.MakeErrno(f.file.Close())
 }
@@ -100,7 +88,7 @@ func (f *file) FDFileStatGet(ctx context.Context) (stat wasi.FileStat, errno was
 	return makeFileStat(info), wasi.ESUCCESS
 }
 
-func (f *file) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (anyFile, wasi.Errno) {
+func (f *file) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
 	if !lookupFlags.Has(wasi.SymlinkFollow) {
 		return nil, wasi.EINVAL
 	}
@@ -206,4 +194,16 @@ func (d *dir) FDReadDir(ctx context.Context, entries []wasi.DirEntry, cookie was
 func (d *dir) FDCloseDir(ctx context.Context) wasi.Errno {
 	d.entries = nil
 	return wasi.ESUCCESS
+}
+
+func (f *file) Hook(ev wasi.EventType, ch chan<- struct{}) {
+	// files are always ready for both reading and writing
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+func (f *file) Poll(ev wasi.EventType) bool {
+	return true
 }

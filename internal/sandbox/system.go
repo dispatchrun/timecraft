@@ -44,7 +44,7 @@ type System struct {
 	time  func() time.Time
 	rand  io.Reader
 	fsys  fs.FS
-	wasi.FileTable[anyFile]
+	wasi.FileTable[File]
 	lock   *sync.Mutex
 	stdin  *pipe
 	stdout *pipe
@@ -156,9 +156,6 @@ func (s *System) ClockTimeGet(ctx context.Context, id wasi.ClockID, precision wa
 	case wasi.Realtime:
 		return wasi.Timestamp(now.UnixNano()), wasi.ESUCCESS
 	case wasi.Monotonic:
-		if s.epoch.IsZero() {
-			return 0, wasi.ENOTSUP
-		}
 		return wasi.Timestamp(now.Sub(s.epoch)), wasi.ESUCCESS
 	case wasi.ProcessCPUTimeID, wasi.ThreadCPUTimeID:
 		return 0, wasi.ENOTSUP
@@ -255,7 +252,7 @@ type timeout struct {
 }
 
 func (s *System) PollOneOff(ctx context.Context, subscriptions []wasi.Subscription, events []wasi.Event) (int, wasi.Errno) {
-	numEvents, timeout, errno := s.pollOneoffScatter(subscriptions, events)
+	numEvents, timeout, errno := s.pollOneOffScatter(subscriptions, events)
 	if errno != wasi.ESUCCESS {
 		return numEvents, errno
 	}
@@ -280,11 +277,17 @@ func (s *System) PollOneOff(ctx context.Context, subscriptions []wasi.Subscripti
 		}
 	}
 
-	numEvents += s.pollOneoffGather(subscriptions, events[numEvents:])
+	numEvents += s.pollOneOffGather(subscriptions, events[numEvents:])
+	// Clear the event in case it was set after ctx.Done() or deadline
+	// triggered.
+	select {
+	case <-s.poll:
+	default:
+	}
 	return numEvents, wasi.ESUCCESS
 }
 
-func (s *System) pollOneoffScatter(subscriptions []wasi.Subscription, events []wasi.Event) (numEvents int, timeout timeout, errno wasi.Errno) {
+func (s *System) pollOneOffScatter(subscriptions []wasi.Subscription, events []wasi.Event) (numEvents int, timeout timeout, errno wasi.Errno) {
 	if len(subscriptions) == 0 || len(events) < len(subscriptions) {
 		return numEvents, timeout, wasi.EINVAL
 	}
@@ -300,7 +303,7 @@ func (s *System) pollOneoffScatter(subscriptions []wasi.Subscription, events []w
 		if d < 0 {
 			d = 0
 		}
-		if d < timeout.duration {
+		if timeout.duration < 0 || d < timeout.duration {
 			timeout.subindex = i
 			timeout.duration = d
 		}
@@ -336,18 +339,24 @@ func (s *System) pollOneoffScatter(subscriptions []wasi.Subscription, events []w
 
 			if (clock.Flags & wasi.Abstime) != 0 {
 				deadline := epoch.Add(time.Duration(clock.Timeout + clock.Precision))
-				setTimeout(i, now.Sub(deadline))
+				setTimeout(i, deadline.Sub(now))
 			} else {
 				setTimeout(i, time.Duration(clock.Timeout+clock.Precision))
 			}
 
 		case wasi.FDReadEvent, wasi.FDWriteEvent:
+			// TODO: check read/write rights
 			f, _, errno := s.LookupFD(sub.GetFDReadWrite().FD, 0)
 			if errno != wasi.ESUCCESS {
 				reportError(sub, errno)
-			} else {
-				f.hook(sub.EventType, s.poll)
+				continue
 			}
+			if f.Poll(sub.EventType) {
+				events[numEvents] = makeFDEvent(sub)
+				numEvents++
+				continue
+			}
+			f.Hook(sub.EventType, s.poll)
 
 		default:
 			reportError(sub, wasi.ENOTSUP)
@@ -357,7 +366,7 @@ func (s *System) pollOneoffScatter(subscriptions []wasi.Subscription, events []w
 	return numEvents, timeout, wasi.ESUCCESS
 }
 
-func (s *System) pollOneoffGather(subscriptions []wasi.Subscription, events []wasi.Event) (numEvents int) {
+func (s *System) pollOneOffGather(subscriptions []wasi.Subscription, events []wasi.Event) (numEvents int) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -368,21 +377,25 @@ func (s *System) pollOneoffGather(subscriptions []wasi.Subscription, events []wa
 			if f == nil {
 				continue
 			}
-			if !f.poll(sub.EventType) {
+			if !f.Poll(sub.EventType) {
 				continue
 			}
-			events[numEvents] = wasi.Event{
-				UserData:  sub.UserData,
-				EventType: sub.EventType,
-				FDReadWrite: wasi.EventFDReadWrite{
-					NBytes: 1, // we don't know how many bytes are available but it's at least one
-				},
-			}
+			events[numEvents] = makeFDEvent(sub)
 			numEvents++
 		}
 	}
 
 	return numEvents
+}
+
+func makeFDEvent(sub wasi.Subscription) wasi.Event {
+	return wasi.Event{
+		UserData:  sub.UserData,
+		EventType: sub.EventType,
+		FDReadWrite: wasi.EventFDReadWrite{
+			NBytes: 1, // we don't know how many bytes are available but it's at least one
+		},
+	}
 }
 
 var (

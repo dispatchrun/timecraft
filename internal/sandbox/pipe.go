@@ -128,11 +128,11 @@ type pipe struct {
 	flags wasi.FDFlags
 	// Pointer to mutex synchronizing poll events.
 	pmu *sync.Mutex
-	// Read-end of the pipe.
+	// Read-end of the pipe (host side).
 	rmu sync.Mutex
 	rch channel
 	rev event
-	// Write-end of the pipe.
+	// Write-end of the pipe (host side).
 	wmu sync.Mutex
 	wch channel
 	wev event
@@ -205,21 +205,21 @@ func (p *pipe) Write(b []byte) (int, error) {
 	return n, nil
 }
 
-func (p *pipe) hook(ev wasi.EventType, ch chan<- struct{}) {
+func (p *pipe) Hook(ev wasi.EventType, ch chan<- struct{}) {
 	switch ev {
 	case wasi.FDReadEvent:
-		p.rev.hook(ch)
-	case wasi.FDWriteEvent:
 		p.wev.hook(ch)
+	case wasi.FDWriteEvent:
+		p.rev.hook(ch)
 	}
 }
 
-func (p *pipe) poll(ev wasi.EventType) bool {
+func (p *pipe) Poll(ev wasi.EventType) bool {
 	switch ev {
 	case wasi.FDReadEvent:
-		return p.rev.poll()
-	case wasi.FDWriteEvent:
 		return p.wev.poll()
+	case wasi.FDWriteEvent:
+		return p.rev.poll()
 	default:
 		return false
 	}
