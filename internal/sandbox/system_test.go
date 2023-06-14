@@ -122,102 +122,86 @@ func TestPollStdout(t *testing.T) {
 	assert.Equal(t, string(<-ch), "Hello, World!")
 }
 
-func TestPollTimeoutRealtime(t *testing.T) {
-	ctx := context.Background()
-	sys := sandbox.New(sandbox.Time(time.Now))
+func TestPollUnsupportedClock(t *testing.T) {
+	for _, clock := range []wasi.ClockID{wasi.Realtime, wasi.Monotonic, wasi.ProcessCPUTimeID, wasi.ThreadCPUTimeID} {
+		t.Run(clock.String(), func(t *testing.T) {
+			ctx := context.Background()
+			sys := sandbox.New()
 
-	subs := []wasi.Subscription{
-		wasi.MakeSubscriptionClock(42, wasi.SubscriptionClock{
-			ID:      wasi.Realtime,
-			Timeout: 10 * millis,
-		}),
+			subs := []wasi.Subscription{
+				wasi.MakeSubscriptionClock(42, wasi.SubscriptionClock{
+					ID:      clock,
+					Timeout: 10 * millis,
+				}),
+			}
+			evs := make([]wasi.Event, len(subs))
+
+			numEvents, errno := sys.PollOneOff(ctx, subs, evs)
+			assert.Equal(t, numEvents, 1)
+			assert.Equal(t, errno, wasi.ESUCCESS)
+			assert.EqualAll(t, evs, []wasi.Event{{
+				UserData:  42,
+				Errno:     wasi.ENOSYS,
+				EventType: wasi.ClockEvent,
+			}})
+		})
 	}
-	evs := make([]wasi.Event, len(subs))
-	now := time.Now()
-
-	numEvents, errno := sys.PollOneOff(ctx, subs, evs)
-	assert.True(t, time.Since(now) > 10*millis)
-	assert.Equal(t, numEvents, 1)
-	assert.Equal(t, errno, wasi.ESUCCESS)
-	assert.EqualAll(t, evs, []wasi.Event{{
-		UserData:  42,
-		EventType: wasi.ClockEvent,
-	}})
 }
 
-func TestPollTimeoutMonotonic(t *testing.T) {
-	ctx := context.Background()
-	sys := sandbox.New(sandbox.Time(time.Now))
+func TestPollTimeout(t *testing.T) {
+	for _, clock := range []wasi.ClockID{wasi.Realtime, wasi.Monotonic} {
+		t.Run(clock.String(), func(t *testing.T) {
+			ctx := context.Background()
+			sys := sandbox.New(sandbox.Time(time.Now))
 
-	subs := []wasi.Subscription{
-		wasi.MakeSubscriptionClock(42, wasi.SubscriptionClock{
-			ID:      wasi.Monotonic,
-			Timeout: 10 * millis,
-		}),
+			subs := []wasi.Subscription{
+				wasi.MakeSubscriptionClock(42, wasi.SubscriptionClock{
+					ID:      clock,
+					Timeout: 10 * millis,
+				}),
+			}
+			evs := make([]wasi.Event, len(subs))
+			now := time.Now()
+
+			numEvents, errno := sys.PollOneOff(ctx, subs, evs)
+			assert.True(t, time.Since(now) > 10*millis)
+			assert.Equal(t, numEvents, 1)
+			assert.Equal(t, errno, wasi.ESUCCESS)
+			assert.EqualAll(t, evs, []wasi.Event{{
+				UserData:  42,
+				EventType: wasi.ClockEvent,
+			}})
+		})
 	}
-	evs := make([]wasi.Event, len(subs))
-	now := time.Now()
-
-	numEvents, errno := sys.PollOneOff(ctx, subs, evs)
-	assert.True(t, time.Since(now) > 10*millis)
-	assert.Equal(t, numEvents, 1)
-	assert.Equal(t, errno, wasi.ESUCCESS)
-	assert.EqualAll(t, evs, []wasi.Event{{
-		UserData:  42,
-		EventType: wasi.ClockEvent,
-	}})
 }
 
-func TestPollDeadlineRealtime(t *testing.T) {
-	ctx := context.Background()
-	sys := sandbox.New(sandbox.Time(time.Now))
+func TestPollDeadline(t *testing.T) {
+	for _, clock := range []wasi.ClockID{wasi.Realtime, wasi.Monotonic} {
+		t.Run(clock.String(), func(t *testing.T) {
+			ctx := context.Background()
+			sys := sandbox.New(sandbox.Time(time.Now))
 
-	timestamp, errno := sys.ClockTimeGet(ctx, wasi.Realtime, 1)
-	assert.Equal(t, errno, wasi.ESUCCESS)
+			timestamp, errno := sys.ClockTimeGet(ctx, clock, 1)
+			assert.Equal(t, errno, wasi.ESUCCESS)
 
-	subs := []wasi.Subscription{
-		wasi.MakeSubscriptionClock(42, wasi.SubscriptionClock{
-			ID:      wasi.Realtime,
-			Timeout: timestamp + 10*millis,
-			Flags:   wasi.Abstime,
-		}),
+			subs := []wasi.Subscription{
+				wasi.MakeSubscriptionClock(42, wasi.SubscriptionClock{
+					ID:      clock,
+					Timeout: timestamp + 10*millis,
+					Flags:   wasi.Abstime,
+				}),
+			}
+			evs := make([]wasi.Event, len(subs))
+			now := time.Now()
+
+			numEvents, errno := sys.PollOneOff(ctx, subs, evs)
+			assert.True(t, time.Since(now) > 10*millis)
+			assert.Equal(t, numEvents, 1)
+			assert.Equal(t, errno, wasi.ESUCCESS)
+			assert.EqualAll(t, evs, []wasi.Event{{
+				UserData:  42,
+				EventType: wasi.ClockEvent,
+			}})
+		})
 	}
-	evs := make([]wasi.Event, len(subs))
-	now := time.Now()
-
-	numEvents, errno := sys.PollOneOff(ctx, subs, evs)
-	assert.True(t, time.Since(now) > 10*millis)
-	assert.Equal(t, numEvents, 1)
-	assert.Equal(t, errno, wasi.ESUCCESS)
-	assert.EqualAll(t, evs, []wasi.Event{{
-		UserData:  42,
-		EventType: wasi.ClockEvent,
-	}})
-}
-
-func TestPollDeadlineMonotonic(t *testing.T) {
-	ctx := context.Background()
-	sys := sandbox.New(sandbox.Time(time.Now))
-
-	timestamp, errno := sys.ClockTimeGet(ctx, wasi.Monotonic, 1)
-	assert.Equal(t, errno, wasi.ESUCCESS)
-
-	subs := []wasi.Subscription{
-		wasi.MakeSubscriptionClock(42, wasi.SubscriptionClock{
-			ID:      wasi.Monotonic,
-			Timeout: timestamp + 10*millis,
-			Flags:   wasi.Abstime,
-		}),
-	}
-	evs := make([]wasi.Event, len(subs))
-	now := time.Now()
-
-	numEvents, errno := sys.PollOneOff(ctx, subs, evs)
-	assert.True(t, time.Since(now) > 10*millis)
-	assert.Equal(t, numEvents, 1)
-	assert.Equal(t, errno, wasi.ESUCCESS)
-	assert.EqualAll(t, evs, []wasi.Event{{
-		UserData:  42,
-		EventType: wasi.ClockEvent,
-	}})
 }

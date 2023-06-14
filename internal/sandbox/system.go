@@ -12,31 +12,48 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+// Option represents configuration options that can be set when instantiating a
+// System.
 type Option func(*System)
 
+// Args configures the list of arguments passed to the guest module.
 func Args(args ...string) Option {
 	args = slices.Clone(args)
 	return func(s *System) { s.args = args }
 }
 
+// Env configures the list of environment variables exposed to the guest
+// module.
 func Env(env ...string) Option {
 	env = slices.Clone(env)
 	return func(s *System) { s.env = env }
 }
 
+// Time configures the function used by the guest module to get the current
+// time.
+//
+// If not set, the guest does not have access to the current time.
 func Time(time func() time.Time) Option {
 	epoch := time()
 	return func(s *System) { s.epoch, s.time = epoch, time }
 }
 
+// Rand configures the random number generator exposed to the guest module.
+//
+// If not set, the guest cannot generate random numbers.
 func Rand(rand io.Reader) Option {
 	return func(s *System) { s.rand = rand }
 }
 
+// FS configures the file system to expose to the guest module.
+//
+// If not set, the guest module sees an empty file system.
 func FS(fsys fs.FS) Option {
 	return func(s *System) { s.fsys = fsys }
 }
 
+// System is an implementation of the wasi.System interface which sandboxes all
+// interactions of the guest module with the world.
 type System struct {
 	args  []string
 	env   []string
@@ -53,6 +70,8 @@ type System struct {
 	poll   chan struct{}
 }
 
+// New creates a new System instance, applying the list of options passed as
+// arguments.
 func New(opts ...Option) *System {
 	lock := new(sync.Mutex)
 
@@ -293,10 +312,9 @@ func (s *System) pollOneOffScatter(subscriptions []wasi.Subscription, events []w
 	}
 
 	timeout.duration = -1
-	var unixEpoch = time.Unix(0, 0).UTC()
-	var now time.Time
+	var unixEpoch, now time.Time
 	if s.time != nil {
-		now = s.time()
+		unixEpoch, now = time.Unix(0, 0), s.time()
 	}
 
 	setTimeout := func(i int, d time.Duration) {
@@ -332,11 +350,11 @@ func (s *System) pollOneOffScatter(subscriptions []wasi.Subscription, events []w
 				epoch = unixEpoch
 			case wasi.Monotonic:
 				epoch = s.epoch
-			default:
+			}
+			if epoch.IsZero() {
 				reportError(sub, wasi.ENOSYS)
 				continue
 			}
-
 			if (clock.Flags & wasi.Abstime) != 0 {
 				deadline := epoch.Add(time.Duration(clock.Timeout + clock.Precision))
 				setTimeout(i, deadline.Sub(now))
