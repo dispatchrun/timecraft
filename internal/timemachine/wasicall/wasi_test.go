@@ -140,7 +140,7 @@ var syscalls = []Syscall{
 	&SockOpenSyscall{Family: ^wasi.ProtocolFamily(0), SocketType: ^wasi.SocketType(0), Protocol: ^wasi.Protocol(0), RightsBase: ^wasi.Rights(0), RightsInheriting: 1, FD: 2, Errno: 3},
 	&SockOpenSyscall{Family: wasi.InetFamily, SocketType: wasi.StreamSocket, Protocol: wasi.TCPProtocol, RightsBase: wasi.SockListenRights, RightsInheriting: wasi.SockConnectionRights, FD: 1, Errno: wasi.ESUCCESS},
 	&SockOpenSyscall{},
-	&SockBindSyscall{FD: 1, Bind: &wasi.UnixAddress{Name: "foo"}, Addr: &wasi.UnixAddress{"bar"}, Errno: 2},
+	&SockBindSyscall{FD: 1, Bind: &wasi.UnixAddress{Name: "foo"}, Addr: &wasi.UnixAddress{Name: "bar"}, Errno: 2},
 	&SockBindSyscall{FD: 1, Bind: &wasi.Inet4Address{Addr: [4]byte{127, 0, 0, 1}, Port: 0}, Addr: &wasi.Inet4Address{Addr: [4]byte{127, 0, 0, 1}, Port: 45980}, Errno: wasi.ESUCCESS},
 	&SockBindSyscall{},
 	&SockConnectSyscall{FD: 1, Peer: &wasi.Inet4Address{Addr: [4]byte{127, 0, 0, 1}, Port: 0}, Addr: &wasi.Inet4Address{Addr: [4]byte{127, 0, 0, 1}, Port: 45980}, Errno: wasi.ESUCCESS},
