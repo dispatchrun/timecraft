@@ -148,12 +148,7 @@ func run(ctx context.Context, args []string) error {
 	var wrappers []func(wasi.System) wasi.System
 
 	wrappers = append(wrappers, func(system wasi.System) wasi.System {
-		return &server.VirtualSocketsSystem{
-			System: system,
-			Sockets: map[wasi.UnixAddress]wasi.UnixAddress{
-				{Name: client.Socket}: {Name: serverSocket},
-			},
-		}
+		return server.NewVirtualSocketsSystem(system, map[string]string{client.Socket: serverSocket})
 	})
 
 	if trace {
