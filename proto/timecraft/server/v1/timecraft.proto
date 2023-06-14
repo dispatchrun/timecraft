@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package timecraft.server.v1;
+
+message VersionRequest {}
+
+message VersionResponse {
+    string version = 1;
+}
+
+service TimecraftService {
+  rpc Version(VersionRequest) returns (VersionResponse) {}
+}

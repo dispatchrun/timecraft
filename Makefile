@@ -26,11 +26,13 @@ clean:
 
 lint:
 	golangci-lint run ./...
+	buf lint
 
 fmt:
 	$(GO) fmt ./...
 
 generate: flatbuffers
+	buf generate
 
 flatbuffers: go.mod $(format.src.go)
 	$(GO) build ./format/...
