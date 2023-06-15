@@ -53,6 +53,11 @@ func FS(fsys fs.FS) Option {
 	return func(s *System) { s.fsys = fsys }
 }
 
+// Socket configures a unix socket to be exposed to the guest module.
+func Socket(name string) Option {
+	return func(s *System) { s.unix.name = name }
+}
+
 // System is an implementation of the wasi.System interface which sandboxes all
 // interactions of the guest module with the world.
 type System struct {
