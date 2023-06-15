@@ -57,7 +57,8 @@ func TestNetwork(t *testing.T) {
 					}
 				}()
 
-				c1, err = sys.Connect(ctx, test.network, test.address)
+				addr := l.Addr()
+				c1, err = sys.Connect(ctx, addr.Network(), addr.String())
 				if err != nil {
 					l.Close()
 					return nil, nil, nil, err

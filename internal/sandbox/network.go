@@ -460,7 +460,6 @@ func (s *socket[T]) connect(ctx context.Context) (net.Conn, error) {
 	if errno := s.net.link(conn); errno != wasi.ESUCCESS {
 		return nil, errno
 	}
-	conn.laddr, conn.raddr = conn.raddr, conn.laddr
 
 	s.recv.ev.trigger(s.recv.lock)
 	select {
@@ -591,8 +590,8 @@ type hostConn[T sockaddr] struct {
 func newHostConn[T sockaddr](socket *socket[T]) *hostConn[T] {
 	return &hostConn[T]{
 		socket:    socket,
-		laddr:     socket.raddr.netAddr(socket.proto),
-		raddr:     socket.laddr.netAddr(socket.proto),
+		laddr:     socket.laddr.netAddr(socket.proto),
+		raddr:     socket.raddr.netAddr(socket.proto),
 		rdeadline: makeDeadline(),
 		wdeadline: makeDeadline(),
 	}
@@ -691,8 +690,8 @@ type guestConn[T sockaddr] struct {
 func newGuestConn[T sockaddr](socket *socket[T]) *guestConn[T] {
 	return &guestConn[T]{
 		socket:    socket,
-		laddr:     socket.laddr.netAddr(socket.proto),
-		raddr:     socket.raddr.netAddr(socket.proto),
+		laddr:     socket.raddr.netAddr(socket.proto),
+		raddr:     socket.laddr.netAddr(socket.proto),
 		rdeadline: makeDeadline(),
 		wdeadline: makeDeadline(),
 	}
