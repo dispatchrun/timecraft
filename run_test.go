@@ -25,7 +25,7 @@ var run = tests{
 	},
 
 	"run Go tests": func(t *testing.T) {
-		files, _ := filepath.Glob("testdata/go/*_test.wasm")
+		files, _ := filepath.Glob("testdata/go/test/*_test.wasm")
 		if len(files) == 0 {
 			t.Fatal("there are no Go tests to run, this does not seem right")
 		}
