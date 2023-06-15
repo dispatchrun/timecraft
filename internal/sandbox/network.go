@@ -10,14 +10,14 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
-// Dial opens a connection to a listening socket on the guest module network.
+// Connect opens a connection to a listening socket on the guest module network.
 //
 // This function has a signature that matches the one commonly used in the
 // Go standard library as a hook to customize how and where network connections
 // are estalibshed. The intent is for this function to be used when the host
 // needs to establish a connection to the guest, maybe indirectly such as using
 // a http.Transport and setting this method as the transport's dial function.
-func (s *System) Dial(ctx context.Context, network, address string) (conn net.Conn, err error) {
+func (s *System) Connect(ctx context.Context, network, address string) (conn net.Conn, err error) {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		addrPort, err := netip.ParseAddrPort(address)
@@ -26,7 +26,7 @@ func (s *System) Dial(ctx context.Context, network, address string) (conn net.Co
 		}
 		addr := addrPort.Addr()
 		if addr.Is4() {
-			return s.ipv4.dial(ctx, netaddr[ipv4]{
+			return s.ipv4.connect(ctx, netaddr[ipv4]{
 				protocol: tcp,
 				sockaddr: ipv4{
 					Port: int(addrPort.Port()),
@@ -34,7 +34,7 @@ func (s *System) Dial(ctx context.Context, network, address string) (conn net.Co
 				},
 			})
 		} else {
-			return s.ipv6.dial(ctx, netaddr[ipv6]{
+			return s.ipv6.connect(ctx, netaddr[ipv6]{
 				protocol: tcp,
 				sockaddr: ipv6{
 					Port: int(addrPort.Port()),
@@ -43,7 +43,7 @@ func (s *System) Dial(ctx context.Context, network, address string) (conn net.Co
 			})
 		}
 	case "unix":
-		return s.unix.dial(ctx, netaddr[unix]{
+		return s.unix.connect(ctx, netaddr[unix]{
 			sockaddr: unix{
 				Name: address,
 			},
@@ -153,7 +153,7 @@ func (n *network[T]) open(pmu *sync.Mutex, stype wasi.SocketType, proto wasi.Pro
 	}
 }
 
-func (n *network[T]) dial(ctx context.Context, addr netaddr[T]) (net.Conn, error) {
+func (n *network[T]) connect(ctx context.Context, addr netaddr[T]) (net.Conn, error) {
 	server, ok := n.sockets[addr]
 	if !ok {
 		netAddr := addr.netAddr()
