@@ -19,10 +19,10 @@ const (
 // Config is timecraft configuration.
 type Config struct {
 	Registry struct {
-		Location Nullable[human.Path] `json:"location"`
+		Location Option[human.Path] `json:"location"`
 	} `json:"registry"`
 	Cache struct {
-		Location Nullable[human.Path] `json:"location"`
+		Location Option[human.Path] `json:"location"`
 	} `json:"cache"`
 }
 
@@ -71,6 +71,6 @@ func ReadConfig(r io.Reader) (*Config, error) {
 // DefaultConfig is the default configuration.
 func DefaultConfig() *Config {
 	c := new(Config)
-	c.Registry.Location = NullableValue[human.Path](defaultRegistryPath)
+	c.Registry.Location = Some[human.Path](defaultRegistryPath)
 	return c
 }
