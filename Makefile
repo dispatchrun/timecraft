@@ -3,7 +3,9 @@
 
 GO ?= go
 
-testdata.go.src = $(wildcard testdata/go/*.go)
+testdata.go.src = \
+	$(wildcard testdata/go/*.go) \
+	$(wildcard testdata/go/test/*.go)
 testdata.go.wasm = $(testdata.go.src:.go=.wasm)
 
 format.src.fbs = \
@@ -42,7 +44,10 @@ test: testdata wasi-testsuite
 
 testdata: $(testdata.go.wasm)
 
-testdata/go/%.wasm: testdata/go/%.go
+%_test.wasm: %_test.go
+	GOARCH=wasm GOOS=wasip1 $(GO) test -c -o $@ $<
+
+%.wasm: %.go
 	GOARCH=wasm GOOS=wasip1 $(GO) build -o $@ $<
 
 wasi-testsuite: timecraft testdata/wasi-testsuite
