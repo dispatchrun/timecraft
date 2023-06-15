@@ -24,26 +24,26 @@ var run = tests{
 	},
 
 	"run the testing/fstest test suite": func(t *testing.T) {
-		stdout, stderr, exitCode := timecraft(t, "run", "--", "testdata/go/fstest.wasm", "-path=testdata/fs",
+		testRun(t, "testdata/go/fstest_test.wasm", "-path=testdata/fs",
 			// This is the list of files expected to be found in the test directory.
 			"empty",
 			"message",
 			"tmp/file-1",
 			"tmp/file-2",
 		)
-		if exitCode != 0 {
-			fmt.Fprintf(os.Stdout, "=== STDOUT:\n%s", stdout)
-			fmt.Fprintf(os.Stderr, "=== STDERR:\n%s", stderr)
-		}
-		assert.Equal(t, exitCode, 0)
 	},
 
 	"run the x/net/nettest test suite": func(t *testing.T) {
-		stdout, stderr, exitCode := timecraft(t, "run", "--", "testdata/go/nettest_test.wasm")
-		if exitCode != 0 {
-			fmt.Fprintf(os.Stdout, "=== STDOUT:\n%s", stdout)
-			fmt.Fprintf(os.Stderr, "=== STDERR:\n%s", stderr)
-		}
-		assert.Equal(t, exitCode, 0)
+		testRun(t, "testdata/go/nettest_test.wasm")
 	},
+}
+
+func testRun(t *testing.T, module string, args ...string) {
+	command := append([]string{"run", "--", module}, args...)
+	stdout, stderr, exitCode := timecraft(t, command...)
+	if exitCode != 0 {
+		fmt.Fprintf(os.Stdout, "=== STDOUT:\n%s", stdout)
+		fmt.Fprintf(os.Stderr, "=== STDERR:\n%s", stderr)
+	}
+	assert.Equal(t, exitCode, 0)
 }
