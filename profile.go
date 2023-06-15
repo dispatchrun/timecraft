@@ -14,6 +14,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/print/jsonprint"
 	"github.com/stealthrocket/timecraft/internal/print/yamlprint"
 	"github.com/stealthrocket/timecraft/internal/stream"
+	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go/imports"
@@ -94,11 +95,11 @@ func profile(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	config, err := loadConfig()
+	config, err := timecraft.LoadConfig()
 	if err != nil {
 		return err
 	}
-	registry, err := config.openRegistry()
+	registry, err := config.OpenRegistry()
 	if err != nil {
 		return err
 	}
@@ -158,7 +159,10 @@ func profile(ctx context.Context, args []string) error {
 		),
 	)
 
-	runtime := config.newRuntime(ctx)
+	runtime, err := config.NewRuntime(ctx)
+	if err != nil {
+		return err
+	}
 	defer runtime.Close(ctx)
 
 	compiledModule, err := runtime.CompileModule(ctx, module.Code)

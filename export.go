@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/stealthrocket/timecraft/format"
+	"github.com/stealthrocket/timecraft/internal/timecraft"
 )
 
 const exportUsage = `
@@ -41,11 +42,11 @@ func export(ctx context.Context, args []string) error {
 		perror(err)
 		return exitCode(2)
 	}
-	config, err := loadConfig()
+	config, err := timecraft.LoadConfig()
 	if err != nil {
 		return err
 	}
-	registry, err := config.openRegistry()
+	registry, err := config.OpenRegistry()
 	if err != nil {
 		return err
 	}

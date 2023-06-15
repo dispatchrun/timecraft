@@ -13,6 +13,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/print/textprint"
 	"github.com/stealthrocket/timecraft/internal/print/yamlprint"
 	"github.com/stealthrocket/timecraft/internal/stream"
+	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"golang.org/x/exp/slices"
 )
@@ -93,11 +94,11 @@ func trace(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	config, err := loadConfig()
+	config, err := timecraft.LoadConfig()
 	if err != nil {
 		return err
 	}
-	registry, err := config.openRegistry()
+	registry, err := config.OpenRegistry()
 	if err != nil {
 		return err
 	}
