@@ -40,8 +40,8 @@ func testRun(t *testing.T, module string, args ...string) {
 
 	stdout, stderr, exitCode := timecraft(t, command...)
 	if exitCode != 0 {
-		fmt.Fprintf(os.Stdout, "=== STDOUT:\n%s", stdout)
-		fmt.Fprintf(os.Stderr, "=== STDERR:\n%s", stderr)
+		fmt.Fprintf(os.Stdout, "STDOUT:\n%s", stdout)
+		fmt.Fprintf(os.Stderr, "STDERR:\n%s", stderr)
 	}
 
 	assert.Equal(t, exitCode, 0)
