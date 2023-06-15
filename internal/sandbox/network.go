@@ -17,19 +17,23 @@ import (
 // are estalibshed. The intent is for this function to be used when the host
 // needs to establish a connection to the guest, maybe indirectly such as using
 // a http.Transport and setting this method as the transport's dial function.
-func (s *System) Connect(ctx context.Context, network, address string) (conn net.Conn, err error) {
+func (s *System) Connect(ctx context.Context, network, address string) (net.Conn, error) {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		addrPort, err := netip.ParseAddrPort(address)
 		if err != nil {
-			return nil, &net.OpError{Op: "dial", Net: network, Err: err}
+			return nil, &net.ParseError{Type: "connect address", Text: address}
 		}
 		addr := addrPort.Addr()
+		port := addrPort.Port()
+		if port == 0 {
+			return nil, &net.AddrError{Err: "missing port in connect address", Addr: address}
+		}
 		if addr.Is4() {
 			return s.ipv4.connect(ctx, netaddr[ipv4]{
 				protocol: tcp,
 				sockaddr: ipv4{
-					Port: int(addrPort.Port()),
+					Port: int(port),
 					Addr: addr.As4(),
 				},
 			})
@@ -37,7 +41,7 @@ func (s *System) Connect(ctx context.Context, network, address string) (conn net
 			return s.ipv6.connect(ctx, netaddr[ipv6]{
 				protocol: tcp,
 				sockaddr: ipv6{
-					Port: int(addrPort.Port()),
+					Port: int(port),
 					Addr: addr.As16(),
 				},
 			})
@@ -49,7 +53,51 @@ func (s *System) Connect(ctx context.Context, network, address string) (conn net
 			},
 		})
 	default:
-		return nil, &net.OpError{Op: "dial", Net: network, Err: net.UnknownNetworkError(network)}
+		return nil, &net.OpError{Op: "connect", Net: network, Err: net.UnknownNetworkError(network)}
+	}
+}
+
+// Listen opens a listening socket on the network stack of the guest module,
+// returning a net.Listener that the host can use to receive connections to the
+// given network address.
+//
+// The returned listener does not exist in the guest module file table, which
+// means that the guest cannot shut it down, allowing the host ot have full
+// control over the lifecycle of the underlying socket.
+func (s *System) Listen(ctx context.Context, network, address string) (net.Listener, error) {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		addrPort, err := netip.ParseAddrPort(address)
+		if err != nil {
+			return nil, &net.ParseError{Type: "listen address", Text: address}
+		}
+		addr := addrPort.Addr()
+		port := addrPort.Port()
+		if addr.Is4() {
+			return s.ipv4.listen(ctx, s.lock, netaddr[ipv4]{
+				protocol: tcp,
+				sockaddr: ipv4{
+					Port: int(port),
+					Addr: addr.As4(),
+				},
+			})
+		} else {
+			return s.ipv6.listen(ctx, s.lock, netaddr[ipv6]{
+				protocol: tcp,
+				sockaddr: ipv6{
+					Port: int(port),
+					Addr: addr.As16(),
+				},
+			})
+		}
+	case "unix":
+		return s.unix.listen(ctx, s.lock, netaddr[unix]{
+			sockaddr: unix{
+				Name: address,
+			},
+		})
+	default:
+		return nil, &net.OpError{Op: "listen", Net: network, Err: net.UnknownNetworkError(network)}
 	}
 }
 
@@ -141,28 +189,42 @@ func (n netaddr[T]) netAddr() net.Addr {
 }
 
 type network[T sockaddr] struct {
+	mutex   sync.Mutex
 	sockets map[netaddr[T]]*socket[T]
 }
 
-func (n *network[T]) open(pmu *sync.Mutex, stype wasi.SocketType, proto wasi.Protocol) *socket[T] {
+func (n *network[T]) open(pmu *sync.Mutex, proto protocol) *socket[T] {
 	return &socket[T]{
 		net:   n,
-		typ:   socktype(stype),
-		proto: protocol(proto),
+		proto: proto,
 		pipe:  makePipe(pmu),
 	}
 }
 
 func (n *network[T]) connect(ctx context.Context, addr netaddr[T]) (net.Conn, error) {
+	n.mutex.Lock()
 	server, ok := n.sockets[addr]
+	n.mutex.Unlock()
 	if !ok {
 		netAddr := addr.netAddr()
-		return nil, &net.OpError{Op: "dial", Net: netAddr.Network(), Addr: netAddr, Err: wasi.ECONNREFUSED}
+		return nil, &net.OpError{Op: "connect", Net: netAddr.Network(), Addr: netAddr, Err: wasi.ECONNREFUSED}
 	}
 	return server.connect(ctx)
 }
 
+func (n *network[T]) listen(ctx context.Context, pmu *sync.Mutex, addr netaddr[T]) (net.Listener, error) {
+	sock := n.open(pmu, addr.protocol)
+	sock.listen()
+	if errno := n.bind(addr, sock); errno != wasi.ESUCCESS {
+		netAddr := addr.netAddr()
+		return nil, &net.OpError{Op: "listen", Net: netAddr.Network(), Addr: netAddr, Err: errno}
+	}
+	return listener[T]{sock}, nil
+}
+
 func (n *network[T]) bind(addr netaddr[T], sock *socket[T]) wasi.Errno {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
 	if _, exist := n.sockets[addr]; exist {
 		// TODO:
 		// - SO_REUSEADDR
@@ -172,34 +234,55 @@ func (n *network[T]) bind(addr netaddr[T], sock *socket[T]) wasi.Errno {
 	if n.sockets == nil {
 		n.sockets = make(map[netaddr[T]]*socket[T])
 	}
+	sock.proto = addr.protocol
+	sock.laddr = addr.sockaddr
 	n.sockets[addr] = sock
 	return wasi.ESUCCESS
 }
 
 func (n *network[T]) unlink(addr netaddr[T], sock *socket[T]) {
+	n.mutex.Lock()
 	if n.sockets[addr] == sock {
 		delete(n.sockets, addr)
 	}
+	n.mutex.Unlock()
 }
 
-type socktype int32
+type listener[T sockaddr] struct {
+	socket *socket[T]
+}
 
-const (
-	anysocket = socktype(wasi.AnySocket)
-	stream    = socktype(wasi.StreamSocket)
-	datagram  = socktype(wasi.DatagramSocket)
-)
+func (l listener[T]) Close() error {
+	return l.socket.Close()
+}
+
+func (l listener[T]) Addr() net.Addr {
+	return l.socket.LocalAddr()
+}
+
+func (l listener[T]) Accept() (net.Conn, error) {
+	select {
+	case conn := <-l.socket.accept:
+		return conn, nil
+	case <-l.socket.done:
+		return nil, net.ErrClosed
+	}
+}
 
 type socket[T sockaddr] struct {
 	defaultFile
 	net    *network[T]
-	typ    socktype
 	proto  protocol
 	raddr  T
 	laddr  T
-	listen event // ready when the socket is accepting a new connection
+	ready  event // ready when the socket is accepting a new connection
 	accept chan *socket[T]
 	pipe
+}
+
+func (s *socket[T]) close() {
+	s.net.unlink(netaddr[T]{protocol: s.proto, sockaddr: s.laddr}, s)
+	s.pipe.close()
 }
 
 func (s *socket[T]) connect(ctx context.Context) (net.Conn, error) {
@@ -211,7 +294,7 @@ func (s *socket[T]) connect(ctx context.Context) (net.Conn, error) {
 		raddr: s.laddr,
 		// TODO: laddr
 	}
-	s.listen.trigger(s.pmu)
+	s.ready.trigger(s.pmu)
 	select {
 	case s.accept <- conn:
 		return conn, nil
@@ -222,12 +305,16 @@ func (s *socket[T]) connect(ctx context.Context) (net.Conn, error) {
 	}
 }
 
+func (s *socket[T]) listen() {
+	s.accept = make(chan *socket[T])
+}
+
 func (s *socket[T]) Hook(ev wasi.EventType, ch chan<- struct{}) {
 	switch {
 	case s.accept == nil:
 		s.pipe.Hook(ev, ch)
 	case ev == wasi.FDReadEvent:
-		s.listen.hook(ch)
+		s.ready.hook(ch)
 	}
 }
 
@@ -236,7 +323,7 @@ func (s *socket[T]) Poll(ev wasi.EventType) bool {
 	case s.accept == nil:
 		return s.pipe.Poll(ev)
 	case ev == wasi.FDReadEvent:
-		return s.listen.poll()
+		return s.ready.poll()
 	default:
 		return false
 	}
@@ -250,7 +337,7 @@ func (s *socket[T]) SockListen(ctx context.Context, _ int) wasi.Errno {
 		if s.laddr == zero {
 			return wasi.EDESTADDRREQ
 		}
-		s.accept = make(chan *socket[T])
+		s.listen()
 	}
 	return wasi.ESUCCESS
 }
@@ -303,7 +390,7 @@ func (s *socket[T]) SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.E
 }
 
 func (s *socket[T]) FDClose(ctx context.Context) wasi.Errno {
-	s.net.unlink(netaddr[T]{protocol: s.proto, sockaddr: s.laddr}, s)
+	s.close()
 	return s.pipe.FDClose(ctx)
 }
 
@@ -317,6 +404,11 @@ func (s *socket[T]) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, w
 
 func (s *socket[T]) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
 	return s.pipe.FDWrite(ctx, iovs)
+}
+
+func (s *socket[T]) Close() error {
+	s.close()
+	return nil
 }
 
 func (s *socket[T]) LocalAddr() net.Addr {

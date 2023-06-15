@@ -239,11 +239,11 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 	var socket File
 	switch pf {
 	case wasi.InetFamily:
-		socket = s.ipv4.open(s.lock, st, proto)
+		socket = s.ipv4.open(s.lock, protocol(proto))
 	case wasi.Inet6Family:
-		socket = s.ipv6.open(s.lock, st, proto)
+		socket = s.ipv6.open(s.lock, protocol(proto))
 	case wasi.UnixFamily:
-		socket = s.unix.open(s.lock, st, proto)
+		socket = s.unix.open(s.lock, protocol(proto))
 	default:
 		return none, wasi.EAFNOSUPPORT
 	}
