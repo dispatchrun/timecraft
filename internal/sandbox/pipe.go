@@ -142,7 +142,12 @@ type pipe struct {
 }
 
 func newPipe(pmu *sync.Mutex) *pipe {
-	return &pipe{
+	p := makePipe(pmu)
+	return &p
+}
+
+func makePipe(pmu *sync.Mutex) pipe {
+	return pipe{
 		pmu:  pmu,
 		rch:  make(channel),
 		wch:  make(channel),

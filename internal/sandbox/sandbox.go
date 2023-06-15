@@ -9,8 +9,8 @@ import (
 // File is the interface implemented by all flavors of files that can be
 // registered in a sandboxed System.
 //
-// The interface is an extension of wasi.File which adds the ability to hook
-// into the system's poller via two methods: Hook and Pool.
+// The interface is an extension of wasi.File which adds socket methods and
+// the ability to hook into the system's poller via two methods: Hook and Pool.
 //
 // Hook is called when the system needs to install a channel to be notified
 // when an event triggers on the file.
@@ -21,6 +21,19 @@ type File interface {
 	wasi.File[File]
 	Hook(ev wasi.EventType, ch chan<- struct{})
 	Poll(ev wasi.EventType) bool
+	SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno)
+	SockBind(ctx context.Context, addr wasi.SocketAddress) wasi.Errno
+	SockConnect(ctx context.Context, peer wasi.SocketAddress) wasi.Errno
+	SockListen(ctx context.Context, backlog int) wasi.Errno
+	SockRecv(ctx context.Context, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno)
+	SockSend(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno)
+	SockSendTo(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno)
+	SockRecvFrom(ctx context.Context, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno)
+	SockGetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno)
+	SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno
+	SockLocalAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno)
+	SockRemoteAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno)
+	SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.Errno
 }
 
 // defaultFile is useful to declare all file methods as not implemented by
@@ -124,4 +137,56 @@ func (defaultFile) PathSymlink(ctx context.Context, oldPath string, newPath stri
 
 func (defaultFile) PathUnlinkFile(ctx context.Context, path string) wasi.Errno {
 	return wasi.EBADF
+}
+
+func (defaultFile) SockBind(ctx context.Context, addr wasi.SocketAddress) wasi.Errno {
+	return wasi.ENOTSOCK
+}
+
+func (defaultFile) SockConnect(ctx context.Context, addr wasi.SocketAddress) wasi.Errno {
+	return wasi.ENOTSOCK
+}
+
+func (defaultFile) SockListen(ctx context.Context, backlog int) wasi.Errno {
+	return wasi.ENOTSOCK
+}
+
+func (defaultFile) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno) {
+	return nil, wasi.ENOTSOCK
+}
+
+func (defaultFile) SockRecv(ctx context.Context, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
+	return 0, 0, wasi.ENOTSOCK
+}
+
+func (defaultFile) SockSend(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
+	return 0, wasi.ENOTSOCK
+}
+
+func (defaultFile) SockSendTo(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno) {
+	return 0, wasi.ENOTSOCK
+}
+
+func (defaultFile) SockRecvFrom(ctx context.Context, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno) {
+	return 0, 0, nil, wasi.ENOTSOCK
+}
+
+func (defaultFile) SockGetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
+	return nil, wasi.ENOTSOCK
+}
+
+func (defaultFile) SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+	return wasi.ENOTSOCK
+}
+
+func (defaultFile) SockLocalAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno) {
+	return nil, wasi.ENOTSOCK
+}
+
+func (defaultFile) SockRemoteAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno) {
+	return nil, wasi.ENOTSOCK
+}
+
+func (defaultFile) SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.Errno {
+	return wasi.ENOTSOCK
 }
