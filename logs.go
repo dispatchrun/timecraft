@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/internal/debug/stdio"
 	"github.com/stealthrocket/timecraft/internal/print/human"
+	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 )
 
@@ -58,11 +59,11 @@ func logs(ctx context.Context, args []string) error {
 	if err != nil {
 		return errors.New(`malformed process id passed as argument (not a UUID)`)
 	}
-	config, err := loadConfig()
+	config, err := timecraft.LoadConfig()
 	if err != nil {
 		return err
 	}
-	registry, err := config.openRegistry()
+	registry, err := timecraft.OpenRegistry(config)
 	if err != nil {
 		return err
 	}

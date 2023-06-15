@@ -82,11 +82,11 @@ func run(ctx context.Context, args []string) error {
 		return errors.New(`missing "--" separator before the module path`)
 	}
 
-	config, err := loadConfig()
+	config, err := timecraft.LoadConfig()
 	if err != nil {
 		return err
 	}
-	registry, err := config.createRegistry()
+	registry, err := timecraft.CreateRegistry(config)
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,10 @@ func run(ctx context.Context, args []string) error {
 		return fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
 	}
 
-	runtime := config.newRuntime(ctx)
+	runtime, err := timecraft.NewRuntime(ctx, config)
+	if err != nil {
+		return err
+	}
 	defer runtime.Close(ctx)
 
 	wasmModule, err := runtime.CompileModule(ctx, wasmCode)

@@ -16,6 +16,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/print/textprint"
 	"github.com/stealthrocket/timecraft/internal/print/yamlprint"
 	"github.com/stealthrocket/timecraft/internal/stream"
+	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 )
@@ -56,8 +57,8 @@ type resource struct {
 	alt       []string
 	mediaType format.MediaType
 	get       func(context.Context, io.Writer, *timemachine.Registry, bool) stream.WriteCloser[*format.Descriptor]
-	describe  func(context.Context, *timemachine.Registry, string, *configuration) (any, error)
-	lookup    func(context.Context, *timemachine.Registry, string, *configuration) (any, error)
+	describe  func(context.Context, *timemachine.Registry, string, *timecraft.Config) (any, error)
+	lookup    func(context.Context, *timemachine.Registry, string, *timecraft.Config) (any, error)
 }
 
 var resources = [...]resource{
@@ -138,11 +139,11 @@ func get(ctx context.Context, args []string) error {
 		return exitCode(2)
 	}
 	args = args[1:]
-	config, err := loadConfig()
+	config, err := timecraft.LoadConfig()
 	if err != nil {
 		return err
 	}
-	registry, err := config.openRegistry()
+	registry, err := timecraft.OpenRegistry(config)
 	if err != nil {
 		return err
 	}

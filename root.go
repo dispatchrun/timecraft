@@ -30,6 +30,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/print/human"
+	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 )
@@ -54,7 +55,7 @@ For a list of commands available, run 'timecraft help'.`
 // Root is the timecraft entrypoint.
 func Root(ctx context.Context, args ...string) int {
 	if v := os.Getenv("TIMECRAFTCONFIG"); v != "" {
-		configPath = human.Path(v)
+		timecraft.ConfigPath = human.Path(v)
 	}
 
 	var (
@@ -245,7 +246,7 @@ func perrorf(msg string, args ...any) {
 func newFlagSet(cmd, usage string) *flag.FlagSet {
 	flagSet := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	flagSet.Usage = func() { fmt.Println(usage) }
-	customVar(flagSet, &configPath, "c", "config")
+	customVar(flagSet, &timecraft.ConfigPath, "c", "config")
 	return flagSet
 }
 
