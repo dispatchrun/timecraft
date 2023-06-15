@@ -169,7 +169,7 @@ type dir struct {
 }
 
 func (d *dir) FDReadDir(ctx context.Context, entries []wasi.DirEntry, cookie wasi.DirCookie, bufferSizeBytes int) (n int, errno wasi.Errno) {
-	if cookie < 0 || cookie > wasi.DirCookie(len(d.entries)) {
+	if cookie > wasi.DirCookie(len(d.entries)) {
 		return -1, wasi.EINVAL
 	}
 	for _, ent := range d.entries[cookie:] {

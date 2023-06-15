@@ -282,9 +282,8 @@ func (l *listener[T]) Accept() (net.Conn, error) {
 
 type ipnet[T inaddr[T]] struct {
 	mutex   sync.Mutex
-	sockets map[netaddr[T]]*socket[T]
 	address netip.Addr
-	genport uint16
+	sockets map[netaddr[T]]*socket[T]
 }
 
 func (n *ipnet[T]) socket(addr netaddr[T]) *socket[T] {
@@ -403,6 +402,12 @@ func (n *unixnet) unlink(sock *socket[unix]) wasi.Errno {
 	return wasi.ESUCCESS
 }
 
+var (
+	_ network[ipv4] = (*ipnet[ipv4])(nil)
+	_ network[ipv6] = (*ipnet[ipv6])(nil)
+	_ network[unix] = (*unixnet)(nil)
+)
+
 type socket[T sockaddr] struct {
 	defaultFile
 	net   network[T]
@@ -432,7 +437,7 @@ func newSocket[T sockaddr](net network[T], lock *sync.Mutex, proto protocol) *so
 }
 
 func (s *socket[T]) close() {
-	s.net.unlink(s)
+	_ = s.net.unlink(s)
 	s.recv.close()
 	s.send.close()
 }
@@ -461,10 +466,10 @@ func (s *socket[T]) connect(ctx context.Context) (net.Conn, error) {
 	case s.accept <- conn:
 		return newHostConn(conn), nil
 	case <-s.recv.done:
-		s.net.unlink(conn)
+		_ = s.net.unlink(conn)
 		return nil, net.ErrClosed
 	case <-ctx.Done():
-		s.net.unlink(conn)
+		_ = s.net.unlink(conn)
 		return nil, context.Cause(ctx)
 	}
 }
@@ -561,8 +566,8 @@ func (s *socket[T]) FDClose(ctx context.Context) wasi.Errno {
 }
 
 func (s *socket[T]) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
-	s.send.FDStatSetFlags(ctx, flags)
-	s.recv.FDStatSetFlags(ctx, flags)
+	_ = s.send.FDStatSetFlags(ctx, flags)
+	_ = s.recv.FDStatSetFlags(ctx, flags)
 	return wasi.ESUCCESS
 }
 
