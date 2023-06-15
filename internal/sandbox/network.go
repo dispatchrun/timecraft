@@ -245,13 +245,23 @@ func connect[N network[T], T sockaddr](ctx context.Context, n N, addr netaddr[T]
 }
 
 func listen[N network[T], T sockaddr](n N, lock *sync.Mutex, addr netaddr[T]) (net.Listener, error) {
-	sock := newSocket[T](n, lock, addr.protocol)
-	sock.listen()
+	sock := &socket[T]{
+		net:    n,
+		proto:  addr.protocol,
+		accept: make(chan *socket[T]),
+		send:   newPipe(lock),
+		recv:   newPipe(lock),
+		host:   true,
+	}
 	if errno := n.bind(addr, sock); errno != wasi.ESUCCESS {
 		netAddr := addr.netAddr()
 		return nil, &net.OpError{Op: "listen", Net: netAddr.Network(), Addr: netAddr, Err: errno}
 	}
-	return &listener[T]{socket: sock, addr: sock.laddr.netAddr(sock.proto)}, nil
+	lstn := &listener[T]{
+		socket: sock,
+		addr:   sock.laddr.netAddr(sock.proto),
+	}
+	return lstn, nil
 }
 
 type listener[T sockaddr] struct {
@@ -472,10 +482,6 @@ func (s *socket[T]) connect(ctx context.Context) (net.Conn, error) {
 		_ = s.net.unlink(conn)
 		return nil, context.Cause(ctx)
 	}
-}
-
-func (s *socket[T]) listen() {
-	s.accept = make(chan *socket[T])
 }
 
 func (s *socket[T]) FDHook(ev wasi.EventType, ch chan<- struct{}) {
