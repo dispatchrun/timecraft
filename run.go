@@ -86,7 +86,7 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	registry, err := config.CreateRegistry()
+	registry, err := timecraft.CreateRegistry(config)
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func run(ctx context.Context, args []string) error {
 		return fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
 	}
 
-	runtime, err := config.NewRuntime(ctx)
+	runtime, err := timecraft.NewRuntime(ctx, config)
 	if err != nil {
 		return err
 	}

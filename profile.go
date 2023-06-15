@@ -99,7 +99,7 @@ func profile(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	registry, err := config.OpenRegistry()
+	registry, err := timecraft.OpenRegistry(config)
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func profile(ctx context.Context, args []string) error {
 		),
 	)
 
-	runtime, err := config.NewRuntime(ctx)
+	runtime, err := timecraft.NewRuntime(ctx, config)
 	if err != nil {
 		return err
 	}

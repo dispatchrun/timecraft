@@ -143,7 +143,7 @@ func get(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	registry, err := config.OpenRegistry()
+	registry, err := timecraft.OpenRegistry(config)
 	if err != nil {
 		return err
 	}

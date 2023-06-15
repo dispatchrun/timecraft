@@ -87,7 +87,7 @@ func describe(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	registry, err := config.OpenRegistry()
+	registry, err := timecraft.OpenRegistry(config)
 	if err != nil {
 		return err
 	}
@@ -183,7 +183,7 @@ func describeModule(ctx context.Context, reg *timemachine.Registry, id string, c
 		return nil, err
 	}
 
-	runtime, err := config.NewRuntime(ctx)
+	runtime, err := timecraft.NewRuntime(ctx, config)
 	if err != nil {
 		return nil, err
 	}
