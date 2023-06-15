@@ -42,6 +42,9 @@ test: testdata wasi-testsuite
 
 testdata: $(testdata.go.wasm)
 
+testdata/go/%_test.wasm: testdata/go/%_test.go
+	GOARCH=wasm GOOS=wasip1 $(GO) test -c -o $@ $<
+
 testdata/go/%.wasm: testdata/go/%.go
 	GOARCH=wasm GOOS=wasip1 $(GO) build -o $@ $<
 
