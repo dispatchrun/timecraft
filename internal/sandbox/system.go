@@ -97,15 +97,15 @@ func New(opts ...Option) *System {
 		opt(s)
 	}
 
-	s.Preopen(s.stdin, "/dev/stdin", wasi.FDStat{
+	s.Preopen(input{s.stdin}, "/dev/stdin", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDWriteRight,
 	})
-	s.Preopen(s.stdout, "/dev/stdout", wasi.FDStat{
+	s.Preopen(output{s.stdout}, "/dev/stdout", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDReadRight,
 	})
-	s.Preopen(s.stderr, "/dev/stderr", wasi.FDStat{
+	s.Preopen(output{s.stderr}, "/dev/stderr", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDReadRight,
 	})
@@ -125,13 +125,13 @@ func New(opts ...Option) *System {
 }
 
 // Stdin returns a writer to the standard input of the guest module.
-func (s *System) Stdin() io.WriteCloser { return s.stdin }
+func (s *System) Stdin() io.WriteCloser { return inputWriteCloser{s.stdin} }
 
 // Stdout returns a writer to the standard output of the guest module.
-func (s *System) Stdout() io.ReadCloser { return s.stdout }
+func (s *System) Stdout() io.ReadCloser { return outputReadCloser{s.stdout} }
 
 // Stderr returns a writer to the standard output of the guest module.
-func (s *System) Stderr() io.ReadCloser { return s.stderr }
+func (s *System) Stderr() io.ReadCloser { return outputReadCloser{s.stderr} }
 
 // FS returns a fs.FS exposing the file system mounted to the guest module.
 func (s *System) FS() fs.FS {
@@ -460,12 +460,12 @@ func (s *System) pollOneOffScatter(subscriptions []wasi.Subscription, events []w
 				reportError(sub, errno)
 				continue
 			}
-			if f.Poll(sub.EventType) {
+			if f.FDPoll(sub.EventType) {
 				events[numEvents] = makeFDEvent(sub)
 				numEvents++
 				continue
 			}
-			f.Hook(sub.EventType, s.poll)
+			f.FDHook(sub.EventType, s.poll)
 
 		default:
 			reportError(sub, wasi.ENOTSUP)
@@ -486,7 +486,7 @@ func (s *System) pollOneOffGather(subscriptions []wasi.Subscription, events []wa
 			if f == nil {
 				continue
 			}
-			if !f.Poll(sub.EventType) {
+			if !f.FDPoll(sub.EventType) {
 				continue
 			}
 			events[numEvents] = makeFDEvent(sub)

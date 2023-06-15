@@ -2,8 +2,11 @@ package sandbox
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"net/netip"
+	"os"
 	"sync"
 	"time"
 
@@ -232,20 +235,32 @@ func listen[N network[T], T sockaddr](n N, lock *sync.Mutex, addr netaddr[T]) (n
 		netAddr := addr.netAddr()
 		return nil, &net.OpError{Op: "listen", Net: netAddr.Network(), Addr: netAddr, Err: errno}
 	}
-	return listener[T]{sock}, nil
+	return &listener[T]{socket: sock, addr: sock.laddr.netAddr(sock.proto)}, nil
 }
 
-type listener[T sockaddr] struct{ socket *socket[T] }
+type listener[T sockaddr] struct {
+	socket *socket[T]
+	addr   net.Addr
+}
 
-func (l listener[T]) Close() error { return l.socket.Close() }
+func (l *listener[T]) Close() error {
+	l.socket.close()
+	return nil
+}
 
-func (l listener[T]) Addr() net.Addr { return l.socket.LocalAddr() }
+func (l *listener[T]) Addr() net.Addr {
+	return l.addr
+}
 
-func (l listener[T]) Accept() (net.Conn, error) {
+func (l *listener[T]) Accept() (net.Conn, error) {
 	select {
-	case conn := <-l.socket.accept:
-		return conn, nil
-	case <-l.socket.done:
+	case socket := <-l.socket.accept:
+		if socket.host {
+			return newGuestConn(socket), nil
+		} else {
+			return newHostConn(socket), nil
+		}
+	case <-l.socket.recv.done:
 		return nil, net.ErrClosed
 	}
 }
@@ -343,39 +358,57 @@ func (n *unixnet) unlink(addr netaddr[unix], sock *socket[unix]) wasi.Errno {
 
 type socket[T sockaddr] struct {
 	defaultFile
-	net    network[T]
-	proto  protocol
-	raddr  T
-	laddr  T
-	ready  event // ready when the socket is accepting a new connection
+	net   network[T]
+	proto protocol
+	raddr T
+	laddr T
+	// For listening sockets, this event and channel are used to pass
+	// connections between the two ends of the network.
 	accept chan *socket[T]
-	pipe
+	// Connected sockets have a bidirectional pipe that links between the two
+	// ends of the socket pair.
+	send *pipe // socket send end (guest side)
+	recv *pipe // socket recv end (guest side)
+	// This field is set to true if the socket was created by the host, which
+	// allows listeners to detect if they are accepting connections from the
+	// guest, and construct the right connection type.
+	host bool
 }
 
-func newSocket[T sockaddr](net network[T], pmu *sync.Mutex, proto protocol) *socket[T] {
+func newSocket[T sockaddr](net network[T], lock *sync.Mutex, proto protocol) *socket[T] {
 	return &socket[T]{
 		net:   net,
 		proto: proto,
-		pipe:  makePipe(pmu),
+		send:  newPipe(lock),
+		recv:  newPipe(lock),
 	}
 }
 
 func (s *socket[T]) close() {
 	s.net.unlink(netaddr[T]{protocol: s.proto, sockaddr: s.laddr}, s)
-	s.pipe.close()
+	s.recv.close()
+	s.send.close()
 }
 
 func (s *socket[T]) connect(ctx context.Context) (net.Conn, error) {
 	if s.accept == nil {
 		return nil, &net.OpError{Op: "connect", Net: s.proto.String(), Err: wasi.EISCONN}
 	}
-	conn := newSocket(s.net, s.pmu, s.proto)
-	conn.raddr = s.laddr
-	s.ready.trigger(s.pmu)
+	// The lock is the same on both the send and receive ends.
+	lock := s.send.lock
+	conn := &socket[T]{
+		net:   s.net,
+		proto: s.proto,
+		send:  newPipe(lock),
+		recv:  newPipe(lock),
+		laddr: s.laddr,
+		host:  true,
+	}
+	s.recv.ev.trigger(s.recv.lock)
 	select {
 	case s.accept <- conn:
-		return conn, nil
-	case <-s.done:
+		return newHostConn(conn), nil
+	case <-s.recv.done:
 		return nil, net.ErrClosed
 	case <-ctx.Done():
 		return nil, context.Cause(ctx)
@@ -386,21 +419,21 @@ func (s *socket[T]) listen() {
 	s.accept = make(chan *socket[T])
 }
 
-func (s *socket[T]) Hook(ev wasi.EventType, ch chan<- struct{}) {
-	switch {
-	case s.accept == nil:
-		s.pipe.Hook(ev, ch)
-	case ev == wasi.FDReadEvent:
-		s.ready.hook(ch)
+func (s *socket[T]) FDHook(ev wasi.EventType, ch chan<- struct{}) {
+	switch ev {
+	case wasi.FDReadEvent:
+		s.recv.ev.hook(ch)
+	case wasi.FDWriteEvent:
+		s.send.ev.hook(ch)
 	}
 }
 
-func (s *socket[T]) Poll(ev wasi.EventType) bool {
-	switch {
-	case s.accept == nil:
-		return s.pipe.Poll(ev)
-	case ev == wasi.FDReadEvent:
-		return s.ready.poll()
+func (s *socket[T]) FDPoll(ev wasi.EventType) bool {
+	switch ev {
+	case wasi.FDReadEvent:
+		return s.recv.ev.poll()
+	case wasi.FDWriteEvent:
+		return s.send.ev.poll()
 	default:
 		return false
 	}
@@ -421,9 +454,9 @@ func (s *socket[T]) SockListen(ctx context.Context, _ int) wasi.Errno {
 
 func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno) {
 	select {
-	case conn := <-s.accept:
-		return conn, wasi.ESUCCESS
-	case <-s.done:
+	case sock := <-s.accept:
+		return sock, wasi.ESUCCESS
+	case <-s.recv.done:
 		return nil, wasi.EBADF
 	case <-ctx.Done():
 		return nil, wasi.MakeErrno(ctx.Err())
@@ -468,45 +501,290 @@ func (s *socket[T]) SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.E
 
 func (s *socket[T]) FDClose(ctx context.Context) wasi.Errno {
 	s.close()
-	return s.pipe.FDClose(ctx)
+	s.send.FDClose(ctx)
+	s.recv.FDClose(ctx)
+	return wasi.ESUCCESS
 }
 
 func (s *socket[T]) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
-	return s.pipe.FDStatSetFlags(ctx, flags)
+	s.send.FDStatSetFlags(ctx, flags)
+	s.recv.FDStatSetFlags(ctx, flags)
+	return wasi.ESUCCESS
 }
 
 func (s *socket[T]) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return s.pipe.FDRead(ctx, iovs)
+	return s.recv.ch.read(ctx, iovs, s.recv.flags, &s.recv.ev, nil, s.recv.done)
 }
 
 func (s *socket[T]) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return s.pipe.FDWrite(ctx, iovs)
+	return s.send.ch.write(ctx, iovs, s.send.flags, &s.send.ev, nil, s.send.done)
 }
 
-func (s *socket[T]) Close() error {
-	s.close()
+type hostConn[T sockaddr] struct {
+	socket    *socket[T]
+	laddr     net.Addr
+	raddr     net.Addr
+	rdeadline deadline
+	wdeadline deadline
+}
+
+func newHostConn[T sockaddr](socket *socket[T]) *hostConn[T] {
+	return &hostConn[T]{
+		socket:    socket,
+		laddr:     socket.raddr.netAddr(socket.proto),
+		raddr:     socket.laddr.netAddr(socket.proto),
+		rdeadline: makeDeadline(),
+		wdeadline: makeDeadline(),
+	}
+}
+
+func (c *hostConn[T]) Close() error {
+	c.socket.close()
+	c.rdeadline.set(time.Time{})
+	c.wdeadline.set(time.Time{})
 	return nil
 }
 
-func (s *socket[T]) LocalAddr() net.Addr {
-	return s.laddr.netAddr(s.proto)
+func (c *hostConn[T]) Read(b []byte) (int, error) {
+	pipe := c.socket.send
+	pipe.mu.Lock()
+	defer pipe.mu.Unlock()
+
+	if c.rdeadline.expired() {
+		return 0, os.ErrDeadlineExceeded
+	}
+
+	pipe.ev.trigger(pipe.lock)
+	select {
+	case pipe.ch <- b:
+		return len(b) - len(<-pipe.ch), nil
+	case <-c.rdeadline.ch:
+		return 0, os.ErrDeadlineExceeded
+	case <-pipe.done:
+		return 0, io.EOF
+	}
 }
 
-func (s *socket[T]) RemoteAddr() net.Addr {
-	return s.raddr.netAddr(s.proto)
+func (c *hostConn[T]) Write(b []byte) (n int, err error) {
+	pipe := c.socket.recv
+	pipe.mu.Lock()
+	defer pipe.mu.Unlock()
+
+	if c.wdeadline.expired() {
+		return 0, os.ErrDeadlineExceeded
+	}
+
+	for n < len(b) {
+		pipe.ev.trigger(pipe.lock)
+		select {
+		case pipe.ch <- b[n:]:
+			n = len(b) - len(<-pipe.ch)
+		case <-c.wdeadline.ch:
+			return n, os.ErrDeadlineExceeded
+		case <-pipe.done:
+			return n, io.ErrClosedPipe
+		}
+	}
+	return n, nil
 }
 
-func (s *socket[T]) SetDeadline(t time.Time) error {
-	raddr, laddr := s.RemoteAddr(), s.LocalAddr()
-	return &net.OpError{Op: "SetDeadline", Net: raddr.Network(), Source: laddr, Addr: raddr, Err: wasi.ENOSYS}
+func (c *hostConn[T]) LocalAddr() net.Addr {
+	return c.laddr
 }
 
-func (s *socket[T]) SetReadDeadline(t time.Time) error {
-	raddr, laddr := s.RemoteAddr(), s.LocalAddr()
-	return &net.OpError{Op: "SetReadDeadline", Net: raddr.Network(), Source: laddr, Addr: raddr, Err: wasi.ENOSYS}
+func (c *hostConn[T]) RemoteAddr() net.Addr {
+	return c.raddr
 }
 
-func (s *socket[T]) SetWriteDeadline(t time.Time) error {
-	raddr, laddr := s.RemoteAddr(), s.LocalAddr()
-	return &net.OpError{Op: "SetWriteDeadline", Net: raddr.Network(), Source: laddr, Addr: raddr, Err: wasi.ENOSYS}
+func (c *hostConn[T]) SetDeadline(t time.Time) error {
+	return errors.Join(c.SetReadDeadline(t), c.SetWriteDeadline(t))
+}
+
+func (c *hostConn[T]) SetReadDeadline(t time.Time) error {
+	select {
+	case <-c.socket.send.done:
+		return net.ErrClosed
+	default:
+		c.rdeadline.set(t)
+		return nil
+	}
+}
+
+func (c *hostConn[T]) SetWriteDeadline(t time.Time) error {
+	select {
+	case <-c.socket.recv.done:
+		return net.ErrClosed
+	default:
+		c.wdeadline.set(t)
+		return nil
+	}
+}
+
+type guestConn[T sockaddr] struct {
+	socket    *socket[T]
+	laddr     net.Addr
+	raddr     net.Addr
+	rdeadline deadline
+	wdeadline deadline
+}
+
+func newGuestConn[T sockaddr](socket *socket[T]) *guestConn[T] {
+	return &guestConn[T]{
+		socket:    socket,
+		laddr:     socket.laddr.netAddr(socket.proto),
+		raddr:     socket.raddr.netAddr(socket.proto),
+		rdeadline: makeDeadline(),
+		wdeadline: makeDeadline(),
+	}
+}
+
+func (c *guestConn[T]) Close() error {
+	c.socket.close()
+	c.rdeadline.set(time.Time{})
+	c.wdeadline.set(time.Time{})
+	return nil
+}
+
+func (c *guestConn[T]) Read(b []byte) (int, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
+	if c.rdeadline.expired() {
+		return 0, os.ErrDeadlineExceeded
+	}
+	ctx := context.Background()
+	pipe := c.socket.recv
+	timeout := c.rdeadline.ch
+	iovs := []wasi.IOVec{b}
+	size, errno := pipe.ch.read(ctx, iovs, 0, &pipe.ev, timeout, pipe.done)
+	switch errno {
+	case wasi.ESUCCESS:
+		if size == 0 {
+			return 0, io.EOF
+		}
+		return int(size), nil
+	case wasi.ETIMEDOUT:
+		return int(size), os.ErrDeadlineExceeded
+	case wasi.EBADF:
+		return int(size), net.ErrClosed
+	default:
+		return int(size), errno
+	}
+}
+
+func (c *guestConn[T]) Write(b []byte) (n int, err error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
+	if c.wdeadline.expired() {
+		return 0, os.ErrDeadlineExceeded
+	}
+	ctx := context.Background()
+	pipe := c.socket.send
+	timeout := c.wdeadline.ch
+	for n < len(b) {
+		iovs := []wasi.IOVec{b[n:]}
+		size, errno := pipe.ch.write(ctx, iovs, 0, &pipe.ev, timeout, pipe.done)
+		n += int(size)
+		switch errno {
+		case wasi.ESUCCESS:
+		case wasi.ETIMEDOUT:
+			return n, os.ErrDeadlineExceeded
+		case wasi.EBADF:
+			return n, net.ErrClosed
+		default:
+			return n, errno
+		}
+	}
+	return n, nil
+}
+
+func (c *guestConn[T]) LocalAddr() net.Addr {
+	return c.laddr
+}
+
+func (c *guestConn[T]) RemoteAddr() net.Addr {
+	return c.raddr
+}
+
+func (c *guestConn[T]) SetDeadline(t time.Time) error {
+	return errors.Join(c.SetReadDeadline(t), c.SetWriteDeadline(t))
+}
+
+func (c *guestConn[T]) SetReadDeadline(t time.Time) error {
+	select {
+	case <-c.socket.recv.done:
+		return net.ErrClosed
+	default:
+		c.rdeadline.set(t)
+		return nil
+	}
+}
+
+func (c *guestConn[T]) SetWriteDeadline(t time.Time) error {
+	select {
+	case <-c.socket.send.done:
+		return net.ErrClosed
+	default:
+		c.wdeadline.set(t)
+		return nil
+	}
+}
+
+type deadline struct {
+	mu sync.Mutex
+	ts time.Time
+	tm *time.Timer
+	ch chan struct{}
+}
+
+func makeDeadline() deadline {
+	return deadline{ch: make(chan struct{}, 1)}
+}
+
+func (d *deadline) expired() bool {
+	d.mu.Lock()
+	ts := d.ts
+	d.mu.Unlock()
+	return !ts.IsZero() && !ts.After(time.Now())
+}
+
+func (d *deadline) set(t time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.ts = t
+	d.clear()
+
+	if t.IsZero() {
+		if d.tm != nil {
+			d.tm.Stop()
+		}
+		return
+	}
+
+	if timeout := time.Until(t); timeout <= 0 {
+		if d.tm != nil {
+			d.tm.Stop()
+		}
+		d.signal()
+	} else if d.tm != nil {
+		d.tm.Reset(timeout)
+	} else {
+		d.tm = time.AfterFunc(timeout, d.signal)
+	}
+}
+
+func (d *deadline) clear() {
+	select {
+	case <-d.ch:
+	default:
+	}
+}
+
+func (d *deadline) signal() {
+	select {
+	case d.ch <- struct{}{}:
+	default:
+	}
 }
