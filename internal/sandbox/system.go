@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -68,9 +69,9 @@ type System struct {
 	stderr *pipe
 	root   wasi.FD
 	poll   chan struct{}
-	ipv4   network[ipv4]
-	ipv6   network[ipv6]
-	unix   network[unix]
+	ipv4   ipnet[ipv4]
+	ipv6   ipnet[ipv6]
+	unix   unixnet
 }
 
 // New creates a new System instance, applying the list of options passed as
@@ -84,6 +85,12 @@ func New(opts ...Option) *System {
 		stdout: newPipe(lock),
 		stderr: newPipe(lock),
 		poll:   make(chan struct{}, 1),
+		ipv4: ipnet[ipv4]{
+			address: netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+		},
+		ipv6: ipnet[ipv6]{
+			address: netip.AddrFrom16([16]byte{15: 1}),
+		},
 	}
 
 	for _, opt := range opts {
@@ -239,11 +246,11 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 	var socket File
 	switch pf {
 	case wasi.InetFamily:
-		socket = s.ipv4.open(s.lock, protocol(proto))
+		socket = newSocket[ipv4](&s.ipv4, s.lock, protocol(proto))
 	case wasi.Inet6Family:
-		socket = s.ipv6.open(s.lock, protocol(proto))
+		socket = newSocket[ipv6](&s.ipv6, s.lock, protocol(proto))
 	case wasi.UnixFamily:
-		socket = s.unix.open(s.lock, protocol(proto))
+		socket = newSocket[unix](&s.unix, s.lock, protocol(proto))
 	default:
 		return none, wasi.EAFNOSUPPORT
 	}

@@ -30,7 +30,7 @@ func (s *System) Connect(ctx context.Context, network, address string) (net.Conn
 			return nil, &net.AddrError{Err: "missing port in connect address", Addr: address}
 		}
 		if addr.Is4() {
-			return s.ipv4.connect(ctx, netaddr[ipv4]{
+			return connect(ctx, &s.ipv4, netaddr[ipv4]{
 				protocol: tcp,
 				sockaddr: ipv4{
 					Port: int(port),
@@ -38,7 +38,7 @@ func (s *System) Connect(ctx context.Context, network, address string) (net.Conn
 				},
 			})
 		} else {
-			return s.ipv6.connect(ctx, netaddr[ipv6]{
+			return connect(ctx, &s.ipv6, netaddr[ipv6]{
 				protocol: tcp,
 				sockaddr: ipv6{
 					Port: int(port),
@@ -47,7 +47,7 @@ func (s *System) Connect(ctx context.Context, network, address string) (net.Conn
 			})
 		}
 	case "unix":
-		return s.unix.connect(ctx, netaddr[unix]{
+		return connect(ctx, &s.unix, netaddr[unix]{
 			sockaddr: unix{
 				Name: address,
 			},
@@ -74,7 +74,7 @@ func (s *System) Listen(ctx context.Context, network, address string) (net.Liste
 		addr := addrPort.Addr()
 		port := addrPort.Port()
 		if addr.Is4() {
-			return s.ipv4.listen(ctx, s.lock, netaddr[ipv4]{
+			return listen(&s.ipv4, s.lock, netaddr[ipv4]{
 				protocol: tcp,
 				sockaddr: ipv4{
 					Port: int(port),
@@ -82,7 +82,7 @@ func (s *System) Listen(ctx context.Context, network, address string) (net.Liste
 				},
 			})
 		} else {
-			return s.ipv6.listen(ctx, s.lock, netaddr[ipv6]{
+			return listen(&s.ipv6, s.lock, netaddr[ipv6]{
 				protocol: tcp,
 				sockaddr: ipv6{
 					Port: int(port),
@@ -91,7 +91,7 @@ func (s *System) Listen(ctx context.Context, network, address string) (net.Liste
 			})
 		}
 	case "unix":
-		return s.unix.listen(ctx, s.lock, netaddr[unix]{
+		return listen(&s.unix, s.lock, netaddr[unix]{
 			sockaddr: unix{
 				Name: address,
 			},
@@ -119,7 +119,21 @@ func makeIPNetAddr(proto protocol, ip net.IP, port int) net.Addr {
 	}
 }
 
+type inaddr interface {
+	addr() netip.Addr
+	port() int
+	sockaddr
+}
+
 type ipv4 wasi.Inet4Address
+
+func (inaddr ipv4) addr() netip.Addr {
+	return netip.AddrFrom4(inaddr.Addr)
+}
+
+func (inaddr ipv4) port() int {
+	return inaddr.Port
+}
 
 func (inaddr ipv4) family() wasi.ProtocolFamily {
 	return wasi.InetFamily
@@ -134,6 +148,14 @@ func (inaddr ipv4) netAddr(proto protocol) net.Addr {
 }
 
 type ipv6 wasi.Inet6Address
+
+func (inaddr ipv6) addr() netip.Addr {
+	return netip.AddrFrom16(inaddr.Addr)
+}
+
+func (inaddr ipv6) port() int {
+	return inaddr.Port
+}
 
 func (inaddr ipv6) family() wasi.ProtocolFamily {
 	return wasi.Inet6Family
@@ -188,32 +210,23 @@ func (n netaddr[T]) netAddr() net.Addr {
 	return n.sockaddr.netAddr(n.protocol)
 }
 
-type network[T sockaddr] struct {
-	mutex   sync.Mutex
-	sockets map[netaddr[T]]*socket[T]
+type network[T sockaddr] interface {
+	socket(addr netaddr[T]) *socket[T]
+	bind(addr netaddr[T], sock *socket[T]) wasi.Errno
+	unlink(addr netaddr[T], sock *socket[T]) wasi.Errno
 }
 
-func (n *network[T]) open(pmu *sync.Mutex, proto protocol) *socket[T] {
-	return &socket[T]{
-		net:   n,
-		proto: proto,
-		pipe:  makePipe(pmu),
-	}
-}
-
-func (n *network[T]) connect(ctx context.Context, addr netaddr[T]) (net.Conn, error) {
-	n.mutex.Lock()
-	server, ok := n.sockets[addr]
-	n.mutex.Unlock()
-	if !ok {
+func connect[N network[T], T sockaddr](ctx context.Context, n N, addr netaddr[T]) (net.Conn, error) {
+	sock := n.socket(addr)
+	if sock == nil {
 		netAddr := addr.netAddr()
 		return nil, &net.OpError{Op: "connect", Net: netAddr.Network(), Addr: netAddr, Err: wasi.ECONNREFUSED}
 	}
-	return server.connect(ctx)
+	return sock.connect(ctx)
 }
 
-func (n *network[T]) listen(ctx context.Context, pmu *sync.Mutex, addr netaddr[T]) (net.Listener, error) {
-	sock := n.open(pmu, addr.protocol)
+func listen[N network[T], T sockaddr](n N, lock *sync.Mutex, addr netaddr[T]) (net.Listener, error) {
+	sock := newSocket[T](n, lock, addr.protocol)
 	sock.listen()
 	if errno := n.bind(addr, sock); errno != wasi.ESUCCESS {
 		netAddr := addr.netAddr()
@@ -222,43 +235,11 @@ func (n *network[T]) listen(ctx context.Context, pmu *sync.Mutex, addr netaddr[T
 	return listener[T]{sock}, nil
 }
 
-func (n *network[T]) bind(addr netaddr[T], sock *socket[T]) wasi.Errno {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
-	if _, exist := n.sockets[addr]; exist {
-		// TODO:
-		// - SO_REUSEADDR
-		// - SO_REUSEPORT
-		return wasi.EADDRINUSE
-	}
-	if n.sockets == nil {
-		n.sockets = make(map[netaddr[T]]*socket[T])
-	}
-	sock.proto = addr.protocol
-	sock.laddr = addr.sockaddr
-	n.sockets[addr] = sock
-	return wasi.ESUCCESS
-}
+type listener[T sockaddr] struct{ socket *socket[T] }
 
-func (n *network[T]) unlink(addr netaddr[T], sock *socket[T]) {
-	n.mutex.Lock()
-	if n.sockets[addr] == sock {
-		delete(n.sockets, addr)
-	}
-	n.mutex.Unlock()
-}
+func (l listener[T]) Close() error { return l.socket.Close() }
 
-type listener[T sockaddr] struct {
-	socket *socket[T]
-}
-
-func (l listener[T]) Close() error {
-	return l.socket.Close()
-}
-
-func (l listener[T]) Addr() net.Addr {
-	return l.socket.LocalAddr()
-}
+func (l listener[T]) Addr() net.Addr { return l.socket.LocalAddr() }
 
 func (l listener[T]) Accept() (net.Conn, error) {
 	select {
@@ -269,15 +250,114 @@ func (l listener[T]) Accept() (net.Conn, error) {
 	}
 }
 
+type ipnet[T inaddr] struct {
+	mutex   sync.Mutex
+	sockets map[netaddr[T]]*socket[T]
+	address netip.Addr
+}
+
+func (n *ipnet[T]) socket(addr netaddr[T]) *socket[T] {
+	n.mutex.Lock()
+	sock := n.sockets[addr]
+	n.mutex.Unlock()
+	return sock
+}
+
+func (n *ipnet[T]) bind(addr netaddr[T], sock *socket[T]) wasi.Errno {
+	// IP networks have a specific address that can be used by the sockets,
+	// they cannot bind to arbitrary endpoints.
+	if addr.sockaddr.addr() != n.address {
+		return wasi.EADDRNOTAVAIL
+	}
+
+	// TODO: bind to zero address
+	// TODO: random port selection
+
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+
+	if _, exist := n.sockets[addr]; exist {
+		// TODO:
+		// - SO_REUSEADDR
+		// - SO_REUSEPORT
+		return wasi.EADDRINUSE
+	}
+
+	if n.sockets == nil {
+		n.sockets = make(map[netaddr[T]]*socket[T])
+	}
+
+	sock.laddr = addr.sockaddr
+	n.sockets[addr] = sock
+	return wasi.ESUCCESS
+}
+
+func (n *ipnet[T]) unlink(addr netaddr[T], sock *socket[T]) wasi.Errno {
+	n.mutex.Lock()
+	if n.sockets[addr] == sock {
+		delete(n.sockets, addr)
+	}
+	n.mutex.Unlock()
+	return wasi.ESUCCESS
+}
+
+type unixnet struct {
+	mutex   sync.Mutex
+	sockets map[netaddr[unix]]*socket[unix]
+	name    string
+}
+
+func (n *unixnet) socket(addr netaddr[unix]) *socket[unix] {
+	n.mutex.Lock()
+	sock := n.sockets[addr]
+	n.mutex.Unlock()
+	return sock
+}
+
+func (n *unixnet) bind(addr netaddr[unix], sock *socket[unix]) wasi.Errno {
+	if addr.sockaddr.Name != n.name {
+		return wasi.EADDRNOTAVAIL
+	}
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+
+	if _, exist := n.sockets[addr]; exist {
+		return wasi.EADDRINUSE
+	}
+	if n.sockets == nil {
+		n.sockets = make(map[netaddr[unix]]*socket[unix])
+	}
+	sock.laddr = addr.sockaddr
+	n.sockets[addr] = sock
+	return wasi.ESUCCESS
+}
+
+func (n *unixnet) unlink(addr netaddr[unix], sock *socket[unix]) wasi.Errno {
+	n.mutex.Lock()
+	if n.sockets[addr] == sock {
+		delete(n.sockets, addr)
+	}
+	n.mutex.Unlock()
+	return wasi.ESUCCESS
+}
+
 type socket[T sockaddr] struct {
 	defaultFile
-	net    *network[T]
+	net    network[T]
 	proto  protocol
 	raddr  T
 	laddr  T
 	ready  event // ready when the socket is accepting a new connection
 	accept chan *socket[T]
 	pipe
+}
+
+func newSocket[T sockaddr](net network[T], pmu *sync.Mutex, proto protocol) *socket[T] {
+	return &socket[T]{
+		net:   net,
+		proto: proto,
+		pipe:  makePipe(pmu),
+	}
 }
 
 func (s *socket[T]) close() {
@@ -289,11 +369,8 @@ func (s *socket[T]) connect(ctx context.Context) (net.Conn, error) {
 	if s.accept == nil {
 		return nil, &net.OpError{Op: "connect", Net: s.proto.String(), Err: wasi.EISCONN}
 	}
-	conn := &socket[T]{
-		proto: s.proto,
-		raddr: s.laddr,
-		// TODO: laddr
-	}
+	conn := newSocket(s.net, s.pmu, s.proto)
+	conn.raddr = s.laddr
 	s.ready.trigger(s.pmu)
 	select {
 	case s.accept <- conn:
