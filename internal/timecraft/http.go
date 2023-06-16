@@ -15,7 +15,7 @@ const httpModuleName = "timecraft_http"
 
 func NewHttpModule() wazergo.HostModule[*HttpModule] {
 	return functions{
-		"do":     wazergo.F3((*HttpModule).Do),
+		"do":     wazergo.F4((*HttpModule).Do),
 		"size":   wazergo.F1((*HttpModule).Size),
 		"status": wazergo.F1((*HttpModule).Status),
 		"close":  wazergo.F1((*HttpModule).CloseHandle),
@@ -93,11 +93,11 @@ func (m *HttpModule) Read(ctx context.Context, h Int32, p Pointer[Uint8], s Int3
 	return Int32(len(r.body))
 }
 
-func (m *HttpModule) do(ctx context.Context, method, url string, headers []byte) (int32, response, error) {
+func (m *HttpModule) do(ctx context.Context, method, url string, headers []byte, body []byte) (int32, response, error) {
 	h := m.nextHandle
 	m.nextHandle++
 
-	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
 	if err != nil {
 		return h, response{}, err
 	}
@@ -128,17 +128,16 @@ func iterheaders(b []byte, f func(k, v string)) {
 	}
 }
 
-func (m *HttpModule) Do(ctx context.Context, cmethod Pointer[Uint8], curl Pointer[Uint8], hdrbuf Bytes) Int32 {
+func (m *HttpModule) Do(ctx context.Context, cmethod Pointer[Uint8], curl Pointer[Uint8], hdrbuf Bytes, bodybuf Bytes) Int32 {
 	n := strlen(cmethod)
 	method := string(cmethod.Slice(n))
 	n = strlen(curl)
 	url := string(curl.Slice(n))
 
-	// TODO: there has to be a better way to avoid all those conversions.
-	// Maybe just provide an iterator?
+	headers := ([]byte)(hdrbuf)
+	body := ([]byte)(bodybuf)
 
-	headers := *(*[]byte)(unsafe.Pointer(&hdrbuf))
-	h, r, err := m.do(ctx, method, url, headers)
+	h, r, err := m.do(ctx, method, url, headers, body)
 	if err != nil {
 		r.status = -1
 		r.body = []byte(err.Error())
