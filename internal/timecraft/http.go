@@ -13,7 +13,7 @@ const httpModuleName = "timecraft_http"
 
 func NewHttpModule() wazergo.HostModule[*HttpModule] {
 	return functions{
-		"do":     wazergo.F1((*HttpModule).Do),
+		"do":     wazergo.F2((*HttpModule).Do),
 		"size":   wazergo.F1((*HttpModule).Size),
 		"status": wazergo.F1((*HttpModule).Status),
 		"close":  wazergo.F1((*HttpModule).CloseHandle),
@@ -91,26 +91,39 @@ func (m *HttpModule) Read(ctx context.Context, h Int32, p Pointer[Uint8], s Int3
 	return Int32(len(r.body))
 }
 
-func (m *HttpModule) Do(ctx context.Context, p Pointer[Uint8]) Int32 {
-	n := strlen(p)
-	url := string(p.Slice(n))
-
+func (m *HttpModule) do(ctx context.Context, method, url string) (int32, response, error) {
 	h := m.nextHandle
 	m.nextHandle++
 
-	result := response{}
-	r, err := http.Get(url)
-	if err == nil {
-		defer r.Body.Close()
-		result.body, err = io.ReadAll(r.Body)
-		result.status = int32(r.StatusCode)
-	}
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
-		result.status = -1
-		result.body = []byte(err.Error())
+		return h, response{}, err
 	}
 
-	m.responses[h] = result
+	r, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return h, response{}, err
+	}
+	defer r.Body.Close()
+	result := response{}
+	result.status = int32(r.StatusCode)
+	result.body, err = io.ReadAll(r.Body)
+	return h, result, err
+}
+
+func (m *HttpModule) Do(ctx context.Context, cmethod Pointer[Uint8], curl Pointer[Uint8]) Int32 {
+	n := strlen(cmethod)
+	method := string(cmethod.Slice(n))
+	n = strlen(curl)
+	url := string(curl.Slice(n))
+
+	h, r, err := m.do(ctx, method, url)
+	if err != nil {
+		r.status = -1
+		r.body = []byte(err.Error())
+	}
+	m.responses[h] = r
+
 	return Int32(h)
 }
 
