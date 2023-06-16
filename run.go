@@ -132,11 +132,11 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintf(os.Stderr, "%s\n", logSpec.ProcessID)
 	}
 
-	preparedModule, err := runner.Prepare(moduleSpec, logSpec)
+	module, err := runner.Prepare(moduleSpec, logSpec)
 	if err != nil {
 		return err
 	}
-	defer preparedModule.Close()
+	defer module.Close()
 
-	return runner.RunModule(preparedModule)
+	return runner.Run(module)
 }

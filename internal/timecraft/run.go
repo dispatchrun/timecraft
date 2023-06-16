@@ -148,17 +148,17 @@ func (r *Runner) Prepare(moduleSpec ModuleSpec, logSpec *LogSpec) (*Module, erro
 	return m, nil
 }
 
-// RunModule runs a prepared WebAssembly module.
-func (r *Runner) RunModule(mod *Module) error {
-	if mod.run {
-		return errors.New("module is already running or already has run")
+// Run runs a prepared WebAssembly module.
+func (r *Runner) Run(m *Module) error {
+	if m.run {
+		return errors.New("module is already running or has already run")
 	}
-	mod.run = true
+	m.run = true
 
 	server := Server{
 		Runner:  r,
-		Module:  mod.moduleSpec,
-		Log:     mod.logSpec,
+		Module:  m.moduleSpec,
+		Log:     m.logSpec,
 		Version: Version(),
 	}
 	serverSocket := path.Join(os.TempDir(), fmt.Sprintf("timecraft.%s.sock", uuid.NewString()))
@@ -185,24 +185,24 @@ func (r *Runner) RunModule(mod *Module) error {
 			sdk.ServerSocket: serverSocket,
 		})
 	})
-	if mod.moduleSpec.Trace != nil {
+	if m.moduleSpec.Trace != nil {
 		wrappers = append(wrappers, func(system wasi.System) wasi.System {
-			return wasi.Trace(mod.moduleSpec.Trace, system)
+			return wasi.Trace(m.moduleSpec.Trace, system)
 		})
 	}
-	if mod.recorder != nil {
-		wrappers = append(wrappers, mod.recorder)
+	if m.recorder != nil {
+		wrappers = append(wrappers, m.recorder)
 	}
-	mod.wasiBuilder = mod.wasiBuilder.WithWrappers(wrappers...)
+	m.wasiBuilder = m.wasiBuilder.WithWrappers(wrappers...)
 
 	var system wasi.System
-	mod.ctx, system, err = mod.wasiBuilder.Instantiate(mod.ctx, r.runtime)
+	m.ctx, system, err = m.wasiBuilder.Instantiate(m.ctx, r.runtime)
 	if err != nil {
 		return err
 	}
-	defer system.Close(mod.ctx)
+	defer system.Close(m.ctx)
 
-	return runModule(mod.ctx, r.runtime, mod.wasmModule)
+	return runModule(m.ctx, r.runtime, m.wasmModule)
 }
 
 func runModule(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule) error {

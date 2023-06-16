@@ -84,7 +84,7 @@ func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnReq
 	go func() {
 		defer childModule.Close()
 
-		if err := s.instance.Runner.RunModule(childModule); err != nil {
+		if err := s.instance.Runner.Run(childModule); err != nil {
 			panic(err) // TODO: handle error
 		}
 
