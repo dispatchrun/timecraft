@@ -1,6 +1,7 @@
 package timecraft
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -13,7 +14,7 @@ const httpModuleName = "timecraft_http"
 
 func NewHttpModule() wazergo.HostModule[*HttpModule] {
 	return functions{
-		"do":     wazergo.F2((*HttpModule).Do),
+		"do":     wazergo.F4((*HttpModule).Do),
 		"size":   wazergo.F1((*HttpModule).Size),
 		"status": wazergo.F1((*HttpModule).Status),
 		"close":  wazergo.F1((*HttpModule).CloseHandle),
@@ -91,13 +92,16 @@ func (m *HttpModule) Read(ctx context.Context, h Int32, p Pointer[Uint8], s Int3
 	return Int32(len(r.body))
 }
 
-func (m *HttpModule) do(ctx context.Context, method, url string) (int32, response, error) {
+func (m *HttpModule) do(ctx context.Context, method, url string, headers map[string]string) (int32, response, error) {
 	h := m.nextHandle
 	m.nextHandle++
 
 	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
 		return h, response{}, err
+	}
+	for k, v := range headers {
+		req.Header.Add(k, v)
 	}
 
 	r, err := http.DefaultClient.Do(req)
@@ -111,13 +115,31 @@ func (m *HttpModule) do(ctx context.Context, method, url string) (int32, respons
 	return h, result, err
 }
 
-func (m *HttpModule) Do(ctx context.Context, cmethod Pointer[Uint8], curl Pointer[Uint8]) Int32 {
+func (m *HttpModule) Do(ctx context.Context, cmethod Pointer[Uint8], curl Pointer[Uint8], hdrp Pointer[Uint8], hdrs Int32) Int32 {
 	n := strlen(cmethod)
 	method := string(cmethod.Slice(n))
 	n = strlen(curl)
 	url := string(curl.Slice(n))
 
-	h, r, err := m.do(ctx, method, url)
+	// TODO: there has to be a better way to avoid all those conversions.
+	// Maybe just provide an iterator?
+	headers := map[string]string{}
+	uint8s := hdrp.Slice(int(hdrs))
+	b := make([]byte, len(uint8s))
+	for i, x := range uint8s {
+		b[i] = byte(x)
+	}
+	for len(b) > 0 {
+		i := bytes.IndexByte(b, 0)
+		key := string(b[:i])
+		b = b[i+1:]
+		i = bytes.IndexByte(b, 0)
+		value := string(b[:i])
+		b = b[i+1:]
+		headers[key] = value
+	}
+
+	h, r, err := m.do(ctx, method, url, headers)
 	if err != nil {
 		r.status = -1
 		r.body = []byte(err.Error())
