@@ -15,6 +15,20 @@ import (
 
 // Server is a gRPC server that's available to guests.
 type Server struct {
+	// Runner is the Runner used to run the WebAssembly module that this
+	// server instance is serving.
+	Runner *Runner
+
+	// Module is details about the WebAssembly module that this server
+	// instance is serving.
+	Module ModuleSpec
+
+	// Log, if non-nil, is details about the recorded trace of execution.
+	// If nil, it indicates that the WebAssembly module is not currently
+	// being recorded.
+	Log *LogSpec
+
+	// Version is the timecraft version reported by the server.
 	Version string
 }
 
