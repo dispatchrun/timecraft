@@ -3,7 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"runtime/debug"
+
+	"github.com/stealthrocket/timecraft/internal/timecraft"
 )
 
 const versionUsage = `
@@ -18,19 +19,6 @@ func version(ctx context.Context, args []string) error {
 	if _, err := parseFlags(flagSet, args); err != nil {
 		return err
 	}
-	fmt.Printf("timecraft %s\n", currentVersion())
+	fmt.Printf("timecraft %s\n", timecraft.Version())
 	return nil
-}
-
-func currentVersion() string {
-	version := "devel"
-	if info, ok := debug.ReadBuildInfo(); ok {
-		switch info.Main.Version {
-		case "":
-		case "(devel)":
-		default:
-			version = info.Main.Version
-		}
-	}
-	return version
 }
