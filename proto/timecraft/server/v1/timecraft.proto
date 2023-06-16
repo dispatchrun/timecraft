@@ -8,6 +8,16 @@ message VersionResponse {
     string version = 1;
 }
 
+message SpawnRequest {
+    string path = 1;
+    repeated string args = 2;
+}
+
+message SpawnResponse {
+    string task_id = 1;
+}
+
 service TimecraftService {
   rpc Version(VersionRequest) returns (VersionResponse) {}
+  rpc Spawn(SpawnRequest) returns (SpawnResponse) {}
 }

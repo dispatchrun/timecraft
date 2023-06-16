@@ -33,6 +33,16 @@ type Client struct {
 	grpcClient serverv1connect.TimecraftServiceClient
 }
 
+// Spawn spawns a WebAssembly module.
+func (c *Client) Spawn(path string, args []string) (string, error) {
+	req := connect.NewRequest(&v1.SpawnRequest{Path: path, Args: args})
+	res, err := c.grpcClient.Spawn(context.Background(), req)
+	if err != nil {
+		return "", err
+	}
+	return res.Msg.TaskId, nil
+}
+
 // Version fetches the timecraft version.
 func (c *Client) Version() (string, error) {
 	req := connect.NewRequest(&v1.VersionRequest{})

@@ -36,11 +36,14 @@ const (
 	// TimecraftServiceVersionProcedure is the fully-qualified name of the TimecraftService's Version
 	// RPC.
 	TimecraftServiceVersionProcedure = "/timecraft.server.v1.TimecraftService/Version"
+	// TimecraftServiceSpawnProcedure is the fully-qualified name of the TimecraftService's Spawn RPC.
+	TimecraftServiceSpawnProcedure = "/timecraft.server.v1.TimecraftService/Spawn"
 )
 
 // TimecraftServiceClient is a client for the timecraft.server.v1.TimecraftService service.
 type TimecraftServiceClient interface {
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
+	Spawn(context.Context, *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error)
 }
 
 // NewTimecraftServiceClient constructs a client for the timecraft.server.v1.TimecraftService
@@ -58,12 +61,18 @@ func NewTimecraftServiceClient(httpClient connect_go.HTTPClient, baseURL string,
 			baseURL+TimecraftServiceVersionProcedure,
 			opts...,
 		),
+		spawn: connect_go.NewClient[v1.SpawnRequest, v1.SpawnResponse](
+			httpClient,
+			baseURL+TimecraftServiceSpawnProcedure,
+			opts...,
+		),
 	}
 }
 
 // timecraftServiceClient implements TimecraftServiceClient.
 type timecraftServiceClient struct {
 	version *connect_go.Client[v1.VersionRequest, v1.VersionResponse]
+	spawn   *connect_go.Client[v1.SpawnRequest, v1.SpawnResponse]
 }
 
 // Version calls timecraft.server.v1.TimecraftService.Version.
@@ -71,9 +80,15 @@ func (c *timecraftServiceClient) Version(ctx context.Context, req *connect_go.Re
 	return c.version.CallUnary(ctx, req)
 }
 
+// Spawn calls timecraft.server.v1.TimecraftService.Spawn.
+func (c *timecraftServiceClient) Spawn(ctx context.Context, req *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error) {
+	return c.spawn.CallUnary(ctx, req)
+}
+
 // TimecraftServiceHandler is an implementation of the timecraft.server.v1.TimecraftService service.
 type TimecraftServiceHandler interface {
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
+	Spawn(context.Context, *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error)
 }
 
 // NewTimecraftServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -88,6 +103,11 @@ func NewTimecraftServiceHandler(svc TimecraftServiceHandler, opts ...connect_go.
 		svc.Version,
 		opts...,
 	))
+	mux.Handle(TimecraftServiceSpawnProcedure, connect_go.NewUnaryHandler(
+		TimecraftServiceSpawnProcedure,
+		svc.Spawn,
+		opts...,
+	))
 	return "/timecraft.server.v1.TimecraftService/", mux
 }
 
@@ -96,4 +116,8 @@ type UnimplementedTimecraftServiceHandler struct{}
 
 func (UnimplementedTimecraftServiceHandler) Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Version is not implemented"))
+}
+
+func (UnimplementedTimecraftServiceHandler) Spawn(context.Context, *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error) {
+	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Spawn is not implemented"))
 }
