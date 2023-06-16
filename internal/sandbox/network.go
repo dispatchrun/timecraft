@@ -623,7 +623,7 @@ func (c *hostConn[T]) Read(b []byte) (int, error) {
 	select {
 	case pipe.ch <- b:
 		return len(b) - len(<-pipe.ch), nil
-	case <-c.rdeadline.ch:
+	case <-c.rdeadline.channel():
 		return 0, os.ErrDeadlineExceeded
 	case <-pipe.done:
 		return 0, io.EOF
@@ -644,7 +644,7 @@ func (c *hostConn[T]) Write(b []byte) (n int, err error) {
 		select {
 		case pipe.ch <- b[n:]:
 			n = len(b) - len(<-pipe.ch)
-		case <-c.wdeadline.ch:
+		case <-c.wdeadline.channel():
 			return n, os.ErrDeadlineExceeded
 		case <-pipe.done:
 			return n, io.ErrClosedPipe
@@ -719,7 +719,7 @@ func (c *guestConn[T]) Read(b []byte) (int, error) {
 	}
 	ctx := context.Background()
 	pipe := c.socket.recv
-	timeout := c.rdeadline.ch
+	timeout := c.rdeadline.channel()
 	iovs := []wasi.IOVec{b}
 	size, errno := pipe.ch.read(ctx, iovs, 0, &pipe.ev, timeout, pipe.done)
 	switch errno {
@@ -746,7 +746,7 @@ func (c *guestConn[T]) Write(b []byte) (n int, err error) {
 	}
 	ctx := context.Background()
 	pipe := c.socket.send
-	timeout := c.wdeadline.ch
+	timeout := c.wdeadline.channel()
 	for n < len(b) {
 		iovs := []wasi.IOVec{b[n:]}
 		size, errno := pipe.ch.write(ctx, iovs, 0, &pipe.ev, timeout, pipe.done)
@@ -800,11 +800,18 @@ type deadline struct {
 	mu sync.Mutex
 	ts time.Time
 	tm *time.Timer
-	ch chan struct{}
 }
 
 func makeDeadline() deadline {
-	return deadline{ch: make(chan struct{}, 1)}
+	tm := time.NewTimer(0)
+	if !tm.Stop() {
+		<-tm.C
+	}
+	return deadline{tm: tm}
+}
+
+func (d *deadline) channel() <-chan time.Time {
+	return d.tm.C
 }
 
 func (d *deadline) expired() bool {
@@ -819,37 +826,19 @@ func (d *deadline) set(t time.Time) {
 	defer d.mu.Unlock()
 
 	d.ts = t
-	d.clear()
 
-	if t.IsZero() {
-		if d.tm != nil {
-			d.tm.Stop()
+	if !d.tm.Stop() {
+		select {
+		case <-d.tm.C:
+		default:
 		}
-		return
 	}
 
-	if timeout := time.Until(t); timeout <= 0 {
-		if d.tm != nil {
-			d.tm.Stop()
+	if !t.IsZero() {
+		timeout := time.Until(t)
+		if timeout < 0 {
+			timeout = 0
 		}
-		d.signal()
-	} else if d.tm != nil {
 		d.tm.Reset(timeout)
-	} else {
-		d.tm = time.AfterFunc(timeout, d.signal)
-	}
-}
-
-func (d *deadline) clear() {
-	select {
-	case <-d.ch:
-	default:
-	}
-}
-
-func (d *deadline) signal() {
-	select {
-	case d.ch <- struct{}{}:
-	default:
 	}
 }

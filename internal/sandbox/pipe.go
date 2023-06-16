@@ -5,13 +5,14 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/stealthrocket/wasi-go"
 )
 
 type channel chan []byte
 
-func (ch channel) poll(ctx context.Context, flags wasi.FDFlags, timeout, done <-chan struct{}) ([]byte, wasi.Errno) {
+func (ch channel) poll(ctx context.Context, flags wasi.FDFlags, timeout <-chan time.Time, done <-chan struct{}) ([]byte, wasi.Errno) {
 	if flags.Has(wasi.NonBlock) {
 		select {
 		case data := <-ch:
@@ -33,7 +34,7 @@ func (ch channel) poll(ctx context.Context, flags wasi.FDFlags, timeout, done <-
 	}
 }
 
-func (ch channel) read(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, timeout, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
+func (ch channel) read(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, timeout <-chan time.Time, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
 	data, errno := ch.poll(ctx, flags, timeout, done)
 	if errno != wasi.ESUCCESS {
 		// Make a special case for the error indicating that the done channel
@@ -56,7 +57,7 @@ func (ch channel) read(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlag
 	return size, wasi.ESUCCESS
 }
 
-func (ch channel) write(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, timeout, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
+func (ch channel) write(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, timeout <-chan time.Time, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
 	data, errno := ch.poll(ctx, flags, timeout, done)
 	if errno != wasi.ESUCCESS {
 		return 0, errno
