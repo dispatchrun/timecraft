@@ -43,7 +43,7 @@ func (r *Replay) SetStdout(w io.Writer) {
 
 // SetStderr sets the io.Writer that receives stderr from the replay.
 func (r *Replay) SetStderr(w io.Writer) {
-	r.stdout = w
+	r.stderr = w
 }
 
 // SetTrace sets the io.Writer that receives a trace of system calls from the

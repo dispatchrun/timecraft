@@ -39,7 +39,6 @@ func runModule(ctx context.Context, runtime wazero.Runtime, compiledModule wazer
 		default:
 			err = ExitError(exitCode)
 		}
-		err = nil
 	}
 
 	return err
