@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"net"
 	"net/netip"
 	"sync"
 	"time"
@@ -58,6 +59,14 @@ func Socket(name string) Option {
 	return func(s *System) { s.unix.name = name }
 }
 
+// Dial configures a dial function used to establish network connections from
+// the guest module.
+//
+// If not set, the guest module cannot open outbound connections.
+func Dial(dial func(context.Context, string, string) (net.Conn, error)) Option {
+	return func(s *System) { s.dial = dial }
+}
+
 // System is an implementation of the wasi.System interface which sandboxes all
 // interactions of the guest module with the world.
 type System struct {
@@ -77,6 +86,8 @@ type System struct {
 	ipv4   ipnet[ipv4]
 	ipv6   ipnet[ipv6]
 	unix   unixnet
+	dial   func(context.Context, string, string) (net.Conn, error)
+	group  sync.WaitGroup
 }
 
 // New creates a new System instance, applying the list of options passed as
@@ -219,23 +230,66 @@ func (s *System) RandomGet(ctx context.Context, b []byte) wasi.Errno {
 }
 
 func (s *System) SockAccept(ctx context.Context, fd wasi.FD, flags wasi.FDFlags) (wasi.FD, wasi.SocketAddress, wasi.SocketAddress, wasi.Errno) {
-	return -1, nil, nil, wasi.ENOSYS
+	sock, stat, errno := s.LookupSocketFD(fd, wasi.SockAcceptRight)
+	if errno != wasi.ESUCCESS {
+		return 0, nil, nil, errno
+	}
+	conn, errno := sock.SockAccept(ctx, flags)
+	if errno != wasi.ESUCCESS {
+		return 0, nil, nil, errno
+	}
+	addr, errno := conn.SockLocalAddress(ctx)
+	if errno != wasi.ESUCCESS {
+		_ = conn.FDClose(ctx)
+		return 0, nil, nil, wasi.ECONNREFUSED
+	}
+	peer, errno := conn.SockRemoteAddress(ctx)
+	if errno != wasi.ESUCCESS {
+		_ = conn.FDClose(ctx)
+		return 0, nil, nil, wasi.ECONNREFUSED
+	}
+	newFD := s.Register(conn, wasi.FDStat{
+		Flags:      flags,
+		FileType:   stat.FileType,
+		RightsBase: stat.RightsInheriting,
+	})
+	return newFD, addr, peer, wasi.ESUCCESS
 }
 
 func (s *System) SockRecv(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
-	return 0, 0, wasi.ENOSYS
+	sock, _, errno := s.LookupSocketFD(fd, wasi.FDWriteRight)
+	if errno != wasi.ESUCCESS {
+		return 0, 0, errno
+	}
+	return sock.SockRecv(ctx, iovecs, flags)
 }
 
 func (s *System) SockSend(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
-	return 0, wasi.ENOSYS
+	sock, _, errno := s.LookupSocketFD(fd, wasi.FDWriteRight)
+	if errno != wasi.ESUCCESS {
+		return 0, errno
+	}
+	return sock.SockSend(ctx, iovecs, flags)
 }
 
 func (s *System) SockShutdown(ctx context.Context, fd wasi.FD, flags wasi.SDFlags) wasi.Errno {
-	return wasi.ENOSYS
+	sock, _, errno := s.LookupSocketFD(fd, wasi.FDWriteRight)
+	if errno != wasi.ESUCCESS {
+		return errno
+	}
+	return sock.SockShutdown(ctx, flags)
 }
 
 func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.SocketType, proto wasi.Protocol, rightsBase, rightsInheriting wasi.Rights) (wasi.FD, wasi.Errno) {
 	const none = ^wasi.FD(0)
+
+	switch proto {
+	case wasi.IPProtocol:
+	case wasi.TCPProtocol:
+	case wasi.UDPProtocol:
+	default:
+		return none, wasi.EPROTOTYPE
+	}
 
 	if st == wasi.AnySocket {
 		switch proto {
