@@ -94,7 +94,7 @@ func run(ctx context.Context, args []string) error {
 
 	runner := timecraft.NewRunner(ctx, registry, runtime)
 
-	preparedModule, err := runner.PrepareModule(timecraft.ModuleSpec{
+	moduleSpec := timecraft.ModuleSpec{
 		Path:    wasmPath,
 		Args:    args,
 		Env:     envs,
@@ -105,7 +105,12 @@ func run(ctx context.Context, args []string) error {
 		Stdin:   int(os.Stdin.Fd()),
 		Stdout:  int(os.Stdout.Fd()),
 		Stderr:  int(os.Stderr.Fd()),
-	})
+	}
+	if trace {
+		moduleSpec.Trace = os.Stderr
+	}
+
+	preparedModule, err := runner.Prepare(moduleSpec)
 	if err != nil {
 		return err
 	}
@@ -138,10 +143,6 @@ func run(ctx context.Context, args []string) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "%s\n", processID)
-	}
-
-	if trace {
-		preparedModule.SetTrace(os.Stderr)
 	}
 
 	return runner.RunModule(preparedModule)

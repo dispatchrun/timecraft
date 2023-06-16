@@ -40,9 +40,9 @@ func NewRunner(ctx context.Context, registry *timemachine.Registry, runtime waze
 	}
 }
 
-// PrepareModule prepares a module for execution with RunModule.
-func (r *Runner) PrepareModule(spec ModuleSpec) (*PreparedModule, error) {
-	wasmPath := spec.Path
+// Prepare prepares a Module for execution.
+func (r *Runner) Prepare(moduleSpec ModuleSpec) (*Module, error) {
+	wasmPath := moduleSpec.Path
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
 	if err != nil {
@@ -56,20 +56,20 @@ func (r *Runner) PrepareModule(spec ModuleSpec) (*PreparedModule, error) {
 
 	builder := imports.NewBuilder().
 		WithName(wasmName).
-		WithArgs(spec.Args...).
-		WithEnv(spec.Env...).
-		WithDirs(spec.Dirs...).
-		WithListens(spec.Listens...).
-		WithDials(spec.Dials...).
-		WithStdio(spec.Stdin, spec.Stdout, spec.Stderr).
-		WithSocketsExtension(spec.Sockets, wasmModule)
+		WithArgs(moduleSpec.Args...).
+		WithEnv(moduleSpec.Env...).
+		WithDirs(moduleSpec.Dirs...).
+		WithListens(moduleSpec.Listens...).
+		WithDials(moduleSpec.Dials...).
+		WithStdio(moduleSpec.Stdin, moduleSpec.Stdout, moduleSpec.Stderr).
+		WithSocketsExtension(moduleSpec.Sockets, wasmModule)
 
 	ctx, cancel := context.WithCancel(r.ctx)
 
-	return &PreparedModule{
+	return &Module{
 		ctx:        ctx,
 		cancel:     cancel,
-		moduleSpec: spec.Copy(),
+		moduleSpec: moduleSpec.Copy(),
 		wasmName:   wasmName,
 		wasmCode:   wasmCode,
 		wasmModule: wasmModule,
@@ -78,7 +78,7 @@ func (r *Runner) PrepareModule(spec ModuleSpec) (*PreparedModule, error) {
 }
 
 // PrepareLog initializes a log to record a trace of execution.
-func (r *Runner) PrepareLog(mod *PreparedModule, log LogSpec) error {
+func (r *Runner) PrepareLog(mod *Module, log LogSpec) error {
 	if mod.logSpec != nil {
 		return errors.New("the module already has a log")
 	}
@@ -156,7 +156,7 @@ func (r *Runner) PrepareLog(mod *PreparedModule, log LogSpec) error {
 }
 
 // RunModule runs a prepared WebAssembly module.
-func (r *Runner) RunModule(mod *PreparedModule) error {
+func (r *Runner) RunModule(mod *Module) error {
 	if mod.run {
 		return errors.New("module is already running or already has run")
 	}
@@ -183,21 +183,23 @@ func (r *Runner) RunModule(mod *PreparedModule) error {
 		}
 	}()
 
+	// Wrap the wasi.System to make the gRPC server accessible via a virtual
+	// socket, to trace system calls (if applicable), and to record system
+	// calls to the log. The order is important here!
 	var wrappers []func(wasi.System) wasi.System
 	wrappers = append(wrappers, func(system wasi.System) wasi.System {
 		return NewVirtualSocketsSystem(system, map[string]string{
 			sdk.ServerSocket: serverSocket,
 		})
 	})
-	if mod.trace != nil {
+	if mod.moduleSpec.Trace != nil {
 		wrappers = append(wrappers, func(system wasi.System) wasi.System {
-			return wasi.Trace(mod.trace, system)
+			return wasi.Trace(mod.moduleSpec.Trace, system)
 		})
 	}
 	if mod.recorder != nil {
 		wrappers = append(wrappers, mod.recorder)
 	}
-
 	mod.builder = mod.builder.WithWrappers(wrappers...)
 
 	var system wasi.System
@@ -213,16 +215,36 @@ func (r *Runner) RunModule(mod *PreparedModule) error {
 // ModuleSpec is the details about what WebAssembly module to execute,
 // how it should be initialized, and what its inputs are.
 type ModuleSpec struct {
-	Path    string
-	Args    []string
-	Env     []string
-	Dirs    []string
+	// Path is the path of the WebAssembly module.
+	Path string
+
+	// Args are command-line arguments to pass to the module.
+	Args []string
+
+	// Env is the environment variables to pass to the module.
+	Env []string
+
+	// Dirs is a set of directories to make available to the module.
+	Dirs []string
+
+	// Listens is a set of listener sockets to make available to the module.
 	Listens []string
-	Dials   []string
+
+	// Dials is a set of connection sockets to make available to the module.
+	Dials []string
+
+	// Sockets is the name of a sockets extension to use, or "auto" to
+	// automatically detect the sockets extension.
 	Sockets string
-	Stdin   int
-	Stdout  int
-	Stderr  int
+
+	// Stdio file descriptors.
+	Stdin  int
+	Stdout int
+	Stderr int
+
+	// Trace is an optional writer that receives a trace of system calls
+	// made by the module.
+	Trace io.Writer
 }
 
 // Copy creates a deep copy of the ModuleSpec.
@@ -244,8 +266,8 @@ type LogSpec struct {
 	BatchSize   int
 }
 
-// PreparedModule is a WebAssembly module that's ready for execution.
-type PreparedModule struct {
+// Module is a WebAssembly module that's ready for execution.
+type Module struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -258,29 +280,21 @@ type PreparedModule struct {
 	logSpec  *LogSpec
 	recorder func(wasi.System) wasi.System
 
-	trace io.Writer
-
 	run     bool
 	cleanup []func() error
 }
 
-// SetTrace sets the io.Writer that receives a trace of system calls
-// when the module is executed.
-func (p *PreparedModule) SetTrace(w io.Writer) {
-	p.trace = w
-}
-
 // Close closes the module.
-func (p *PreparedModule) Close() error {
+func (m *Module) Close() error {
 	var errs []error
-	if len(p.cleanup) > 0 {
-		for i := len(p.cleanup) - 1; i >= 0; i-- {
-			if err := p.cleanup[i](); err != nil {
+	if len(m.cleanup) > 0 {
+		for i := len(m.cleanup) - 1; i >= 0; i-- {
+			if err := m.cleanup[i](); err != nil {
 				errs = append(errs, err)
 			}
 		}
 	}
-	if err := p.wasmModule.Close(p.ctx); err != nil {
+	if err := m.wasmModule.Close(m.ctx); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)

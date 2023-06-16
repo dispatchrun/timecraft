@@ -65,7 +65,7 @@ func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnReq
 	child.Dials = nil   // not supported
 	child.Listens = nil // not supported
 
-	childModule, err := s.timecraft.Runner.PrepareModule(child)
+	childModule, err := s.timecraft.Runner.Prepare(child)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to prepare module: %w", err))
 	}
