@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path"
@@ -21,7 +20,6 @@ import (
 	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/sys"
-	"golang.org/x/exp/slices"
 )
 
 // Runner coordinates the execution of WebAssembly modules.
@@ -41,7 +39,11 @@ func NewRunner(ctx context.Context, registry *timemachine.Registry, runtime waze
 }
 
 // Prepare prepares a Module for execution.
-func (r *Runner) Prepare(moduleSpec ModuleSpec) (*Module, error) {
+//
+// The ModuleSpec describes the module to be executed. An optional LogSpec
+// can be provided to record a trace of execution to a log when the Module
+// is executed.
+func (r *Runner) Prepare(moduleSpec ModuleSpec, logSpec *LogSpec) (*Module, error) {
 	wasmPath := moduleSpec.Path
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
@@ -66,93 +68,84 @@ func (r *Runner) Prepare(moduleSpec ModuleSpec) (*Module, error) {
 
 	ctx, cancel := context.WithCancel(r.ctx)
 
-	return &Module{
-		ctx:        ctx,
-		cancel:     cancel,
-		moduleSpec: moduleSpec.Copy(),
-		wasmName:   wasmName,
-		wasmCode:   wasmCode,
-		wasmModule: wasmModule,
-		builder:    builder,
-	}, nil
-}
-
-// PrepareLog initializes a log to record a trace of execution.
-func (r *Runner) PrepareLog(mod *Module, log LogSpec) error {
-	if mod.logSpec != nil {
-		return errors.New("the module already has a log")
+	m := &Module{
+		ctx:         ctx,
+		cancel:      cancel,
+		moduleSpec:  moduleSpec,
+		wasmModule:  wasmModule,
+		wasiBuilder: builder,
 	}
 
-	module, err := r.registry.CreateModule(mod.ctx, &format.Module{
-		Code: mod.wasmCode,
-	}, object.Tag{
-		Name:  "timecraft.module.name",
-		Value: mod.wasmModule.Name(),
-	})
-	if err != nil {
-		return err
-	}
+	if logSpec != nil {
+		m.logSpec = logSpec
 
-	runtime, err := r.registry.CreateRuntime(mod.ctx, &format.Runtime{
-		Runtime: "timecraft",
-		Version: Version(),
-	})
-	if err != nil {
-		return err
-	}
-
-	config, err := r.registry.CreateConfig(mod.ctx, &format.Config{
-		Runtime: runtime,
-		Modules: []*format.Descriptor{module},
-		Args:    append([]string{mod.wasmName}, mod.moduleSpec.Args...),
-		Env:     mod.moduleSpec.Env,
-	})
-	if err != nil {
-		return err
-	}
-
-	process, err := r.registry.CreateProcess(mod.ctx, &format.Process{
-		ID:        log.ProcessID,
-		StartTime: log.StartTime,
-		Config:    config,
-	})
-	if err != nil {
-		return err
-	}
-
-	if err := r.registry.CreateLogManifest(mod.ctx, log.ProcessID, &format.Manifest{
-		Process:   process,
-		StartTime: log.StartTime,
-	}); err != nil {
-		return err
-	}
-
-	// TODO: create a writer that writes to many segments
-	logSegment, err := r.registry.CreateLogSegment(mod.ctx, log.ProcessID, 0)
-	if err != nil {
-		return err
-	}
-	mod.cleanup = append(mod.cleanup, logSegment.Close)
-	logWriter := timemachine.NewLogWriter(logSegment)
-	recordWriter := timemachine.NewLogRecordWriter(logWriter, log.BatchSize, log.Compression)
-	mod.cleanup = append(mod.cleanup, recordWriter.Flush)
-
-	mod.recorder = func(s wasi.System) wasi.System {
-		var b timemachine.RecordBuilder
-		return wasicall.NewRecorder(s, func(id wasicall.SyscallID, syscallBytes []byte) {
-			b.Reset(log.StartTime)
-			b.SetTimestamp(time.Now())
-			b.SetFunctionID(int(id))
-			b.SetFunctionCall(syscallBytes)
-			if err := recordWriter.WriteRecord(&b); err != nil {
-				panic(err) // TODO: better error handling
-			}
+		module, err := r.registry.CreateModule(r.ctx, &format.Module{
+			Code: wasmCode,
+		}, object.Tag{
+			Name:  "timecraft.module.name",
+			Value: wasmModule.Name(),
 		})
+		if err != nil {
+			return nil, err
+		}
+
+		runtime, err := r.registry.CreateRuntime(r.ctx, &format.Runtime{
+			Runtime: "timecraft",
+			Version: Version(),
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		config, err := r.registry.CreateConfig(r.ctx, &format.Config{
+			Runtime: runtime,
+			Modules: []*format.Descriptor{module},
+			Args:    append([]string{wasmName}, moduleSpec.Args...),
+			Env:     moduleSpec.Env,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		process, err := r.registry.CreateProcess(r.ctx, &format.Process{
+			ID:        logSpec.ProcessID,
+			StartTime: logSpec.StartTime,
+			Config:    config,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		if err := r.registry.CreateLogManifest(r.ctx, logSpec.ProcessID, &format.Manifest{
+			Process:   process,
+			StartTime: logSpec.StartTime,
+		}); err != nil {
+			return nil, err
+		}
+
+		// TODO: create a writer that writes to many segments
+		m.logSegment, err = r.registry.CreateLogSegment(r.ctx, logSpec.ProcessID, 0)
+		if err != nil {
+			return nil, err
+		}
+		logWriter := timemachine.NewLogWriter(m.logSegment)
+		m.recordWriter = timemachine.NewLogRecordWriter(logWriter, logSpec.BatchSize, logSpec.Compression)
+
+		m.recorder = func(s wasi.System) wasi.System {
+			var b timemachine.RecordBuilder
+			return wasicall.NewRecorder(s, func(id wasicall.SyscallID, syscallBytes []byte) {
+				b.Reset(logSpec.StartTime)
+				b.SetTimestamp(time.Now())
+				b.SetFunctionID(int(id))
+				b.SetFunctionCall(syscallBytes)
+				if err := m.recordWriter.WriteRecord(&b); err != nil {
+					panic(err) // TODO: better error handling
+				}
+			})
+		}
 	}
 
-	mod.logSpec = &log
-
-	return nil
+	return m, nil
 }
 
 // RunModule runs a prepared WebAssembly module.
@@ -200,104 +193,16 @@ func (r *Runner) RunModule(mod *Module) error {
 	if mod.recorder != nil {
 		wrappers = append(wrappers, mod.recorder)
 	}
-	mod.builder = mod.builder.WithWrappers(wrappers...)
+	mod.wasiBuilder = mod.wasiBuilder.WithWrappers(wrappers...)
 
 	var system wasi.System
-	mod.ctx, system, err = mod.builder.Instantiate(mod.ctx, r.runtime)
+	mod.ctx, system, err = mod.wasiBuilder.Instantiate(mod.ctx, r.runtime)
 	if err != nil {
 		return err
 	}
 	defer system.Close(mod.ctx)
 
 	return runModule(mod.ctx, r.runtime, mod.wasmModule)
-}
-
-// ModuleSpec is the details about what WebAssembly module to execute,
-// how it should be initialized, and what its inputs are.
-type ModuleSpec struct {
-	// Path is the path of the WebAssembly module.
-	Path string
-
-	// Args are command-line arguments to pass to the module.
-	Args []string
-
-	// Env is the environment variables to pass to the module.
-	Env []string
-
-	// Dirs is a set of directories to make available to the module.
-	Dirs []string
-
-	// Listens is a set of listener sockets to make available to the module.
-	Listens []string
-
-	// Dials is a set of connection sockets to make available to the module.
-	Dials []string
-
-	// Sockets is the name of a sockets extension to use, or "auto" to
-	// automatically detect the sockets extension.
-	Sockets string
-
-	// Stdio file descriptors.
-	Stdin  int
-	Stdout int
-	Stderr int
-
-	// Trace is an optional writer that receives a trace of system calls
-	// made by the module.
-	Trace io.Writer
-}
-
-// Copy creates a deep copy of the ModuleSpec.
-func (s ModuleSpec) Copy() (copy ModuleSpec) {
-	copy = s
-	copy.Args = slices.Clone(s.Args)
-	copy.Env = slices.Clone(s.Env)
-	copy.Dirs = slices.Clone(s.Dirs)
-	copy.Listens = slices.Clone(s.Listens)
-	copy.Dials = slices.Clone(s.Dials)
-	return
-}
-
-// LogSpec is details about a log that stores a trace of execution.
-type LogSpec struct {
-	ProcessID   uuid.UUID
-	StartTime   time.Time
-	Compression timemachine.Compression
-	BatchSize   int
-}
-
-// Module is a WebAssembly module that's ready for execution.
-type Module struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-
-	moduleSpec ModuleSpec
-	wasmName   string
-	wasmCode   []byte
-	wasmModule wazero.CompiledModule
-	builder    *imports.Builder
-
-	logSpec  *LogSpec
-	recorder func(wasi.System) wasi.System
-
-	run     bool
-	cleanup []func() error
-}
-
-// Close closes the module.
-func (m *Module) Close() error {
-	var errs []error
-	if len(m.cleanup) > 0 {
-		for i := len(m.cleanup) - 1; i >= 0; i-- {
-			if err := m.cleanup[i](); err != nil {
-				errs = append(errs, err)
-			}
-		}
-	}
-	if err := m.wasmModule.Close(m.ctx); err != nil {
-		errs = append(errs, err)
-	}
-	return errors.Join(errs...)
 }
 
 func runModule(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule) error {

@@ -39,7 +39,7 @@ type Server struct {
 func (t *Server) Serve(l net.Listener) error {
 	mux := http.NewServeMux()
 	mux.Handle(serverv1connect.NewTimecraftServiceHandler(
-		&grpcServer{timecraft: t},
+		&grpcServer{instance: t},
 		connect.WithCodec(grpc.Codec{}),
 	))
 	server := &http.Server{
@@ -53,39 +53,38 @@ func (t *Server) Serve(l net.Listener) error {
 type grpcServer struct {
 	serverv1connect.UnimplementedTimecraftServiceHandler
 
-	timecraft *Server
+	instance *Server
 }
 
 func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest]) (*connect.Response[v1.SpawnResponse], error) {
-	child := s.timecraft.Module.Copy()
+	moduleSpec := s.instance.Module // shallow copy
 	if req.Msg.Path != "" {
-		child.Path = req.Msg.Path
+		moduleSpec.Path = req.Msg.Path
 	}
-	child.Args = req.Msg.Args
-	child.Dials = nil   // not supported
-	child.Listens = nil // not supported
-
-	childModule, err := s.timecraft.Runner.Prepare(child)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to prepare module: %w", err))
-	}
+	moduleSpec.Args = req.Msg.Args
+	moduleSpec.Dials = nil   // not supported
+	moduleSpec.Listens = nil // not supported
 
 	childID := uuid.New()
-	if log := s.timecraft.Log; log != nil {
-		childLog := *log
-		childLog.ProcessID = childID
-		childLog.StartTime = time.Now()
-		err = s.timecraft.Runner.PrepareLog(childModule, childLog)
-		if err != nil {
-			childModule.Close()
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to prepare log: %w", err))
+	var logSpec *LogSpec
+	if parentLog := s.instance.Log; parentLog != nil {
+		logSpec = &LogSpec{
+			ProcessID:   childID,
+			StartTime:   time.Now(),
+			Compression: parentLog.Compression,
+			BatchSize:   parentLog.BatchSize,
 		}
+	}
+
+	childModule, err := s.instance.Runner.Prepare(moduleSpec, logSpec)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to prepare module: %w", err))
 	}
 
 	go func() {
 		defer childModule.Close()
 
-		if err := s.timecraft.Runner.RunModule(childModule); err != nil {
+		if err := s.instance.Runner.RunModule(childModule); err != nil {
 			panic(err) // TODO: handle error
 		}
 
@@ -98,6 +97,6 @@ func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnReq
 }
 
 func (s *grpcServer) Version(ctx context.Context, req *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
-	res := connect.NewResponse(&v1.VersionResponse{Version: s.timecraft.Version})
+	res := connect.NewResponse(&v1.VersionResponse{Version: s.instance.Version})
 	return res, nil
 }

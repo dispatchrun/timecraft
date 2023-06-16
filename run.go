@@ -110,40 +110,33 @@ func run(ctx context.Context, args []string) error {
 		moduleSpec.Trace = os.Stderr
 	}
 
-	preparedModule, err := runner.Prepare(moduleSpec)
-	if err != nil {
-		return err
-	}
-	defer preparedModule.Close()
-
+	var logSpec *timecraft.LogSpec
 	if !flyBlind {
-		var c timemachine.Compression
+		logSpec = &timecraft.LogSpec{
+			ProcessID: uuid.New(),
+			StartTime: time.Now(),
+			BatchSize: int(batchSize),
+		}
+
 		switch compression {
 		case "snappy":
-			c = timemachine.Snappy
+			logSpec.Compression = timemachine.Snappy
 		case "zstd":
-			c = timemachine.Zstd
+			logSpec.Compression = timemachine.Zstd
 		case "none", "":
-			c = timemachine.Uncompressed
+			logSpec.Compression = timemachine.Uncompressed
 		default:
 			return fmt.Errorf("invalid compression type %q", compression)
 		}
 
-		processID := uuid.New()
-		startTime := time.Now()
-
-		err := runner.PrepareLog(preparedModule, timecraft.LogSpec{
-			ProcessID:   processID,
-			StartTime:   startTime,
-			Compression: c,
-			BatchSize:   int(batchSize),
-		})
-		if err != nil {
-			return err
-		}
-
-		fmt.Fprintf(os.Stderr, "%s\n", processID)
+		fmt.Fprintf(os.Stderr, "%s\n", logSpec.ProcessID)
 	}
+
+	preparedModule, err := runner.Prepare(moduleSpec, logSpec)
+	if err != nil {
+		return err
+	}
+	defer preparedModule.Close()
 
 	return runner.RunModule(preparedModule)
 }
