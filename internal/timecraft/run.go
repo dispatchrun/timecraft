@@ -146,7 +146,7 @@ func (r *Runner) PrepareRecorder(ctx context.Context, m *PreparedModule, startTi
 	}
 
 	m.logSpec = &LogSpec{
-		ID:          processID,
+		ProcessID:   processID,
 		Compression: c,
 		BatchSize:   batchSize,
 	}
@@ -157,6 +157,9 @@ func (r *Runner) PrepareRecorder(ctx context.Context, m *PreparedModule, startTi
 // Run runs a WebAssembly module.
 func (r *Runner) Run(ctx context.Context, m *PreparedModule) error {
 	server := Server{
+		Runner:  r,
+		Module:  m.moduleSpec,
+		Log:     m.logSpec,
 		Version: Version(),
 	}
 	serverSocket := path.Join(os.TempDir(), fmt.Sprintf("timecraft.%s.sock", uuid.NewString()))
@@ -225,7 +228,7 @@ func (s ModuleSpec) Copy() (copy ModuleSpec) {
 }
 
 type LogSpec struct {
-	ID          uuid.UUID
+	ProcessID   uuid.UUID
 	Compression timemachine.Compression
 	BatchSize   int
 }
