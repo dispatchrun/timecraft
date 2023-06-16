@@ -125,7 +125,7 @@ func run(ctx context.Context, args []string) error {
 
 		startTime := time.Now()
 
-		processID, err := runner.PrepareRecorder(ctx, preparedModule, startTime, c, int(batchSize))
+		processID, err := runner.PrepareLog(ctx, preparedModule, startTime, c, int(batchSize))
 		if err != nil {
 			return err
 		}

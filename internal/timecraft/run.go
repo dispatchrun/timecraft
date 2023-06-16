@@ -71,8 +71,8 @@ func (r *Runner) PrepareModule(ctx context.Context, spec ModuleSpec) (*PreparedM
 	}, nil
 }
 
-// PrepareRecorder initializes a log to record a trace of execution.
-func (r *Runner) PrepareRecorder(ctx context.Context, m *PreparedModule, startTime time.Time, c timemachine.Compression, batchSize int) (uuid.UUID, error) {
+// PrepareLog initializes a log to record a trace of execution.
+func (r *Runner) PrepareLog(ctx context.Context, m *PreparedModule, startTime time.Time, c timemachine.Compression, batchSize int) (uuid.UUID, error) {
 	if m.recorder != nil {
 		return uuid.UUID{}, errors.New("a recorder has already been attached to the module")
 	}
