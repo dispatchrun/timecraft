@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"unsafe"
 
 	"github.com/stealthrocket/wazergo"
 	. "github.com/stealthrocket/wazergo/types"
@@ -14,7 +15,7 @@ const httpModuleName = "timecraft_http"
 
 func NewHttpModule() wazergo.HostModule[*HttpModule] {
 	return functions{
-		"do":     wazergo.F4((*HttpModule).Do),
+		"do":     wazergo.F3((*HttpModule).Do),
 		"size":   wazergo.F1((*HttpModule).Size),
 		"status": wazergo.F1((*HttpModule).Status),
 		"close":  wazergo.F1((*HttpModule).CloseHandle),
@@ -92,7 +93,7 @@ func (m *HttpModule) Read(ctx context.Context, h Int32, p Pointer[Uint8], s Int3
 	return Int32(len(r.body))
 }
 
-func (m *HttpModule) do(ctx context.Context, method, url string, headers map[string]string) (int32, response, error) {
+func (m *HttpModule) do(ctx context.Context, method, url string, headers []byte) (int32, response, error) {
 	h := m.nextHandle
 	m.nextHandle++
 
@@ -100,9 +101,7 @@ func (m *HttpModule) do(ctx context.Context, method, url string, headers map[str
 	if err != nil {
 		return h, response{}, err
 	}
-	for k, v := range headers {
-		req.Header.Add(k, v)
-	}
+	iterheaders(headers, req.Header.Add)
 
 	r, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -115,7 +114,21 @@ func (m *HttpModule) do(ctx context.Context, method, url string, headers map[str
 	return h, result, err
 }
 
-func (m *HttpModule) Do(ctx context.Context, cmethod Pointer[Uint8], curl Pointer[Uint8], hdrp Pointer[Uint8], hdrs Int32) Int32 {
+func iterheaders(b []byte, f func(k, v string)) {
+	for len(b) > 0 {
+		i := bytes.IndexByte(b, 0)
+		kb := b[:i]
+		key := *(*string)(unsafe.Pointer(&kb))
+		b = b[i+1:]
+		i = bytes.IndexByte(b, 0)
+		kv := b[:i]
+		value := *(*string)(unsafe.Pointer(&kv))
+		b = b[i+1:]
+		f(key, value)
+	}
+}
+
+func (m *HttpModule) Do(ctx context.Context, cmethod Pointer[Uint8], curl Pointer[Uint8], hdrbuf Bytes) Int32 {
 	n := strlen(cmethod)
 	method := string(cmethod.Slice(n))
 	n = strlen(curl)
@@ -123,22 +136,8 @@ func (m *HttpModule) Do(ctx context.Context, cmethod Pointer[Uint8], curl Pointe
 
 	// TODO: there has to be a better way to avoid all those conversions.
 	// Maybe just provide an iterator?
-	headers := map[string]string{}
-	uint8s := hdrp.Slice(int(hdrs))
-	b := make([]byte, len(uint8s))
-	for i, x := range uint8s {
-		b[i] = byte(x)
-	}
-	for len(b) > 0 {
-		i := bytes.IndexByte(b, 0)
-		key := string(b[:i])
-		b = b[i+1:]
-		i = bytes.IndexByte(b, 0)
-		value := string(b[:i])
-		b = b[i+1:]
-		headers[key] = value
-	}
 
+	headers := *(*[]byte)(unsafe.Pointer(&hdrbuf))
 	h, r, err := m.do(ctx, method, url, headers)
 	if err != nil {
 		r.status = -1
