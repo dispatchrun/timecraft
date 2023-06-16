@@ -145,6 +145,8 @@ func Root(ctx context.Context, args ...string) int {
 		return 0
 	case exitCode:
 		return int(e)
+	case timecraft.ExitError:
+		return int(e)
 	default:
 		perrorf("ERR: timecraft %s: %s", cmd, err)
 		return 1
