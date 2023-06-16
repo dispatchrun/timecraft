@@ -3,6 +3,7 @@ package timecraft
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"io"
 	"net/http"
 	"unsafe"
@@ -45,7 +46,14 @@ func (f functions) Instantiate(ctx context.Context, opts ...HttpModuleOption) (*
 
 type response struct {
 	status int32
-	body   []byte
+	// format:
+	//
+	// <int32 size in bytes of following header>
+	// header1\0value1\0
+	// header2\0value2\0
+	// ...
+	// [body bytes...]
+	content []byte
 }
 
 type HttpModule struct {
@@ -62,7 +70,7 @@ func (m *HttpModule) Size(ctx context.Context, h Int32) Int32 {
 	if !ok {
 		return -1
 	}
-	return Int32(len(r.body))
+	return Int32(len(r.content))
 }
 
 func (m *HttpModule) Status(ctx context.Context, h Int32) Int32 {
@@ -83,14 +91,14 @@ func (m *HttpModule) Read(ctx context.Context, h Int32, p Pointer[Uint8], s Int3
 	if !ok {
 		return -1
 	}
-	if int(s) < len(r.body) {
+	if int(s) < len(r.content) {
 		panic("guest need to allocate large enough buffer")
 	}
-	ok = p.Memory().Write(p.Offset(), r.body)
+	ok = p.Memory().Write(p.Offset(), r.content)
 	if !ok {
 		panic("memory write out of range")
 	}
-	return Int32(len(r.body))
+	return Int32(len(r.content))
 }
 
 func (m *HttpModule) do(ctx context.Context, method, url string, headers []byte, body []byte) (int32, response, error) {
@@ -110,7 +118,24 @@ func (m *HttpModule) do(ctx context.Context, method, url string, headers []byte,
 	defer r.Body.Close()
 	result := response{}
 	result.status = int32(r.StatusCode)
-	result.body, err = io.ReadAll(r.Body)
+
+	b := make([]byte, 4)
+	c := 0
+	for key, values := range r.Header {
+		for _, value := range values {
+			b = append(b, []byte(key)...)
+			b = append(b, 0)
+			b = append(b, []byte(value)...)
+			b = append(b, 0)
+			c++
+		}
+	}
+	hdrsize := len(b) - 4
+	binary.LittleEndian.PutUint32(b[:4], uint32(hdrsize))
+	body, err = io.ReadAll(r.Body)
+
+	result.content = append(b, body...)
+
 	return h, result, err
 }
 
@@ -140,7 +165,7 @@ func (m *HttpModule) Do(ctx context.Context, cmethod Pointer[Uint8], curl Pointe
 	h, r, err := m.do(ctx, method, url, headers, body)
 	if err != nil {
 		r.status = -1
-		r.body = []byte(err.Error())
+		r.content = []byte(err.Error())
 	}
 	m.responses[h] = r
 
