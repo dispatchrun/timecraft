@@ -24,7 +24,7 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-// Runner coordinates the execution of a WebAssembly modules.
+// Runner coordinates the execution of WebAssembly modules.
 type Runner struct {
 	registry *timemachine.Registry
 	runtime  wazero.Runtime
