@@ -135,5 +135,6 @@ func run(ctx context.Context, args []string) error {
 	if _, err := executor.Start(moduleSpec, logSpec, nil); err != nil {
 		return err
 	}
+
 	return executor.Wait()
 }
