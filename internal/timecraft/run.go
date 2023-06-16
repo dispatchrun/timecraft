@@ -72,18 +72,18 @@ func (r *Runner) PrepareModule(ctx context.Context, spec ModuleSpec) (*PreparedM
 }
 
 // PrepareLog initializes a log to record a trace of execution.
-func (r *Runner) PrepareLog(ctx context.Context, m *PreparedModule, startTime time.Time, c timemachine.Compression, batchSize int) (uuid.UUID, error) {
-	if m.recorder != nil {
+func (r *Runner) PrepareLog(ctx context.Context, mod *PreparedModule, startTime time.Time, compression timemachine.Compression, batchSize int) (uuid.UUID, error) {
+	if mod.recorder != nil {
 		return uuid.UUID{}, errors.New("a recorder has already been attached to the module")
 	}
 
 	processID := uuid.New()
 
 	module, err := r.registry.CreateModule(ctx, &format.Module{
-		Code: m.wasmCode,
+		Code: mod.wasmCode,
 	}, object.Tag{
 		Name:  "timecraft.module.name",
-		Value: m.wasmModule.Name(),
+		Value: mod.wasmModule.Name(),
 	})
 	if err != nil {
 		return uuid.UUID{}, err
@@ -100,8 +100,8 @@ func (r *Runner) PrepareLog(ctx context.Context, m *PreparedModule, startTime ti
 	config, err := r.registry.CreateConfig(ctx, &format.Config{
 		Runtime: runtime,
 		Modules: []*format.Descriptor{module},
-		Args:    append([]string{m.wasmName}, m.moduleSpec.Args...),
-		Env:     m.moduleSpec.Env,
+		Args:    append([]string{mod.wasmName}, mod.moduleSpec.Args...),
+		Env:     mod.moduleSpec.Env,
 	})
 	if err != nil {
 		return uuid.UUID{}, err
@@ -128,12 +128,12 @@ func (r *Runner) PrepareLog(ctx context.Context, m *PreparedModule, startTime ti
 	if err != nil {
 		return uuid.UUID{}, err
 	}
-	m.cleanup = append(m.cleanup, logSegment.Close)
+	mod.cleanup = append(mod.cleanup, logSegment.Close)
 	logWriter := timemachine.NewLogWriter(logSegment)
-	recordWriter := timemachine.NewLogRecordWriter(logWriter, batchSize, c)
-	m.cleanup = append(m.cleanup, recordWriter.Flush)
+	recordWriter := timemachine.NewLogRecordWriter(logWriter, batchSize, compression)
+	mod.cleanup = append(mod.cleanup, recordWriter.Flush)
 
-	m.recorder = func(s wasi.System) wasi.System {
+	mod.recorder = func(s wasi.System) wasi.System {
 		var b timemachine.RecordBuilder
 		return wasicall.NewRecorder(s, func(id wasicall.SyscallID, syscallBytes []byte) {
 			b.Reset(startTime)
@@ -146,9 +146,9 @@ func (r *Runner) PrepareLog(ctx context.Context, m *PreparedModule, startTime ti
 		})
 	}
 
-	m.logSpec = &LogSpec{
+	mod.logSpec = &LogSpec{
 		ProcessID:   processID,
-		Compression: c,
+		Compression: compression,
 		BatchSize:   batchSize,
 	}
 
@@ -156,11 +156,11 @@ func (r *Runner) PrepareLog(ctx context.Context, m *PreparedModule, startTime ti
 }
 
 // RunModule runs a prepared WebAssembly module.
-func (r *Runner) RunModule(ctx context.Context, m *PreparedModule) error {
+func (r *Runner) RunModule(ctx context.Context, mod *PreparedModule) error {
 	server := Server{
 		Runner:  r,
-		Module:  m.moduleSpec,
-		Log:     m.logSpec,
+		Module:  mod.moduleSpec,
+		Log:     mod.logSpec,
 		Version: Version(),
 	}
 	serverSocket := path.Join(os.TempDir(), fmt.Sprintf("timecraft.%s.sock", uuid.NewString()))
@@ -184,25 +184,25 @@ func (r *Runner) RunModule(ctx context.Context, m *PreparedModule) error {
 			sdk.ServerSocket: serverSocket,
 		})
 	})
-	if m.trace != nil {
+	if mod.trace != nil {
 		wrappers = append(wrappers, func(system wasi.System) wasi.System {
-			return wasi.Trace(m.trace, system)
+			return wasi.Trace(mod.trace, system)
 		})
 	}
-	if m.recorder != nil {
-		wrappers = append(wrappers, m.recorder)
+	if mod.recorder != nil {
+		wrappers = append(wrappers, mod.recorder)
 	}
 
-	m.builder = m.builder.WithWrappers(wrappers...)
+	mod.builder = mod.builder.WithWrappers(wrappers...)
 
 	var system wasi.System
-	ctx, system, err = m.builder.Instantiate(ctx, r.runtime)
+	ctx, system, err = mod.builder.Instantiate(ctx, r.runtime)
 	if err != nil {
 		return err
 	}
 	defer system.Close(ctx)
 
-	return runModule(ctx, r.runtime, m.wasmModule)
+	return runModule(ctx, r.runtime, mod.wasmModule)
 }
 
 // ModuleSpec is the details about what WebAssembly module to execute,
