@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
@@ -91,9 +92,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer runtime.Close(ctx)
 
-	runner := timecraft.NewRunner(registry, runtime)
+	runner := timecraft.NewRunner(ctx, registry, runtime)
 
-	preparedModule, err := runner.PrepareModule(ctx, timecraft.ModuleSpec{
+	preparedModule, err := runner.PrepareModule(timecraft.ModuleSpec{
 		Path:    wasmPath,
 		Args:    args,
 		Env:     envs,
@@ -108,7 +109,7 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer preparedModule.Close(ctx)
+	defer preparedModule.Close()
 
 	if !flyBlind {
 		var c timemachine.Compression
@@ -123,9 +124,15 @@ func run(ctx context.Context, args []string) error {
 			return fmt.Errorf("invalid compression type %q", compression)
 		}
 
+		processID := uuid.New()
 		startTime := time.Now()
 
-		processID, err := runner.PrepareLog(ctx, preparedModule, startTime, c, int(batchSize))
+		err := runner.PrepareLog(preparedModule, timecraft.LogSpec{
+			ProcessID:   processID,
+			StartTime:   startTime,
+			Compression: c,
+			BatchSize:   int(batchSize),
+		})
 		if err != nil {
 			return err
 		}
@@ -137,5 +144,5 @@ func run(ctx context.Context, args []string) error {
 		preparedModule.SetTrace(os.Stderr)
 	}
 
-	return runner.RunModule(ctx, preparedModule)
+	return runner.RunModule(preparedModule)
 }

@@ -26,20 +26,22 @@ import (
 
 // Runner coordinates the execution of WebAssembly modules.
 type Runner struct {
+	ctx      context.Context
 	registry *timemachine.Registry
 	runtime  wazero.Runtime
 }
 
 // NewRunner creates a Runner.
-func NewRunner(registry *timemachine.Registry, runtime wazero.Runtime) *Runner {
+func NewRunner(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime) *Runner {
 	return &Runner{
+		ctx:      ctx,
 		registry: registry,
 		runtime:  runtime,
 	}
 }
 
 // PrepareModule prepares a module for execution with RunModule.
-func (r *Runner) PrepareModule(ctx context.Context, spec ModuleSpec) (*PreparedModule, error) {
+func (r *Runner) PrepareModule(spec ModuleSpec) (*PreparedModule, error) {
 	wasmPath := spec.Path
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
@@ -47,7 +49,7 @@ func (r *Runner) PrepareModule(ctx context.Context, spec ModuleSpec) (*PreparedM
 		return nil, fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
 	}
 
-	wasmModule, err := r.runtime.CompileModule(ctx, wasmCode)
+	wasmModule, err := r.runtime.CompileModule(r.ctx, wasmCode)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +64,11 @@ func (r *Runner) PrepareModule(ctx context.Context, spec ModuleSpec) (*PreparedM
 		WithStdio(spec.Stdin, spec.Stdout, spec.Stderr).
 		WithSocketsExtension(spec.Sockets, wasmModule)
 
+	ctx, cancel := context.WithCancel(r.ctx)
+
 	return &PreparedModule{
+		ctx:        ctx,
+		cancel:     cancel,
 		moduleSpec: spec.Copy(),
 		wasmName:   wasmName,
 		wasmCode:   wasmCode,
@@ -72,71 +78,69 @@ func (r *Runner) PrepareModule(ctx context.Context, spec ModuleSpec) (*PreparedM
 }
 
 // PrepareLog initializes a log to record a trace of execution.
-func (r *Runner) PrepareLog(ctx context.Context, mod *PreparedModule, startTime time.Time, compression timemachine.Compression, batchSize int) (uuid.UUID, error) {
-	if mod.recorder != nil {
-		return uuid.UUID{}, errors.New("a recorder has already been attached to the module")
+func (r *Runner) PrepareLog(mod *PreparedModule, log LogSpec) error {
+	if mod.logSpec != nil {
+		return errors.New("the module already has a log")
 	}
 
-	processID := uuid.New()
-
-	module, err := r.registry.CreateModule(ctx, &format.Module{
+	module, err := r.registry.CreateModule(mod.ctx, &format.Module{
 		Code: mod.wasmCode,
 	}, object.Tag{
 		Name:  "timecraft.module.name",
 		Value: mod.wasmModule.Name(),
 	})
 	if err != nil {
-		return uuid.UUID{}, err
+		return err
 	}
 
-	runtime, err := r.registry.CreateRuntime(ctx, &format.Runtime{
+	runtime, err := r.registry.CreateRuntime(mod.ctx, &format.Runtime{
 		Runtime: "timecraft",
 		Version: Version(),
 	})
 	if err != nil {
-		return uuid.UUID{}, err
+		return err
 	}
 
-	config, err := r.registry.CreateConfig(ctx, &format.Config{
+	config, err := r.registry.CreateConfig(mod.ctx, &format.Config{
 		Runtime: runtime,
 		Modules: []*format.Descriptor{module},
 		Args:    append([]string{mod.wasmName}, mod.moduleSpec.Args...),
 		Env:     mod.moduleSpec.Env,
 	})
 	if err != nil {
-		return uuid.UUID{}, err
+		return err
 	}
 
-	process, err := r.registry.CreateProcess(ctx, &format.Process{
-		ID:        processID,
-		StartTime: startTime,
+	process, err := r.registry.CreateProcess(mod.ctx, &format.Process{
+		ID:        log.ProcessID,
+		StartTime: log.StartTime,
 		Config:    config,
 	})
 	if err != nil {
-		return uuid.UUID{}, err
+		return err
 	}
 
-	if err := r.registry.CreateLogManifest(ctx, processID, &format.Manifest{
+	if err := r.registry.CreateLogManifest(mod.ctx, log.ProcessID, &format.Manifest{
 		Process:   process,
-		StartTime: startTime,
+		StartTime: log.StartTime,
 	}); err != nil {
-		return uuid.UUID{}, err
+		return err
 	}
 
 	// TODO: create a writer that writes to many segments
-	logSegment, err := r.registry.CreateLogSegment(ctx, processID, 0)
+	logSegment, err := r.registry.CreateLogSegment(mod.ctx, log.ProcessID, 0)
 	if err != nil {
-		return uuid.UUID{}, err
+		return err
 	}
 	mod.cleanup = append(mod.cleanup, logSegment.Close)
 	logWriter := timemachine.NewLogWriter(logSegment)
-	recordWriter := timemachine.NewLogRecordWriter(logWriter, batchSize, compression)
+	recordWriter := timemachine.NewLogRecordWriter(logWriter, log.BatchSize, log.Compression)
 	mod.cleanup = append(mod.cleanup, recordWriter.Flush)
 
 	mod.recorder = func(s wasi.System) wasi.System {
 		var b timemachine.RecordBuilder
 		return wasicall.NewRecorder(s, func(id wasicall.SyscallID, syscallBytes []byte) {
-			b.Reset(startTime)
+			b.Reset(log.StartTime)
 			b.SetTimestamp(time.Now())
 			b.SetFunctionID(int(id))
 			b.SetFunctionCall(syscallBytes)
@@ -146,17 +150,18 @@ func (r *Runner) PrepareLog(ctx context.Context, mod *PreparedModule, startTime 
 		})
 	}
 
-	mod.logSpec = &LogSpec{
-		ProcessID:   processID,
-		Compression: compression,
-		BatchSize:   batchSize,
-	}
+	mod.logSpec = &log
 
-	return processID, nil
+	return nil
 }
 
 // RunModule runs a prepared WebAssembly module.
-func (r *Runner) RunModule(ctx context.Context, mod *PreparedModule) error {
+func (r *Runner) RunModule(mod *PreparedModule) error {
+	if mod.run {
+		return errors.New("module is already running or already has run")
+	}
+	mod.run = true
+
 	server := Server{
 		Runner:  r,
 		Module:  mod.moduleSpec,
@@ -196,13 +201,13 @@ func (r *Runner) RunModule(ctx context.Context, mod *PreparedModule) error {
 	mod.builder = mod.builder.WithWrappers(wrappers...)
 
 	var system wasi.System
-	ctx, system, err = mod.builder.Instantiate(ctx, r.runtime)
+	mod.ctx, system, err = mod.builder.Instantiate(mod.ctx, r.runtime)
 	if err != nil {
 		return err
 	}
-	defer system.Close(ctx)
+	defer system.Close(mod.ctx)
 
-	return runModule(ctx, r.runtime, mod.wasmModule)
+	return runModule(mod.ctx, r.runtime, mod.wasmModule)
 }
 
 // ModuleSpec is the details about what WebAssembly module to execute,
@@ -234,12 +239,16 @@ func (s ModuleSpec) Copy() (copy ModuleSpec) {
 // LogSpec is details about a log that stores a trace of execution.
 type LogSpec struct {
 	ProcessID   uuid.UUID
+	StartTime   time.Time
 	Compression timemachine.Compression
 	BatchSize   int
 }
 
 // PreparedModule is a WebAssembly module that's ready for execution.
 type PreparedModule struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	moduleSpec ModuleSpec
 	wasmName   string
 	wasmCode   []byte
@@ -251,6 +260,7 @@ type PreparedModule struct {
 
 	trace io.Writer
 
+	run     bool
 	cleanup []func() error
 }
 
@@ -261,7 +271,7 @@ func (p *PreparedModule) SetTrace(w io.Writer) {
 }
 
 // Close closes the module.
-func (p *PreparedModule) Close(ctx context.Context) error {
+func (p *PreparedModule) Close() error {
 	var errs []error
 	if len(p.cleanup) > 0 {
 		for i := len(p.cleanup) - 1; i >= 0; i-- {
@@ -270,7 +280,7 @@ func (p *PreparedModule) Close(ctx context.Context) error {
 			}
 		}
 	}
-	if err := p.wasmModule.Close(ctx); err != nil {
+	if err := p.wasmModule.Close(p.ctx); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
