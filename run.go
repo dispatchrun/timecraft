@@ -137,5 +137,5 @@ func run(ctx context.Context, args []string) error {
 		preparedModule.SetTrace(os.Stderr)
 	}
 
-	return runner.Run(ctx, preparedModule)
+	return runner.RunModule(ctx, preparedModule)
 }

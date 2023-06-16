@@ -38,7 +38,7 @@ func NewRunner(registry *timemachine.Registry, runtime wazero.Runtime) *Runner {
 	}
 }
 
-// PrepareModule prepares a module for execution.
+// PrepareModule prepares a module for execution with RunModule.
 func (r *Runner) PrepareModule(ctx context.Context, spec ModuleSpec) (*PreparedModule, error) {
 	wasmPath := spec.Path
 	wasmName := filepath.Base(wasmPath)
@@ -71,6 +71,7 @@ func (r *Runner) PrepareModule(ctx context.Context, spec ModuleSpec) (*PreparedM
 	}, nil
 }
 
+// PrepareRecorder initializes a log to record a trace of execution.
 func (r *Runner) PrepareRecorder(ctx context.Context, m *PreparedModule, startTime time.Time, c timemachine.Compression, batchSize int) (uuid.UUID, error) {
 	if m.recorder != nil {
 		return uuid.UUID{}, errors.New("a recorder has already been attached to the module")
@@ -154,8 +155,8 @@ func (r *Runner) PrepareRecorder(ctx context.Context, m *PreparedModule, startTi
 	return processID, nil
 }
 
-// Run runs a WebAssembly module.
-func (r *Runner) Run(ctx context.Context, m *PreparedModule) error {
+// RunModule runs a prepared WebAssembly module.
+func (r *Runner) RunModule(ctx context.Context, m *PreparedModule) error {
 	server := Server{
 		Runner:  r,
 		Module:  m.moduleSpec,
@@ -204,6 +205,8 @@ func (r *Runner) Run(ctx context.Context, m *PreparedModule) error {
 	return runModule(ctx, r.runtime, m.wasmModule)
 }
 
+// ModuleSpec is the details about what WebAssembly module to execute,
+// how it should be initialized, and what its inputs are.
 type ModuleSpec struct {
 	Path    string
 	Args    []string
@@ -217,6 +220,7 @@ type ModuleSpec struct {
 	Stderr  int
 }
 
+// Copy creates a deep copy of the ModuleSpec.
 func (s ModuleSpec) Copy() (copy ModuleSpec) {
 	copy = s
 	copy.Args = slices.Clone(s.Args)
@@ -227,12 +231,14 @@ func (s ModuleSpec) Copy() (copy ModuleSpec) {
 	return
 }
 
+// LogSpec is details about a log that stores a trace of execution.
 type LogSpec struct {
 	ProcessID   uuid.UUID
 	Compression timemachine.Compression
 	BatchSize   int
 }
 
+// PreparedModule is a WebAssembly module that's ready for execution.
 type PreparedModule struct {
 	moduleSpec ModuleSpec
 	wasmName   string
