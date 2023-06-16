@@ -16,10 +16,6 @@ import (
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
-	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
-	"github.com/stealthrocket/wasi-go/imports"
-	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
-	"github.com/stealthrocket/wazergo"
 	"github.com/stealthrocket/wzprof"
 	"github.com/tetratelabs/wazero/experimental"
 	"golang.org/x/exp/maps"
@@ -43,7 +39,7 @@ Example:
    ==> writing memory profile to mem.out
    ...
 
-   $ go tool pprof -http :4040 cpu.out
+   $ go tool pprof -http :4040 mem.out
    (web page opens in browser)
 
 Options:
@@ -103,53 +99,39 @@ func profile(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	runtime, err := timecraft.NewRuntime(ctx, config)
+	if err != nil {
+		return err
+	}
+	defer runtime.Close(ctx)
 
-	manifest, err := registry.LookupLogManifest(ctx, processID)
+	replay := timecraft.NewReplay(registry, runtime, processID)
+
+	recordReader, processStartTime, err := replay.RecordReader(ctx)
 	if err != nil {
 		return err
 	}
 	if startTime.IsZero() {
-		startTime = human.Time(manifest.StartTime)
-	}
-	timeRange := timemachine.TimeRange{
-		Start: time.Time(startTime),
-		End:   time.Time(startTime).Add(time.Duration(duration)),
+		startTime = human.Time(processStartTime)
 	}
 
-	process, err := registry.LookupProcess(ctx, manifest.Process.Digest)
+	moduleCode, err := replay.ModuleCode(ctx)
 	if err != nil {
 		return err
 	}
-	processConfig, err := registry.LookupConfig(ctx, process.Config.Digest)
-	if err != nil {
-		return err
-	}
-	module, err := registry.LookupModule(ctx, processConfig.Modules[0].Digest)
-	if err != nil {
-		return err
-	}
-
-	logSegment, err := registry.ReadLogSegment(ctx, processID, 0)
-	if err != nil {
-		return err
-	}
-	defer logSegment.Close()
-
-	logReader := timemachine.NewLogReader(logSegment, manifest)
-	defer logReader.Close()
+	p := wzprof.ProfilingFor(moduleCode)
 
 	records := &recordProfiler{
-		records:    timemachine.NewLogRecordReader(logReader),
-		startTime:  timeRange.Start,
-		endTime:    timeRange.End,
+		records:    recordReader,
+		startTime:  time.Time(startTime),
+		endTime:    time.Time(startTime).Add(time.Duration(duration)),
 		sampleRate: 1.0,
+		// Enable profiling of time spent in host functions because we don't have
+		// any I/O wait during a replay, so it gives a useful perspective of the
+		// CPU time spent processing the host call invocation.
+		cpu: p.CPUProfiler(wzprof.HostTime(true)),
+		mem: p.MemoryProfiler(),
 	}
-	p := wzprof.ProfilingFor(module.Code)
-	// Enable profiling of time spent in host functions because we don't have
-	// any I/O wait during a replay, so it gives a useful perspective of the
-	// CPU time spent processing the host call invocation.
-	records.cpu = p.CPUProfiler(wzprof.HostTime(true))
-	records.mem = p.MemoryProfiler()
 
 	ctx = context.WithValue(ctx,
 		experimental.FunctionListenerFactoryKey{},
@@ -159,31 +141,7 @@ func profile(ctx context.Context, args []string) error {
 		),
 	)
 
-	runtime, err := timecraft.NewRuntime(ctx, config)
-	if err != nil {
-		return err
-	}
-	defer runtime.Close(ctx)
-
-	compiledModule, err := runtime.CompileModule(ctx, module.Code)
-	if err != nil {
-		return err
-	}
-	defer compiledModule.Close(ctx)
-	if err := p.Prepare(compiledModule); err != nil {
-		return err
-	}
-
-	replay := wasicall.NewReplay(records)
-	defer replay.Close(ctx)
-
-	system := wasicall.NewFallbackSystem(replay, wasicall.NewExitSystem(0))
-
-	hostModule := wasi_snapshot_preview1.NewHostModule(imports.DetectExtensions(compiledModule)...)
-	hostModuleInstance := wazergo.MustInstantiate(ctx, runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
-	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
-
-	if err := instantiate(ctx, runtime, compiledModule); err != nil {
+	if err := replay.ReplayRecords(ctx, moduleCode, records); err != nil {
 		return err
 	}
 
