@@ -16,7 +16,7 @@ import (
 	"github.com/tetratelabs/wazero"
 )
 
-// Replay coordinates the replay of a process.
+// Replay coordinates the replay of WebAssembly modules.
 type Replay struct {
 	registry  *timemachine.Registry
 	runtime   wazero.Runtime
@@ -27,7 +27,8 @@ type Replay struct {
 	trace  io.Writer
 }
 
-// NewReplay creates a Replay for the process identified by processID.
+// NewReplay creates a Replay for a WebAssembly modules with a recorded trace
+// of execution, identified by processID.
 func NewReplay(registry *timemachine.Registry, runtime wazero.Runtime, processID uuid.UUID) *Replay {
 	return &Replay{
 		registry:  registry,
