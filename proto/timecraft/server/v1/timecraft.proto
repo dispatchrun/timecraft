@@ -2,10 +2,11 @@ syntax = "proto3";
 
 package timecraft.server.v1;
 
-message VersionRequest {}
+message ParentRequest {}
 
-message VersionResponse {
-    string version = 1;
+message ParentResponse {
+    bool root = 1;
+    string parent_id = 2;
 }
 
 message SpawnRequest {
@@ -14,10 +15,17 @@ message SpawnRequest {
 }
 
 message SpawnResponse {
-    string id = 1;
+    string process_id = 1;
+}
+
+message VersionRequest {}
+
+message VersionResponse {
+    string version = 1;
 }
 
 service TimecraftService {
-  rpc Version(VersionRequest) returns (VersionResponse) {}
+  rpc Parent(ParentRequest) returns (ParentResponse) {}
   rpc Spawn(SpawnRequest) returns (SpawnResponse) {}
+  rpc Version(VersionRequest) returns (VersionResponse) {}
 }

@@ -55,17 +55,17 @@ func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wa
 // initializing the WebAssembly module. If the WebAssembly module starts
 // successfully, any errors that occur during execution must be retrieved
 // via Wait.
-func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
+func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid.UUID) (uuid.UUID, error) {
 	wasmPath := moduleSpec.Path
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
 	if err != nil {
-		return fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
+		return uuid.UUID{}, fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
 	}
 
 	wasmModule, err := e.runtime.CompileModule(e.ctx, wasmCode)
 	if err != nil {
-		return err
+		return uuid.UUID{}, err
 	}
 
 	wasiBuilder := imports.NewBuilder().
@@ -82,7 +82,16 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 	var recordWriter *timemachine.LogRecordWriter
 	var recorder func(wasi.System) wasi.System
 
+	var processID uuid.UUID
+	if logSpec != nil && logSpec.ProcessID != (uuid.UUID{}) {
+		processID = logSpec.ProcessID
+	} else {
+		processID = uuid.New()
+	}
+
 	if logSpec != nil {
+		logSpec.ProcessID = processID
+
 		module, err := e.registry.CreateModule(e.ctx, &format.Module{
 			Code: wasmCode,
 		}, object.Tag{
@@ -90,7 +99,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 			Value: wasmModule.Name(),
 		})
 		if err != nil {
-			return err
+			return uuid.UUID{}, err
 		}
 
 		runtime, err := e.registry.CreateRuntime(e.ctx, &format.Runtime{
@@ -98,7 +107,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 			Version: Version(),
 		})
 		if err != nil {
-			return err
+			return uuid.UUID{}, err
 		}
 
 		config, err := e.registry.CreateConfig(e.ctx, &format.Config{
@@ -108,7 +117,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 			Env:     moduleSpec.Env,
 		})
 		if err != nil {
-			return err
+			return uuid.UUID{}, err
 		}
 
 		process, err := e.registry.CreateProcess(e.ctx, &format.Process{
@@ -117,20 +126,20 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 			Config:    config,
 		})
 		if err != nil {
-			return err
+			return uuid.UUID{}, err
 		}
 
 		if err := e.registry.CreateLogManifest(e.ctx, logSpec.ProcessID, &format.Manifest{
 			Process:   process,
 			StartTime: logSpec.StartTime,
 		}); err != nil {
-			return err
+			return uuid.UUID{}, err
 		}
 
 		// TODO: create a writer that writes to many segments
 		logSegment, err = e.registry.CreateLogSegment(e.ctx, logSpec.ProcessID, 0)
 		if err != nil {
-			return err
+			return uuid.UUID{}, err
 		}
 		logWriter := timemachine.NewLogWriter(logSegment)
 		recordWriter = timemachine.NewLogRecordWriter(logWriter, logSpec.BatchSize, logSpec.Compression)
@@ -147,19 +156,23 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 				}
 			})
 		}
+	} else {
+		processID = uuid.New()
 	}
 
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := moduleServer{
 		executor:   e,
+		processID:  processID,
+		parentID:   parentID,
 		moduleSpec: moduleSpec,
 		logSpec:    logSpec,
 	}
 	serverSocket := path.Join(os.TempDir(), fmt.Sprintf("timecraft.%s.sock", uuid.NewString()))
 	serverListener, err := net.Listen("unix", serverSocket)
 	if err != nil {
-		return err
+		return uuid.UUID{}, err
 	}
 	go func() {
 		if err := server.Serve(serverListener); err != nil && !errors.Is(err, net.ErrClosed) {
@@ -186,7 +199,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 	}
 	ctx, system, err := wasiBuilder.WithWrappers(wrappers...).Instantiate(e.ctx, e.runtime)
 	if err != nil {
-		return err
+		return uuid.UUID{}, err
 	}
 
 	// Run the module in the background, and tidy up once complete.
@@ -203,7 +216,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 		return runModule(ctx, e.runtime, wasmModule)
 	})
 
-	return nil
+	return processID, nil
 }
 
 // Wait blocks until all WebAssembly modules have finished executing.

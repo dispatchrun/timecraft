@@ -33,14 +33,27 @@ type Client struct {
 	grpcClient serverv1connect.TimecraftServiceClient
 }
 
-// Spawn spawns a WebAssembly module.
+// Parent returns the ID of the process that started this process.
+//
+// The boolean flag is true if the process was spawned by another,
+// and false if the process is the root process.
+func (c *Client) Parent() (string, bool, error) {
+	req := connect.NewRequest(&v1.ParentRequest{})
+	res, err := c.grpcClient.Parent(context.Background(), req)
+	if err != nil {
+		return "", false, err
+	}
+	return res.Msg.ParentId, !res.Msg.Root, nil
+}
+
+// Spawn spawns a process and returns its ID.
 func (c *Client) Spawn(path string, args []string) (string, error) {
 	req := connect.NewRequest(&v1.SpawnRequest{Path: path, Args: args})
 	res, err := c.grpcClient.Spawn(context.Background(), req)
 	if err != nil {
 		return "", err
 	}
-	return res.Msg.Id, nil
+	return res.Msg.ProcessId, nil
 }
 
 // Version fetches the timecraft version.

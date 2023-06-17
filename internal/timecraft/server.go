@@ -20,6 +20,8 @@ import (
 // WebAssembly module has its own instance of a gRPC server.
 type moduleServer struct {
 	executor   *Executor
+	processID  uuid.UUID
+	parentID   *uuid.UUID
 	moduleSpec ModuleSpec
 	logSpec    *LogSpec
 }
@@ -54,26 +56,34 @@ func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnReq
 	moduleSpec.Dials = nil   // not supported
 	moduleSpec.Listens = nil // not supported
 
-	childID := uuid.New()
 	var logSpec *LogSpec
 	if parentLog := s.instance.logSpec; parentLog != nil {
 		logSpec = &LogSpec{
-			ProcessID:   childID,
 			StartTime:   time.Now(),
 			Compression: parentLog.Compression,
 			BatchSize:   parentLog.BatchSize,
 		}
 	}
 
-	if err := s.instance.executor.Start(moduleSpec, logSpec); err != nil {
+	childID, err := s.instance.executor.Start(moduleSpec, logSpec, &s.instance.processID)
+	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start module: %w", err))
 	}
 
-	res := connect.NewResponse(&v1.SpawnResponse{Id: childID.String()})
+	res := connect.NewResponse(&v1.SpawnResponse{ProcessId: childID.String()})
 	return res, nil
 }
 
-func (s *grpcServer) Version(ctx context.Context, req *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
-	res := connect.NewResponse(&v1.VersionResponse{Version: Version()})
-	return res, nil
+func (s *grpcServer) Parent(ctx context.Context, req *connect.Request[v1.ParentRequest]) (*connect.Response[v1.ParentResponse], error) {
+	res := &v1.ParentResponse{}
+	if parentID := s.instance.parentID; parentID == nil {
+		res.Root = true
+	} else {
+		res.ParentId = parentID.String()
+	}
+	return connect.NewResponse(res), nil
+}
+
+func (s *grpcServer) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
+	return connect.NewResponse(&v1.VersionResponse{Version: Version()}), nil
 }
