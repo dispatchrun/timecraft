@@ -184,29 +184,22 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 	}
 	wasiBuilder = wasiBuilder.WithWrappers(wrappers...)
 
-	ctx, cancel := context.WithCancel(e.ctx)
-
 	// Bring it all together!
-	var system wasi.System
-	ctx, system, err = wasiBuilder.Instantiate(ctx, e.runtime)
+	ctx, system, err := wasiBuilder.Instantiate(e.ctx, e.runtime)
 	if err != nil {
-		cancel()
 		return err
 	}
 
 	// Run the module in the background, and tidy up once complete.
 	e.group.Go(func() error {
-		defer cancel()
 		defer os.Remove(serverSocket)
 		defer serverListener.Close()
 		defer system.Close(ctx)
 		defer wasmModule.Close(ctx)
-		defer func() {
-			if logSpec != nil {
-				_ = recordWriter.Flush()
-				_ = logSegment.Close()
-			}
-		}()
+		if logSpec != nil {
+			defer logSegment.Close()
+			defer recordWriter.Flush()
+		}
 
 		return runModule(ctx, e.runtime, wasmModule)
 	})
