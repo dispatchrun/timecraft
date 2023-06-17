@@ -2,7 +2,6 @@ package timecraft
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/bufbuild/connect-go"
@@ -38,9 +37,9 @@ type Client struct {
 //
 // The boolean flag is true if the process was spawned by another,
 // and false if the process is the root process.
-func (c *Client) Parent() (string, bool, error) {
+func (c *Client) Parent(ctx context.Context) (string, bool, error) {
 	req := connect.NewRequest(&v1.ParentRequest{})
-	res, err := c.grpcClient.Parent(context.Background(), req)
+	res, err := c.grpcClient.Parent(ctx, req)
 	if err != nil {
 		return "", false, err
 	}
@@ -48,9 +47,9 @@ func (c *Client) Parent() (string, bool, error) {
 }
 
 // Spawn spawns a process and returns its ID.
-func (c *Client) Spawn(path string, args []string) (string, error) {
+func (c *Client) Spawn(ctx context.Context, path string, args []string) (string, error) {
 	req := connect.NewRequest(&v1.SpawnRequest{Path: path, Args: args})
-	res, err := c.grpcClient.Spawn(context.Background(), req)
+	res, err := c.grpcClient.Spawn(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -58,22 +57,16 @@ func (c *Client) Spawn(path string, args []string) (string, error) {
 }
 
 // Kill kills a process that was spawned by this process.
-func (c *Client) Kill(id string) error {
+func (c *Client) Kill(ctx context.Context, id string) error {
 	req := connect.NewRequest(&v1.KillRequest{ProcessId: id})
-	res, err := c.grpcClient.Kill(context.Background(), req)
-	if err != nil {
-		return err
-	}
-	if res.Msg.Success {
-		return nil
-	}
-	return errors.New(res.Msg.ErrorMessage)
+	_, err := c.grpcClient.Kill(ctx, req)
+	return err
 }
 
 // Version fetches the timecraft version.
-func (c *Client) Version() (string, error) {
+func (c *Client) Version(ctx context.Context) (string, error) {
 	req := connect.NewRequest(&v1.VersionRequest{})
-	res, err := c.grpcClient.Version(context.Background(), req)
+	res, err := c.grpcClient.Version(ctx, req)
 	if err != nil {
 		return "", err
 	}

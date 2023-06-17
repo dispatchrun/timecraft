@@ -22,10 +22,7 @@ message KillRequest {
     string process_id = 1;
 }
 
-message KillResponse {
-    bool success = 1;
-    string error_message = 2;
-}
+message KillResponse {}
 
 message VersionRequest {}
 

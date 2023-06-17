@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/stealthrocket/timecraft/sdk/go/timecraft"
@@ -11,7 +12,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	version, err := c.Version()
+	version, err := c.Version(context.Background())
 	if err != nil {
 		panic(err)
 	}

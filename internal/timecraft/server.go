@@ -79,10 +79,16 @@ func (s *grpcServer) Kill(ctx context.Context, req *connect.Request[v1.KillReque
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid process ID: %w", err))
 	}
-	if err := s.instance.executor.Stop(processID, &s.instance.processID); err != nil {
-		return connect.NewResponse(&v1.KillResponse{ErrorMessage: err.Error()}), nil
+	switch err := s.instance.executor.Stop(processID, &s.instance.processID); err {
+	case nil:
+		return connect.NewResponse(&v1.KillResponse{}), nil
+	case errNotFound:
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("unknown process ID: %s", processID))
+	case errForbidden:
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("cannot kill process %s", processID))
+	default:
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&v1.KillResponse{Success: true}), nil
 }
 
 func (s *grpcServer) Parent(ctx context.Context, req *connect.Request[v1.ParentRequest]) (*connect.Response[v1.ParentResponse], error) {

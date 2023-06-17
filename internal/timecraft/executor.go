@@ -246,6 +246,9 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 	return processID, nil
 }
 
+var errNotFound = errors.New("process not found")
+var errForbidden = errors.New("process is not allowed to perform that operation")
+
 // Stop stops a WebAssembly module from running.
 func (e *Executor) Stop(processID uuid.UUID, parentID *uuid.UUID) error {
 	e.mu.Lock()
@@ -253,12 +256,9 @@ func (e *Executor) Stop(processID uuid.UUID, parentID *uuid.UUID) error {
 
 	p, ok := e.processes[processID]
 	if !ok {
-		return fmt.Errorf("unknown process %s", processID)
-	}
-	if parentID != nil {
-		if p.parent == nil || *p.parent != *parentID {
-			return fmt.Errorf("process %s is not allowed to stop process %s", parentID, processID)
-		}
+		return errNotFound
+	} else if parentID != nil && (p.parent == nil || *p.parent != *parentID) {
+		return errForbidden
 	}
 
 	p.cancel()
