@@ -76,8 +76,13 @@ func (ch channel) write(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFla
 }
 
 type event struct {
+	lock   *sync.Mutex
 	ready  atomic.Bool
 	signal chan<- struct{}
+}
+
+func makeEvent(lock *sync.Mutex) event {
+	return event{lock: lock}
 }
 
 func (ev *event) clear() {
@@ -100,8 +105,8 @@ func (ev *event) hook(signal chan<- struct{}) {
 	}
 }
 
-func (ev *event) trigger(mu *sync.Mutex) {
-	mu.Lock()
+func (ev *event) trigger() {
+	ev.lock.Lock()
 	ev.ready.Store(true)
 	if ev.signal != nil {
 		select {
@@ -110,7 +115,7 @@ func (ev *event) trigger(mu *sync.Mutex) {
 		}
 		ev.signal = nil
 	}
-	mu.Unlock()
+	ev.lock.Unlock()
 }
 
 // pipe is a unidirectional channel allowing data to pass between the host and
@@ -118,7 +123,6 @@ func (ev *event) trigger(mu *sync.Mutex) {
 type pipe struct {
 	defaultFile
 	flags wasi.FDFlags
-	lock  *sync.Mutex
 	mu    sync.Mutex
 	ch    channel
 	ev    event
@@ -128,8 +132,8 @@ type pipe struct {
 
 func newPipe(lock *sync.Mutex) *pipe {
 	return &pipe{
-		lock: lock,
 		ch:   make(channel),
+		ev:   makeEvent(lock),
 		done: make(chan struct{}),
 	}
 }
@@ -206,7 +210,7 @@ func (w inputWriteCloser) Write(b []byte) (int, error) {
 
 	n := 0
 	for n < len(b) {
-		w.in.ev.trigger(w.in.lock)
+		w.in.ev.trigger()
 		select {
 		case w.in.ch <- b[n:]:
 			n = len(b) - len(<-w.in.ch)
@@ -247,7 +251,7 @@ func (r outputReadCloser) Read(b []byte) (int, error) {
 	r.out.mu.Lock()
 	defer r.out.mu.Unlock()
 
-	r.out.ev.trigger(r.out.lock)
+	r.out.ev.trigger()
 	select {
 	case r.out.ch <- b:
 		return len(b) - len(<-r.out.ch), nil

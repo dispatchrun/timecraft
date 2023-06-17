@@ -38,16 +38,16 @@ func (s *System) Connect(ctx context.Context, network, address string) (net.Conn
 			return connect(ctx, &s.ipv4, netaddr[ipv4]{
 				protocol: tcp,
 				sockaddr: ipv4{
-					Port: int(port),
-					Addr: addr.As4(),
+					addr: addr.As4(),
+					port: uint32(port),
 				},
 			})
 		} else {
 			return connect(ctx, &s.ipv6, netaddr[ipv6]{
 				protocol: tcp,
 				sockaddr: ipv6{
-					Port: int(port),
-					Addr: addr.As16(),
+					addr: addr.As16(),
+					port: uint32(port),
 				},
 			})
 		}
@@ -55,7 +55,7 @@ func (s *System) Connect(ctx context.Context, network, address string) (net.Conn
 	case "unix":
 		return connect(ctx, &s.unix, netaddr[unix]{
 			sockaddr: unix{
-				Name: address,
+				name: address,
 			},
 		})
 
@@ -98,16 +98,16 @@ func (s *System) Listen(ctx context.Context, network, address string) (net.Liste
 			return listen(&s.ipv4, s.lock, netaddr[ipv4]{
 				protocol: tcp,
 				sockaddr: ipv4{
-					Port: int(port),
-					Addr: addr.As4(),
+					addr: addr.As4(),
+					port: uint32(port),
 				},
 			})
 		} else {
 			return listen(&s.ipv6, s.lock, netaddr[ipv6]{
 				protocol: tcp,
 				sockaddr: ipv6{
-					Port: int(port),
-					Addr: addr.As16(),
+					addr: addr.As16(),
+					port: uint32(port),
 				},
 			})
 		}
@@ -115,7 +115,7 @@ func (s *System) Listen(ctx context.Context, network, address string) (net.Liste
 	case "unix":
 		return listen(&s.unix, s.lock, netaddr[unix]{
 			sockaddr: unix{
-				Name: address,
+				name: address,
 			},
 		})
 	default:
@@ -124,6 +124,7 @@ func (s *System) Listen(ctx context.Context, network, address string) (net.Liste
 }
 
 type sockaddr interface {
+	family() wasi.ProtocolFamily
 	sockAddr() wasi.SocketAddress
 	netAddr(protocol) net.Addr
 	comparable
@@ -147,58 +148,78 @@ type inaddr[T sockaddr] interface {
 	sockaddr
 }
 
-type ipv4 wasi.Inet4Address
+type ipv4 struct {
+	addr [4]byte
+	port uint32
+}
+
+func (inaddr ipv4) family() wasi.ProtocolFamily {
+	return wasi.InetFamily
+}
 
 func (inaddr ipv4) addrPort() netip.AddrPort {
-	return netip.AddrPortFrom(netip.AddrFrom4(inaddr.Addr), uint16(inaddr.Port))
+	return netip.AddrPortFrom(netip.AddrFrom4(inaddr.addr), uint16(inaddr.port))
 }
 
 func (inaddr ipv4) withAddr(addr netip.Addr) ipv4 {
-	return ipv4{Addr: addr.As4(), Port: inaddr.Port}
+	return ipv4{addr: addr.As4(), port: inaddr.port}
 }
 
 func (inaddr ipv4) withPort(port int) ipv4 {
-	return ipv4{Addr: inaddr.Addr, Port: port}
+	return ipv4{addr: inaddr.addr, port: uint32(port)}
 }
 
 func (inaddr ipv4) sockAddr() wasi.SocketAddress {
-	return (*wasi.Inet4Address)(&inaddr)
+	return &wasi.Inet4Address{Addr: inaddr.addr, Port: int(inaddr.port)}
 }
 
 func (inaddr ipv4) netAddr(proto protocol) net.Addr {
-	return makeIPNetAddr(proto, net.IP(inaddr.Addr[:]), inaddr.Port)
+	return makeIPNetAddr(proto, net.IP(inaddr.addr[:]), int(inaddr.port))
 }
 
-type ipv6 wasi.Inet6Address
+type ipv6 struct {
+	addr [16]byte
+	port uint32
+}
+
+func (inaddr ipv6) family() wasi.ProtocolFamily {
+	return wasi.Inet6Family
+}
 
 func (inaddr ipv6) addrPort() netip.AddrPort {
-	return netip.AddrPortFrom(netip.AddrFrom16(inaddr.Addr), uint16(inaddr.Port))
+	return netip.AddrPortFrom(netip.AddrFrom16(inaddr.addr), uint16(inaddr.port))
 }
 
 func (inaddr ipv6) withAddr(addr netip.Addr) ipv6 {
-	return ipv6{Addr: addr.As16(), Port: inaddr.Port}
+	return ipv6{addr: addr.As16(), port: inaddr.port}
 }
 
 func (inaddr ipv6) withPort(port int) ipv6 {
-	return ipv6{Addr: inaddr.Addr, Port: port}
+	return ipv6{addr: inaddr.addr, port: uint32(port)}
 }
 
 func (inaddr ipv6) sockAddr() wasi.SocketAddress {
-	return (*wasi.Inet6Address)(&inaddr)
+	return &wasi.Inet6Address{Addr: inaddr.addr, Port: int(inaddr.port)}
 }
 
 func (inaddr ipv6) netAddr(proto protocol) net.Addr {
-	return makeIPNetAddr(proto, net.IP(inaddr.Addr[:]), inaddr.Port)
+	return makeIPNetAddr(proto, net.IP(inaddr.addr[:]), int(inaddr.port))
 }
 
-type unix wasi.UnixAddress
+type unix struct {
+	name string
+}
+
+func (unaddr unix) family() wasi.ProtocolFamily {
+	return wasi.UnixFamily
+}
 
 func (unaddr unix) sockAddr() wasi.SocketAddress {
-	return (*wasi.UnixAddress)(&unaddr)
+	return &wasi.UnixAddress{Name: unaddr.name}
 }
 
 func (unaddr unix) netAddr(protocol) net.Addr {
-	return &net.UnixAddr{Net: "unix", Name: unaddr.Name}
+	return &net.UnixAddr{Net: "unix", Name: unaddr.name}
 }
 
 type protocol wasi.Protocol
@@ -228,11 +249,33 @@ func (n netaddr[T]) netAddr() net.Addr {
 	return n.sockaddr.netAddr(n.protocol)
 }
 
+// The network interface abstracts the underlying network that sockets are
+// created on.
 type network[T sockaddr] interface {
+	// Returns the socket associated with the given network address.
 	socket(addr netaddr[T]) *socket[T]
+	// Binds a socket to an address. Unlink must be called to remove the
+	// socket when it's closed (this is done automatically by the socket's
+	// close method).
+	//
+	// Bind sets sock.laddr to the address that the socket was bound to.
+	// It may differ from the address passed as argument due to random port
+	// assignment or wildcard address selection.
 	bind(addr netaddr[T], sock *socket[T]) wasi.Errno
+	// Link attaches a socket to the network, using sock.proto and sock.laddr
+	// to construct the network address that the socket is linked to.
+	//
+	// An error is returned if a socket was already linked to the same address.
 	link(sock *socket[T]) wasi.Errno
+	// Unlink detaches a socket from the network, using sock.proto and
+	// sock.laddr to construct the network address that the socket is unlinked
+	// from.
+	//
+	// The method is idempotent, no errors are returned if the socket wasn't
+	// linked to the network.
 	unlink(sock *socket[T]) wasi.Errno
+	// Open an outbound connection to the given network address.
+	dial(ctx context.Context, proto wasi.Protocol, addr wasi.SocketAddress) (net.Conn, error)
 }
 
 func connect[N network[T], T sockaddr](ctx context.Context, n N, addr netaddr[T]) (net.Conn, error) {
@@ -245,18 +288,14 @@ func connect[N network[T], T sockaddr](ctx context.Context, n N, addr netaddr[T]
 }
 
 func listen[N network[T], T sockaddr](n N, lock *sync.Mutex, addr netaddr[T]) (net.Listener, error) {
-	sock := &socket[T]{
-		net:    n,
-		proto:  addr.protocol,
-		accept: make(chan *socket[T]),
-		send:   newPipe(lock),
-		recv:   newPipe(lock),
-		host:   true,
-	}
+	sock := newHostSocket[T](n, lock, stream, addr.protocol)
+	sock.accept = make(chan *socket[T])
+
 	if errno := n.bind(addr, sock); errno != wasi.ESUCCESS {
 		netAddr := addr.netAddr()
 		return nil, &net.OpError{Op: "listen", Net: netAddr.Network(), Addr: netAddr, Err: errno}
 	}
+
 	lstn := &listener[T]{
 		socket: sock,
 		addr:   sock.laddr.netAddr(sock.proto),
@@ -292,9 +331,10 @@ func (l *listener[T]) Accept() (net.Conn, error) {
 }
 
 type ipnet[T inaddr[T]] struct {
-	mutex   sync.Mutex
-	address netip.Addr
-	sockets map[netaddr[T]]*socket[T]
+	mutex    sync.Mutex
+	address  netip.Addr
+	sockets  map[netaddr[T]]*socket[T]
+	dialFunc func(context.Context, string, string) (net.Conn, error)
 }
 
 func (n *ipnet[T]) socket(addr netaddr[T]) *socket[T] {
@@ -366,10 +406,15 @@ func (n *ipnet[T]) unlink(sock *socket[T]) wasi.Errno {
 	return wasi.ESUCCESS
 }
 
+func (n *ipnet[T]) dial(ctx context.Context, proto wasi.Protocol, addr wasi.SocketAddress) (net.Conn, error) {
+	return n.dialFunc(ctx, proto.String(), addr.String())
+}
+
 type unixnet struct {
-	mutex   sync.Mutex
-	name    string
-	sockets map[netaddr[unix]]*socket[unix]
+	mutex    sync.Mutex
+	name     string
+	sockets  map[netaddr[unix]]*socket[unix]
+	dialFunc func(context.Context, string, string) (net.Conn, error)
 }
 
 func (n *unixnet) socket(addr netaddr[unix]) *socket[unix] {
@@ -380,7 +425,7 @@ func (n *unixnet) socket(addr netaddr[unix]) *socket[unix] {
 }
 
 func (n *unixnet) bind(addr netaddr[unix], sock *socket[unix]) wasi.Errno {
-	if addr.sockaddr.Name != n.name {
+	if addr.sockaddr.name != n.name {
 		return wasi.EADDRNOTAVAIL
 	}
 	n.mutex.Lock()
@@ -413,15 +458,27 @@ func (n *unixnet) unlink(sock *socket[unix]) wasi.Errno {
 	return wasi.ESUCCESS
 }
 
+func (n *unixnet) dial(ctx context.Context, _ wasi.Protocol, addr wasi.SocketAddress) (net.Conn, error) {
+	return n.dialFunc(ctx, "unix", addr.String())
+}
+
 var (
 	_ network[ipv4] = (*ipnet[ipv4])(nil)
 	_ network[ipv6] = (*ipnet[ipv6])(nil)
 	_ network[unix] = (*unixnet)(nil)
 )
 
+type socktype wasi.SocketType
+
+const (
+	datagram = socktype(wasi.DatagramSocket)
+	stream   = socktype(wasi.StreamSocket)
+)
+
 type socket[T sockaddr] struct {
 	defaultFile
 	net   network[T]
+	typ   socktype
 	proto protocol
 	raddr T
 	laddr T
@@ -436,21 +493,55 @@ type socket[T sockaddr] struct {
 	// allows listeners to detect if they are accepting connections from the
 	// guest, and construct the right connection type.
 	host bool
+	// A boolean used to indicate that this is a connected socket.
+	conn bool
+	// For connected sockets, this channel is used to asynchronously receive
+	// notification that a connection has been established.
+	errs <-chan error
+	// When the socket receives an asynchronous error, it keeps track of it in
+	// this field to support getsockopt and prevent future attempts to read or
+	// write on it.
+	errno wasi.Errno
+	// This cancellation function controls the lifetime of connections dialed
+	// from the socket.
+	cancel context.CancelFunc
+	// Sizes of the receive and send buffers; must be configured prior to
+	// connecting or accepting connections or it is ignored.
+	recvBufferSize int32
+	sendBufferSize int32
 }
 
-func newSocket[T sockaddr](net network[T], lock *sync.Mutex, proto protocol) *socket[T] {
+const (
+	defaultSocketBufferSize = 16384
+	minSocketBufferSize     = 1024
+	maxSocketBufferSize     = 65536
+)
+
+func newSocket[T sockaddr](net network[T], lock *sync.Mutex, typ socktype, proto protocol) *socket[T] {
 	return &socket[T]{
-		net:   net,
-		proto: proto,
-		send:  newPipe(lock),
-		recv:  newPipe(lock),
+		net:    net,
+		typ:    typ,
+		proto:  proto,
+		send:   newPipe(lock),
+		recv:   newPipe(lock),
+		cancel: func() {},
+		// socket options
+		recvBufferSize: defaultSocketBufferSize,
+		sendBufferSize: defaultSocketBufferSize,
 	}
+}
+
+func newHostSocket[T sockaddr](net network[T], lock *sync.Mutex, typ socktype, proto protocol) *socket[T] {
+	sock := newSocket[T](net, lock, typ, proto)
+	sock.host = true
+	return sock
 }
 
 func (s *socket[T]) close() {
 	_ = s.net.unlink(s)
 	s.recv.close()
 	s.send.close()
+	s.cancel()
 }
 
 func (s *socket[T]) connect(ctx context.Context) (net.Conn, error) {
@@ -458,20 +549,15 @@ func (s *socket[T]) connect(ctx context.Context) (net.Conn, error) {
 		return nil, &net.OpError{Op: "connect", Net: s.proto.String(), Err: wasi.EISCONN}
 	}
 	// The lock is the same on both the send and receive ends.
-	lock := s.send.lock
-	conn := &socket[T]{
-		net:   s.net,
-		proto: s.proto,
-		send:  newPipe(lock),
-		recv:  newPipe(lock),
-		raddr: s.laddr,
-		host:  true,
-	}
+	lock := s.send.ev.lock
+	conn := newHostSocket[T](s.net, lock, s.typ, s.proto)
+	conn.raddr = s.laddr
+
 	if errno := s.net.link(conn); errno != wasi.ESUCCESS {
 		return nil, errno
 	}
 
-	s.recv.ev.trigger(s.recv.lock)
+	s.recv.ev.trigger()
 	select {
 	case s.accept <- conn:
 		return newHostConn(conn), nil
@@ -528,19 +614,122 @@ func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, w
 	}
 }
 
-func (s *socket[T]) SockRecv(ctx context.Context, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
-	return 0, 0, wasi.ENOSYS // TODO: implement recv
+func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wasi.Errno {
+	if addr.Family() != s.laddr.family() {
+		return wasi.EAFNOSUPPORT
+	}
+	if s.accept != nil {
+		return wasi.ENOTSUP // POSIX uses EOPNOTSUPP but this code does not exist in WASI
+	}
+	if s.conn {
+		return wasi.EALREADY
+	}
+	ctx, s.cancel = context.WithCancel(ctx)
+	// At most two errors are produced to this channel, either one when the dial
+	// function failed, or up to two if both the read and write pipes error.
+	errs := make(chan error, 2)
+	s.errs = errs
+	s.conn = true
+
+	blocking := !s.send.flags.Has(wasi.NonBlock)
+	recvBufferSize := s.recvBufferSize
+	sendBufferSize := s.sendBufferSize
+	go func() {
+		c, err := s.net.dial(ctx, wasi.Protocol(s.proto), addr)
+		if err != nil || blocking {
+			errs <- err
+		}
+
+		// Trigger the notification that the connection has been established
+		// and the program can expect to read and write on the socket, or get
+		// the error if the connection failed.
+		s.send.ev.trigger()
+
+		if err != nil {
+			close(errs)
+			return
+		}
+
+		// TODO: pool the buffers?
+		b := make([]byte, recvBufferSize+sendBufferSize)
+		g := sync.WaitGroup{}
+		g.Add(2)
+
+		go func() {
+			defer g.Done()
+			copySocketPipe(errs, s.send, c, outputReadCloser{s.send}, b[:recvBufferSize])
+		}()
+
+		go func() {
+			defer g.Done()
+			copySocketPipe(errs, s.recv, inputWriteCloser{s.recv}, c, b[recvBufferSize:])
+		}()
+
+		go func() {
+			g.Wait()
+			c.Close()
+			close(errs)
+		}()
+	}()
+
+	if !blocking {
+		return wasi.EINPROGRESS
+	}
+
+	var err error
+	select {
+	case err = <-errs:
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	s.errno = wasi.MakeErrno(err)
+	return s.errno
 }
 
-func (s *socket[T]) SockSend(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
-	return 0, wasi.ENOSYS // TODO: implement send
+func copySocketPipe(errs chan<- error, p *pipe, w io.Writer, r io.Reader, b []byte) {
+	_, err := io.CopyBuffer(w, r, b)
+	if err != nil {
+		errs <- err
+	}
+	p.close()
 }
 
-func (s *socket[T]) SockSendTo(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno) {
+func (s *socket[T]) SockRecv(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
+	if errno := s.getErrno(); errno != wasi.ESUCCESS {
+		return 0, 0, errno
+	}
+	// TODO:
+	// - RecvPeek
+	// - RecvWaitAll
+	// - RecvDataTruncated
+	size, errno := s.recv.ch.read(ctx, iovs, s.recv.flags, &s.recv.ev, nil, s.recv.done)
+	return size, 0, errno
+}
+
+func (s *socket[T]) SockSend(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
+	if errno := s.getErrno(); errno != wasi.ESUCCESS {
+		return 0, errno
+	}
+	return s.send.ch.write(ctx, iovs, s.send.flags, &s.send.ev, nil, s.send.done)
+}
+
+func (s *socket[T]) SockSendTo(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno) {
+	if s.accept != nil {
+		return 0, wasi.ENOTSUP
+	}
+	if s.conn {
+		return 0, wasi.EISCONN
+	}
 	return 0, wasi.ENOSYS // TODO: implement sentto
 }
 
-func (s *socket[T]) SockRecvFrom(ctx context.Context, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno) {
+func (s *socket[T]) SockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno) {
+	if s.accept != nil {
+		return 0, 0, nil, wasi.ENOTSUP
+	}
+	if s.conn {
+		return 0, 0, nil, wasi.EISCONN
+	}
 	return 0, 0, nil, wasi.ENOSYS // TODO: implement recvfrom
 }
 
@@ -553,21 +742,116 @@ func (s *socket[T]) SockRemoteAddress(ctx context.Context) (wasi.SocketAddress, 
 }
 
 func (s *socket[T]) SockGetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
-	return nil, wasi.ENOSYS // TODO: support socket options
+	switch level {
+	case wasi.SocketLevel:
+		return s.getSocketLevelOption(option)
+	default:
+		return nil, wasi.EINVAL
+	}
+}
+
+func (s *socket[T]) getSocketLevelOption(option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
+	switch option {
+	case wasi.ReuseAddress:
+	case wasi.QuerySocketType:
+		return wasi.IntValue(s.typ), wasi.ESUCCESS
+	case wasi.QuerySocketError:
+		return wasi.IntValue(s.errno), wasi.ESUCCESS
+	case wasi.DontRoute:
+	case wasi.Broadcast:
+	case wasi.SendBufferSize:
+		return wasi.IntValue(s.sendBufferSize), wasi.ESUCCESS
+	case wasi.RecvBufferSize:
+		return wasi.IntValue(s.recvBufferSize), wasi.ESUCCESS
+	case wasi.KeepAlive:
+	case wasi.OOBInline:
+	case wasi.Linger:
+	case wasi.RecvLowWatermark:
+	case wasi.RecvTimeout:
+	case wasi.SendTimeout:
+	case wasi.QueryAcceptConnections:
+	case wasi.BindToDevice:
+	}
+	return nil, wasi.ENOPROTOOPT
 }
 
 func (s *socket[T]) SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
-	return wasi.ENOSYS // TODO: support socket options
+	switch level {
+	case wasi.SocketLevel:
+		return s.setSocketLevelOption(option, value)
+	default:
+		return wasi.EINVAL
+	}
+}
+
+func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+	switch option {
+	case wasi.ReuseAddress:
+	case wasi.QuerySocketType:
+	case wasi.QuerySocketError:
+	case wasi.DontRoute:
+	case wasi.Broadcast:
+	case wasi.SendBufferSize:
+		if s.conn {
+			return wasi.EISCONN
+		}
+		return setIntValueLimit(&s.sendBufferSize, value, minSocketBufferSize, maxSocketBufferSize)
+	case wasi.RecvBufferSize:
+		if s.conn {
+			return wasi.EISCONN
+		}
+		return setIntValueLimit(&s.recvBufferSize, value, minSocketBufferSize, maxSocketBufferSize)
+	case wasi.KeepAlive:
+	case wasi.OOBInline:
+	case wasi.Linger:
+	case wasi.RecvLowWatermark:
+	case wasi.RecvTimeout:
+	case wasi.SendTimeout:
+	case wasi.QueryAcceptConnections:
+	case wasi.BindToDevice:
+	}
+	return wasi.ENOPROTOOPT
+}
+
+func setIntValueLimit(option *int32, value wasi.SocketOptionValue, minval, maxval int32) wasi.Errno {
+	switch v := value.(type) {
+	case wasi.IntValue:
+		v32 := int32(v)
+		if v32 < minval {
+			v32 = minval
+		}
+		if v32 > maxval {
+			v32 = maxval
+		}
+		*option = v32
+		return wasi.ESUCCESS
+	}
+	return wasi.EINVAL
 }
 
 func (s *socket[T]) SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.Errno {
-	return wasi.ENOSYS // TOOD: support socket shutdown
+	if !s.conn {
+		return wasi.ENOTCONN
+	}
+	if flags.Has(wasi.ShutdownRD) {
+		s.recv.close()
+	}
+	if flags.Has(wasi.ShutdownWR) {
+		s.send.close()
+	}
+	return wasi.ESUCCESS
 }
 
 func (s *socket[T]) FDClose(ctx context.Context) wasi.Errno {
 	s.close()
 	s.send.FDClose(ctx)
 	s.recv.FDClose(ctx)
+	if s.errs != nil {
+		// Drain the errors channel to make sure that all sync operations on the
+		// socket have completed.
+		for range s.errs {
+		}
+	}
 	return wasi.ESUCCESS
 }
 
@@ -578,11 +862,23 @@ func (s *socket[T]) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi
 }
 
 func (s *socket[T]) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return s.recv.ch.read(ctx, iovs, s.recv.flags, &s.recv.ev, nil, s.recv.done)
+	size, _, errno := s.SockRecv(ctx, iovs, 0)
+	return size, errno
 }
 
 func (s *socket[T]) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return s.send.ch.write(ctx, iovs, s.send.flags, &s.send.ev, nil, s.send.done)
+	return s.SockSend(ctx, iovs, 0)
+}
+
+func (s *socket[T]) getErrno() wasi.Errno {
+	select {
+	case err, ok := <-s.errs:
+		if ok {
+			s.errno = wasi.MakeErrno(err)
+		}
+	default:
+	}
+	return s.errno
 }
 
 type hostConn[T sockaddr] struct {
@@ -619,7 +915,7 @@ func (c *hostConn[T]) Read(b []byte) (int, error) {
 		return 0, os.ErrDeadlineExceeded
 	}
 
-	pipe.ev.trigger(pipe.lock)
+	pipe.ev.trigger()
 	select {
 	case pipe.ch <- b:
 		return len(b) - len(<-pipe.ch), nil
@@ -640,7 +936,7 @@ func (c *hostConn[T]) Write(b []byte) (n int, err error) {
 	}
 
 	for n < len(b) {
-		pipe.ev.trigger(pipe.lock)
+		pipe.ev.trigger()
 		select {
 		case pipe.ch <- b[n:]:
 			n = len(b) - len(<-pipe.ch)

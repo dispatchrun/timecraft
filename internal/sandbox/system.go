@@ -64,7 +64,11 @@ func Socket(name string) Option {
 //
 // If not set, the guest module cannot open outbound connections.
 func Dial(dial func(context.Context, string, string) (net.Conn, error)) Option {
-	return func(s *System) { s.dial = dial }
+	return func(s *System) {
+		s.ipv4.dialFunc = dial
+		s.ipv6.dialFunc = dial
+		s.unix.dialFunc = dial
+	}
 }
 
 // System is an implementation of the wasi.System interface which sandboxes all
@@ -87,13 +91,15 @@ type System struct {
 	ipv6   ipnet[ipv6]
 	unix   unixnet
 	dial   func(context.Context, string, string) (net.Conn, error)
-	group  sync.WaitGroup
 }
 
 // New creates a new System instance, applying the list of options passed as
 // arguments.
 func New(opts ...Option) *System {
 	lock := new(sync.Mutex)
+	dial := func(context.Context, string, string) (net.Conn, error) {
+		return nil, wasi.ECONNREFUSED
+	}
 
 	s := &System{
 		lock:   lock,
@@ -102,10 +108,15 @@ func New(opts ...Option) *System {
 		stderr: newPipe(lock),
 		poll:   make(chan struct{}, 1),
 		ipv4: ipnet[ipv4]{
-			address: netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			address:  netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			dialFunc: dial,
 		},
 		ipv6: ipnet[ipv6]{
-			address: netip.AddrFrom16([16]byte{15: 1}),
+			address:  netip.AddrFrom16([16]byte{15: 1}),
+			dialFunc: dial,
+		},
+		unix: unixnet{
+			dialFunc: dial,
 		},
 	}
 
@@ -273,6 +284,9 @@ func (s *System) SockSend(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, 
 }
 
 func (s *System) SockShutdown(ctx context.Context, fd wasi.FD, flags wasi.SDFlags) wasi.Errno {
+	if (flags & ^(wasi.ShutdownRD | wasi.ShutdownWR)) != 0 {
+		return wasi.EINVAL
+	}
 	sock, _, errno := s.LookupSocketFD(fd, wasi.FDWriteRight)
 	if errno != wasi.ESUCCESS {
 		return errno
@@ -305,11 +319,11 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 	var socket File
 	switch pf {
 	case wasi.InetFamily:
-		socket = newSocket[ipv4](&s.ipv4, s.lock, protocol(proto))
+		socket = newSocket[ipv4](&s.ipv4, s.lock, socktype(st), protocol(proto))
 	case wasi.Inet6Family:
-		socket = newSocket[ipv6](&s.ipv6, s.lock, protocol(proto))
+		socket = newSocket[ipv6](&s.ipv6, s.lock, socktype(st), protocol(proto))
 	case wasi.UnixFamily:
-		socket = newSocket[unix](&s.unix, s.lock, protocol(proto))
+		socket = newSocket[unix](&s.unix, s.lock, socktype(st), protocol(proto))
 	default:
 		return none, wasi.EAFNOSUPPORT
 	}
