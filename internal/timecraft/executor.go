@@ -29,8 +29,9 @@ type Executor struct {
 	registry *timemachine.Registry
 	runtime  wazero.Runtime
 
-	group *errgroup.Group
-	ctx   context.Context
+	group  *errgroup.Group
+	ctx    context.Context
+	cancel context.CancelCauseFunc
 }
 
 // NewExecutor creates an Executor.
@@ -39,7 +40,8 @@ func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wa
 		registry: registry,
 		runtime:  runtime,
 	}
-	r.group, r.ctx = errgroup.WithContext(ctx)
+	r.group, ctx = errgroup.WithContext(ctx)
+	r.ctx, r.cancel = context.WithCancelCause(ctx)
 	return r
 }
 
@@ -141,7 +143,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 				b.SetFunctionID(int(id))
 				b.SetFunctionCall(syscallBytes)
 				if err := recordWriter.WriteRecord(&b); err != nil {
-					panic(err) // TODO: better error handling
+					panic(err) // caught/handled by wazero
 				}
 			})
 		}
@@ -161,7 +163,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 	}
 	go func() {
 		if err := server.Serve(serverListener); err != nil && !errors.Is(err, net.ErrClosed) {
-			panic(err) // TODO: better error handling
+			e.cancel(fmt.Errorf("failed to serve gRPC server: %w", err))
 		}
 	}()
 
@@ -182,10 +184,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 	if recorder != nil {
 		wrappers = append(wrappers, recorder)
 	}
-	wasiBuilder = wasiBuilder.WithWrappers(wrappers...)
-
-	// Bring it all together!
-	ctx, system, err := wasiBuilder.Instantiate(e.ctx, e.runtime)
+	ctx, system, err := wasiBuilder.WithWrappers(wrappers...).Instantiate(e.ctx, e.runtime)
 	if err != nil {
 		return err
 	}
