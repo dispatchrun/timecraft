@@ -66,7 +66,6 @@ type Module struct {
 	recordWriter *timemachine.LogRecordWriter
 	recorder     func(wasi.System) wasi.System
 
-	run    bool
 	closed bool
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -80,6 +79,7 @@ func (m *Module) Close() error {
 	m.closed = true
 
 	m.cancel()
+	// TODO: wait for module to finish executing
 
 	if m.logSpec != nil {
 		// TODO: handle errors

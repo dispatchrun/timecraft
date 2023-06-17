@@ -24,8 +24,8 @@ import (
 	"github.com/tetratelabs/wazero/sys"
 )
 
-// Runner coordinates the execution of WebAssembly modules.
-type Runner struct {
+// Executor executes WebAssembly modules.
+type Executor struct {
 	registry *timemachine.Registry
 	runtime  wazero.Runtime
 
@@ -33,9 +33,9 @@ type Runner struct {
 	ctx   context.Context
 }
 
-// NewRunner creates a Runner.
-func NewRunner(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime) *Runner {
-	r := &Runner{
+// NewExecutor creates an Executor.
+func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime) *Executor {
+	r := &Executor{
 		registry: registry,
 		runtime:  runtime,
 	}
@@ -43,22 +43,27 @@ func NewRunner(ctx context.Context, registry *timemachine.Registry, runtime waze
 	return r
 }
 
-// Prepare prepares a Module for execution.
+// Start starts a WebAssembly module.
 //
 // The ModuleSpec describes the module to be executed. An optional LogSpec
-// can be provided to record a trace of execution to a log when the Module
+// can be provided to record a trace of execution to a log when the module
 // is executed.
-func (r *Runner) Prepare(moduleSpec ModuleSpec, logSpec *LogSpec) (*Module, error) {
+//
+// If Start returns an error it indicates that there was a problem
+// initializing the WebAssembly module. If the WebAssembly module starts
+// successfully, any errors that occur during execution must be retrieved
+// via Wait.
+func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) error {
 	wasmPath := moduleSpec.Path
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
 	if err != nil {
-		return nil, fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
+		return fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
 	}
 
-	wasmModule, err := r.runtime.CompileModule(r.ctx, wasmCode)
+	wasmModule, err := e.runtime.CompileModule(e.ctx, wasmCode)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	builder := imports.NewBuilder().
@@ -71,7 +76,7 @@ func (r *Runner) Prepare(moduleSpec ModuleSpec, logSpec *LogSpec) (*Module, erro
 		WithStdio(moduleSpec.Stdin, moduleSpec.Stdout, moduleSpec.Stderr).
 		WithSocketsExtension(moduleSpec.Sockets, wasmModule)
 
-	ctx, cancel := context.WithCancel(r.ctx)
+	ctx, cancel := context.WithCancel(e.ctx)
 
 	m := &Module{
 		ctx:         ctx,
@@ -84,54 +89,54 @@ func (r *Runner) Prepare(moduleSpec ModuleSpec, logSpec *LogSpec) (*Module, erro
 	if logSpec != nil {
 		m.logSpec = logSpec
 
-		module, err := r.registry.CreateModule(r.ctx, &format.Module{
+		module, err := e.registry.CreateModule(e.ctx, &format.Module{
 			Code: wasmCode,
 		}, object.Tag{
 			Name:  "timecraft.module.name",
 			Value: wasmModule.Name(),
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		runtime, err := r.registry.CreateRuntime(r.ctx, &format.Runtime{
+		runtime, err := e.registry.CreateRuntime(e.ctx, &format.Runtime{
 			Runtime: "timecraft",
 			Version: Version(),
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		config, err := r.registry.CreateConfig(r.ctx, &format.Config{
+		config, err := e.registry.CreateConfig(e.ctx, &format.Config{
 			Runtime: runtime,
 			Modules: []*format.Descriptor{module},
 			Args:    append([]string{wasmName}, moduleSpec.Args...),
 			Env:     moduleSpec.Env,
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		process, err := r.registry.CreateProcess(r.ctx, &format.Process{
+		process, err := e.registry.CreateProcess(e.ctx, &format.Process{
 			ID:        logSpec.ProcessID,
 			StartTime: logSpec.StartTime,
 			Config:    config,
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		if err := r.registry.CreateLogManifest(r.ctx, logSpec.ProcessID, &format.Manifest{
+		if err := e.registry.CreateLogManifest(e.ctx, logSpec.ProcessID, &format.Manifest{
 			Process:   process,
 			StartTime: logSpec.StartTime,
 		}); err != nil {
-			return nil, err
+			return err
 		}
 
 		// TODO: create a writer that writes to many segments
-		m.logSegment, err = r.registry.CreateLogSegment(r.ctx, logSpec.ProcessID, 0)
+		m.logSegment, err = e.registry.CreateLogSegment(e.ctx, logSpec.ProcessID, 0)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		logWriter := timemachine.NewLogWriter(m.logSegment)
 		m.recordWriter = timemachine.NewLogRecordWriter(logWriter, logSpec.BatchSize, logSpec.Compression)
@@ -150,23 +155,12 @@ func (r *Runner) Prepare(moduleSpec ModuleSpec, logSpec *LogSpec) (*Module, erro
 		}
 	}
 
-	return m, nil
-}
-
-// Run runs a prepared WebAssembly module asynchronously.
-func (r *Runner) Run(m *Module) error {
-	if m.run {
-		return errors.New("module is already running or has already run")
-	}
-	m.run = true
-
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
-	server := Server{
-		Runner:  r,
-		Module:  m.moduleSpec,
-		Log:     m.logSpec,
-		Version: Version(),
+	server := moduleServer{
+		executor:   e,
+		moduleSpec: m.moduleSpec,
+		logSpec:    m.logSpec,
 	}
 	serverSocket := path.Join(os.TempDir(), fmt.Sprintf("timecraft.%s.sock", uuid.NewString()))
 	serverListener, err := net.Listen("unix", serverSocket)
@@ -200,27 +194,27 @@ func (r *Runner) Run(m *Module) error {
 
 	// Bring it all together!
 	var system wasi.System
-	m.ctx, system, err = m.wasiBuilder.Instantiate(m.ctx, r.runtime)
+	m.ctx, system, err = m.wasiBuilder.Instantiate(m.ctx, e.runtime)
 	if err != nil {
 		return err
 	}
 
 	// Run the module in the background.
-	r.group.Go(func() error {
+	e.group.Go(func() error {
 		defer os.Remove(serverSocket)
 		defer serverListener.Close()
 		defer system.Close(m.ctx)
 		defer m.Close()
 
-		return runModule(m.ctx, r.runtime, m.wasmModule)
+		return runModule(m.ctx, e.runtime, m.wasmModule)
 	})
 
 	return nil
 }
 
 // Wait blocks until all WebAssembly modules have finished executing.
-func (r *Runner) Wait() error {
-	return r.group.Wait()
+func (e *Executor) Wait() error {
+	return e.group.Wait()
 }
 
 func runModule(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule) error {

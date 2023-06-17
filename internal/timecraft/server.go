@@ -16,27 +16,16 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
-// Server is a gRPC server that's available to guests.
-type Server struct {
-	// Runner is the Runner used to run the WebAssembly module that this
-	// server instance is serving.
-	Runner *Runner
-
-	// Module is details about the WebAssembly module that this server
-	// instance is serving.
-	Module ModuleSpec
-
-	// Log, if non-nil, is details about the recorded trace of execution.
-	// If nil, it indicates that the WebAssembly module is not currently
-	// being recorded.
-	Log *LogSpec
-
-	// Version is the timecraft version reported by the server.
-	Version string
+// moduleServer is a gRPC server that's available to guests. Every
+// WebAssembly module has its own instance of a gRPC server.
+type moduleServer struct {
+	executor   *Executor
+	moduleSpec ModuleSpec
+	logSpec    *LogSpec
 }
 
 // Serve serves using the specified net.Listener.
-func (t *Server) Serve(l net.Listener) error {
+func (t *moduleServer) Serve(l net.Listener) error {
 	mux := http.NewServeMux()
 	mux.Handle(serverv1connect.NewTimecraftServiceHandler(
 		&grpcServer{instance: t},
@@ -53,11 +42,11 @@ func (t *Server) Serve(l net.Listener) error {
 type grpcServer struct {
 	serverv1connect.UnimplementedTimecraftServiceHandler
 
-	instance *Server
+	instance *moduleServer
 }
 
 func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest]) (*connect.Response[v1.SpawnResponse], error) {
-	moduleSpec := s.instance.Module // shallow copy
+	moduleSpec := s.instance.moduleSpec // shallow copy
 	if req.Msg.Path != "" {
 		moduleSpec.Path = req.Msg.Path
 	}
@@ -67,7 +56,7 @@ func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnReq
 
 	childID := uuid.New()
 	var logSpec *LogSpec
-	if parentLog := s.instance.Log; parentLog != nil {
+	if parentLog := s.instance.logSpec; parentLog != nil {
 		logSpec = &LogSpec{
 			ProcessID:   childID,
 			StartTime:   time.Now(),
@@ -76,12 +65,7 @@ func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnReq
 		}
 	}
 
-	childModule, err := s.instance.Runner.Prepare(moduleSpec, logSpec)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to prepare module: %w", err))
-	}
-
-	if err := s.instance.Runner.Run(childModule); err != nil {
+	if err := s.instance.executor.Start(moduleSpec, logSpec); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start module: %w", err))
 	}
 
@@ -90,6 +74,6 @@ func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnReq
 }
 
 func (s *grpcServer) Version(ctx context.Context, req *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
-	res := connect.NewResponse(&v1.VersionResponse{Version: s.instance.Version})
+	res := connect.NewResponse(&v1.VersionResponse{Version: Version()})
 	return res, nil
 }

@@ -92,7 +92,7 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer runtime.Close(ctx)
 
-	runner := timecraft.NewRunner(ctx, registry, runtime)
+	executor := timecraft.NewExecutor(ctx, registry, runtime)
 
 	moduleSpec := timecraft.ModuleSpec{
 		Path:    wasmPath,
@@ -132,14 +132,8 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintf(os.Stderr, "%s\n", logSpec.ProcessID)
 	}
 
-	module, err := runner.Prepare(moduleSpec, logSpec)
-	if err != nil {
+	if err := executor.Start(moduleSpec, logSpec); err != nil {
 		return err
 	}
-	defer module.Close()
-
-	if err := runner.Run(module); err != nil {
-		return err
-	}
-	return runner.Wait()
+	return executor.Wait()
 }
