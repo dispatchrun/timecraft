@@ -74,6 +74,17 @@ func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnReq
 	return res, nil
 }
 
+func (s *grpcServer) Kill(ctx context.Context, req *connect.Request[v1.KillRequest]) (*connect.Response[v1.KillResponse], error) {
+	processID, err := uuid.Parse(req.Msg.ProcessId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid process ID: %w", err))
+	}
+	if err := s.instance.executor.Stop(processID, &s.instance.processID); err != nil {
+		return connect.NewResponse(&v1.KillResponse{ErrorMessage: err.Error()}), nil
+	}
+	return connect.NewResponse(&v1.KillResponse{Success: true}), nil
+}
+
 func (s *grpcServer) Parent(ctx context.Context, req *connect.Request[v1.ParentRequest]) (*connect.Response[v1.ParentResponse], error) {
 	res := &v1.ParentResponse{}
 	if parentID := s.instance.parentID; parentID == nil {

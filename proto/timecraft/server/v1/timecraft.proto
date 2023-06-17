@@ -18,6 +18,15 @@ message SpawnResponse {
     string process_id = 1;
 }
 
+message KillRequest {
+    string process_id = 1;
+}
+
+message KillResponse {
+    bool success = 1;
+    string error_message = 2;
+}
+
 message VersionRequest {}
 
 message VersionResponse {
@@ -27,5 +36,6 @@ message VersionResponse {
 service TimecraftService {
   rpc Parent(ParentRequest) returns (ParentResponse) {}
   rpc Spawn(SpawnRequest) returns (SpawnResponse) {}
+  rpc Kill(KillRequest) returns (KillResponse) {}
   rpc Version(VersionRequest) returns (VersionResponse) {}
 }

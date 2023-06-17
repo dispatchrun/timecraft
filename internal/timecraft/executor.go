@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -29,16 +30,26 @@ type Executor struct {
 	registry *timemachine.Registry
 	runtime  wazero.Runtime
 
+	processes map[uuid.UUID]*process
+	mu        sync.Mutex
+
 	group  *errgroup.Group
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 }
 
+type process struct {
+	id     uuid.UUID
+	parent *uuid.UUID
+	cancel context.CancelFunc
+}
+
 // NewExecutor creates an Executor.
 func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime) *Executor {
 	r := &Executor{
-		registry: registry,
-		runtime:  runtime,
+		registry:  registry,
+		runtime:   runtime,
+		processes: map[uuid.UUID]*process{},
 	}
 	r.group, ctx = errgroup.WithContext(ctx)
 	r.ctx, r.cancel = context.WithCancelCause(ctx)
@@ -202,6 +213,17 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 		return uuid.UUID{}, err
 	}
 
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+
+	e.mu.Lock()
+	e.processes[processID] = &process{
+		id:     processID,
+		parent: parentID,
+		cancel: cancel,
+	}
+	e.mu.Unlock()
+
 	// Run the module in the background, and tidy up once complete.
 	e.group.Go(func() error {
 		defer os.Remove(serverSocket)
@@ -212,11 +234,35 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 			defer logSegment.Close()
 			defer recordWriter.Flush()
 		}
+		defer func() {
+			e.mu.Lock()
+			delete(e.processes, processID)
+			e.mu.Unlock()
+		}()
 
 		return runModule(ctx, e.runtime, wasmModule)
 	})
 
 	return processID, nil
+}
+
+// Stop stops a WebAssembly module from running.
+func (e *Executor) Stop(processID uuid.UUID, parentID *uuid.UUID) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	p, ok := e.processes[processID]
+	if !ok {
+		return fmt.Errorf("unknown process %s", processID)
+	}
+	if parentID != nil {
+		if p.parent == nil || *p.parent != *parentID {
+			return fmt.Errorf("process %s is not allowed to stop process %s", parentID, processID)
+		}
+	}
+
+	p.cancel()
+	return nil
 }
 
 // Wait blocks until all WebAssembly modules have finished executing.

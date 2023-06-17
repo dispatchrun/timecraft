@@ -2,6 +2,7 @@ package timecraft
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/bufbuild/connect-go"
@@ -54,6 +55,19 @@ func (c *Client) Spawn(path string, args []string) (string, error) {
 		return "", err
 	}
 	return res.Msg.ProcessId, nil
+}
+
+// Kill kills a process that was spawned by this process.
+func (c *Client) Kill(id string) error {
+	req := connect.NewRequest(&v1.KillRequest{ProcessId: id})
+	res, err := c.grpcClient.Kill(context.Background(), req)
+	if err != nil {
+		return err
+	}
+	if res.Msg.Success {
+		return nil
+	}
+	return errors.New(res.Msg.ErrorMessage)
 }
 
 // Version fetches the timecraft version.
