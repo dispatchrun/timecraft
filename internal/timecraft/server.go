@@ -24,6 +24,7 @@ type moduleServer struct {
 	parentID   *uuid.UUID
 	moduleSpec ModuleSpec
 	logSpec    *LogSpec
+	mailbox    <-chan message
 }
 
 // Serve serves using the specified net.Listener.
@@ -89,6 +90,26 @@ func (s *grpcServer) Kill(ctx context.Context, req *connect.Request[v1.KillReque
 	default:
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+}
+
+func (s *grpcServer) Send(ctx context.Context, req *connect.Request[v1.SendRequest]) (*connect.Response[v1.SendResponse], error) {
+	processID, err := uuid.Parse(req.Msg.ProcessId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid process ID: %w", err))
+	}
+	switch err := s.instance.executor.Send(processID, s.instance.processID, req.Msg.Message); err {
+	case nil:
+		return connect.NewResponse(&v1.SendResponse{}), nil
+	case errNotFound:
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("unknown process ID: %s", processID))
+	default:
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+}
+
+func (s *grpcServer) Receive(ctx context.Context, req *connect.Request[v1.ReceiveRequest]) (*connect.Response[v1.ReceiveResponse], error) {
+	msg := <-s.instance.mailbox
+	return connect.NewResponse(&v1.ReceiveResponse{SenderId: msg.sender.String(), Message: msg.body}), nil
 }
 
 func (s *grpcServer) Parent(ctx context.Context, req *connect.Request[v1.ParentRequest]) (*connect.Response[v1.ParentResponse], error) {

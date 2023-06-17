@@ -39,9 +39,15 @@ type Executor struct {
 }
 
 type process struct {
-	id     uuid.UUID
-	parent *uuid.UUID
-	cancel context.CancelFunc
+	id      uuid.UUID
+	parent  *uuid.UUID
+	cancel  context.CancelFunc
+	mailbox chan<- message
+}
+
+type message struct {
+	sender uuid.UUID
+	body   []byte
 }
 
 // NewExecutor creates an Executor.
@@ -171,6 +177,8 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 		processID = uuid.New()
 	}
 
+	mailbox := make(chan message)
+
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := moduleServer{
@@ -179,6 +187,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 		parentID:   parentID,
 		moduleSpec: moduleSpec,
 		logSpec:    logSpec,
+		mailbox:    mailbox,
 	}
 	serverSocket := path.Join(os.TempDir(), fmt.Sprintf("timecraft.%s.sock", uuid.NewString()))
 	serverListener, err := net.Listen("unix", serverSocket)
@@ -218,9 +227,10 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 
 	e.mu.Lock()
 	e.processes[processID] = &process{
-		id:     processID,
-		parent: parentID,
-		cancel: cancel,
+		id:      processID,
+		parent:  parentID,
+		cancel:  cancel,
+		mailbox: mailbox,
 	}
 	e.mu.Unlock()
 
@@ -248,6 +258,21 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 
 var errNotFound = errors.New("process not found")
 var errForbidden = errors.New("process is not allowed to perform that operation")
+
+// Send sends a message to a WebAssembly module.
+func (e *Executor) Send(processID uuid.UUID, senderID uuid.UUID, msg []byte) error {
+	e.mu.Lock()
+	p, ok := e.processes[processID]
+	if !ok {
+		e.mu.Unlock()
+		return errNotFound
+	}
+	mailbox := p.mailbox
+	e.mu.Unlock()
+
+	mailbox <- message{sender: senderID, body: msg}
+	return nil
+}
 
 // Stop stops a WebAssembly module from running.
 func (e *Executor) Stop(processID uuid.UUID, parentID *uuid.UUID) error {

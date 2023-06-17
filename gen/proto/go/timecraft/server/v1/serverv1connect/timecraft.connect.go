@@ -39,6 +39,11 @@ const (
 	TimecraftServiceSpawnProcedure = "/timecraft.server.v1.TimecraftService/Spawn"
 	// TimecraftServiceKillProcedure is the fully-qualified name of the TimecraftService's Kill RPC.
 	TimecraftServiceKillProcedure = "/timecraft.server.v1.TimecraftService/Kill"
+	// TimecraftServiceSendProcedure is the fully-qualified name of the TimecraftService's Send RPC.
+	TimecraftServiceSendProcedure = "/timecraft.server.v1.TimecraftService/Send"
+	// TimecraftServiceReceiveProcedure is the fully-qualified name of the TimecraftService's Receive
+	// RPC.
+	TimecraftServiceReceiveProcedure = "/timecraft.server.v1.TimecraftService/Receive"
 	// TimecraftServiceVersionProcedure is the fully-qualified name of the TimecraftService's Version
 	// RPC.
 	TimecraftServiceVersionProcedure = "/timecraft.server.v1.TimecraftService/Version"
@@ -49,6 +54,8 @@ type TimecraftServiceClient interface {
 	Parent(context.Context, *connect_go.Request[v1.ParentRequest]) (*connect_go.Response[v1.ParentResponse], error)
 	Spawn(context.Context, *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error)
 	Kill(context.Context, *connect_go.Request[v1.KillRequest]) (*connect_go.Response[v1.KillResponse], error)
+	Send(context.Context, *connect_go.Request[v1.SendRequest]) (*connect_go.Response[v1.SendResponse], error)
+	Receive(context.Context, *connect_go.Request[v1.ReceiveRequest]) (*connect_go.Response[v1.ReceiveResponse], error)
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
 }
 
@@ -77,6 +84,16 @@ func NewTimecraftServiceClient(httpClient connect_go.HTTPClient, baseURL string,
 			baseURL+TimecraftServiceKillProcedure,
 			opts...,
 		),
+		send: connect_go.NewClient[v1.SendRequest, v1.SendResponse](
+			httpClient,
+			baseURL+TimecraftServiceSendProcedure,
+			opts...,
+		),
+		receive: connect_go.NewClient[v1.ReceiveRequest, v1.ReceiveResponse](
+			httpClient,
+			baseURL+TimecraftServiceReceiveProcedure,
+			opts...,
+		),
 		version: connect_go.NewClient[v1.VersionRequest, v1.VersionResponse](
 			httpClient,
 			baseURL+TimecraftServiceVersionProcedure,
@@ -90,6 +107,8 @@ type timecraftServiceClient struct {
 	parent  *connect_go.Client[v1.ParentRequest, v1.ParentResponse]
 	spawn   *connect_go.Client[v1.SpawnRequest, v1.SpawnResponse]
 	kill    *connect_go.Client[v1.KillRequest, v1.KillResponse]
+	send    *connect_go.Client[v1.SendRequest, v1.SendResponse]
+	receive *connect_go.Client[v1.ReceiveRequest, v1.ReceiveResponse]
 	version *connect_go.Client[v1.VersionRequest, v1.VersionResponse]
 }
 
@@ -108,6 +127,16 @@ func (c *timecraftServiceClient) Kill(ctx context.Context, req *connect_go.Reque
 	return c.kill.CallUnary(ctx, req)
 }
 
+// Send calls timecraft.server.v1.TimecraftService.Send.
+func (c *timecraftServiceClient) Send(ctx context.Context, req *connect_go.Request[v1.SendRequest]) (*connect_go.Response[v1.SendResponse], error) {
+	return c.send.CallUnary(ctx, req)
+}
+
+// Receive calls timecraft.server.v1.TimecraftService.Receive.
+func (c *timecraftServiceClient) Receive(ctx context.Context, req *connect_go.Request[v1.ReceiveRequest]) (*connect_go.Response[v1.ReceiveResponse], error) {
+	return c.receive.CallUnary(ctx, req)
+}
+
 // Version calls timecraft.server.v1.TimecraftService.Version.
 func (c *timecraftServiceClient) Version(ctx context.Context, req *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error) {
 	return c.version.CallUnary(ctx, req)
@@ -118,6 +147,8 @@ type TimecraftServiceHandler interface {
 	Parent(context.Context, *connect_go.Request[v1.ParentRequest]) (*connect_go.Response[v1.ParentResponse], error)
 	Spawn(context.Context, *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error)
 	Kill(context.Context, *connect_go.Request[v1.KillRequest]) (*connect_go.Response[v1.KillResponse], error)
+	Send(context.Context, *connect_go.Request[v1.SendRequest]) (*connect_go.Response[v1.SendResponse], error)
+	Receive(context.Context, *connect_go.Request[v1.ReceiveRequest]) (*connect_go.Response[v1.ReceiveResponse], error)
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
 }
 
@@ -143,6 +174,16 @@ func NewTimecraftServiceHandler(svc TimecraftServiceHandler, opts ...connect_go.
 		svc.Kill,
 		opts...,
 	))
+	mux.Handle(TimecraftServiceSendProcedure, connect_go.NewUnaryHandler(
+		TimecraftServiceSendProcedure,
+		svc.Send,
+		opts...,
+	))
+	mux.Handle(TimecraftServiceReceiveProcedure, connect_go.NewUnaryHandler(
+		TimecraftServiceReceiveProcedure,
+		svc.Receive,
+		opts...,
+	))
 	mux.Handle(TimecraftServiceVersionProcedure, connect_go.NewUnaryHandler(
 		TimecraftServiceVersionProcedure,
 		svc.Version,
@@ -164,6 +205,14 @@ func (UnimplementedTimecraftServiceHandler) Spawn(context.Context, *connect_go.R
 
 func (UnimplementedTimecraftServiceHandler) Kill(context.Context, *connect_go.Request[v1.KillRequest]) (*connect_go.Response[v1.KillResponse], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Kill is not implemented"))
+}
+
+func (UnimplementedTimecraftServiceHandler) Send(context.Context, *connect_go.Request[v1.SendRequest]) (*connect_go.Response[v1.SendResponse], error) {
+	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Send is not implemented"))
+}
+
+func (UnimplementedTimecraftServiceHandler) Receive(context.Context, *connect_go.Request[v1.ReceiveRequest]) (*connect_go.Response[v1.ReceiveResponse], error) {
+	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Receive is not implemented"))
 }
 
 func (UnimplementedTimecraftServiceHandler) Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error) {

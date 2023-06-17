@@ -24,6 +24,20 @@ message KillRequest {
 
 message KillResponse {}
 
+message SendRequest {
+    string process_id = 1;
+    bytes message = 2;
+}
+
+message SendResponse {}
+
+message ReceiveRequest {}
+
+message ReceiveResponse {
+    string sender_id = 1;
+    bytes message = 2;
+}
+
 message VersionRequest {}
 
 message VersionResponse {
@@ -34,5 +48,7 @@ service TimecraftService {
   rpc Parent(ParentRequest) returns (ParentResponse) {}
   rpc Spawn(SpawnRequest) returns (SpawnResponse) {}
   rpc Kill(KillRequest) returns (KillResponse) {}
+  rpc Send(SendRequest) returns (SendResponse) {}
+  rpc Receive(ReceiveRequest) returns (ReceiveResponse) {}
   rpc Version(VersionRequest) returns (VersionResponse) {}
 }
