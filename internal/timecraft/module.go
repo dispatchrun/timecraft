@@ -67,12 +67,18 @@ type Module struct {
 	recorder     func(wasi.System) wasi.System
 
 	run    bool
+	closed bool
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
 // Close closes the module.
 func (m *Module) Close() error {
+	if m.closed {
+		return nil
+	}
+	m.closed = true
+
 	m.cancel()
 
 	if m.logSpec != nil {

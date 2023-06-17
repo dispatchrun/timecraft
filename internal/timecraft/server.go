@@ -81,18 +81,11 @@ func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnReq
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to prepare module: %w", err))
 	}
 
-	go func() {
-		defer childModule.Close()
+	if err := s.instance.Runner.Run(childModule); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start module: %w", err))
+	}
 
-		if err := s.instance.Runner.Run(childModule); err != nil {
-			panic(err) // TODO: handle error
-		}
-
-		// TODO: need to prevent the parent from exiting until now, unless the server has
-		//  been cancelled via signal
-	}()
-
-	res := connect.NewResponse(&v1.SpawnResponse{TaskId: childID.String()})
+	res := connect.NewResponse(&v1.SpawnResponse{Id: childID.String()})
 	return res, nil
 }
 

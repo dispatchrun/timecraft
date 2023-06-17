@@ -14,7 +14,7 @@ message SpawnRequest {
 }
 
 message SpawnResponse {
-    string task_id = 1;
+    string id = 1;
 }
 
 service TimecraftService {

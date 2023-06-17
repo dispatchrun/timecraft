@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
@@ -24,18 +26,21 @@ import (
 
 // Runner coordinates the execution of WebAssembly modules.
 type Runner struct {
-	ctx      context.Context
 	registry *timemachine.Registry
 	runtime  wazero.Runtime
+
+	group *errgroup.Group
+	ctx   context.Context
 }
 
 // NewRunner creates a Runner.
 func NewRunner(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime) *Runner {
-	return &Runner{
-		ctx:      ctx,
+	r := &Runner{
 		registry: registry,
 		runtime:  runtime,
 	}
+	r.group, r.ctx = errgroup.WithContext(ctx)
+	return r
 }
 
 // Prepare prepares a Module for execution.
@@ -148,13 +153,15 @@ func (r *Runner) Prepare(moduleSpec ModuleSpec, logSpec *LogSpec) (*Module, erro
 	return m, nil
 }
 
-// Run runs a prepared WebAssembly module.
+// Run runs a prepared WebAssembly module asynchronously.
 func (r *Runner) Run(m *Module) error {
 	if m.run {
 		return errors.New("module is already running or has already run")
 	}
 	m.run = true
 
+	// Setup a gRPC server for the module so that it can interact with the
+	// timecraft runtime.
 	server := Server{
 		Runner:  r,
 		Module:  m.moduleSpec,
@@ -162,14 +169,10 @@ func (r *Runner) Run(m *Module) error {
 		Version: Version(),
 	}
 	serverSocket := path.Join(os.TempDir(), fmt.Sprintf("timecraft.%s.sock", uuid.NewString()))
-	defer os.Remove(serverSocket)
-
 	serverListener, err := net.Listen("unix", serverSocket)
 	if err != nil {
 		return err
 	}
-	defer serverListener.Close()
-
 	go func() {
 		if err := server.Serve(serverListener); err != nil && !errors.Is(err, net.ErrClosed) {
 			panic(err) // TODO: better error handling
@@ -195,14 +198,29 @@ func (r *Runner) Run(m *Module) error {
 	}
 	m.wasiBuilder = m.wasiBuilder.WithWrappers(wrappers...)
 
+	// Bring it all together!
 	var system wasi.System
 	m.ctx, system, err = m.wasiBuilder.Instantiate(m.ctx, r.runtime)
 	if err != nil {
 		return err
 	}
-	defer system.Close(m.ctx)
 
-	return runModule(m.ctx, r.runtime, m.wasmModule)
+	// Run the module in the background.
+	r.group.Go(func() error {
+		defer os.Remove(serverSocket)
+		defer serverListener.Close()
+		defer system.Close(m.ctx)
+		defer m.Close()
+
+		return runModule(m.ctx, r.runtime, m.wasmModule)
+	})
+
+	return nil
+}
+
+// Wait blocks until all WebAssembly modules have finished executing.
+func (r *Runner) Wait() error {
+	return r.group.Wait()
 }
 
 func runModule(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule) error {

@@ -40,7 +40,7 @@ func (c *Client) Spawn(path string, args []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return res.Msg.TaskId, nil
+	return res.Msg.Id, nil
 }
 
 // Version fetches the timecraft version.

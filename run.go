@@ -138,5 +138,8 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer module.Close()
 
-	return runner.Run(module)
+	if err := runner.Run(module); err != nil {
+		return err
+	}
+	return runner.Wait()
 }
