@@ -465,7 +465,7 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 				n++
 
 			case wasicall.SockOpen:
-				_, _, protocol, _, _, fd, errno, err := r.codec.DecodeSockOpen(record.FunctionCall)
+				_, sockType, protocol, _, _, fd, errno, err := r.codec.DecodeSockOpen(record.FunctionCall)
 				if err != nil {
 					return n, err
 				}
@@ -478,6 +478,13 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 					proto = TCP
 				case wasi.UDPProtocol:
 					proto = UDP
+				case wasi.IPProtocol:
+					switch sockType {
+					case wasi.StreamSocket:
+						proto = TCP
+					case wasi.DatagramSocket:
+						proto = UDP
+					}
 				default:
 					continue
 				}
