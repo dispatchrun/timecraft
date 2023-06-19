@@ -24,12 +24,15 @@ func (b Bytes) MarshalYAML() (any, error) {
 type Protocol uint8
 
 const (
+	IP  Protocol = 0
 	TCP Protocol = 1
 	UDP Protocol = 2
 )
 
 func (p Protocol) String() string {
 	switch p {
+	case IP:
+		return "IP"
 	case TCP:
 		return "TCP"
 	case UDP:
@@ -45,6 +48,8 @@ func (p Protocol) MarshalText() ([]byte, error) {
 
 func (p *Protocol) UnmarshalText(b []byte) error {
 	switch string(b) {
+	case "IP":
+		*p = IP
 	case "TCP":
 		*p = TCP
 	case "UDP":
@@ -474,6 +479,8 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 				}
 				var proto Protocol
 				switch protocol {
+				case wasi.IPProtocol:
+					proto = IP
 				case wasi.TCPProtocol:
 					proto = TCP
 				case wasi.UDPProtocol:
