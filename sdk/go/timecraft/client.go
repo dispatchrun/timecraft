@@ -8,7 +8,6 @@ import (
 	"github.com/planetscale/vtprotobuf/codec/grpc"
 	v1 "github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1"
 	"github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1/serverv1connect"
-	"golang.org/x/net/http2"
 )
 
 // NewClient creates a timecraft client.
@@ -21,9 +20,8 @@ func NewClient() (*Client, error) {
 }
 
 var httpClient = &http.Client{
-	Transport: &http2.Transport{
-		AllowHTTP:      true,
-		DialTLSContext: dialContext,
+	Transport: &http.Transport{
+		DialContext: dialContext,
 		// TODO: timeouts/limits
 	},
 }

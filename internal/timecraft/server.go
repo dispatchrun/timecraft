@@ -12,8 +12,6 @@ import (
 	"github.com/planetscale/vtprotobuf/codec/grpc"
 	v1 "github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1"
 	"github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1/serverv1connect"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 )
 
 // moduleServer is a gRPC server that's available to guests. Every
@@ -36,7 +34,7 @@ func (t *moduleServer) Serve(l net.Listener) error {
 	))
 	server := &http.Server{
 		Addr:    "timecraft",
-		Handler: h2c.NewHandler(mux, &http2.Server{}),
+		Handler: mux,
 		// TODO: timeouts/limits
 	}
 	return server.Serve(l)
