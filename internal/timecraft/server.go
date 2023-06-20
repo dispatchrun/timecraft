@@ -30,6 +30,7 @@ func (t *moduleServer) Serve(l net.Listener) error {
 	mux := http.NewServeMux()
 	mux.Handle(serverv1connect.NewTimecraftServiceHandler(
 		&grpcServer{instance: t},
+		connect.WithCompression("gzip", nil, nil), // disable gzip for now
 		connect.WithCodec(grpc.Codec{}),
 	))
 	server := &http.Server{

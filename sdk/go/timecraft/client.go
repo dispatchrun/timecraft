@@ -5,14 +5,19 @@ import (
 	"net/http"
 
 	"github.com/bufbuild/connect-go"
-	"github.com/planetscale/vtprotobuf/codec/grpc"
 	v1 "github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1"
 	"github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1/serverv1connect"
 )
 
 // NewClient creates a timecraft client.
 func NewClient() (*Client, error) {
-	grpcClient := serverv1connect.NewTimecraftServiceClient(httpClient, "http://timecraft/", connect.WithCodec(grpc.Codec{}))
+	grpcClient := serverv1connect.NewTimecraftServiceClient(
+		httpClient,
+		"http://timecraft/",
+		connect.WithAcceptCompression("gzip", nil, nil), // disable gzip for now
+		connect.WithProtoJSON(),                         // use JSON for now
+		// connect.WithCodec(grpc.Codec{}),
+	)
 
 	return &Client{
 		grpcClient: grpcClient,
