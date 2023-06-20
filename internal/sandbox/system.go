@@ -90,7 +90,6 @@ type System struct {
 	ipv4   ipnet[ipv4]
 	ipv6   ipnet[ipv6]
 	unix   unixnet
-	dial   func(context.Context, string, string) (net.Conn, error)
 }
 
 // New creates a new System instance, applying the list of options passed as
