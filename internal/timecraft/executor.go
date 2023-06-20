@@ -15,9 +15,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
+	"github.com/stealthrocket/timecraft/internal/httproxy"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
-	"github.com/stealthrocket/timecraft/internal/timemachine/httproxy"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/timecraft/sdk"
 	"github.com/stealthrocket/wasi-go"
