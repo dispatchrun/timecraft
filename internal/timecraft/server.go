@@ -14,7 +14,6 @@ import (
 // moduleServer is a gRPC server that's available to guests. Every
 // WebAssembly module has its own instance of a gRPC server.
 type moduleServer struct {
-	executor   *Executor
 	processID  uuid.UUID
 	moduleSpec ModuleSpec
 	logSpec    *LogSpec

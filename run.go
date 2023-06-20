@@ -132,7 +132,7 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintf(os.Stderr, "%s\n", logSpec.ProcessID)
 	}
 
-	if _, err := executor.Start(moduleSpec, logSpec, nil); err != nil {
+	if _, err := executor.Start(moduleSpec, logSpec); err != nil {
 		return err
 	}
 	return executor.Wait()

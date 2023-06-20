@@ -54,7 +54,7 @@ func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wa
 // initializing the WebAssembly module. If the WebAssembly module starts
 // successfully, any errors that occur during execution must be retrieved
 // via Wait.
-func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid.UUID) (uuid.UUID, error) {
+func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, error) {
 	wasmPath := moduleSpec.Path
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
@@ -162,7 +162,6 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := moduleServer{
-		executor:   e,
 		processID:  processID,
 		moduleSpec: moduleSpec,
 		logSpec:    logSpec,
