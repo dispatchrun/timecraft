@@ -93,6 +93,7 @@ func run(ctx context.Context, args []string) error {
 	defer runtime.Close(ctx)
 
 	scheduler := &timecraft.TaskScheduler{}
+	defer scheduler.Close()
 
 	serverFactory := &timecraft.ServerFactory{Scheduler: scheduler}
 
