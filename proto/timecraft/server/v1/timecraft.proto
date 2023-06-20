@@ -2,6 +2,32 @@ syntax = "proto3";
 
 package timecraft.server.v1;
 
+message ModuleSpec {
+  string path = 1;
+  repeated string args = 2;
+}
+
+message HTTPRequest {
+  string method = 1;
+  string path = 2;
+  repeated Header headers = 3;
+  bytes body = 4;
+}
+
+message Header {
+  string name = 1;
+  string value = 2;
+}
+
+message SubmitTaskRequest {
+  ModuleSpec module = 1;
+  HTTPRequest request = 2;
+}
+
+message SubmitTaskResponse {
+  string task_id = 1;
+}
+
 message VersionRequest {}
 
 message VersionResponse {
@@ -9,5 +35,6 @@ message VersionResponse {
 }
 
 service TimecraftService {
+  rpc SubmitTask(SubmitTaskRequest) returns (SubmitTaskResponse) {}
   rpc Version(VersionRequest) returns (VersionResponse) {}
 }

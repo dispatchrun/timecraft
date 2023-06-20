@@ -42,6 +42,10 @@ type grpcServer struct {
 	instance *moduleServer
 }
 
+func (s *grpcServer) SubmitTask(ctx context.Context, req *connect.Request[v1.SubmitTaskRequest]) (*connect.Response[v1.SubmitTaskResponse], error) {
+	panic("not implemented")
+}
+
 func (s *grpcServer) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
 	return connect.NewResponse(&v1.VersionResponse{Version: Version()}), nil
 }

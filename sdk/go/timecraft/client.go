@@ -2,6 +2,7 @@ package timecraft
 
 import (
 	"context"
+	"io"
 	"net/http"
 
 	"github.com/bufbuild/connect-go"
@@ -34,6 +35,49 @@ var httpClient = &http.Client{
 // Client is a timecraft client.
 type Client struct {
 	grpcClient serverv1connect.TimecraftServiceClient
+}
+
+// ModuleSpec is a WebAssembly module specification.
+type ModuleSpec struct {
+	Path string
+	Args []string
+}
+
+// TaskID is a task identifier.
+type TaskID string
+
+// SubmitTask submits an HTTP request to a WebAssembly module.
+//
+// The task is executed asynchronously. The method returns a TaskID that can be
+// used to query the task status and fetch the response when ready.
+func (c *Client) SubmitTask(ctx context.Context, module ModuleSpec, r *http.Request) (TaskID, error) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", err
+	}
+	r.Body.Close()
+
+	headers := make([]*v1.Header, len(r.Header))
+	for name, values := range r.Header {
+		for _, value := range values {
+			headers = append(headers, &v1.Header{Name: name, Value: value})
+		}
+	}
+
+	req := connect.NewRequest(&v1.SubmitTaskRequest{
+		Module: &v1.ModuleSpec{Path: module.Path, Args: module.Args},
+		Request: &v1.HTTPRequest{
+			Method:  r.Method,
+			Path:    r.URL.Path,
+			Headers: headers,
+			Body:    body,
+		},
+	})
+	res, err := c.grpcClient.SubmitTask(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return TaskID(res.Msg.TaskId), nil
 }
 
 // Version fetches the timecraft version.

@@ -33,6 +33,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// TimecraftServiceSubmitTaskProcedure is the fully-qualified name of the TimecraftService's
+	// SubmitTask RPC.
+	TimecraftServiceSubmitTaskProcedure = "/timecraft.server.v1.TimecraftService/SubmitTask"
 	// TimecraftServiceVersionProcedure is the fully-qualified name of the TimecraftService's Version
 	// RPC.
 	TimecraftServiceVersionProcedure = "/timecraft.server.v1.TimecraftService/Version"
@@ -40,6 +43,7 @@ const (
 
 // TimecraftServiceClient is a client for the timecraft.server.v1.TimecraftService service.
 type TimecraftServiceClient interface {
+	SubmitTask(context.Context, *connect_go.Request[v1.SubmitTaskRequest]) (*connect_go.Response[v1.SubmitTaskResponse], error)
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
 }
 
@@ -53,6 +57,11 @@ type TimecraftServiceClient interface {
 func NewTimecraftServiceClient(httpClient connect_go.HTTPClient, baseURL string, opts ...connect_go.ClientOption) TimecraftServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &timecraftServiceClient{
+		submitTask: connect_go.NewClient[v1.SubmitTaskRequest, v1.SubmitTaskResponse](
+			httpClient,
+			baseURL+TimecraftServiceSubmitTaskProcedure,
+			opts...,
+		),
 		version: connect_go.NewClient[v1.VersionRequest, v1.VersionResponse](
 			httpClient,
 			baseURL+TimecraftServiceVersionProcedure,
@@ -63,7 +72,13 @@ func NewTimecraftServiceClient(httpClient connect_go.HTTPClient, baseURL string,
 
 // timecraftServiceClient implements TimecraftServiceClient.
 type timecraftServiceClient struct {
-	version *connect_go.Client[v1.VersionRequest, v1.VersionResponse]
+	submitTask *connect_go.Client[v1.SubmitTaskRequest, v1.SubmitTaskResponse]
+	version    *connect_go.Client[v1.VersionRequest, v1.VersionResponse]
+}
+
+// SubmitTask calls timecraft.server.v1.TimecraftService.SubmitTask.
+func (c *timecraftServiceClient) SubmitTask(ctx context.Context, req *connect_go.Request[v1.SubmitTaskRequest]) (*connect_go.Response[v1.SubmitTaskResponse], error) {
+	return c.submitTask.CallUnary(ctx, req)
 }
 
 // Version calls timecraft.server.v1.TimecraftService.Version.
@@ -73,6 +88,7 @@ func (c *timecraftServiceClient) Version(ctx context.Context, req *connect_go.Re
 
 // TimecraftServiceHandler is an implementation of the timecraft.server.v1.TimecraftService service.
 type TimecraftServiceHandler interface {
+	SubmitTask(context.Context, *connect_go.Request[v1.SubmitTaskRequest]) (*connect_go.Response[v1.SubmitTaskResponse], error)
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
 }
 
@@ -83,6 +99,11 @@ type TimecraftServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewTimecraftServiceHandler(svc TimecraftServiceHandler, opts ...connect_go.HandlerOption) (string, http.Handler) {
 	mux := http.NewServeMux()
+	mux.Handle(TimecraftServiceSubmitTaskProcedure, connect_go.NewUnaryHandler(
+		TimecraftServiceSubmitTaskProcedure,
+		svc.SubmitTask,
+		opts...,
+	))
 	mux.Handle(TimecraftServiceVersionProcedure, connect_go.NewUnaryHandler(
 		TimecraftServiceVersionProcedure,
 		svc.Version,
@@ -93,6 +114,10 @@ func NewTimecraftServiceHandler(svc TimecraftServiceHandler, opts ...connect_go.
 
 // UnimplementedTimecraftServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedTimecraftServiceHandler struct{}
+
+func (UnimplementedTimecraftServiceHandler) SubmitTask(context.Context, *connect_go.Request[v1.SubmitTaskRequest]) (*connect_go.Response[v1.SubmitTaskResponse], error) {
+	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.SubmitTask is not implemented"))
+}
 
 func (UnimplementedTimecraftServiceHandler) Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Version is not implemented"))
