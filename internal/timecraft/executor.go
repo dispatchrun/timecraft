@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/stealthrocket/timecraft/sdk"
@@ -34,9 +35,17 @@ type Executor struct {
 	runtime       wazero.Runtime
 	serverFactory *ServerFactory
 
+	processes map[uuid.UUID]*processInfo
+	mu        sync.Mutex
+
 	group  *errgroup.Group
 	ctx    context.Context
 	cancel context.CancelCauseFunc
+}
+
+type processInfo struct {
+	id     uuid.UUID
+	cancel context.CancelFunc
 }
 
 // NewExecutor creates an Executor.
@@ -45,6 +54,7 @@ func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wa
 		registry:      registry,
 		runtime:       runtime,
 		serverFactory: serverFactory,
+		processes:     map[uuid.UUID]*processInfo{},
 	}
 	r.group, ctx = errgroup.WithContext(ctx)
 	r.ctx, r.cancel = context.WithCancelCause(ctx)
@@ -202,6 +212,16 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 		return uuid.UUID{}, err
 	}
 
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+
+	e.mu.Lock()
+	e.processes[processID] = &processInfo{
+		id:     processID,
+		cancel: cancel,
+	}
+	e.mu.Unlock()
+
 	// Run the module in the background, and tidy up once complete.
 	e.group.Go(func() error {
 		defer serverSocketCleanup()
@@ -212,6 +232,11 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 			defer logSegment.Close()
 			defer recordWriter.Flush()
 		}
+		defer func() {
+			e.mu.Lock()
+			delete(e.processes, processID)
+			e.mu.Unlock()
+		}()
 
 		return runModule(ctx, e.runtime, wasmModule)
 	})
