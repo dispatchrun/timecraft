@@ -10,12 +10,8 @@ import (
 	"github.com/google/uuid"
 )
 
-func makeSocketPath() (socketPath string, cleanup func() error) {
+func makeSocketPath() (socketPath string, cleanup func()) {
 	socketPath = filepath.Join(os.TempDir(), fmt.Sprintf("timecraft.%s.sock", uuid.NewString()))
-
-	cleanup = func() error {
-		return os.Remove(socketPath)
-	}
-
+	cleanup = func() { os.Remove(socketPath) }
 	return
 }

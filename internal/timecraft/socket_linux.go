@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func makeSocketPath() (socketPath string, cleanup func() error) {
+func makeSocketPath() (socketPath string, cleanup func()) {
 	// Use abstract unix sockets on Linux.
-	return fmt.Sprintf("@timecraft.%s.sock", uuid.NewString()), func() error { return nil }
+	return fmt.Sprintf("@timecraft.%s.sock", uuid.NewString()), func() {}
 }
