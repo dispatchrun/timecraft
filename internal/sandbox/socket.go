@@ -262,8 +262,8 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		// TODO: pool the buffers?
 		sockBuf := make([]byte, recvBufferSize+sendBufferSize)
 		connRef := &connRef{refc: 2, conn: conn}
-		go copySocketPipe(errs, s.send, conn, outputReadCloser{s.send}, sockBuf[:recvBufferSize], connRef)
-		go copySocketPipe(errs, s.recv, inputWriteCloser{s.recv}, conn, sockBuf[recvBufferSize:], connRef)
+		go copySocket(errs, s.send, conn, outputReadCloser{s.send}, sockBuf[:recvBufferSize], connRef)
+		go copySocket(errs, s.recv, inputWriteCloser{s.recv}, conn, sockBuf[recvBufferSize:], connRef)
 	}()
 
 	if !blocking {
@@ -290,7 +290,7 @@ func (c *connRef) unref() {
 	}
 }
 
-func copySocketPipe(errs chan<- wasi.Errno, p *pipe, w io.Writer, r io.Reader, b []byte, c *connRef) {
+func copySocket(errs chan<- wasi.Errno, p *pipe, w io.Writer, r io.Reader, b []byte, c *connRef) {
 	_, err := io.CopyBuffer(w, r, b)
 	if err != nil {
 		errs <- wasi.MakeErrno(err)
