@@ -35,7 +35,7 @@ type Executor struct {
 	runtime       wazero.Runtime
 	serverFactory *ServerFactory
 
-	processes map[uuid.UUID]*processInfo
+	processes map[ProcessID]*ProcessInfo
 	mu        sync.Mutex
 
 	group  *errgroup.Group
@@ -43,8 +43,14 @@ type Executor struct {
 	cancel context.CancelCauseFunc
 }
 
-type processInfo struct {
-	id     uuid.UUID
+// ProcessID is a process identifier.
+type ProcessID = uuid.UUID
+
+// ProcessInfo is information about a process.
+type ProcessInfo struct {
+	ID         ProcessID
+	WorkSocket string
+
 	cancel context.CancelFunc
 }
 
@@ -54,7 +60,7 @@ func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wa
 		registry:      registry,
 		runtime:       runtime,
 		serverFactory: serverFactory,
-		processes:     map[uuid.UUID]*processInfo{},
+		processes:     map[ProcessID]*ProcessInfo{},
 	}
 	r.group, ctx = errgroup.WithContext(ctx)
 	r.ctx, r.cancel = context.WithCancelCause(ctx)
@@ -71,17 +77,17 @@ func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wa
 // initializing the WebAssembly module. If the WebAssembly module starts
 // successfully, any errors that occur during execution must be retrieved
 // via Wait.
-func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, error) {
+func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, error) {
 	wasmPath := moduleSpec.Path
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
 	if err != nil {
-		return uuid.UUID{}, fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
+		return ProcessID{}, fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
 	}
 
 	wasmModule, err := e.runtime.CompileModule(e.ctx, wasmCode)
 	if err != nil {
-		return uuid.UUID{}, err
+		return ProcessID{}, err
 	}
 
 	wasiBuilder := imports.NewBuilder().
@@ -98,8 +104,8 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 	var recordWriter *timemachine.LogRecordWriter
 	var recorder func(wasi.System) wasi.System
 
-	var processID uuid.UUID
-	if logSpec != nil && logSpec.ProcessID != (uuid.UUID{}) {
+	var processID ProcessID
+	if logSpec != nil && logSpec.ProcessID != (ProcessID{}) {
 		processID = logSpec.ProcessID
 	} else {
 		processID = uuid.New()
@@ -115,7 +121,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 			Value: wasmModule.Name(),
 		})
 		if err != nil {
-			return uuid.UUID{}, err
+			return ProcessID{}, err
 		}
 
 		runtime, err := e.registry.CreateRuntime(e.ctx, &format.Runtime{
@@ -123,7 +129,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 			Version: Version(),
 		})
 		if err != nil {
-			return uuid.UUID{}, err
+			return ProcessID{}, err
 		}
 
 		config, err := e.registry.CreateConfig(e.ctx, &format.Config{
@@ -133,7 +139,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 			Env:     moduleSpec.Env,
 		})
 		if err != nil {
-			return uuid.UUID{}, err
+			return ProcessID{}, err
 		}
 
 		process, err := e.registry.CreateProcess(e.ctx, &format.Process{
@@ -142,20 +148,20 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 			Config:    config,
 		})
 		if err != nil {
-			return uuid.UUID{}, err
+			return ProcessID{}, err
 		}
 
 		if err := e.registry.CreateLogManifest(e.ctx, logSpec.ProcessID, &format.Manifest{
 			Process:   process,
 			StartTime: logSpec.StartTime,
 		}); err != nil {
-			return uuid.UUID{}, err
+			return ProcessID{}, err
 		}
 
 		// TODO: create a writer that writes to many segments
 		logSegment, err = e.registry.CreateLogSegment(e.ctx, logSpec.ProcessID, 0)
 		if err != nil {
-			return uuid.UUID{}, err
+			return ProcessID{}, err
 		}
 		logWriter := timemachine.NewLogWriter(logSegment)
 		recordWriter = timemachine.NewLogRecordWriter(logWriter, logSpec.BatchSize, logSpec.Compression)
@@ -179,10 +185,10 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := e.serverFactory.NewServer(processID, moduleSpec, logSpec)
-	serverSocket, serverSocketCleanup := makeSocketPath()
-	serverListener, err := net.Listen("unix", serverSocket)
+	timecraftSocket, timecraftSocketCleanup := makeSocketPath()
+	serverListener, err := net.Listen("unix", timecraftSocket)
 	if err != nil {
-		return uuid.UUID{}, err
+		return ProcessID{}, err
 	}
 	go func() {
 		if err := server.Serve(serverListener); err != nil && !errors.Is(err, net.ErrClosed) {
@@ -190,13 +196,16 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 		}
 	}()
 
+	workSocket, workSocketCleanup := makeSocketPath()
+
 	// Wrap the wasi.System to make the gRPC server accessible via a virtual
 	// socket, to trace system calls (if applicable), and to record system
 	// calls to the log. The order is important here!
 	var wrappers []func(wasi.System) wasi.System
 	wrappers = append(wrappers, func(system wasi.System) wasi.System {
 		return NewVirtualSocketsSystem(system, map[string]string{
-			sdk.ServerSocket: serverSocket,
+			sdk.TimecraftSocket: timecraftSocket,
+			sdk.WorkSocket:      workSocket,
 		})
 	})
 	if moduleSpec.Trace != nil {
@@ -209,22 +218,24 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 	}
 	ctx, system, err := wasiBuilder.WithWrappers(wrappers...).Instantiate(e.ctx, e.runtime)
 	if err != nil {
-		return uuid.UUID{}, err
+		return ProcessID{}, err
 	}
 
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 
 	e.mu.Lock()
-	e.processes[processID] = &processInfo{
-		id:     processID,
-		cancel: cancel,
+	e.processes[processID] = &ProcessInfo{
+		ID:         processID,
+		WorkSocket: workSocket,
+		cancel:     cancel,
 	}
 	e.mu.Unlock()
 
 	// Run the module in the background, and tidy up once complete.
 	e.group.Go(func() error {
-		defer serverSocketCleanup()
+		defer timecraftSocketCleanup()
+		defer workSocketCleanup()
 		defer serverListener.Close()
 		defer system.Close(ctx)
 		defer wasmModule.Close(ctx)
@@ -242,6 +253,17 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 	})
 
 	return processID, nil
+}
+
+// Lookup looks up a process by ID.
+//
+// The return flag is true if the process exists and is alive, and
+// false otherwise.
+func (e *Executor) Lookup(processID ProcessID) (info *ProcessInfo, ok bool) {
+	e.mu.Lock()
+	info, ok = e.processes[processID]
+	e.mu.Unlock()
+	return
 }
 
 // Wait blocks until all processes have finished executing.

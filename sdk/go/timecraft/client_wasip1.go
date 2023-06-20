@@ -12,5 +12,5 @@ import (
 
 func dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	var d wasip1.Dialer
-	return d.DialContext(ctx, "unix", sdk.ServerSocket)
+	return d.DialContext(ctx, "unix", sdk.TimecraftSocket)
 }

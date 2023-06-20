@@ -4,7 +4,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 )
 
@@ -45,7 +44,7 @@ type ModuleSpec struct {
 
 // LogSpec is details about the log that records a trace of execution.
 type LogSpec struct {
-	ProcessID   uuid.UUID
+	ProcessID   ProcessID
 	StartTime   time.Time
 	Compression timemachine.Compression
 	BatchSize   int

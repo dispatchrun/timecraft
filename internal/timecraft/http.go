@@ -8,3 +8,9 @@ type HTTPRequest struct {
 	Headers http.Header
 	Body    []byte
 }
+
+type HTTPResponse struct {
+	StatusCode int
+	Headers    http.Header
+	Body       []byte
+}
