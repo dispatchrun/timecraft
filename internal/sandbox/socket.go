@@ -116,7 +116,6 @@ func (s *socket[T]) connect(laddr, raddr T, host bool) (*socket[T], wasi.Errno) 
 
 	select {
 	case s.accept <- sock:
-		println("trigger socket accept")
 		s.recv.ev.trigger()
 		return sock, wasi.ESUCCESS
 	default:
@@ -156,7 +155,6 @@ func (s *socket[T]) SockListen(ctx context.Context, backlog int) wasi.Errno {
 
 func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno) {
 	var sock *socket[T]
-	println("clear sock accept poll state")
 	s.recv.ev.clear()
 
 	if s.recv.flags.Has(wasi.NonBlock) {
@@ -178,7 +176,6 @@ func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, w
 	}
 
 	if len(s.accept) > 0 {
-		println("re-trigger sock accept poll state")
 		s.recv.ev.trigger()
 	}
 	_ = sock.FDStatSetFlags(ctx, flags)

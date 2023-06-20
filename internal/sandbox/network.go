@@ -560,7 +560,6 @@ func (n *unixnet) unlink(sock *socket[unix]) wasi.Errno {
 }
 
 func (n *unixnet) dial(ctx context.Context, _ protocol, laddr, raddr unix) (net.Conn, wasi.Errno) {
-	// TODO: connect to local socket
 	c, err := n.dialFunc(ctx, "unix", raddr.String())
 	if err != nil {
 		return nil, wasi.MakeErrno(err)
