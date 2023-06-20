@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -29,32 +28,16 @@ type Executor struct {
 	registry *timemachine.Registry
 	runtime  wazero.Runtime
 
-	processes map[uuid.UUID]*process
-	mu        sync.Mutex
-
 	group  *errgroup.Group
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 }
 
-type process struct {
-	id      uuid.UUID
-	parent  *uuid.UUID
-	cancel  context.CancelFunc
-	mailbox chan<- message
-}
-
-type message struct {
-	sender uuid.UUID
-	body   []byte
-}
-
 // NewExecutor creates an Executor.
 func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime) *Executor {
 	r := &Executor{
-		registry:  registry,
-		runtime:   runtime,
-		processes: map[uuid.UUID]*process{},
+		registry: registry,
+		runtime:  runtime,
 	}
 	r.group, ctx = errgroup.WithContext(ctx)
 	r.ctx, r.cancel = context.WithCancelCause(ctx)
@@ -176,17 +159,13 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 		processID = uuid.New()
 	}
 
-	mailbox := make(chan message)
-
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := moduleServer{
 		executor:   e,
 		processID:  processID,
-		parentID:   parentID,
 		moduleSpec: moduleSpec,
 		logSpec:    logSpec,
-		mailbox:    mailbox,
 	}
 	serverSocket, serverSocketCleanup := makeSocketPath()
 	serverListener, err := net.Listen("unix", serverSocket)
@@ -221,18 +200,6 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 		return uuid.UUID{}, err
 	}
 
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-
-	e.mu.Lock()
-	e.processes[processID] = &process{
-		id:      processID,
-		parent:  parentID,
-		cancel:  cancel,
-		mailbox: mailbox,
-	}
-	e.mu.Unlock()
-
 	// Run the module in the background, and tidy up once complete.
 	e.group.Go(func() error {
 		defer serverSocketCleanup()
@@ -243,50 +210,11 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 			defer logSegment.Close()
 			defer recordWriter.Flush()
 		}
-		defer func() {
-			e.mu.Lock()
-			delete(e.processes, processID)
-			e.mu.Unlock()
-		}()
 
 		return runModule(ctx, e.runtime, wasmModule)
 	})
 
 	return processID, nil
-}
-
-var errNotFound = errors.New("process not found")
-var errForbidden = errors.New("process is not allowed to perform that operation")
-
-// Send sends a message to a WebAssembly module.
-func (e *Executor) Send(processID uuid.UUID, senderID uuid.UUID, msg []byte) error {
-	e.mu.Lock()
-	p, ok := e.processes[processID]
-	if !ok {
-		e.mu.Unlock()
-		return errNotFound
-	}
-	mailbox := p.mailbox
-	e.mu.Unlock()
-
-	mailbox <- message{sender: senderID, body: msg}
-	return nil
-}
-
-// Stop stops a WebAssembly module from running.
-func (e *Executor) Stop(processID uuid.UUID, parentID *uuid.UUID) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	p, ok := e.processes[processID]
-	if !ok {
-		return errNotFound
-	} else if parentID != nil && (p.parent == nil || *p.parent != *parentID) {
-		return errForbidden
-	}
-
-	p.cancel()
-	return nil
 }
 
 // Wait blocks until all WebAssembly modules have finished executing.
