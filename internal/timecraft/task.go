@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -27,8 +26,8 @@ import (
 type TaskScheduler struct {
 	Executor *Executor
 
-	queue chan<- *taskInfo
-	tasks map[TaskID]*taskInfo
+	queue chan<- *TaskInfo
+	tasks map[TaskID]*TaskInfo
 
 	processes map[processKey]ProcessID
 
@@ -53,7 +52,8 @@ const (
 	Done
 )
 
-type taskInfo struct {
+// TaskInfo is information about a task.
+type TaskInfo struct {
 	id         TaskID
 	createdAt  time.Time
 	state      TaskState
@@ -75,7 +75,7 @@ type processKey struct {
 func (s *TaskScheduler) SubmitTask(moduleSpec ModuleSpec, logSpec *LogSpec, req HTTPRequest) (TaskID, error) {
 	s.once.Do(s.init)
 
-	task := &taskInfo{
+	task := &TaskInfo{
 		id:         uuid.New(),
 		createdAt:  time.Now(),
 		state:      Queued,
@@ -94,12 +94,12 @@ func (s *TaskScheduler) SubmitTask(moduleSpec ModuleSpec, logSpec *LogSpec, req 
 }
 
 func (s *TaskScheduler) init() {
-	s.tasks = map[TaskID]*taskInfo{}
+	s.tasks = map[TaskID]*TaskInfo{}
 	s.processes = map[processKey]ProcessID{}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
-	queue := make(chan *taskInfo)
+	queue := make(chan *TaskInfo)
 	s.queue = queue
 
 	// TODO: spawn many goroutines to schedule tasks
@@ -107,7 +107,7 @@ func (s *TaskScheduler) init() {
 	go s.scheduleLoop(queue)
 }
 
-func (s *TaskScheduler) scheduleLoop(queue <-chan *taskInfo) {
+func (s *TaskScheduler) scheduleLoop(queue <-chan *TaskInfo) {
 	defer s.wg.Done()
 
 	for {
@@ -120,7 +120,7 @@ func (s *TaskScheduler) scheduleLoop(queue <-chan *taskInfo) {
 	}
 }
 
-func (s *TaskScheduler) scheduleTask(task *taskInfo) {
+func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 	// TODO: add other parts of the ModuleSpec to the key
 	key := processKey{path: task.moduleSpec.Path}
 
@@ -161,6 +161,10 @@ func (s *TaskScheduler) scheduleTask(task *taskInfo) {
 		})
 	}
 
+	// TODO: better handling of race condition between spawning process and it
+	//  being ready to take on work
+	time.Sleep(3 * time.Second)
+
 	client := http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -176,7 +180,7 @@ func (s *TaskScheduler) scheduleTask(task *taskInfo) {
 
 	res, err := client.Do(&http.Request{
 		Method: task.req.Method,
-		URL:    &url.URL{Path: task.req.Path},
+		URL:    &url.URL{Scheme: "http", Host: "timecraft", Path: task.req.Path},
 		Header: task.req.Headers,
 		Body:   io.NopCloser(bytes.NewReader(task.req.Body)),
 	})
@@ -205,9 +209,18 @@ func (s *TaskScheduler) scheduleTask(task *taskInfo) {
 			Headers:    res.Header,
 			Body:       body,
 		}
-
-		fmt.Println("OK!!!", task.res)
 	})
+}
+
+// Lookup looks up a task by ID.
+func (s *TaskScheduler) Lookup(id TaskID) (task TaskInfo, ok bool) {
+	s.synchronize(func() {
+		var t *TaskInfo
+		if t, ok = s.tasks[id]; ok {
+			task = *t // copy
+		}
+	})
+	return
 }
 
 func (s *TaskScheduler) synchronize(fn func()) {
