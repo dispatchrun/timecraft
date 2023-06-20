@@ -227,9 +227,10 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	recvBufferSize := s.recvBufferSize
 	sendBufferSize := s.sendBufferSize
 	go func() {
+		defer close(errs)
+
 		var conn net.Conn
 		var errno wasi.Errno
-
 		if !s.net.contains(s.raddr) {
 			conn, errno = s.net.dial(ctx, s.proto, s.laddr, s.raddr)
 		} else {
@@ -254,7 +255,6 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		s.send.ev.trigger()
 
 		if errno != wasi.ESUCCESS {
-			close(errs)
 			return
 		}
 
@@ -273,11 +273,8 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 			copySocketPipe(errs, s.recv, inputWriteCloser{s.recv}, conn, sockbuf[recvBufferSize:])
 		}()
 
-		go func() {
-			group.Wait()
-			conn.Close()
-			close(errs)
-		}()
+		group.Wait()
+		conn.Close()
 	}()
 
 	if !blocking {
