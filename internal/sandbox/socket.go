@@ -229,8 +229,6 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	recvBufferSize := s.recvBufferSize
 	sendBufferSize := s.sendBufferSize
 	go func() {
-		defer close(errs)
-
 		var conn net.Conn
 		var errno wasi.Errno
 		if !s.net.contains(s.raddr) {
@@ -257,12 +255,13 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		s.send.ev.trigger()
 
 		if errno != wasi.ESUCCESS {
+			close(errs)
 			return
 		}
 
 		// TODO: pool the buffers?
 		sockBuf := make([]byte, recvBufferSize+sendBufferSize)
-		connRef := &connRef{refc: 2, conn: conn}
+		connRef := &connRef{refc: 2, conn: conn, errs: errs}
 		go copySocket(errs, s.send, conn, outputReadCloser{s.send}, sockBuf[:recvBufferSize], connRef)
 		go copySocket(errs, s.recv, inputWriteCloser{s.recv}, conn, sockBuf[recvBufferSize:], connRef)
 	}()
@@ -283,11 +282,13 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 type connRef struct {
 	refc int32
 	conn net.Conn
+	errs chan<- wasi.Errno
 }
 
 func (c *connRef) unref() {
 	if atomic.AddInt32(&c.refc, -1) == 0 {
 		c.conn.Close()
+		close(c.errs)
 	}
 }
 
