@@ -177,7 +177,7 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 
 	// TODO: better handling of race condition between spawning process and it
 	//  being ready to take on work
-	time.Sleep(3 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	client := http.Client{
 		Transport: &http.Transport{

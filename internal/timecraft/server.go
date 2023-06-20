@@ -101,7 +101,25 @@ func (s *Server) LookupTask(ctx context.Context, req *connect.Request[v1.LookupT
 	if !ok {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no task with ID %s", taskID))
 	}
-	res := connect.NewResponse(&v1.LookupTaskResponse{State: v1.TaskState(task.state)})
+	res := connect.NewResponse(&v1.LookupTaskResponse{
+		State: v1.TaskState(task.state),
+	})
+	switch task.state {
+	case Error:
+		res.Msg.ErrorMessage = task.err.Error()
+	case Done:
+		r := &v1.HTTPResponse{
+			StatusCode: int32(task.res.StatusCode),
+			Body:       task.res.Body,
+			Headers:    make([]*v1.Header, 0, len(task.res.Headers)),
+		}
+		for name, values := range task.res.Headers {
+			for _, value := range values {
+				r.Headers = append(r.Headers, &v1.Header{Name: name, Value: value})
+			}
+		}
+		res.Msg.Response = r
+	}
 	return res, nil
 }
 

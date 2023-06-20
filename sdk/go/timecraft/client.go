@@ -1,7 +1,9 @@
 package timecraft
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 
@@ -48,7 +50,9 @@ type TaskID string
 
 // TaskInfo is information about a task.
 type TaskInfo struct {
-	State TaskState
+	State    TaskState
+	Error    error
+	Response *http.Response
 }
 
 // TaskState is the state of a task.
@@ -87,7 +91,7 @@ func (c *Client) SubmitTask(ctx context.Context, module ModuleSpec, r *http.Requ
 		}
 	}
 
-	headers := make([]*v1.Header, len(r.Header))
+	headers := make([]*v1.Header, 0, len(r.Header))
 	for name, values := range r.Header {
 		for _, value := range values {
 			headers = append(headers, &v1.Header{Name: name, Value: value})
@@ -117,9 +121,24 @@ func (c *Client) LookupTask(ctx context.Context, taskID TaskID) (*TaskInfo, erro
 	if err != nil {
 		return nil, err
 	}
-	return &TaskInfo{
+	task := &TaskInfo{
 		State: TaskState(res.Msg.State),
-	}, nil
+	}
+	switch task.State {
+	case Error:
+		task.Error = errors.New(res.Msg.ErrorMessage)
+	case Done:
+		r := res.Msg.Response
+		task.Response = &http.Response{
+			StatusCode: int(r.StatusCode),
+			Body:       io.NopCloser(bytes.NewReader(r.Body)),
+			Header:     make(http.Header, len(r.Headers)),
+		}
+		for _, h := range r.Headers {
+			task.Response.Header[h.Name] = append(task.Response.Header[h.Name], h.Value)
+		}
+	}
+	return task, nil
 }
 
 // Version fetches the timecraft version.

@@ -14,6 +14,12 @@ message HTTPRequest {
   bytes body = 4;
 }
 
+message HTTPResponse {
+  int32 status_code = 1;
+  repeated Header headers = 2;
+  bytes body = 3;
+}
+
 message Header {
   string name = 1;
   string value = 2;
@@ -33,7 +39,7 @@ message LookupTaskRequest {
 }
 
 enum TaskState {
-  TASK_STATE_UNSPECIFIED = 0; // buf lint complains if this isn't here..
+  TASK_STATE_UNSPECIFIED = 0; // required by buf lint
   TASK_STATE_QUEUED = 1;
   TASK_STATE_INITIALIZING = 2;
   TASK_STATE_EXECUTING = 3;
@@ -43,6 +49,8 @@ enum TaskState {
 
 message LookupTaskResponse {
   TaskState state = 1;
+  string error_message = 2;
+  HTTPResponse response = 3;
 }
 
 message VersionRequest {}
