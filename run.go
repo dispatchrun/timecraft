@@ -92,7 +92,13 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer runtime.Close(ctx)
 
-	executor := timecraft.NewExecutor(ctx, registry, runtime)
+	scheduler := &timecraft.TaskScheduler{}
+
+	serverFactory := &timecraft.ServerFactory{Scheduler: scheduler}
+
+	executor := timecraft.NewExecutor(ctx, registry, runtime, serverFactory)
+
+	scheduler.Executor = executor
 
 	moduleSpec := timecraft.ModuleSpec{
 		Path:    wasmPath,

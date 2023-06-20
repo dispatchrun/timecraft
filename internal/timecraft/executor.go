@@ -25,8 +25,9 @@ import (
 
 // Executor executes WebAssembly modules.
 type Executor struct {
-	registry *timemachine.Registry
-	runtime  wazero.Runtime
+	registry      *timemachine.Registry
+	runtime       wazero.Runtime
+	serverFactory *ServerFactory
 
 	group  *errgroup.Group
 	ctx    context.Context
@@ -34,10 +35,11 @@ type Executor struct {
 }
 
 // NewExecutor creates an Executor.
-func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime) *Executor {
+func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime, serverFactory *ServerFactory) *Executor {
 	r := &Executor{
-		registry: registry,
-		runtime:  runtime,
+		registry:      registry,
+		runtime:       runtime,
+		serverFactory: serverFactory,
 	}
 	r.group, ctx = errgroup.WithContext(ctx)
 	r.ctx, r.cancel = context.WithCancelCause(ctx)
@@ -47,8 +49,8 @@ func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wa
 // Start starts a WebAssembly module.
 //
 // The ModuleSpec describes the module to be executed. An optional LogSpec
-// can be provided to record a trace of execution to a log when the module
-// is executed.
+// can be provided to record a trace of execution to a log (when the module
+// is executed).
 //
 // If Start returns an error it indicates that there was a problem
 // initializing the WebAssembly module. If the WebAssembly module starts
@@ -161,11 +163,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
-	server := moduleServer{
-		processID:  processID,
-		moduleSpec: moduleSpec,
-		logSpec:    logSpec,
-	}
+	server := e.serverFactory.NewServer(processID, moduleSpec, logSpec)
 	serverSocket, serverSocketCleanup := makeSocketPath()
 	serverListener, err := net.Listen("unix", serverSocket)
 	if err != nil {
