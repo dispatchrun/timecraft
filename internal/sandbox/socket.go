@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/stealthrocket/wasi-go"
@@ -259,22 +260,10 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		}
 
 		// TODO: pool the buffers?
-		sockbuf := make([]byte, recvBufferSize+sendBufferSize)
-		group := sync.WaitGroup{}
-		group.Add(2)
-
-		go func() {
-			defer group.Done()
-			copySocketPipe(errs, s.send, conn, outputReadCloser{s.send}, sockbuf[:recvBufferSize])
-		}()
-
-		go func() {
-			defer group.Done()
-			copySocketPipe(errs, s.recv, inputWriteCloser{s.recv}, conn, sockbuf[recvBufferSize:])
-		}()
-
-		group.Wait()
-		conn.Close()
+		sockBuf := make([]byte, recvBufferSize+sendBufferSize)
+		connRef := &connRef{refc: 2, conn: conn}
+		go copySocketPipe(errs, s.send, conn, outputReadCloser{s.send}, sockBuf[:recvBufferSize], connRef)
+		go copySocketPipe(errs, s.recv, inputWriteCloser{s.recv}, conn, sockBuf[recvBufferSize:], connRef)
 	}()
 
 	if !blocking {
@@ -290,12 +279,24 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	return errno
 }
 
-func copySocketPipe(errs chan<- wasi.Errno, p *pipe, w io.Writer, r io.Reader, b []byte) {
+type connRef struct {
+	refc int32
+	conn net.Conn
+}
+
+func (c *connRef) unref() {
+	if atomic.AddInt32(&c.refc, -1) == 0 {
+		c.conn.Close()
+	}
+}
+
+func copySocketPipe(errs chan<- wasi.Errno, p *pipe, w io.Writer, r io.Reader, b []byte, c *connRef) {
 	_, err := io.CopyBuffer(w, r, b)
 	if err != nil {
 		errs <- wasi.MakeErrno(err)
 	}
 	p.close()
+	c.unref()
 }
 
 func (s *socket[T]) SockRecv(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
