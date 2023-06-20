@@ -479,8 +479,6 @@ func (r *EventReader) Read(events []Event) (n int, err error) {
 				}
 				var proto Protocol
 				switch protocol {
-				case wasi.IPProtocol:
-					proto = IP
 				case wasi.TCPProtocol:
 					proto = TCP
 				case wasi.UDPProtocol:
