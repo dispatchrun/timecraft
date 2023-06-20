@@ -48,9 +48,9 @@ type TaskState int
 
 const (
 	// Queued indicates that the task is waiting to be scheduled.
-	Queued TaskState = iota
+	Queued TaskState = iota + 1
 
-	// Initialized indicates that the task is in the process of being scheduled
+	// Initializing indicates that the task is in the process of being scheduled
 	// on to a process.
 	Initializing
 

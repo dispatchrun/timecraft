@@ -92,6 +92,19 @@ func (s *Server) SubmitTask(ctx context.Context, req *connect.Request[v1.SubmitT
 	return connect.NewResponse(&v1.SubmitTaskResponse{TaskId: taskID.String()}), nil
 }
 
+func (s *Server) LookupTask(ctx context.Context, req *connect.Request[v1.LookupTaskRequest]) (*connect.Response[v1.LookupTaskResponse], error) {
+	taskID, err := uuid.Parse(req.Msg.TaskId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid task ID: %w", err))
+	}
+	task, ok := s.scheduler.Lookup(taskID)
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no task with ID %s", taskID))
+	}
+	res := connect.NewResponse(&v1.LookupTaskResponse{State: v1.TaskState(task.state)})
+	return res, nil
+}
+
 func (s *Server) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
 	return connect.NewResponse(&v1.VersionResponse{Version: Version()}), nil
 }

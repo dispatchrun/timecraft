@@ -28,13 +28,31 @@ message SubmitTaskResponse {
   string task_id = 1;
 }
 
+message LookupTaskRequest {
+  string task_id = 1;
+}
+
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0; // buf lint complains if this isn't here..
+  TASK_STATE_QUEUED = 1;
+  TASK_STATE_INITIALIZING = 2;
+  TASK_STATE_EXECUTING = 3;
+  TASK_STATE_ERROR = 4;
+  TASK_STATE_DONE = 5;
+}
+
+message LookupTaskResponse {
+  TaskState state = 1;
+}
+
 message VersionRequest {}
 
 message VersionResponse {
-    string version = 1;
+  string version = 1;
 }
 
 service TimecraftService {
   rpc SubmitTask(SubmitTaskRequest) returns (SubmitTaskResponse) {}
+  rpc LookupTask(LookupTaskRequest) returns (LookupTaskResponse) {}
   rpc Version(VersionRequest) returns (VersionResponse) {}
 }

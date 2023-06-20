@@ -36,6 +36,9 @@ const (
 	// TimecraftServiceSubmitTaskProcedure is the fully-qualified name of the TimecraftService's
 	// SubmitTask RPC.
 	TimecraftServiceSubmitTaskProcedure = "/timecraft.server.v1.TimecraftService/SubmitTask"
+	// TimecraftServiceLookupTaskProcedure is the fully-qualified name of the TimecraftService's
+	// LookupTask RPC.
+	TimecraftServiceLookupTaskProcedure = "/timecraft.server.v1.TimecraftService/LookupTask"
 	// TimecraftServiceVersionProcedure is the fully-qualified name of the TimecraftService's Version
 	// RPC.
 	TimecraftServiceVersionProcedure = "/timecraft.server.v1.TimecraftService/Version"
@@ -44,6 +47,7 @@ const (
 // TimecraftServiceClient is a client for the timecraft.server.v1.TimecraftService service.
 type TimecraftServiceClient interface {
 	SubmitTask(context.Context, *connect_go.Request[v1.SubmitTaskRequest]) (*connect_go.Response[v1.SubmitTaskResponse], error)
+	LookupTask(context.Context, *connect_go.Request[v1.LookupTaskRequest]) (*connect_go.Response[v1.LookupTaskResponse], error)
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
 }
 
@@ -62,6 +66,11 @@ func NewTimecraftServiceClient(httpClient connect_go.HTTPClient, baseURL string,
 			baseURL+TimecraftServiceSubmitTaskProcedure,
 			opts...,
 		),
+		lookupTask: connect_go.NewClient[v1.LookupTaskRequest, v1.LookupTaskResponse](
+			httpClient,
+			baseURL+TimecraftServiceLookupTaskProcedure,
+			opts...,
+		),
 		version: connect_go.NewClient[v1.VersionRequest, v1.VersionResponse](
 			httpClient,
 			baseURL+TimecraftServiceVersionProcedure,
@@ -73,12 +82,18 @@ func NewTimecraftServiceClient(httpClient connect_go.HTTPClient, baseURL string,
 // timecraftServiceClient implements TimecraftServiceClient.
 type timecraftServiceClient struct {
 	submitTask *connect_go.Client[v1.SubmitTaskRequest, v1.SubmitTaskResponse]
+	lookupTask *connect_go.Client[v1.LookupTaskRequest, v1.LookupTaskResponse]
 	version    *connect_go.Client[v1.VersionRequest, v1.VersionResponse]
 }
 
 // SubmitTask calls timecraft.server.v1.TimecraftService.SubmitTask.
 func (c *timecraftServiceClient) SubmitTask(ctx context.Context, req *connect_go.Request[v1.SubmitTaskRequest]) (*connect_go.Response[v1.SubmitTaskResponse], error) {
 	return c.submitTask.CallUnary(ctx, req)
+}
+
+// LookupTask calls timecraft.server.v1.TimecraftService.LookupTask.
+func (c *timecraftServiceClient) LookupTask(ctx context.Context, req *connect_go.Request[v1.LookupTaskRequest]) (*connect_go.Response[v1.LookupTaskResponse], error) {
+	return c.lookupTask.CallUnary(ctx, req)
 }
 
 // Version calls timecraft.server.v1.TimecraftService.Version.
@@ -89,6 +104,7 @@ func (c *timecraftServiceClient) Version(ctx context.Context, req *connect_go.Re
 // TimecraftServiceHandler is an implementation of the timecraft.server.v1.TimecraftService service.
 type TimecraftServiceHandler interface {
 	SubmitTask(context.Context, *connect_go.Request[v1.SubmitTaskRequest]) (*connect_go.Response[v1.SubmitTaskResponse], error)
+	LookupTask(context.Context, *connect_go.Request[v1.LookupTaskRequest]) (*connect_go.Response[v1.LookupTaskResponse], error)
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
 }
 
@@ -104,6 +120,11 @@ func NewTimecraftServiceHandler(svc TimecraftServiceHandler, opts ...connect_go.
 		svc.SubmitTask,
 		opts...,
 	))
+	mux.Handle(TimecraftServiceLookupTaskProcedure, connect_go.NewUnaryHandler(
+		TimecraftServiceLookupTaskProcedure,
+		svc.LookupTask,
+		opts...,
+	))
 	mux.Handle(TimecraftServiceVersionProcedure, connect_go.NewUnaryHandler(
 		TimecraftServiceVersionProcedure,
 		svc.Version,
@@ -117,6 +138,10 @@ type UnimplementedTimecraftServiceHandler struct{}
 
 func (UnimplementedTimecraftServiceHandler) SubmitTask(context.Context, *connect_go.Request[v1.SubmitTaskRequest]) (*connect_go.Response[v1.SubmitTaskResponse], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.SubmitTask is not implemented"))
+}
+
+func (UnimplementedTimecraftServiceHandler) LookupTask(context.Context, *connect_go.Request[v1.LookupTaskRequest]) (*connect_go.Response[v1.LookupTaskResponse], error) {
+	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.LookupTask is not implemented"))
 }
 
 func (UnimplementedTimecraftServiceHandler) Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error) {
