@@ -264,12 +264,9 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 			errs <- errno
 		}
 
-		// Trigger the notification that the connection has been established
-		// and the program can expect to read and write on the socket, or get
-		// the error if the connection failed.
-		s.send.ev.trigger()
-
 		if errno != wasi.ESUCCESS {
+			s.send.close()
+			s.recv.close()
 			close(errs)
 			return
 		}
@@ -469,8 +466,6 @@ func (s *socket[T]) SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.E
 
 func (s *socket[T]) FDClose(ctx context.Context) wasi.Errno {
 	s.close()
-	s.send.FDClose(ctx)
-	s.recv.FDClose(ctx)
 
 	if s.errs != nil {
 		// Drain the errors channel to make sure that all sync operations on the

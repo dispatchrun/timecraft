@@ -17,6 +17,8 @@ func (ch channel) poll(ctx context.Context, flags wasi.FDFlags, timeout <-chan t
 		select {
 		case data := <-ch:
 			return data, wasi.ESUCCESS
+		case <-done:
+			return nil, wasi.EBADF
 		default:
 			return nil, wasi.EAGAIN
 		}
