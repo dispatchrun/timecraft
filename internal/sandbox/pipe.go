@@ -5,17 +5,20 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/stealthrocket/wasi-go"
 )
 
 type channel chan []byte
 
-func (ch channel) poll(ctx context.Context, flags wasi.FDFlags, timeout, done <-chan struct{}) ([]byte, wasi.Errno) {
+func (ch channel) poll(ctx context.Context, flags wasi.FDFlags, timeout <-chan time.Time, done <-chan struct{}) ([]byte, wasi.Errno) {
 	if flags.Has(wasi.NonBlock) {
 		select {
 		case data := <-ch:
 			return data, wasi.ESUCCESS
+		case <-done:
+			return nil, wasi.EBADF
 		default:
 			return nil, wasi.EAGAIN
 		}
@@ -33,15 +36,17 @@ func (ch channel) poll(ctx context.Context, flags wasi.FDFlags, timeout, done <-
 	}
 }
 
-func (ch channel) read(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, timeout, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
+func (ch channel) read(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, timeout <-chan time.Time, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
 	data, errno := ch.poll(ctx, flags, timeout, done)
 	if errno != wasi.ESUCCESS {
 		// Make a special case for the error indicating that the done channel
 		// was closed, it must return size=0 and errno=0 to indicate EOF.
 		if errno == wasi.EBADF {
 			errno = wasi.ESUCCESS
+		} else {
+			size = ^wasi.Size(0)
 		}
-		return 0, errno
+		return size, errno
 	}
 	for _, iov := range iovs {
 		n := copy(iov, data)
@@ -56,10 +61,10 @@ func (ch channel) read(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlag
 	return size, wasi.ESUCCESS
 }
 
-func (ch channel) write(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, timeout, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
+func (ch channel) write(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, timeout <-chan time.Time, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
 	data, errno := ch.poll(ctx, flags, timeout, done)
 	if errno != wasi.ESUCCESS {
-		return 0, errno
+		return ^wasi.Size(0), errno
 	}
 	for _, iov := range iovs {
 		n := copy(data, iov)
@@ -75,23 +80,59 @@ func (ch channel) write(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFla
 }
 
 type event struct {
-	ready  atomic.Bool
+	lock   *sync.Mutex
+	status atomic.Uint32
 	signal chan<- struct{}
 }
 
+const (
+	cleared uint32 = iota
+	ready
+	aborted
+)
+
+func makeEvent(lock *sync.Mutex) event {
+	return event{lock: lock}
+}
+
+func (ev *event) state() uint32 {
+	return ev.status.Load()
+}
+
+func (ev *event) abort() {
+	// Abort the event, causing it to signal its hook (if it has one) and
+	// preventing it from going back to be ready or cleared. After entering
+	// this state, the event will always trigger if polled.
+	ev.status.Store(aborted)
+	ev.trigger()
+}
+
 func (ev *event) clear() {
-	ev.ready.Store(false)
+	// Clear the event state, which means moving it from ready to clear.
+	// If the event is in the abort state, this function has no effect
+	// since it is not possible to bring an event back from being aborted.
+	ev.status.CompareAndSwap(ready, cleared)
 }
 
-func (ev *event) poll() bool {
-	ev.signal = nil
-	return ev.ready.Swap(false)
-}
-
-func (ev *event) hook(signal chan<- struct{}) {
-	if !ev.ready.Load() {
+func (ev *event) poll(signal chan<- struct{}) bool {
+	if ev.status.Load() != cleared {
+		ev.signal = nil
+		return true
+	} else {
 		ev.signal = signal
-	} else if signal != nil {
+		return false
+	}
+}
+
+func (ev *event) trigger() {
+	ev.lock.Lock()
+	ev.status.CompareAndSwap(cleared, ready)
+	trigger(ev.signal)
+	ev.lock.Unlock()
+}
+
+func trigger(signal chan<- struct{}) {
+	if signal != nil {
 		select {
 		case signal <- struct{}{}:
 		default:
@@ -99,25 +140,11 @@ func (ev *event) hook(signal chan<- struct{}) {
 	}
 }
 
-func (ev *event) trigger(mu *sync.Mutex) {
-	mu.Lock()
-	ev.ready.Store(true)
-	if ev.signal != nil {
-		select {
-		case ev.signal <- struct{}{}:
-		default:
-		}
-		ev.signal = nil
-	}
-	mu.Unlock()
-}
-
 // pipe is a unidirectional channel allowing data to pass between the host and
 // a guest module.
 type pipe struct {
 	defaultFile
 	flags wasi.FDFlags
-	lock  *sync.Mutex
 	mu    sync.Mutex
 	ch    channel
 	ev    event
@@ -127,14 +154,14 @@ type pipe struct {
 
 func newPipe(lock *sync.Mutex) *pipe {
 	return &pipe{
-		lock: lock,
 		ch:   make(channel),
+		ev:   makeEvent(lock),
 		done: make(chan struct{}),
 	}
 }
 
 func (p *pipe) close() {
-	p.once.Do(func() { close(p.done) })
+	p.once.Do(func() { close(p.done); p.ev.abort() })
 }
 
 func (p *pipe) FDClose(ctx context.Context) wasi.Errno {
@@ -154,14 +181,8 @@ func (in input) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.
 	return in.ch.read(ctx, iovs, in.flags, &in.ev, nil, in.done)
 }
 
-func (in input) FDHook(ev wasi.EventType, ch chan<- struct{}) {
-	if ev == wasi.FDReadEvent {
-		in.ev.hook(ch)
-	}
-}
-
-func (in input) FDPoll(ev wasi.EventType) bool {
-	return ev == wasi.FDReadEvent && in.ev.poll()
+func (in input) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
+	return ev == wasi.FDReadEvent && in.ev.poll(ch)
 }
 
 type inputReadCloser struct {
@@ -205,7 +226,7 @@ func (w inputWriteCloser) Write(b []byte) (int, error) {
 
 	n := 0
 	for n < len(b) {
-		w.in.ev.trigger(w.in.lock)
+		w.in.ev.trigger()
 		select {
 		case w.in.ch <- b[n:]:
 			n = len(b) - len(<-w.in.ch)
@@ -223,14 +244,8 @@ func (out output) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wa
 	return out.ch.write(ctx, iovs, out.flags, &out.ev, nil, out.done)
 }
 
-func (out output) FDHook(ev wasi.EventType, ch chan<- struct{}) {
-	if ev == wasi.FDWriteEvent {
-		out.ev.hook(ch)
-	}
-}
-
-func (out output) FDPoll(ev wasi.EventType) bool {
-	return ev == wasi.FDWriteEvent && out.ev.poll()
+func (out output) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
+	return ev == wasi.FDWriteEvent && out.ev.poll(ch)
 }
 
 type outputReadCloser struct {
@@ -246,7 +261,7 @@ func (r outputReadCloser) Read(b []byte) (int, error) {
 	r.out.mu.Lock()
 	defer r.out.mu.Unlock()
 
-	r.out.ev.trigger(r.out.lock)
+	r.out.ev.trigger()
 	select {
 	case r.out.ch <- b:
 		return len(b) - len(<-r.out.ch), nil

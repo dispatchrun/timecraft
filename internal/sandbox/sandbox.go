@@ -8,20 +8,9 @@ import (
 
 // File is the interface implemented by all flavors of files that can be
 // registered in a sandboxed System.
-//
-// The interface is an extension of wasi.File which adds socket methods and
-// the ability to hook into the system's poller via two methods: FDHook and
-// FDPoll.
-//
-// FDHook is called when the system needs to install a channel to be notified
-// when an event triggers on the file.
-//
-// FDPoll is called to ask the file if the given event has triggered, and
-// atomically clear that event's state if it did.
 type File interface {
 	wasi.File[File]
-	FDHook(ev wasi.EventType, ch chan<- struct{})
-	FDPoll(ev wasi.EventType) bool
+	FDPoll(ev wasi.EventType, ch chan<- struct{}) bool
 	SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno)
 	SockBind(ctx context.Context, addr wasi.SocketAddress) wasi.Errno
 	SockConnect(ctx context.Context, peer wasi.SocketAddress) wasi.Errno

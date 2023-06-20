@@ -196,14 +196,6 @@ func (d *dir) FDCloseDir(ctx context.Context) wasi.Errno {
 	return wasi.ESUCCESS
 }
 
-func (f *file) FDHook(ev wasi.EventType, ch chan<- struct{}) {
-	// files are always ready for both reading and writing
-	select {
-	case ch <- struct{}{}:
-	default:
-	}
-}
-
-func (f *file) FDPoll(ev wasi.EventType) bool {
+func (f *file) FDPoll(ev wasi.EventType, _ chan<- struct{}) bool {
 	return true
 }

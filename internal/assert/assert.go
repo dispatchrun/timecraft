@@ -37,27 +37,29 @@ func Error(t testing.TB, got, want error) {
 func Equal[T comparable](t testing.TB, got, want T) {
 	if got != want {
 		t.Helper()
-		t.Fatalf("value mismatch\nwant = %#v\ngot  = %#v", want, got)
+		t.Fatalf("%T value must be equal\nwant = %+v\ngot  = %+v", want, want, got)
 	}
 }
 
 func NotEqual[T comparable](t testing.TB, got, want T) {
 	if got == want {
 		t.Helper()
-		t.Fatalf("value mismatch\nwant != %#v", want)
+		t.Fatalf("%T value must not be equal\nwant != %+v\ngot   = %+v", want, want, got)
 	}
 }
 
 func EqualAll[T comparable](t testing.TB, got, want []T) {
+	var zero T
+
 	if len(got) != len(want) {
 		t.Helper()
-		t.Fatalf("number of values mismatch\nwant = %#v\ngot  = %#v", want, got)
+		t.Fatalf("number of %T values mismatch\nwant = %+v\ngot  = %+v", zero, want, got)
 	}
 
 	for i, value := range want {
 		if value != got[i] {
 			t.Helper()
-			t.Fatalf("value at index %d/%d mismatch\nwant = %#v\ngot  = %#v", i, len(want), value, got[i])
+			t.Fatalf("%T value at index %d/%d mismatch\nwant = %+v\ngot  = %+v", zero, i, len(want), value, got[i])
 		}
 	}
 }
@@ -72,7 +74,7 @@ func Less[T constraints.Ordered](t testing.TB, less, more T) {
 func DeepEqual(t testing.TB, got, want any) {
 	if !reflect.DeepEqual(got, want) {
 		t.Helper()
-		t.Fatalf("value mismatch\nwant = %#v\ngot  = %#v", want, got)
+		t.Fatalf("%T value must be deeply equal\nwant = %+v\ngot  = %+v", want, want, got)
 	}
 }
 

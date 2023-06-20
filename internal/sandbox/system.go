@@ -4,8 +4,10 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"net"
 	"net/netip"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/stealthrocket/wasi-go"
@@ -23,11 +25,11 @@ func Args(args ...string) Option {
 	return func(s *System) { s.args = args }
 }
 
-// Env configures the list of environment variables exposed to the guest
+// Environ configures the list of environment variables exposed to the guest
 // module.
-func Env(env ...string) Option {
-	env = slices.Clone(env)
-	return func(s *System) { s.env = env }
+func Environ(environ ...string) Option {
+	environ = slices.Clone(environ)
+	return func(s *System) { s.env = environ }
 }
 
 // Time configures the function used by the guest module to get the current
@@ -35,8 +37,7 @@ func Env(env ...string) Option {
 //
 // If not set, the guest does not have access to the current time.
 func Time(time func() time.Time) Option {
-	epoch := time()
-	return func(s *System) { s.epoch, s.time = epoch, time }
+	return func(s *System) { s.time = time }
 }
 
 // Rand configures the random number generator exposed to the guest module.
@@ -56,6 +57,18 @@ func FS(fsys fs.FS) Option {
 // Socket configures a unix socket to be exposed to the guest module.
 func Socket(name string) Option {
 	return func(s *System) { s.unix.name = name }
+}
+
+// Dial configures a dial function used to establish network connections from
+// the guest module.
+//
+// If not set, the guest module cannot open outbound connections.
+func Dial(dial func(context.Context, string, string) (net.Conn, error)) Option {
+	return func(s *System) {
+		s.ipv4.dialFunc = dial
+		s.ipv6.dialFunc = dial
+		s.unix.dialFunc = dial
+	}
 }
 
 // System is an implementation of the wasi.System interface which sandboxes all
@@ -83,6 +96,9 @@ type System struct {
 // arguments.
 func New(opts ...Option) *System {
 	lock := new(sync.Mutex)
+	dial := func(context.Context, string, string) (net.Conn, error) {
+		return nil, syscall.ECONNREFUSED
+	}
 
 	s := &System{
 		lock:   lock,
@@ -91,10 +107,15 @@ func New(opts ...Option) *System {
 		stderr: newPipe(lock),
 		poll:   make(chan struct{}, 1),
 		ipv4: ipnet[ipv4]{
-			address: netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			ipaddr:   netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			dialFunc: dial,
 		},
 		ipv6: ipnet[ipv6]{
-			address: netip.AddrFrom16([16]byte{15: 1}),
+			ipaddr:   netip.AddrFrom16([16]byte{15: 1}),
+			dialFunc: dial,
+		},
+		unix: unixnet{
+			dialFunc: dial,
 		},
 	}
 
@@ -125,6 +146,10 @@ func New(opts ...Option) *System {
 			RightsBase:       wasi.DirectoryRights,
 			RightsInheriting: wasi.DirectoryRights | wasi.FileRights,
 		})
+	}
+
+	if s.time != nil {
+		s.epoch = s.time()
 	}
 	return s
 }
@@ -219,23 +244,69 @@ func (s *System) RandomGet(ctx context.Context, b []byte) wasi.Errno {
 }
 
 func (s *System) SockAccept(ctx context.Context, fd wasi.FD, flags wasi.FDFlags) (wasi.FD, wasi.SocketAddress, wasi.SocketAddress, wasi.Errno) {
-	return -1, nil, nil, wasi.ENOSYS
+	sock, stat, errno := s.LookupSocketFD(fd, wasi.SockAcceptRight)
+	if errno != wasi.ESUCCESS {
+		return ^wasi.FD(0), nil, nil, errno
+	}
+	conn, errno := sock.SockAccept(ctx, flags)
+	if errno != wasi.ESUCCESS {
+		return ^wasi.FD(0), nil, nil, errno
+	}
+	addr, errno := conn.SockLocalAddress(ctx)
+	if errno != wasi.ESUCCESS {
+		_ = conn.FDClose(ctx)
+		return ^wasi.FD(0), nil, nil, wasi.ECONNREFUSED
+	}
+	peer, errno := conn.SockRemoteAddress(ctx)
+	if errno != wasi.ESUCCESS {
+		_ = conn.FDClose(ctx)
+		return ^wasi.FD(0), nil, nil, wasi.ECONNREFUSED
+	}
+	newFD := s.Register(conn, wasi.FDStat{
+		Flags:      flags,
+		FileType:   stat.FileType,
+		RightsBase: stat.RightsInheriting,
+	})
+	return newFD, peer, addr, wasi.ESUCCESS
 }
 
 func (s *System) SockRecv(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
-	return 0, 0, wasi.ENOSYS
+	sock, _, errno := s.LookupSocketFD(fd, wasi.FDWriteRight)
+	if errno != wasi.ESUCCESS {
+		return 0, 0, errno
+	}
+	return sock.SockRecv(ctx, iovecs, flags)
 }
 
 func (s *System) SockSend(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
-	return 0, wasi.ENOSYS
+	sock, _, errno := s.LookupSocketFD(fd, wasi.FDWriteRight)
+	if errno != wasi.ESUCCESS {
+		return 0, errno
+	}
+	return sock.SockSend(ctx, iovecs, flags)
 }
 
 func (s *System) SockShutdown(ctx context.Context, fd wasi.FD, flags wasi.SDFlags) wasi.Errno {
-	return wasi.ENOSYS
+	if (flags & ^(wasi.ShutdownRD | wasi.ShutdownWR)) != 0 {
+		return wasi.EINVAL
+	}
+	sock, _, errno := s.LookupSocketFD(fd, wasi.FDWriteRight)
+	if errno != wasi.ESUCCESS {
+		return errno
+	}
+	return sock.SockShutdown(ctx, flags)
 }
 
 func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.SocketType, proto wasi.Protocol, rightsBase, rightsInheriting wasi.Rights) (wasi.FD, wasi.Errno) {
 	const none = ^wasi.FD(0)
+
+	switch proto {
+	case wasi.IPProtocol:
+	case wasi.TCPProtocol:
+	case wasi.UDPProtocol:
+	default:
+		return none, wasi.EPROTOTYPE
+	}
 
 	if st == wasi.AnySocket {
 		switch proto {
@@ -248,14 +319,30 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 		}
 	}
 
+	var support bool
+	switch pf {
+	case wasi.InetFamily:
+		support = s.ipv4.supports(protocol(proto))
+	case wasi.Inet6Family:
+		support = s.ipv6.supports(protocol(proto))
+	case wasi.UnixFamily:
+		support = s.unix.supports(protocol(proto))
+	}
+	if !support {
+		return none, wasi.EPROTONOSUPPORT
+	}
+	if !socktype(st).supports(protocol(proto)) {
+		return none, wasi.EPROTONOSUPPORT
+	}
+
 	var socket File
 	switch pf {
 	case wasi.InetFamily:
-		socket = newSocket[ipv4](&s.ipv4, s.lock, protocol(proto))
+		socket = newSocket[ipv4](&s.ipv4, s.lock, socktype(st), protocol(proto))
 	case wasi.Inet6Family:
-		socket = newSocket[ipv6](&s.ipv6, s.lock, protocol(proto))
+		socket = newSocket[ipv6](&s.ipv6, s.lock, socktype(st), protocol(proto))
 	case wasi.UnixFamily:
-		socket = newSocket[unix](&s.unix, s.lock, protocol(proto))
+		socket = newSocket[unix](&s.unix, s.lock, socktype(st), protocol(proto))
 	default:
 		return none, wasi.EAFNOSUPPORT
 	}
@@ -294,7 +381,8 @@ func (s *System) SockConnect(ctx context.Context, fd wasi.FD, peer wasi.SocketAd
 	}
 	switch errno := sock.SockConnect(ctx, peer); errno {
 	case wasi.ESUCCESS, wasi.EINPROGRESS:
-		return sock.SockLocalAddress(ctx)
+		addr, _ := sock.SockLocalAddress(ctx)
+		return addr, errno
 	default:
 		return nil, errno
 	}
@@ -367,45 +455,58 @@ type timeout struct {
 }
 
 func (s *System) PollOneOff(ctx context.Context, subscriptions []wasi.Subscription, events []wasi.Event) (int, wasi.Errno) {
+	if len(subscriptions) == 0 || len(events) < len(subscriptions) {
+		return 0, wasi.EINVAL
+	}
+	events = events[:len(subscriptions)]
+	for i := range events {
+		events[i] = wasi.Event{}
+	}
+
 	numEvents, timeout, errno := s.pollOneOffScatter(subscriptions, events)
 	if errno != wasi.ESUCCESS {
 		return numEvents, errno
 	}
-
-	if timeout.duration != 0 && numEvents == 0 {
-		var deadline <-chan time.Time
-		if timeout.duration > 0 {
-			t := time.NewTimer(timeout.duration)
-			defer t.Stop()
-			deadline = t.C
-		}
-		select {
-		case <-s.poll:
-		case <-deadline:
-			events[numEvents] = wasi.Event{
-				UserData:  subscriptions[timeout.subindex].UserData,
-				EventType: subscriptions[timeout.subindex].EventType,
-			}
-			numEvents++
-		case <-ctx.Done():
-			panic(ctx.Err())
-		}
+	if numEvents == 0 && timeout.duration != 0 {
+		s.pollOneOffWait(ctx, subscriptions, events, timeout)
 	}
-
-	numEvents += s.pollOneOffGather(subscriptions, events[numEvents:])
+	s.pollOneOffGather(subscriptions, events)
 	// Clear the event in case it was set after ctx.Done() or deadline
 	// triggered.
 	select {
 	case <-s.poll:
 	default:
 	}
-	return numEvents, wasi.ESUCCESS
+
+	n := 0
+	for _, e := range events {
+		if e.EventType != 0 {
+			e.EventType--
+			events[n] = e
+			n++
+		}
+	}
+	return n, wasi.ESUCCESS
+}
+
+func (s *System) pollOneOffWait(ctx context.Context, subscriptions []wasi.Subscription, events []wasi.Event, timeout timeout) {
+	var deadline <-chan time.Time
+	if timeout.duration > 0 {
+		t := time.NewTimer(timeout.duration)
+		defer t.Stop()
+		deadline = t.C
+	}
+	select {
+	case <-s.poll:
+	case <-deadline:
+		events[timeout.subindex] = makePollEvent(subscriptions[timeout.subindex])
+	case <-ctx.Done():
+		panic(ctx.Err())
+	}
 }
 
 func (s *System) pollOneOffScatter(subscriptions []wasi.Subscription, events []wasi.Event) (numEvents int, timeout timeout, errno wasi.Errno) {
-	if len(subscriptions) == 0 || len(events) < len(subscriptions) {
-		return numEvents, timeout, wasi.EINVAL
-	}
+	_ = events[:len(subscriptions)]
 
 	timeout.duration = -1
 	var unixEpoch, now time.Time
@@ -421,15 +522,6 @@ func (s *System) pollOneOffScatter(subscriptions []wasi.Subscription, events []w
 			timeout.subindex = i
 			timeout.duration = d
 		}
-	}
-
-	reportError := func(sub wasi.Subscription, errno wasi.Errno) {
-		events[numEvents] = wasi.Event{
-			UserData:  sub.UserData,
-			EventType: sub.EventType,
-			Errno:     errno,
-		}
-		numEvents++
 	}
 
 	s.lock.Lock()
@@ -448,7 +540,8 @@ func (s *System) pollOneOffScatter(subscriptions []wasi.Subscription, events []w
 				epoch = s.epoch
 			}
 			if epoch.IsZero() {
-				reportError(sub, wasi.ENOSYS)
+				events[i] = makePollError(sub, wasi.ENOTSUP)
+				numEvents++
 				continue
 			}
 			if (clock.Flags & wasi.Abstime) != 0 {
@@ -462,53 +555,60 @@ func (s *System) pollOneOffScatter(subscriptions []wasi.Subscription, events []w
 			// TODO: check read/write rights
 			f, _, errno := s.LookupFD(sub.GetFDReadWrite().FD, 0)
 			if errno != wasi.ESUCCESS {
-				reportError(sub, errno)
-				continue
-			}
-			if f.FDPoll(sub.EventType) {
-				events[numEvents] = makeFDEvent(sub)
+				events[i] = makePollError(sub, errno)
 				numEvents++
-				continue
+			} else if f.FDPoll(sub.EventType, s.poll) {
+				events[i] = makePollEvent(sub)
+				numEvents++
 			}
-			f.FDHook(sub.EventType, s.poll)
 
 		default:
-			reportError(sub, wasi.ENOTSUP)
+			events[i] = makePollError(sub, wasi.ENOTSUP)
+			numEvents++
 		}
+	}
+
+	if timeout.duration == 0 {
+		events[timeout.subindex] = makePollEvent(subscriptions[timeout.subindex])
+		numEvents++
 	}
 
 	return numEvents, timeout, wasi.ESUCCESS
 }
 
-func (s *System) pollOneOffGather(subscriptions []wasi.Subscription, events []wasi.Event) (numEvents int) {
+func (s *System) pollOneOffGather(subscriptions []wasi.Subscription, events []wasi.Event) {
+	_ = events[:len(subscriptions)]
+
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	for _, sub := range subscriptions {
+	for i, sub := range subscriptions {
 		switch sub.EventType {
 		case wasi.FDReadEvent, wasi.FDWriteEvent:
 			f, _, _ := s.LookupFD(sub.GetFDReadWrite().FD, 0)
 			if f == nil {
 				continue
 			}
-			if !f.FDPoll(sub.EventType) {
+			if !f.FDPoll(sub.EventType, nil) {
 				continue
 			}
-			events[numEvents] = makeFDEvent(sub)
-			numEvents++
+			events[i] = makePollEvent(sub)
 		}
 	}
-
-	return numEvents
 }
 
-func makeFDEvent(sub wasi.Subscription) wasi.Event {
+func makePollEvent(sub wasi.Subscription) wasi.Event {
 	return wasi.Event{
 		UserData:  sub.UserData,
-		EventType: sub.EventType,
-		FDReadWrite: wasi.EventFDReadWrite{
-			NBytes: 1, // we don't know how many bytes are available but it's at least one
-		},
+		EventType: sub.EventType + 1,
+	}
+}
+
+func makePollError(sub wasi.Subscription, errno wasi.Errno) wasi.Event {
+	return wasi.Event{
+		UserData:  sub.UserData,
+		EventType: sub.EventType + 1,
+		Errno:     errno,
 	}
 }
 
