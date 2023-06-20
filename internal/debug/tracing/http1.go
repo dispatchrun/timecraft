@@ -271,7 +271,11 @@ func (p *http1Parser) read() (start, end time.Time, data []byte, err error, ok b
 	if p.headerLength == 0 || p.contentLength < 0 {
 		return
 	}
-	start, end, data = p.buffer.slice(p.headerLength + p.contentLength)
+	responseLength := p.headerLength + p.contentLength
+	if len(p.buffer.bytes) < responseLength {
+		return
+	}
+	start, end, data = p.buffer.slice(responseLength)
 	err = p.err
 	p.headerLength = 0
 	p.contentLength = 0

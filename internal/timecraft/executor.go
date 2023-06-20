@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
+	"github.com/stealthrocket/timecraft/internal/httproxy"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
@@ -223,6 +224,8 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
+
+	httproxy.Start(ctx)
 
 	e.mu.Lock()
 	e.processes[processID] = &process{
