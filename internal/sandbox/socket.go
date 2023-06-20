@@ -231,6 +231,7 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	go func() {
 		var conn net.Conn
 		var errno wasi.Errno
+
 		if !s.net.contains(s.raddr) {
 			conn, errno = s.net.dial(ctx, s.proto, s.laddr, s.raddr)
 		} else {
