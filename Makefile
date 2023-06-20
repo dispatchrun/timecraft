@@ -1,7 +1,7 @@
 .PHONY: clean flatbuffers generate test testdata
 .PRECIOUS: %.wasm
 
-GO ?= go
+GO ?= gotip
 
 testdata.go.src = \
 	$(wildcard testdata/go/*.go) \
