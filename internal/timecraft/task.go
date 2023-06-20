@@ -8,10 +8,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// TaskID is a task identifier.
-type TaskID = uuid.UUID
-
 // TaskScheduler schedules tasks.
+//
+// A task is small unit of work. A process (managed by the Executor) is
+// responsible for executing one or more tasks. The management of processes to
+// execute tasks and the scheduling of tasks across processes are both
+// implementation details.
+//
+// At this time, a task is equal to one HTTP request. Additional types of
+// work may be added in the future.
 type TaskScheduler struct {
 	Executor *Executor
 
@@ -25,6 +30,9 @@ type TaskScheduler struct {
 	mu     sync.Mutex
 }
 
+// TaskID is a task identifier.
+type TaskID = uuid.UUID
+
 type taskInfo struct {
 	id  TaskID
 	req HTTPRequest
@@ -32,28 +40,23 @@ type taskInfo struct {
 
 // SubmitTask submits a task for execution.
 //
-// The management of WebAssembly module processes to execute tasks and the
-// scheduling of tasks across processes are both implementation details.
-//
-// SubmitTask returns a TaskID that can be used to query task status and
+// The method returns a TaskID that can be used to query task status and
 // results.
-func (s *TaskScheduler) SubmitTask(moduleSpec ModuleSpec, logSpec *LogSpec, req HTTPRequest) (id TaskID, err error) {
+func (s *TaskScheduler) SubmitTask(moduleSpec ModuleSpec, logSpec *LogSpec, req HTTPRequest) (TaskID, error) {
 	s.once.Do(s.init)
 
-	id = uuid.New()
-
 	task := &taskInfo{
-		id:  id,
+		id:  uuid.New(),
 		req: req,
 	}
 
 	s.mu.Lock()
-	s.tasks[id] = task
+	s.tasks[task.id] = task
 	s.mu.Unlock()
 
 	s.queue <- task
 
-	return id, nil
+	return task.id, nil
 }
 
 func (s *TaskScheduler) init() {

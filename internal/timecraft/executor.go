@@ -24,6 +24,11 @@ import (
 )
 
 // Executor executes WebAssembly modules.
+//
+// A running WebAssembly module is known as a process. Processes are allowed
+// to spawn other processes. The Executor thus manages the lifecycle of
+// processes. Two methods are provided: Start to start a process, and Wait to
+// block until all processes have finished executing.
 type Executor struct {
 	registry      *timemachine.Registry
 	runtime       wazero.Runtime
@@ -46,11 +51,11 @@ func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wa
 	return r
 }
 
-// Start starts a WebAssembly module.
+// Start starts a process.
 //
 // The ModuleSpec describes the module to be executed. An optional LogSpec
-// can be provided to record a trace of execution to a log (when the module
-// is executed).
+// can be provided to instruct the Executor to record a trace of execution
+// to a log.
 //
 // If Start returns an error it indicates that there was a problem
 // initializing the WebAssembly module. If the WebAssembly module starts
@@ -214,7 +219,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (uuid.UUID, er
 	return processID, nil
 }
 
-// Wait blocks until all WebAssembly modules have finished executing.
+// Wait blocks until all processes have finished executing.
 func (e *Executor) Wait() error {
 	return e.group.Wait()
 }
