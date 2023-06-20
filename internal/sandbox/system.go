@@ -246,21 +246,21 @@ func (s *System) RandomGet(ctx context.Context, b []byte) wasi.Errno {
 func (s *System) SockAccept(ctx context.Context, fd wasi.FD, flags wasi.FDFlags) (wasi.FD, wasi.SocketAddress, wasi.SocketAddress, wasi.Errno) {
 	sock, stat, errno := s.LookupSocketFD(fd, wasi.SockAcceptRight)
 	if errno != wasi.ESUCCESS {
-		return 0, nil, nil, errno
+		return ^wasi.FD(0), nil, nil, errno
 	}
 	conn, errno := sock.SockAccept(ctx, flags)
 	if errno != wasi.ESUCCESS {
-		return 0, nil, nil, errno
+		return ^wasi.FD(0), nil, nil, errno
 	}
 	addr, errno := conn.SockLocalAddress(ctx)
 	if errno != wasi.ESUCCESS {
 		_ = conn.FDClose(ctx)
-		return 0, nil, nil, wasi.ECONNREFUSED
+		return ^wasi.FD(0), nil, nil, wasi.ECONNREFUSED
 	}
 	peer, errno := conn.SockRemoteAddress(ctx)
 	if errno != wasi.ESUCCESS {
 		_ = conn.FDClose(ctx)
-		return 0, nil, nil, wasi.ECONNREFUSED
+		return ^wasi.FD(0), nil, nil, wasi.ECONNREFUSED
 	}
 	newFD := s.Register(conn, wasi.FDStat{
 		Flags:      flags,

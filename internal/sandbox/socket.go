@@ -57,10 +57,6 @@ type socket[T sockaddr] struct {
 	// For connected sockets, this channel is used to asynchronously receive
 	// notification that a connection has been established.
 	errs <-chan wasi.Errno
-	// When the socket receives an asynchronous error, it keeps track of it in
-	// this field to support getsockopt and prevent future attempts to read or
-	// write on it.
-	errno wasi.Errno
 	// This cancellation function controls the lifetime of connections dialed
 	// from the socket.
 	cancel context.CancelFunc
@@ -137,31 +133,44 @@ func (s *socket[T]) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
 }
 
 func (s *socket[T]) SockListen(ctx context.Context, backlog int) wasi.Errno {
-	if backlog < 0 {
+	if s.conn {
 		return wasi.EINVAL
 	}
-	if backlog == 0 || backlog > 128 {
+	if backlog <= 0 || backlog > 128 {
 		backlog = 128
 	}
+
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
 	if s.accept == nil {
 		var zero T
 		if s.laddr == zero {
-			return wasi.EDESTADDRREQ
+			if errno := s.net.bind(zero, s); errno != wasi.ESUCCESS {
+				return errno
+			}
 		}
 		s.accept = make(chan *socket[T], backlog)
 	}
+
 	return wasi.ESUCCESS
 }
 
 func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno) {
+	s.mutex.Lock()
+	accept := s.accept
+	s.mutex.Unlock()
+
+	if accept == nil {
+		return nil, wasi.EINVAL
+	}
+
 	var sock *socket[T]
 	s.recv.ev.clear()
 
 	if s.recv.flags.Has(wasi.NonBlock) {
 		select {
-		case sock = <-s.accept:
+		case sock = <-accept:
 		case <-s.recv.done:
 			return nil, wasi.EBADF
 		default:
@@ -169,7 +178,7 @@ func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, w
 		}
 	} else {
 		select {
-		case sock = <-s.accept:
+		case sock = <-accept:
 		case <-s.recv.done:
 			return nil, wasi.EBADF
 		case <-ctx.Done():
@@ -177,7 +186,11 @@ func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, w
 		}
 	}
 
-	if len(s.accept) > 0 {
+	if sock == nil {
+		return nil, wasi.EINVAL
+	}
+
+	if len(accept) > 0 {
 		s.recv.ev.trigger()
 	}
 	_ = sock.FDStatSetFlags(ctx, flags)
@@ -219,9 +232,10 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	s.raddr = raddr
 
 	ctx, s.cancel = context.WithCancel(ctx)
-	// At most two errors are produced to this channel, either one when the dial
-	// function failed, or up to two if both the read and write pipes error.
-	errs := make(chan wasi.Errno, 2)
+	// At most three errors are produced to this channel, one when the dial
+	// function failed or the connection is blocking, and up to two if both
+	// the read and write pipes error.
+	errs := make(chan wasi.Errno, 3)
 	s.errs = errs
 	s.conn = true
 
@@ -263,8 +277,8 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		// TODO: pool the buffers?
 		sockBuf := make([]byte, recvBufferSize+sendBufferSize)
 		connRef := &connRef{refc: 2, conn: conn, errs: errs}
-		go copySocket(errs, s.send, conn, outputReadCloser{s.send}, sockBuf[:recvBufferSize], connRef)
-		go copySocket(errs, s.recv, inputWriteCloser{s.recv}, conn, sockBuf[recvBufferSize:], connRef)
+		go connRef.copy(s.send, conn, outputReadCloser{s.send}, sockBuf[:recvBufferSize])
+		go connRef.copy(s.recv, inputWriteCloser{s.recv}, conn, sockBuf[recvBufferSize:])
 	}()
 
 	if !blocking {
@@ -272,12 +286,11 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	}
 
 	select {
-	case errno = <-errs:
+	case errno := <-errs:
+		return errno
 	case <-ctx.Done():
-		errno = wasi.MakeErrno(ctx.Err())
+		return wasi.MakeErrno(ctx.Err())
 	}
-	s.errno = errno
-	return errno
 }
 
 type connRef struct {
@@ -293,10 +306,10 @@ func (c *connRef) unref() {
 	}
 }
 
-func copySocket(errs chan<- wasi.Errno, p *pipe, w io.Writer, r io.Reader, b []byte, c *connRef) {
+func (c *connRef) copy(p *pipe, w io.Writer, r io.Reader, b []byte) {
 	_, err := io.CopyBuffer(w, r, b)
 	if err != nil {
-		errs <- wasi.MakeErrno(err)
+		c.errs <- wasi.MakeErrno(err)
 	}
 	p.close()
 	c.unref()
@@ -364,7 +377,7 @@ func (s *socket[T]) getSocketLevelOption(option wasi.SocketOption) (wasi.SocketO
 	case wasi.QuerySocketType:
 		return wasi.IntValue(s.typ), wasi.ESUCCESS
 	case wasi.QuerySocketError:
-		return wasi.IntValue(s.errno), wasi.ESUCCESS
+		return wasi.IntValue(s.getErrno()), wasi.ESUCCESS
 	case wasi.DontRoute:
 	case wasi.Broadcast:
 	case wasi.SendBufferSize:
@@ -380,7 +393,7 @@ func (s *socket[T]) getSocketLevelOption(option wasi.SocketOption) (wasi.SocketO
 	case wasi.QueryAcceptConnections:
 	case wasi.BindToDevice:
 	}
-	return nil, wasi.ENOPROTOOPT
+	return nil, wasi.EINVAL
 }
 
 func (s *socket[T]) SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
@@ -400,14 +413,8 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 	case wasi.DontRoute:
 	case wasi.Broadcast:
 	case wasi.SendBufferSize:
-		if s.conn {
-			return wasi.EISCONN
-		}
 		return setIntValueLimit(&s.sendBufferSize, value, minSocketBufferSize, maxSocketBufferSize)
 	case wasi.RecvBufferSize:
-		if s.conn {
-			return wasi.EISCONN
-		}
 		return setIntValueLimit(&s.recvBufferSize, value, minSocketBufferSize, maxSocketBufferSize)
 	case wasi.KeepAlive:
 	case wasi.OOBInline:
@@ -418,21 +425,22 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 	case wasi.QueryAcceptConnections:
 	case wasi.BindToDevice:
 	}
-	return wasi.ENOPROTOOPT
+	return wasi.EINVAL
 }
 
 func setIntValueLimit(option *int32, value wasi.SocketOptionValue, minval, maxval int32) wasi.Errno {
 	switch v := value.(type) {
 	case wasi.IntValue:
-		v32 := int32(v)
-		if v32 < minval {
-			v32 = minval
+		if v32 := int32(v); v32 >= 0 {
+			if v32 < minval {
+				v32 = minval
+			}
+			if v32 > maxval {
+				v32 = maxval
+			}
+			*option = v32
+			return wasi.ESUCCESS
 		}
-		if v32 > maxval {
-			v32 = maxval
-		}
-		*option = v32
-		return wasi.ESUCCESS
 	}
 	return wasi.EINVAL
 }
@@ -502,13 +510,11 @@ func (s *socket[T]) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, 
 
 func (s *socket[T]) getErrno() wasi.Errno {
 	select {
-	case errno, ok := <-s.errs:
-		if ok {
-			s.errno = errno
-		}
+	case errno := <-s.errs:
+		return errno
 	default:
+		return wasi.ESUCCESS
 	}
-	return s.errno
 }
 
 type hostConn[T sockaddr] struct {

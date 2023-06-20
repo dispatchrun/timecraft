@@ -13,7 +13,7 @@ require (
 	github.com/planetscale/vtprotobuf v0.4.0
 	github.com/stealthrocket/fsinfo v0.1.1
 	github.com/stealthrocket/net v0.1.4
-	github.com/stealthrocket/wasi-go v0.6.7
+	github.com/stealthrocket/wasi-go v0.6.8
 	github.com/stealthrocket/wazergo v0.19.1
 	github.com/stealthrocket/wzprof v0.1.5
 	github.com/tetratelabs/wazero v1.2.0
