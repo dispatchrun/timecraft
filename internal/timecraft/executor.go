@@ -259,9 +259,12 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 //
 // The return flag is true if the process exists and is alive, and
 // false otherwise.
-func (e *Executor) Lookup(processID ProcessID) (info *ProcessInfo, ok bool) {
+func (e *Executor) Lookup(processID ProcessID) (process ProcessInfo, ok bool) {
 	e.mu.Lock()
-	info, ok = e.processes[processID]
+	var p *ProcessInfo
+	if p, ok = e.processes[processID]; ok {
+		process = *p // copy
+	}
 	e.mu.Unlock()
 	return
 }

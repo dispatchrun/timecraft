@@ -29,6 +29,8 @@ type TaskScheduler struct {
 	queue chan<- *TaskInfo
 	tasks map[TaskID]*TaskInfo
 
+	// TODO: for now tasks are handled by exactly one process. Add a pool of
+	//  processes and then load balance tasks across them
 	processes map[processKey]ProcessID
 
 	once   sync.Once
@@ -45,10 +47,22 @@ type TaskID = uuid.UUID
 type TaskState int
 
 const (
+	// Queued indicates that the task is waiting to be scheduled.
 	Queued TaskState = iota
+
+	// Initialized indicates that the task is in the process of being scheduled
+	// on to a process.
 	Initializing
+
+	// Executing indicates that the task is currently being executed.
 	Executing
+
+	// Error indicates that the task failed with an error. This is a terminal
+	// status.
 	Error
+
+	// Done indicates that the task executed successfully. This is a terminal
+	// status.
 	Done
 )
 
@@ -124,7 +138,7 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 	// TODO: add other parts of the ModuleSpec to the key
 	key := processKey{path: task.moduleSpec.Path}
 
-	var p *ProcessInfo
+	var p ProcessInfo
 	var processID ProcessID
 	var ok bool
 	var err error
