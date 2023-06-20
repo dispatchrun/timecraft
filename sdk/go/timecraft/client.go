@@ -51,11 +51,13 @@ type TaskID string
 // The task is executed asynchronously. The method returns a TaskID that can be
 // used to query the task status and fetch the response when ready.
 func (c *Client) SubmitTask(ctx context.Context, module ModuleSpec, r *http.Request) (TaskID, error) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return "", err
+	var body []byte
+	if r.Body != nil {
+		var err error
+		if body, err = io.ReadAll(r.Body); err != nil {
+			return "", err
+		}
 	}
-	r.Body.Close()
 
 	headers := make([]*v1.Header, len(r.Header))
 	for name, values := range r.Header {
