@@ -2,6 +2,42 @@ syntax = "proto3";
 
 package timecraft.server.v1;
 
+message ParentRequest {}
+
+message ParentResponse {
+    bool root = 1;
+    string parent_id = 2;
+}
+
+message SpawnRequest {
+    string path = 1;
+    repeated string args = 2;
+}
+
+message SpawnResponse {
+    string process_id = 1;
+}
+
+message KillRequest {
+    string process_id = 1;
+}
+
+message KillResponse {}
+
+message SendRequest {
+    string process_id = 1;
+    bytes message = 2;
+}
+
+message SendResponse {}
+
+message ReceiveRequest {}
+
+message ReceiveResponse {
+    string sender_id = 1;
+    bytes message = 2;
+}
+
 message VersionRequest {}
 
 message VersionResponse {
@@ -9,5 +45,10 @@ message VersionResponse {
 }
 
 service TimecraftService {
+  rpc Parent(ParentRequest) returns (ParentResponse) {}
+  rpc Spawn(SpawnRequest) returns (SpawnResponse) {}
+  rpc Kill(KillRequest) returns (KillResponse) {}
+  rpc Send(SendRequest) returns (SendResponse) {}
+  rpc Receive(ReceiveRequest) returns (ReceiveResponse) {}
   rpc Version(VersionRequest) returns (VersionResponse) {}
 }

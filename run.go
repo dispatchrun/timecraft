@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
@@ -91,9 +92,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer runtime.Close(ctx)
 
-	runner := timecraft.NewRunner(registry, runtime)
+	executor := timecraft.NewExecutor(ctx, registry, runtime)
 
-	preparedModule, err := runner.PrepareModule(ctx, timecraft.ModuleSpec{
+	moduleSpec := timecraft.ModuleSpec{
 		Path:    wasmPath,
 		Args:    args,
 		Env:     envs,
@@ -104,38 +105,35 @@ func run(ctx context.Context, args []string) error {
 		Stdin:   int(os.Stdin.Fd()),
 		Stdout:  int(os.Stdout.Fd()),
 		Stderr:  int(os.Stderr.Fd()),
-	})
-	if err != nil {
-		return err
 	}
-	defer preparedModule.Close(ctx)
+	if trace {
+		moduleSpec.Trace = os.Stderr
+	}
 
+	var logSpec *timecraft.LogSpec
 	if !flyBlind {
-		var c timemachine.Compression
+		logSpec = &timecraft.LogSpec{
+			ProcessID: uuid.New(),
+			StartTime: time.Now(),
+			BatchSize: int(batchSize),
+		}
+
 		switch compression {
 		case "snappy":
-			c = timemachine.Snappy
+			logSpec.Compression = timemachine.Snappy
 		case "zstd":
-			c = timemachine.Zstd
+			logSpec.Compression = timemachine.Zstd
 		case "none", "":
-			c = timemachine.Uncompressed
+			logSpec.Compression = timemachine.Uncompressed
 		default:
 			return fmt.Errorf("invalid compression type %q", compression)
 		}
 
-		startTime := time.Now()
-
-		processID, err := runner.PrepareLog(ctx, preparedModule, startTime, c, int(batchSize))
-		if err != nil {
-			return err
-		}
-
-		fmt.Fprintf(os.Stderr, "%s\n", processID)
+		fmt.Fprintf(os.Stderr, "%s\n", logSpec.ProcessID)
 	}
 
-	if trace {
-		preparedModule.SetTrace(os.Stderr)
+	if _, err := executor.Start(moduleSpec, logSpec, nil); err != nil {
+		return err
 	}
-
-	return runner.RunModule(ctx, preparedModule)
+	return executor.Wait()
 }
