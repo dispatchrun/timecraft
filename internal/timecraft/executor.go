@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"path"
 	"path/filepath"
 	"sync"
 	"time"
@@ -189,7 +188,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 		logSpec:    logSpec,
 		mailbox:    mailbox,
 	}
-	serverSocket := path.Join(os.TempDir(), fmt.Sprintf("timecraft.%s.sock", uuid.NewString()))
+	serverSocket, serverSocketCleanup := makeSocketPath()
 	serverListener, err := net.Listen("unix", serverSocket)
 	if err != nil {
 		return uuid.UUID{}, err
@@ -236,7 +235,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *uuid
 
 	// Run the module in the background, and tidy up once complete.
 	e.group.Go(func() error {
-		defer os.Remove(serverSocket)
+		defer serverSocketCleanup()
 		defer serverListener.Close()
 		defer system.Close(ctx)
 		defer wasmModule.Close(ctx)
