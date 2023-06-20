@@ -54,7 +54,7 @@ func TestPollStdin(t *testing.T) {
 
 	buffer := make([]byte, 32)
 	n, errno := sys.FDRead(ctx, 0, []wasi.IOVec{buffer})
-	assert.Equal(t, n, 0)
+	assert.Equal(t, n, ^wasi.Size(0))
 	assert.Equal(t, errno, wasi.EAGAIN)
 
 	go func() {
@@ -72,9 +72,8 @@ func TestPollStdin(t *testing.T) {
 	assert.Equal(t, numEvents, 1)
 	assert.Equal(t, errno, wasi.ESUCCESS)
 	assert.EqualAll(t, evs, []wasi.Event{{
-		UserData:    42,
-		EventType:   wasi.FDReadEvent,
-		FDReadWrite: wasi.EventFDReadWrite{NBytes: 1},
+		UserData:  42,
+		EventType: wasi.FDReadEvent,
 	}})
 
 	n, errno = sys.FDRead(ctx, 0, []wasi.IOVec{buffer})
@@ -91,7 +90,7 @@ func TestPollStdout(t *testing.T) {
 	assert.Equal(t, errno, wasi.ESUCCESS)
 
 	n, errno := sys.FDWrite(ctx, 1, []wasi.IOVec{[]byte("1")})
-	assert.Equal(t, n, 0)
+	assert.Equal(t, n, ^wasi.Size(0))
 	assert.Equal(t, errno, wasi.EAGAIN)
 
 	ch := make(chan []byte)
@@ -110,9 +109,8 @@ func TestPollStdout(t *testing.T) {
 	assert.Equal(t, numEvents, 1)
 	assert.Equal(t, errno, wasi.ESUCCESS)
 	assert.EqualAll(t, evs, []wasi.Event{{
-		UserData:    42,
-		EventType:   wasi.FDWriteEvent,
-		FDReadWrite: wasi.EventFDReadWrite{NBytes: 1},
+		UserData:  42,
+		EventType: wasi.FDWriteEvent,
 	}})
 
 	n, errno = sys.FDWrite(ctx, 1, []wasi.IOVec{[]byte("Hello, World!")})
@@ -141,7 +139,7 @@ func TestPollUnsupportedClock(t *testing.T) {
 			assert.Equal(t, errno, wasi.ESUCCESS)
 			assert.EqualAll(t, evs, []wasi.Event{{
 				UserData:  42,
-				Errno:     wasi.ENOSYS,
+				Errno:     wasi.ENOTSUP,
 				EventType: wasi.ClockEvent,
 			}})
 		})

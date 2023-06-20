@@ -107,7 +107,7 @@ func TestSystemListenAnyAddress(t *testing.T) {
 
 	addr, ok := lstn.Addr().(*net.TCPAddr)
 	assert.True(t, ok)
-	assert.True(t, addr.IP.Equal(net.IPv4(127, 0, 0, 1)))
+	assert.True(t, addr.IP.Equal(net.IPv4(0, 0, 0, 0)))
 	assert.Equal(t, addr.Port, 4242)
 	assert.OK(t, lstn.Close())
 }
