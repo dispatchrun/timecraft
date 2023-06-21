@@ -14,22 +14,38 @@ import (
 	"github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1/serverv1connect"
 )
 
-// moduleServer is a gRPC server that's available to guests. Every
+// ServerFactory is used to create Server instances.
+type ServerFactory struct {
+	Scheduler *TaskScheduler
+}
+
+// NewServer creates a new Server.
+func (f *ServerFactory) NewServer(processID uuid.UUID, moduleSpec ModuleSpec, logSpec *LogSpec) *Server {
+	return &Server{
+		scheduler:  f.Scheduler,
+		processID:  processID,
+		moduleSpec: moduleSpec,
+		logSpec:    logSpec,
+	}
+}
+
+// Server is a gRPC server that's available to guests. Every
 // WebAssembly module has its own instance of a gRPC server.
-type moduleServer struct {
-	executor   *Executor
+type Server struct {
+	serverv1connect.UnimplementedTimecraftServiceHandler
+
+	scheduler  *TaskScheduler
 	processID  uuid.UUID
-	parentID   *uuid.UUID
 	moduleSpec ModuleSpec
 	logSpec    *LogSpec
-	mailbox    <-chan message
 }
 
 // Serve serves using the specified net.Listener.
-func (t *moduleServer) Serve(l net.Listener) error {
+func (s *Server) Serve(l net.Listener) error {
 	mux := http.NewServeMux()
 	mux.Handle(serverv1connect.NewTimecraftServiceHandler(
-		&grpcServer{instance: t},
+		s,
+		connect.WithCompression("gzip", nil, nil), // disable gzip for now
 		connect.WithCodec(grpc.Codec{}),
 	))
 	server := &http.Server{
@@ -40,86 +56,109 @@ func (t *moduleServer) Serve(l net.Listener) error {
 	return server.Serve(l)
 }
 
-type grpcServer struct {
-	serverv1connect.UnimplementedTimecraftServiceHandler
-
-	instance *moduleServer
-}
-
-func (s *grpcServer) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest]) (*connect.Response[v1.SpawnResponse], error) {
-	moduleSpec := s.instance.moduleSpec // shallow copy
-	if req.Msg.Path != "" {
-		moduleSpec.Path = req.Msg.Path
-	}
-	moduleSpec.Args = req.Msg.Args
-	moduleSpec.Dials = nil   // not supported
-	moduleSpec.Listens = nil // not supported
-
-	var logSpec *LogSpec
-	if parentLog := s.instance.logSpec; parentLog != nil {
-		logSpec = &LogSpec{
-			StartTime:   time.Now(),
-			Compression: parentLog.Compression,
-			BatchSize:   parentLog.BatchSize,
+func (s *Server) SubmitTasks(ctx context.Context, req *connect.Request[v1.SubmitTasksRequest]) (*connect.Response[v1.SubmitTasksResponse], error) {
+	res := connect.NewResponse(&v1.SubmitTasksResponse{
+		TaskId: make([]string, len(req.Msg.Requests)),
+	})
+	for i, taskRequest := range req.Msg.Requests {
+		taskID, err := s.submitTask(taskRequest)
+		if err != nil {
+			return nil, err
 		}
+		res.Msg.TaskId[i] = taskID.String()
 	}
-
-	childID, err := s.instance.executor.Start(moduleSpec, logSpec, &s.instance.processID)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to start module: %w", err))
-	}
-
-	res := connect.NewResponse(&v1.SpawnResponse{ProcessId: childID.String()})
 	return res, nil
 }
 
-func (s *grpcServer) Kill(ctx context.Context, req *connect.Request[v1.KillRequest]) (*connect.Response[v1.KillResponse], error) {
-	processID, err := uuid.Parse(req.Msg.ProcessId)
+func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
+	moduleSpec := s.moduleSpec // inherit from the parent
+	moduleSpec.Dials = nil     // not supported
+	moduleSpec.Listens = nil   // not supported
+	moduleSpec.Args = req.Module.Args
+	if path := req.Module.Path; path != "" {
+		moduleSpec.Path = path
+	}
+
+	var logSpec *LogSpec
+	if s.logSpec != nil {
+		logSpec = &LogSpec{
+			StartTime:   time.Now(),
+			Compression: s.logSpec.Compression,
+			BatchSize:   s.logSpec.BatchSize,
+		}
+	}
+
+	var input TaskInput
+	switch in := req.Input.(type) {
+	case *v1.TaskRequest_HttpRequest:
+		httpRequest := &HTTPRequest{
+			Method:  in.HttpRequest.Method,
+			Path:    in.HttpRequest.Path,
+			Body:    in.HttpRequest.Body,
+			Headers: make(http.Header, len(in.HttpRequest.Headers)),
+		}
+		for _, h := range in.HttpRequest.Headers {
+			httpRequest.Headers[h.Name] = append(httpRequest.Headers[h.Name], h.Value)
+		}
+		input = httpRequest
+	}
+
+	taskID, err := s.scheduler.SubmitTask(moduleSpec, logSpec, input)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid process ID: %w", err))
+		return TaskID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to submit task: %w", err))
 	}
-	switch err := s.instance.executor.Stop(processID, &s.instance.processID); err {
-	case nil:
-		return connect.NewResponse(&v1.KillResponse{}), nil
-	case errNotFound:
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("unknown process ID: %s", processID))
-	case errForbidden:
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("cannot kill process %s", processID))
-	default:
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
+	return taskID, nil
 }
 
-func (s *grpcServer) Send(ctx context.Context, req *connect.Request[v1.SendRequest]) (*connect.Response[v1.SendResponse], error) {
-	processID, err := uuid.Parse(req.Msg.ProcessId)
+func (s *Server) LookupTasks(ctx context.Context, req *connect.Request[v1.LookupTasksRequest]) (*connect.Response[v1.LookupTasksResponse], error) {
+	res := connect.NewResponse(&v1.LookupTasksResponse{
+		Responses: make([]*v1.TaskResponse, len(req.Msg.TaskId)),
+	})
+	for i, taskID := range req.Msg.TaskId {
+		taskResponse, err := s.lookupTask(taskID)
+		if err != nil {
+			return nil, err
+		}
+		res.Msg.Responses[i] = taskResponse
+	}
+	return res, nil
+}
+
+func (s *Server) lookupTask(rawTaskID string) (*v1.TaskResponse, error) {
+	taskID, err := uuid.Parse(rawTaskID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid process ID: %w", err))
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid task ID: %w", err))
 	}
-	switch err := s.instance.executor.Send(processID, s.instance.processID, req.Msg.Message); err {
-	case nil:
-		return connect.NewResponse(&v1.SendResponse{}), nil
-	case errNotFound:
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("unknown process ID: %s", processID))
-	default:
-		return nil, connect.NewError(connect.CodeInternal, err)
+	task, ok := s.scheduler.Lookup(taskID)
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no task with ID %s", taskID))
 	}
+	res := &v1.TaskResponse{
+		State: v1.TaskState(task.state),
+	}
+	if task.processID != (ProcessID{}) {
+		res.ProcessId = task.processID.String()
+	}
+	if task.err != nil {
+		res.ErrorMessage = task.err.Error()
+	}
+	switch output := task.output.(type) {
+	case *HTTPResponse:
+		httpResponse := &v1.HTTPResponse{
+			StatusCode: int32(output.StatusCode),
+			Body:       output.Body,
+			Headers:    make([]*v1.Header, 0, len(output.Headers)),
+		}
+		for name, values := range output.Headers {
+			for _, value := range values {
+				httpResponse.Headers = append(httpResponse.Headers, &v1.Header{Name: name, Value: value})
+			}
+		}
+		res.Output = &v1.TaskResponse_HttpResponse{HttpResponse: httpResponse}
+	}
+	return res, nil
 }
 
-func (s *grpcServer) Receive(ctx context.Context, req *connect.Request[v1.ReceiveRequest]) (*connect.Response[v1.ReceiveResponse], error) {
-	msg := <-s.instance.mailbox
-	return connect.NewResponse(&v1.ReceiveResponse{SenderId: msg.sender.String(), Message: msg.body}), nil
-}
-
-func (s *grpcServer) Parent(ctx context.Context, req *connect.Request[v1.ParentRequest]) (*connect.Response[v1.ParentResponse], error) {
-	res := &v1.ParentResponse{}
-	if parentID := s.instance.parentID; parentID == nil {
-		res.Root = true
-	} else {
-		res.ParentId = parentID.String()
-	}
-	return connect.NewResponse(res), nil
-}
-
-func (s *grpcServer) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
+func (s *Server) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
 	return connect.NewResponse(&v1.VersionResponse{Version: Version()}), nil
 }

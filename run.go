@@ -92,7 +92,14 @@ func run(ctx context.Context, args []string) error {
 	}
 	defer runtime.Close(ctx)
 
-	executor := timecraft.NewExecutor(ctx, registry, runtime)
+	scheduler := &timecraft.TaskScheduler{}
+	defer scheduler.Close()
+
+	serverFactory := &timecraft.ServerFactory{Scheduler: scheduler}
+
+	executor := timecraft.NewExecutor(ctx, registry, runtime, serverFactory)
+
+	scheduler.Executor = executor
 
 	moduleSpec := timecraft.ModuleSpec{
 		Path:    wasmPath,
@@ -132,7 +139,7 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintf(os.Stderr, "%s\n", logSpec.ProcessID)
 	}
 
-	if _, err := executor.Start(moduleSpec, logSpec, nil); err != nil {
+	if _, err := executor.Start(moduleSpec, logSpec); err != nil {
 		return err
 	}
 	return executor.Wait()
