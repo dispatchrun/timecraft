@@ -51,6 +51,7 @@ message LookupTaskResponse {
   TaskState state = 1;
   string error_message = 2;
   HTTPResponse response = 3;
+  string process_id = 4;
 }
 
 message VersionRequest {}

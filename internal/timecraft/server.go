@@ -104,6 +104,9 @@ func (s *Server) LookupTask(ctx context.Context, req *connect.Request[v1.LookupT
 	res := connect.NewResponse(&v1.LookupTaskResponse{
 		State: v1.TaskState(task.state),
 	})
+	if task.processID != (ProcessID{}) {
+		res.Msg.ProcessId = task.processID.String()
+	}
 	switch task.state {
 	case Error:
 		res.Msg.ErrorMessage = task.err.Error()

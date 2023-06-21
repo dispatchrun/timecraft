@@ -71,6 +71,7 @@ type TaskInfo struct {
 	id         TaskID
 	createdAt  time.Time
 	state      TaskState
+	processID  ProcessID
 	moduleSpec ModuleSpec
 	logSpec    *LogSpec
 	req        HTTPRequest
@@ -190,6 +191,7 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 
 	s.synchronize(func() {
 		task.state = Executing
+		task.processID = processID
 	})
 
 	res, err := client.Do(&http.Request{
