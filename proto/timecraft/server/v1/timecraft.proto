@@ -2,6 +2,22 @@ syntax = "proto3";
 
 package timecraft.server.v1;
 
+message TaskRequest {
+  ModuleSpec module = 1;
+  oneof input {
+    HTTPRequest http_request = 2;
+  }
+}
+
+message TaskResponse {
+  TaskState state = 1;
+  string process_id = 2;
+  string error_message = 3;
+  oneof output {
+    HTTPResponse http_response = 4;
+  }
+}
+
 message ModuleSpec {
   string path = 1;
   repeated string args = 2;
@@ -25,21 +41,6 @@ message Header {
   string value = 2;
 }
 
-message SubmitTaskRequest {
-  ModuleSpec module = 1;
-  oneof input {
-    HTTPRequest http_request = 2;
-  }
-}
-
-message SubmitTaskResponse {
-  string task_id = 1;
-}
-
-message LookupTaskRequest {
-  string task_id = 1;
-}
-
 enum TaskState {
   TASK_STATE_UNSPECIFIED = 0; // required by buf lint
   TASK_STATE_QUEUED = 1;
@@ -49,13 +50,20 @@ enum TaskState {
   TASK_STATE_DONE = 5;
 }
 
-message LookupTaskResponse {
-  TaskState state = 1;
-  string process_id = 2;
-  string error_message = 3;
-  oneof output {
-    HTTPResponse http_response = 4;
-  }
+message SubmitTasksRequest {
+  repeated TaskRequest requests = 1;
+}
+
+message SubmitTasksResponse {
+  repeated string task_id = 1;
+}
+
+message LookupTasksRequest {
+  repeated string task_id = 1;
+}
+
+message LookupTasksResponse {
+  repeated TaskResponse responses = 1;
 }
 
 message VersionRequest {}
@@ -65,7 +73,7 @@ message VersionResponse {
 }
 
 service TimecraftService {
-  rpc SubmitTask(SubmitTaskRequest) returns (SubmitTaskResponse) {}
-  rpc LookupTask(LookupTaskRequest) returns (LookupTaskResponse) {}
+  rpc SubmitTasks(SubmitTasksRequest) returns (SubmitTasksResponse) {}
+  rpc LookupTasks(LookupTasksRequest) returns (LookupTasksResponse) {}
   rpc Version(VersionRequest) returns (VersionResponse) {}
 }

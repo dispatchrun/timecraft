@@ -56,12 +56,26 @@ func (s *Server) Serve(l net.Listener) error {
 	return server.Serve(l)
 }
 
-func (s *Server) SubmitTask(ctx context.Context, req *connect.Request[v1.SubmitTaskRequest]) (*connect.Response[v1.SubmitTaskResponse], error) {
+func (s *Server) SubmitTasks(ctx context.Context, req *connect.Request[v1.SubmitTasksRequest]) (*connect.Response[v1.SubmitTasksResponse], error) {
+	res := connect.NewResponse(&v1.SubmitTasksResponse{
+		TaskId: make([]string, len(req.Msg.Requests)),
+	})
+	for i, taskRequest := range req.Msg.Requests {
+		taskID, err := s.submitTask(taskRequest)
+		if err != nil {
+			return nil, err
+		}
+		res.Msg.TaskId[i] = taskID.String()
+	}
+	return res, nil
+}
+
+func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 	moduleSpec := s.moduleSpec // inherit from the parent
 	moduleSpec.Dials = nil     // not supported
 	moduleSpec.Listens = nil   // not supported
-	moduleSpec.Args = req.Msg.Module.Args
-	if path := req.Msg.Module.Path; path != "" {
+	moduleSpec.Args = req.Module.Args
+	if path := req.Module.Path; path != "" {
 		moduleSpec.Path = path
 	}
 
@@ -75,8 +89,8 @@ func (s *Server) SubmitTask(ctx context.Context, req *connect.Request[v1.SubmitT
 	}
 
 	var input TaskInput
-	switch in := req.Msg.Input.(type) {
-	case *v1.SubmitTaskRequest_HttpRequest:
+	switch in := req.Input.(type) {
+	case *v1.TaskRequest_HttpRequest:
 		httpRequest := &HTTPRequest{
 			Method:  in.HttpRequest.Method,
 			Path:    in.HttpRequest.Path,
@@ -91,13 +105,27 @@ func (s *Server) SubmitTask(ctx context.Context, req *connect.Request[v1.SubmitT
 
 	taskID, err := s.scheduler.SubmitTask(moduleSpec, logSpec, input)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to submit task: %w", err))
+		return TaskID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to submit task: %w", err))
 	}
-	return connect.NewResponse(&v1.SubmitTaskResponse{TaskId: taskID.String()}), nil
+	return taskID, nil
 }
 
-func (s *Server) LookupTask(ctx context.Context, req *connect.Request[v1.LookupTaskRequest]) (*connect.Response[v1.LookupTaskResponse], error) {
-	taskID, err := uuid.Parse(req.Msg.TaskId)
+func (s *Server) LookupTasks(ctx context.Context, req *connect.Request[v1.LookupTasksRequest]) (*connect.Response[v1.LookupTasksResponse], error) {
+	res := connect.NewResponse(&v1.LookupTasksResponse{
+		Responses: make([]*v1.TaskResponse, len(req.Msg.TaskId)),
+	})
+	for i, taskID := range req.Msg.TaskId {
+		taskResponse, err := s.lookupTask(taskID)
+		if err != nil {
+			return nil, err
+		}
+		res.Msg.Responses[i] = taskResponse
+	}
+	return res, nil
+}
+
+func (s *Server) lookupTask(rawTaskID string) (*v1.TaskResponse, error) {
+	taskID, err := uuid.Parse(rawTaskID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid task ID: %w", err))
 	}
@@ -105,14 +133,14 @@ func (s *Server) LookupTask(ctx context.Context, req *connect.Request[v1.LookupT
 	if !ok {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no task with ID %s", taskID))
 	}
-	res := connect.NewResponse(&v1.LookupTaskResponse{
+	res := &v1.TaskResponse{
 		State: v1.TaskState(task.state),
-	})
+	}
 	if task.processID != (ProcessID{}) {
-		res.Msg.ProcessId = task.processID.String()
+		res.ProcessId = task.processID.String()
 	}
 	if task.err != nil {
-		res.Msg.ErrorMessage = task.err.Error()
+		res.ErrorMessage = task.err.Error()
 	}
 	switch output := task.output.(type) {
 	case *HTTPResponse:
@@ -126,7 +154,7 @@ func (s *Server) LookupTask(ctx context.Context, req *connect.Request[v1.LookupT
 				httpResponse.Headers = append(httpResponse.Headers, &v1.Header{Name: name, Value: value})
 			}
 		}
-		res.Msg.Output = &v1.LookupTaskResponse_HttpResponse{HttpResponse: httpResponse}
+		res.Output = &v1.TaskResponse_HttpResponse{HttpResponse: httpResponse}
 	}
 	return res, nil
 }
