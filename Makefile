@@ -3,6 +3,20 @@
 
 GO ?= go
 
+ifeq ($(GITHUB_BRANCH_NAME),)
+	branch := $(shell git rev-parse --abbrev-ref HEAD)-
+else
+	branch := $(GITHUB_BRANCH_NAME)-
+endif
+commit_timestamp := $(shell git show --no-patch --format=%ct)-
+ifeq ($(GITHUB_SHA),)
+	commit := $(shell git rev-parse --short=8 HEAD)
+else
+	commit := $(shell echo $(GITHUB_SHA) | cut -c1-8)
+endif
+container.version ?= $(if $(RELEASE_TAG),$(RELEASE_TAG),$(shell git describe --tags || echo '$(subst /,-,$(branch))$(commit_timestamp)$(commit)'))
+container.image ?= ghcr.io/stealthrocket/timecraft
+
 testdata.go.src = \
 	$(wildcard testdata/go/*.go) \
 	$(wildcard testdata/go/test/*.go)
@@ -68,3 +82,10 @@ testdata/wasi-testsuite/.git: .gitmodules
 %_generated.go: %.fbs
 	flatc --go --gen-onefile --go-namespace $(basename $(notdir $<)) --go-module-name github.com/stealthrocket/timecraft/format -o $(dir $@) $<
 	goimports -w $@
+
+#TODO: sign with sigstore/cosign
+container-build: 
+	docker build -f Dockerfile -t $(container.image):$(container.version) .
+
+container-push:
+	docker push $(container.image):$(container.version)
