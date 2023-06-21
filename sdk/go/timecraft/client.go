@@ -1,10 +1,9 @@
 package timecraft
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"io"
+	"fmt"
 	"net/http"
 
 	"github.com/bufbuild/connect-go"
@@ -48,11 +47,24 @@ type ModuleSpec struct {
 // TaskID is a task identifier.
 type TaskID string
 
+// ProcessID is a process identifier.
+type ProcessID string
+
 // TaskInfo is information about a task.
 type TaskInfo struct {
-	State    TaskState
-	Error    error
-	Response *http.Response
+	// State is the current state of the task.
+	State TaskState
+
+	// Error is the error that occurred during task initialization or execution
+	// (if applicable).
+	Error error
+
+	// Output is the output of the task, if it executed successfully.
+	Output TaskOutput
+
+	// ProcessID is the identifier of the process that handled the task
+	// (if applicable).
+	ProcessID ProcessID
 }
 
 // TaskState is the state of a task.
@@ -78,35 +90,57 @@ const (
 	Done
 )
 
+// TaskInput is input to a task.
+type TaskInput interface{ taskInput() }
+
+// HTTPRequest is an HTTP request.
+type HTTPRequest struct {
+	Method  string
+	Path    string
+	Headers http.Header
+	Body    []byte
+}
+
+func (*HTTPRequest) taskInput() {}
+
+// TaskOutput is output from a task.
+type TaskOutput interface{ taskOutput() }
+
+// HTTPResponse is an HTTP response.
+type HTTPResponse struct {
+	StatusCode int
+	Headers    http.Header
+	Body       []byte
+}
+
+func (*HTTPResponse) taskOutput() {}
+
 // SubmitTask submits an HTTP request to a WebAssembly module.
 //
 // The task is executed asynchronously. The method returns a TaskID that can be
 // used to query the task status and fetch the response when ready.
-func (c *Client) SubmitTask(ctx context.Context, module ModuleSpec, r *http.Request) (TaskID, error) {
-	var body []byte
-	if r.Body != nil {
-		var err error
-		if body, err = io.ReadAll(r.Body); err != nil {
-			return "", err
-		}
-	}
-
-	headers := make([]*v1.Header, 0, len(r.Header))
-	for name, values := range r.Header {
-		for _, value := range values {
-			headers = append(headers, &v1.Header{Name: name, Value: value})
-		}
-	}
-
+func (c *Client) SubmitTask(ctx context.Context, module ModuleSpec, input TaskInput) (TaskID, error) {
 	req := connect.NewRequest(&v1.SubmitTaskRequest{
 		Module: &v1.ModuleSpec{Path: module.Path, Args: module.Args},
-		Request: &v1.HTTPRequest{
-			Method:  r.Method,
-			Path:    r.URL.Path,
-			Headers: headers,
-			Body:    body,
-		},
 	})
+
+	switch in := input.(type) {
+	case *HTTPRequest:
+		headers := make([]*v1.Header, 0, len(in.Headers))
+		for name, values := range in.Headers {
+			for _, value := range values {
+				headers = append(headers, &v1.Header{Name: name, Value: value})
+			}
+		}
+		req.Msg.Input = &v1.SubmitTaskRequest_HttpRequest{HttpRequest: &v1.HTTPRequest{
+			Method:  in.Method,
+			Path:    in.Path,
+			Body:    in.Body,
+			Headers: headers,
+		}}
+	default:
+		return "", fmt.Errorf("invalid task input: %v", input)
+	}
 	res, err := c.grpcClient.SubmitTask(ctx, req)
 	if err != nil {
 		return "", err
@@ -122,21 +156,23 @@ func (c *Client) LookupTask(ctx context.Context, taskID TaskID) (*TaskInfo, erro
 		return nil, err
 	}
 	task := &TaskInfo{
-		State: TaskState(res.Msg.State),
+		State:     TaskState(res.Msg.State),
+		ProcessID: ProcessID(res.Msg.ProcessId),
 	}
-	switch task.State {
-	case Error:
+	if task.State == Error {
 		task.Error = errors.New(res.Msg.ErrorMessage)
-	case Done:
-		r := res.Msg.Response
-		task.Response = &http.Response{
-			StatusCode: int(r.StatusCode),
-			Body:       io.NopCloser(bytes.NewReader(r.Body)),
-			Header:     make(http.Header, len(r.Headers)),
+	}
+	switch out := res.Msg.Output.(type) {
+	case *v1.LookupTaskResponse_HttpResponse:
+		httpResponse := &HTTPResponse{
+			StatusCode: int(out.HttpResponse.StatusCode),
+			Body:       out.HttpResponse.Body,
+			Headers:    make(http.Header, len(out.HttpResponse.Headers)),
 		}
-		for _, h := range r.Headers {
-			task.Response.Header[h.Name] = append(task.Response.Header[h.Name], h.Value)
+		for _, h := range out.HttpResponse.Headers {
+			httpResponse.Headers[h.Name] = append(httpResponse.Headers[h.Name], h.Value)
 		}
+		task.Output = httpResponse
 	}
 	return task, nil
 }

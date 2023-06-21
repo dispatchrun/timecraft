@@ -267,15 +267,14 @@ func (m *SubmitTaskRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if m.Request != nil {
-		size, err := m.Request.MarshalToSizedBufferVT(dAtA[:i])
+	if vtmsg, ok := m.Input.(interface {
+		MarshalToSizedBufferVT([]byte) (int, error)
+	}); ok {
+		size, err := vtmsg.MarshalToSizedBufferVT(dAtA[:i])
 		if err != nil {
 			return 0, err
 		}
 		i -= size
-		i = encodeVarint(dAtA, i, uint64(size))
-		i--
-		dAtA[i] = 0x12
 	}
 	if m.Module != nil {
 		size, err := m.Module.MarshalToSizedBufferVT(dAtA[:i])
@@ -290,6 +289,25 @@ func (m *SubmitTaskRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *SubmitTaskRequest_HttpRequest) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *SubmitTaskRequest_HttpRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.HttpRequest != nil {
+		size, err := m.HttpRequest.MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x12
+	}
+	return len(dAtA) - i, nil
+}
 func (m *SubmitTaskResponse) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
@@ -400,27 +418,26 @@ func (m *LookupTaskResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
-	if len(m.ProcessId) > 0 {
-		i -= len(m.ProcessId)
-		copy(dAtA[i:], m.ProcessId)
-		i = encodeVarint(dAtA, i, uint64(len(m.ProcessId)))
-		i--
-		dAtA[i] = 0x22
-	}
-	if m.Response != nil {
-		size, err := m.Response.MarshalToSizedBufferVT(dAtA[:i])
+	if vtmsg, ok := m.Output.(interface {
+		MarshalToSizedBufferVT([]byte) (int, error)
+	}); ok {
+		size, err := vtmsg.MarshalToSizedBufferVT(dAtA[:i])
 		if err != nil {
 			return 0, err
 		}
 		i -= size
-		i = encodeVarint(dAtA, i, uint64(size))
-		i--
-		dAtA[i] = 0x1a
 	}
 	if len(m.ErrorMessage) > 0 {
 		i -= len(m.ErrorMessage)
 		copy(dAtA[i:], m.ErrorMessage)
 		i = encodeVarint(dAtA, i, uint64(len(m.ErrorMessage)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.ProcessId) > 0 {
+		i -= len(m.ProcessId)
+		copy(dAtA[i:], m.ProcessId)
+		i = encodeVarint(dAtA, i, uint64(len(m.ProcessId)))
 		i--
 		dAtA[i] = 0x12
 	}
@@ -432,6 +449,25 @@ func (m *LookupTaskResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *LookupTaskResponse_HttpResponse) MarshalToVT(dAtA []byte) (int, error) {
+	size := m.SizeVT()
+	return m.MarshalToSizedBufferVT(dAtA[:size])
+}
+
+func (m *LookupTaskResponse_HttpResponse) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	if m.HttpResponse != nil {
+		size, err := m.HttpResponse.MarshalToSizedBufferVT(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarint(dAtA, i, uint64(size))
+		i--
+		dAtA[i] = 0x22
+	}
+	return len(dAtA) - i, nil
+}
 func (m *VersionRequest) MarshalVT() (dAtA []byte, err error) {
 	if m == nil {
 		return nil, nil
@@ -615,14 +651,25 @@ func (m *SubmitTaskRequest) SizeVT() (n int) {
 		l = m.Module.SizeVT()
 		n += 1 + l + sov(uint64(l))
 	}
-	if m.Request != nil {
-		l = m.Request.SizeVT()
-		n += 1 + l + sov(uint64(l))
+	if vtmsg, ok := m.Input.(interface{ SizeVT() int }); ok {
+		n += vtmsg.SizeVT()
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
+func (m *SubmitTaskRequest_HttpRequest) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.HttpRequest != nil {
+		l = m.HttpRequest.SizeVT()
+		n += 1 + l + sov(uint64(l))
+	}
+	return n
+}
 func (m *SubmitTaskResponse) SizeVT() (n int) {
 	if m == nil {
 		return 0
@@ -660,22 +707,33 @@ func (m *LookupTaskResponse) SizeVT() (n int) {
 	if m.State != 0 {
 		n += 1 + sov(uint64(m.State))
 	}
+	l = len(m.ProcessId)
+	if l > 0 {
+		n += 1 + l + sov(uint64(l))
+	}
 	l = len(m.ErrorMessage)
 	if l > 0 {
 		n += 1 + l + sov(uint64(l))
 	}
-	if m.Response != nil {
-		l = m.Response.SizeVT()
-		n += 1 + l + sov(uint64(l))
-	}
-	l = len(m.ProcessId)
-	if l > 0 {
-		n += 1 + l + sov(uint64(l))
+	if vtmsg, ok := m.Output.(interface{ SizeVT() int }); ok {
+		n += vtmsg.SizeVT()
 	}
 	n += len(m.unknownFields)
 	return n
 }
 
+func (m *LookupTaskResponse_HttpResponse) SizeVT() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.HttpResponse != nil {
+		l = m.HttpResponse.SizeVT()
+		n += 1 + l + sov(uint64(l))
+	}
+	return n
+}
 func (m *VersionRequest) SizeVT() (n int) {
 	if m == nil {
 		return 0
@@ -1324,7 +1382,7 @@ func (m *SubmitTaskRequest) UnmarshalVT(dAtA []byte) error {
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Request", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field HttpRequest", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -1351,11 +1409,16 @@ func (m *SubmitTaskRequest) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Request == nil {
-				m.Request = &HTTPRequest{}
-			}
-			if err := m.Request.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
-				return err
+			if oneof, ok := m.Input.(*SubmitTaskRequest_HttpRequest); ok {
+				if err := oneof.HttpRequest.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+					return err
+				}
+			} else {
+				v := &HTTPRequest{}
+				if err := v.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+					return err
+				}
+				m.Input = &SubmitTaskRequest_HttpRequest{HttpRequest: v}
 			}
 			iNdEx = postIndex
 		default:
@@ -1596,6 +1659,38 @@ func (m *LookupTaskResponse) UnmarshalVT(dAtA []byte) error {
 			}
 		case 2:
 			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ProcessId", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ProcessId = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ErrorMessage", wireType)
 			}
 			var stringLen uint64
@@ -1626,9 +1721,9 @@ func (m *LookupTaskResponse) UnmarshalVT(dAtA []byte) error {
 			}
 			m.ErrorMessage = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 3:
+		case 4:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Response", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field HttpResponse", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -1655,44 +1750,17 @@ func (m *LookupTaskResponse) UnmarshalVT(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Response == nil {
-				m.Response = &HTTPResponse{}
-			}
-			if err := m.Response.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ProcessId", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflow
+			if oneof, ok := m.Output.(*LookupTaskResponse_HttpResponse); ok {
+				if err := oneof.HttpResponse.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+					return err
 				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
+			} else {
+				v := &HTTPResponse{}
+				if err := v.UnmarshalVT(dAtA[iNdEx:postIndex]); err != nil {
+					return err
 				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
+				m.Output = &LookupTaskResponse_HttpResponse{HttpResponse: v}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLength
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLength
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ProcessId = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

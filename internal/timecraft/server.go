@@ -74,18 +74,22 @@ func (s *Server) SubmitTask(ctx context.Context, req *connect.Request[v1.SubmitT
 		}
 	}
 
-	r := req.Msg.Request
-	httpRequest := HTTPRequest{
-		Method:  r.Method,
-		Path:    r.Path,
-		Body:    r.Body,
-		Headers: make(http.Header, len(r.Headers)),
-	}
-	for _, h := range r.Headers {
-		httpRequest.Headers[h.Name] = append(httpRequest.Headers[h.Name], h.Value)
+	var input TaskInput
+	switch in := req.Msg.Input.(type) {
+	case *v1.SubmitTaskRequest_HttpRequest:
+		httpRequest := &HTTPRequest{
+			Method:  in.HttpRequest.Method,
+			Path:    in.HttpRequest.Path,
+			Body:    in.HttpRequest.Body,
+			Headers: make(http.Header, len(in.HttpRequest.Headers)),
+		}
+		for _, h := range in.HttpRequest.Headers {
+			httpRequest.Headers[h.Name] = append(httpRequest.Headers[h.Name], h.Value)
+		}
+		input = httpRequest
 	}
 
-	taskID, err := s.scheduler.SubmitTask(moduleSpec, logSpec, httpRequest)
+	taskID, err := s.scheduler.SubmitTask(moduleSpec, logSpec, input)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to submit task: %w", err))
 	}
@@ -107,21 +111,22 @@ func (s *Server) LookupTask(ctx context.Context, req *connect.Request[v1.LookupT
 	if task.processID != (ProcessID{}) {
 		res.Msg.ProcessId = task.processID.String()
 	}
-	switch task.state {
-	case Error:
+	if task.err != nil {
 		res.Msg.ErrorMessage = task.err.Error()
-	case Done:
-		r := &v1.HTTPResponse{
-			StatusCode: int32(task.res.StatusCode),
-			Body:       task.res.Body,
-			Headers:    make([]*v1.Header, 0, len(task.res.Headers)),
+	}
+	switch output := task.output.(type) {
+	case *HTTPResponse:
+		httpResponse := &v1.HTTPResponse{
+			StatusCode: int32(output.StatusCode),
+			Body:       output.Body,
+			Headers:    make([]*v1.Header, 0, len(output.Headers)),
 		}
-		for name, values := range task.res.Headers {
+		for name, values := range output.Headers {
 			for _, value := range values {
-				r.Headers = append(r.Headers, &v1.Header{Name: name, Value: value})
+				httpResponse.Headers = append(httpResponse.Headers, &v1.Header{Name: name, Value: value})
 			}
 		}
-		res.Msg.Response = r
+		res.Msg.Output = &v1.LookupTaskResponse_HttpResponse{HttpResponse: httpResponse}
 	}
 	return res, nil
 }

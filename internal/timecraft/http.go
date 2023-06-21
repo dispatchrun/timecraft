@@ -14,9 +14,13 @@ type HTTPRequest struct {
 	Body    []byte
 }
 
+func (*HTTPRequest) taskInput() {}
+
 // HTTPResponse is an HTTP response.
 type HTTPResponse struct {
 	StatusCode int
 	Headers    http.Header
 	Body       []byte
 }
+
+func (*HTTPResponse) taskOutput() {}

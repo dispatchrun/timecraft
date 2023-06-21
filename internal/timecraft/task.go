@@ -16,13 +16,10 @@ import (
 
 // TaskScheduler schedules tasks.
 //
-// A task is a small unit of work. A process (managed by the Executor) is
+// A task is a unit of work. A process (managed by the Executor) is
 // responsible for executing one or more tasks. The management of processes to
 // execute tasks and the scheduling of tasks across processes are both
 // implementation details.
-//
-// At this time a task is equal to one HTTP request. Additional types of
-// work may be added in the future.
 type TaskScheduler struct {
 	Executor *Executor
 
@@ -74,9 +71,19 @@ type TaskInfo struct {
 	processID  ProcessID
 	moduleSpec ModuleSpec
 	logSpec    *LogSpec
-	req        HTTPRequest
-	res        HTTPResponse
+	input      TaskInput
+	output     TaskOutput
 	err        error
+}
+
+// TaskInput is input for a task.
+type TaskInput interface {
+	taskInput()
+}
+
+// TaskOutput is output from a task.
+type TaskOutput interface {
+	taskOutput()
 }
 
 type processKey struct {
@@ -87,7 +94,7 @@ type processKey struct {
 //
 // The method returns a TaskID that can be used to query task status and
 // results.
-func (s *TaskScheduler) SubmitTask(moduleSpec ModuleSpec, logSpec *LogSpec, req HTTPRequest) (TaskID, error) {
+func (s *TaskScheduler) SubmitTask(moduleSpec ModuleSpec, logSpec *LogSpec, input TaskInput) (TaskID, error) {
 	s.once.Do(s.init)
 
 	task := &TaskInfo{
@@ -96,7 +103,7 @@ func (s *TaskScheduler) SubmitTask(moduleSpec ModuleSpec, logSpec *LogSpec, req 
 		state:      Queued,
 		moduleSpec: moduleSpec,
 		logSpec:    logSpec,
-		req:        req,
+		input:      input,
 	}
 
 	s.synchronize(func() {
@@ -139,7 +146,7 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 	// TODO: add other parts of the ModuleSpec to the key
 	key := processKey{path: task.moduleSpec.Path}
 
-	var p ProcessInfo
+	var process ProcessInfo
 	var processID ProcessID
 	var ok bool
 	var err error
@@ -150,7 +157,7 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 	})
 	if ok {
 		// Check that the process is still alive.
-		p, ok = s.Executor.Lookup(processID)
+		process, ok = s.Executor.Lookup(processID)
 	}
 
 	if !ok {
@@ -163,7 +170,7 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 			})
 			return
 		}
-		p, ok = s.Executor.Lookup(processID)
+		process, ok = s.Executor.Lookup(processID)
 		if !ok {
 			s.synchronize(func() {
 				task.state = Error
@@ -176,6 +183,23 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 		})
 	}
 
+	s.synchronize(func() {
+		task.state = Executing
+		task.processID = processID
+	})
+
+	switch input := task.input.(type) {
+	case *HTTPRequest:
+		s.doHTTP(&process, task, input)
+	default:
+		s.synchronize(func() {
+			task.state = Error
+			task.err = errors.New("invalid task input")
+		})
+	}
+}
+
+func (s *TaskScheduler) doHTTP(process *ProcessInfo, task *TaskInfo, request *HTTPRequest) {
 	// TODO: better handling of race condition between spawning process and it
 	//  being ready to take on work
 	time.Sleep(1 * time.Second)
@@ -184,21 +208,16 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				var d net.Dialer
-				return d.DialContext(ctx, "unix", p.WorkSocket)
+				return d.DialContext(ctx, "unix", process.WorkSocket)
 			},
 		},
 	}
 
-	s.synchronize(func() {
-		task.state = Executing
-		task.processID = processID
-	})
-
 	res, err := client.Do(&http.Request{
-		Method: task.req.Method,
-		URL:    &url.URL{Scheme: "http", Host: "timecraft", Path: task.req.Path},
-		Header: task.req.Headers,
-		Body:   io.NopCloser(bytes.NewReader(task.req.Body)),
+		Method: request.Method,
+		URL:    &url.URL{Scheme: "http", Host: "timecraft", Path: request.Path},
+		Header: request.Headers,
+		Body:   io.NopCloser(bytes.NewReader(request.Body)),
 	})
 	if err != nil {
 		s.synchronize(func() {
@@ -220,7 +239,7 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 
 	s.synchronize(func() {
 		task.state = Done
-		task.res = HTTPResponse{
+		task.output = &HTTPResponse{
 			StatusCode: res.StatusCode,
 			Headers:    res.Header,
 			Body:       body,
