@@ -290,7 +290,7 @@ func closeRead(conn net.Conn) error {
 	case closeReader:
 		return c.CloseRead()
 	default:
-		return conn.Close()
+		return c.Close()
 	}
 }
 
