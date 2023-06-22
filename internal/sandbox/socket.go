@@ -169,7 +169,7 @@ func (sb *sockbuf[T]) send(iovs []wasi.IOVec, addr T) (size wasi.Size, errno was
 
 	if sb.buf.avail() == 0 {
 		if sb.wev.state() == aborted {
-			errno = wasi.ENOTCONN
+			errno = wasi.ECONNRESET
 		} else {
 			errno = wasi.EAGAIN
 		}
