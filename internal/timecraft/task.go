@@ -90,14 +90,16 @@ type processKey struct {
 	path string
 }
 
-// SubmitTask submits a task for execution.
+// Submit submits a task for execution.
 //
-// The method returns a TaskID that can be used to query task status and
-// results.
+// The method returns a TaskID that can be passed to Lookup to query the task
+// status and fetch task output.
 //
 // The method accepts an optional channel that receives a completion
 // notification once the task is complete (succeeds, or fails permanently).
-func (s *TaskScheduler) SubmitTask(moduleSpec ModuleSpec, logSpec *LogSpec, input TaskInput, completions chan<- TaskID) (TaskID, error) {
+//
+// Once a task is complete, it must be discarded via Discard.
+func (s *TaskScheduler) Submit(moduleSpec ModuleSpec, logSpec *LogSpec, input TaskInput, completions chan<- TaskID) (TaskID, error) {
 	s.once.Do(s.init)
 
 	task := &TaskInfo{
@@ -125,6 +127,16 @@ func (s *TaskScheduler) Lookup(id TaskID) (task TaskInfo, ok bool) {
 		var t *TaskInfo
 		if t, ok = s.tasks[id]; ok {
 			task = *t // copy
+		}
+	})
+	return
+}
+
+// Discard discards a task by ID.
+func (s *TaskScheduler) Discard(id TaskID) (ok bool) {
+	s.synchronize(func() {
+		if _, ok = s.tasks[id]; ok {
+			delete(s.tasks, id)
 		}
 	})
 	return
