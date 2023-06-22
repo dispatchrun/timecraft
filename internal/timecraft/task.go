@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 )
 
 // Task scheduler configuration.
@@ -22,6 +23,11 @@ const (
 	// expiryTimeout is the maximum amount of time a task can be
 	// queued for before it expires.
 	expiryTimeout = 10 * time.Minute
+
+	// threadCount controls the number of threads responsible for executing
+	// tasks in the background. This is the maximum concurrency for task
+	// execution.
+	threadCount = 8
 )
 
 // TaskScheduler schedules tasks.
@@ -38,7 +44,8 @@ type TaskScheduler struct {
 
 	// TODO: for now tasks are handled by exactly one process. Add a pool of
 	//  processes and then load balance tasks across them
-	processes map[processKey]ProcessID
+	processes map[string]ProcessID
+	pinit     singleflight.Group
 
 	once   sync.Once
 	ctx    context.Context
@@ -99,10 +106,6 @@ type TaskOutput interface {
 	taskOutput()
 }
 
-type processKey struct {
-	path string
-}
-
 // Submit submits a task for execution.
 //
 // The method returns a TaskID that can be passed to Lookup to query the task
@@ -161,16 +164,17 @@ func (s *TaskScheduler) Discard(id TaskID) (ok bool) {
 
 func (s *TaskScheduler) init() {
 	s.tasks = map[TaskID]*TaskInfo{}
-	s.processes = map[processKey]ProcessID{}
+	s.processes = map[string]ProcessID{}
 
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	queue := make(chan *TaskInfo)
 	s.queue = queue
 
-	// TODO: spawn many goroutines to schedule tasks
-	s.wg.Add(1)
-	go s.scheduleLoop(queue)
+	s.wg.Add(threadCount)
+	for i := 0; i < threadCount; i++ {
+		go s.scheduleLoop(queue)
+	}
 }
 
 func (s *TaskScheduler) scheduleLoop(queue <-chan *TaskInfo) {
@@ -192,43 +196,50 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 		return
 	}
 
-	// TODO: add other parts of the ModuleSpec to the key
-	key := processKey{path: task.moduleSpec.Path}
-
-	var process ProcessInfo
-	var processID ProcessID
-	var ok bool
-	var err error
-
 	s.synchronize(func() {
 		task.state = Initializing
-		processID, ok = s.processes[key]
 	})
-	if ok {
-		// Check that the process is still alive.
-		process, ok = s.Executor.Lookup(processID)
-	}
 
-	if !ok {
-		// TODO: use singleflight to initialize the process
-		processID, err = s.Executor.Start(task.moduleSpec, task.logSpec)
-		if err != nil {
-			s.completeTask(task, err, nil)
-			return
-		}
-		process, ok = s.Executor.Lookup(processID)
-		if !ok {
-			s.completeTask(task, errors.New("failed to start process"), nil)
-			return
-		}
+	key := task.moduleSpec.Key()
+
+	initResult, err, _ := s.pinit.Do(key, func() (any, error) {
+		var processID ProcessID
+		var process ProcessInfo
+		var ok bool
 		s.synchronize(func() {
-			s.processes[key] = processID
+			task.state = Initializing
+			processID, ok = s.processes[key]
 		})
+		if ok {
+			// Check that the process is still alive.
+			process, ok = s.Executor.Lookup(processID)
+		}
+
+		if !ok {
+			var err error
+			processID, err = s.Executor.Start(task.moduleSpec, task.logSpec)
+			if err != nil {
+				return nil, err
+			}
+			process, ok = s.Executor.Lookup(processID)
+			if !ok {
+				return nil, errors.New("failed to start process")
+			}
+			s.synchronize(func() {
+				s.processes[key] = processID
+			})
+		}
+		return process, nil
+	})
+	if err != nil {
+		s.completeTask(task, err, nil)
+		return
 	}
+	process := initResult.(ProcessInfo)
 
 	s.synchronize(func() {
 		task.state = Executing
-		task.processID = processID
+		task.processID = process.ID
 	})
 
 	switch input := task.input.(type) {

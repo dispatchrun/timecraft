@@ -42,6 +42,12 @@ type ModuleSpec struct {
 	Trace io.Writer
 }
 
+// Key is a string that uniquely identifies the ModuleSpec.
+func (m *ModuleSpec) Key() string {
+	// TODO: add more fields to key
+	return m.Path
+}
+
 // LogSpec is details about the log that records a trace of execution.
 type LogSpec struct {
 	ProcessID   ProcessID
