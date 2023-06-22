@@ -338,11 +338,11 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 	var socket File
 	switch pf {
 	case wasi.InetFamily:
-		socket = newSocket[ipv4](&s.ipv4, s.lock, socktype(st), protocol(proto))
+		socket = newSocket[ipv4](&s.ipv4, socktype(st), protocol(proto), s.lock)
 	case wasi.Inet6Family:
-		socket = newSocket[ipv6](&s.ipv6, s.lock, socktype(st), protocol(proto))
+		socket = newSocket[ipv6](&s.ipv6, socktype(st), protocol(proto), s.lock)
 	case wasi.UnixFamily:
-		socket = newSocket[unix](&s.unix, s.lock, socktype(st), protocol(proto))
+		socket = newSocket[unix](&s.unix, socktype(st), protocol(proto), s.lock)
 	default:
 		return none, wasi.EAFNOSUPPORT
 	}

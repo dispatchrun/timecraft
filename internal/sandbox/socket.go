@@ -3,16 +3,226 @@ package sandbox
 
 import (
 	"context"
-	"errors"
-	"io"
-	"net"
-	"os"
 	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/stealthrocket/wasi-go"
 )
+
+type sockflags uint32
+
+const (
+	sockClosed sockflags = 1 << iota
+	sockConn
+	sockHost
+	sockListen
+	sockNonBlock
+)
+
+func (f sockflags) has(flags sockflags) bool {
+	return (f & flags) != 0
+}
+
+func (f sockflags) with(flags sockflags) sockflags {
+	return f | flags
+}
+
+func (f sockflags) without(flags sockflags) sockflags {
+	return f & ^flags
+}
+
+func (f sockflags) withFDFlags(flags wasi.FDFlags) sockflags {
+	if flags.Has(wasi.NonBlock) {
+		return f.with(sockNonBlock)
+	} else {
+		return f.without(sockNonBlock)
+	}
+}
+
+type packet[T sockaddr] struct {
+	addr T
+	size wasi.Size
+}
+
+type sockbuf[T sockaddr] struct {
+	mu  sync.Mutex
+	src ringbuf[packet[T]]
+	buf ringbuf[byte]
+	rev event
+	wev event
+}
+
+func newSocketBuffer[T sockaddr](lock *sync.Mutex, n int) *sockbuf[T] {
+	sb := &sockbuf[T]{
+		buf: makeRingBuffer[byte](n),
+		rev: makeEvent(lock),
+		wev: makeEvent(lock),
+	}
+	if n > 0 {
+		sb.wev.trigger()
+	}
+	return sb
+}
+
+func (sb *sockbuf[T]) close() {
+	sb.rev.abort()
+	sb.wev.abort()
+}
+
+func (sb *sockbuf[T]) lock() {
+	sb.mu.Lock()
+}
+
+func (sb *sockbuf[T]) unlock() {
+	sb.rev.update(sb.buf.len() != 0)
+	sb.wev.update(sb.buf.avail() != 0)
+	sb.mu.Unlock()
+}
+
+func (sb *sockbuf[T]) size() wasi.Size {
+	sb.mu.Lock()
+	size := sb.buf.cap()
+	sb.mu.Unlock()
+	return wasi.Size(size)
+}
+
+func (sb *sockbuf[T]) recv(iovs []wasi.IOVec) (size wasi.Size, roflags wasi.ROFlags, addr T, errno wasi.Errno) {
+	sb.lock()
+	defer sb.unlock()
+
+	if sb.src.len() == 0 {
+		if sb.rev.state() == aborted {
+			return 0, 0, addr, wasi.ESUCCESS
+		}
+		return ^wasi.Size(0), 0, addr, wasi.EAGAIN
+	}
+
+	for _, iov := range iovs {
+		size += wasi.Size(len(iov))
+	}
+
+	packet := sb.src.index(0)
+	addr = packet.addr
+	if packet.size < size {
+		size = packet.size
+	}
+
+	remain := size
+	for _, iov := range iovs {
+		if remain < wasi.Size(len(iov)) {
+			iov = iov[:remain]
+		}
+		n := sb.buf.read(iov)
+		if remain -= wasi.Size(n); remain == 0 {
+			break
+		}
+	}
+
+	if packet.size -= size; packet.size == 0 {
+		sb.src.discard(1)
+	}
+	return size, 0, addr, wasi.ESUCCESS
+}
+
+func (sb *sockbuf[T]) recvmsg(iovs []wasi.IOVec) (size wasi.Size, flags wasi.ROFlags, addr T, errno wasi.Errno) {
+	sb.lock()
+	defer sb.unlock()
+
+	if sb.src.len() == 0 {
+		if sb.rev.state() == aborted {
+			return 0, 0, addr, wasi.ESUCCESS
+		}
+		return ^wasi.Size(0), 0, addr, wasi.EAGAIN
+	}
+
+	for _, iov := range iovs {
+		size += wasi.Size(len(iov))
+	}
+
+	packet := sb.src.index(0)
+	addr = packet.addr
+	switch {
+	case packet.size < size:
+		size = packet.size
+	case packet.size > size:
+		flags |= wasi.RecvDataTruncated
+	}
+
+	remain := size
+	for _, iov := range iovs {
+		if remain < wasi.Size(len(iov)) {
+			iov = iov[:remain]
+		}
+		n := sb.buf.read(iov)
+		if remain -= wasi.Size(n); remain == 0 {
+			break
+		}
+	}
+
+	sb.buf.discard(int(packet.size - size))
+	sb.src.discard(1)
+	return size, flags, addr, wasi.ESUCCESS
+}
+
+func (sb *sockbuf[T]) send(iovs []wasi.IOVec, addr T) (size wasi.Size, errno wasi.Errno) {
+	sb.lock()
+	defer sb.unlock()
+
+	if sb.buf.avail() == 0 {
+		if sb.wev.state() == aborted {
+			errno = wasi.ECONNRESET
+		} else {
+			errno = wasi.EAGAIN
+		}
+		return ^wasi.Size(0), errno
+	}
+
+	for _, iov := range iovs {
+		n := sb.buf.write(iov)
+		size += wasi.Size(n)
+		if n < len(iov) {
+			break
+		}
+	}
+
+	sb.src.append(packet[T]{
+		addr: addr,
+		size: size,
+	})
+	return size, wasi.ESUCCESS
+}
+
+func (sb *sockbuf[T]) sendmsg(iovs []wasi.IOVec, addr T) (size wasi.Size, errno wasi.Errno) {
+	sb.lock()
+	defer sb.unlock()
+
+	if sb.wev.state() == aborted {
+		return ^wasi.Size(0), wasi.ENOTCONN
+	}
+	if sb.buf.avail() == 0 {
+		return ^wasi.Size(0), wasi.EAGAIN
+	}
+
+	for _, iov := range iovs {
+		size += wasi.Size(len(iov))
+	}
+
+	if sb.buf.cap() < int(size) {
+		return ^wasi.Size(0), wasi.EMSGSIZE
+	}
+	if sb.buf.avail() < int(size) {
+		return ^wasi.Size(0), wasi.EAGAIN
+	}
+
+	for _, iov := range iovs {
+		sb.buf.write(iov)
+	}
+
+	sb.src.append(packet[T]{
+		addr: addr,
+		size: size,
+	})
+	return size, wasi.ESUCCESS
+}
 
 type socktype wasi.SocketType
 
@@ -20,6 +230,17 @@ const (
 	datagram = socktype(wasi.DatagramSocket)
 	stream   = socktype(wasi.StreamSocket)
 )
+
+func (st socktype) String() string {
+	switch st {
+	case datagram:
+		return "datagram"
+	case stream:
+		return "stream"
+	default:
+		return "unknown"
+	}
+}
 
 func (st socktype) supports(proto protocol) bool {
 	switch st {
@@ -40,20 +261,22 @@ type socket[T sockaddr] struct {
 	raddr T
 	laddr T
 	bound T
+	mutex sync.Mutex
+	flags sockflags
+	// Events indicating readiness for read or write operations on the socket.
+	rev *event
+	wev *event
 	// For listening sockets, this event and channel are used to pass
 	// connections between the two ends of the network.
-	mutex  sync.Mutex
 	accept chan *socket[T]
 	// Connected sockets have a bidirectional pipe that links between the two
 	// ends of the socket pair.
-	send *pipe // socket send end (guest side)
-	recv *pipe // socket recv end (guest side)
-	// This field is set to true if the socket was created by the host, which
-	// allows listeners to detect if they are accepting connections from the
-	// guest, and construct the right connection type.
-	host bool
-	// A boolean used to indicate that this is a connected socket.
-	conn bool
+	rbuf *sockbuf[T] // socket recv end (guest side)
+	wbuf *sockbuf[T] // socket send end (guest side)
+	// Functions used to send and receive message on the socket, implement the
+	// difference in behavior between stream and datagram sockets.
+	sendmsg func(*sockbuf[T], []wasi.IOVec, T) (wasi.Size, wasi.Errno)
+	recvmsg func(*sockbuf[T], []wasi.IOVec) (wasi.Size, wasi.ROFlags, T, wasi.Errno)
 	// For connected sockets, this channel is used to asynchronously receive
 	// notification that a connection has been established.
 	errs <-chan wasi.Errno
@@ -62,8 +285,8 @@ type socket[T sockaddr] struct {
 	cancel context.CancelFunc
 	// Sizes of the receive and send buffers; must be configured prior to
 	// connecting or accepting connections or it is ignored.
-	recvBufferSize int32
-	sendBufferSize int32
+	rbufsize int32
+	wbufsize int32
 }
 
 const (
@@ -72,49 +295,103 @@ const (
 	maxSocketBufferSize     = 65536
 )
 
-func newSocket[T sockaddr](net network[T], lock *sync.Mutex, typ socktype, proto protocol) *socket[T] {
-	return &socket[T]{
-		net:    net,
-		typ:    typ,
-		proto:  proto,
-		send:   newPipe(lock),
-		recv:   newPipe(lock),
-		cancel: func() {},
-		// socket options
-		recvBufferSize: defaultSocketBufferSize,
-		sendBufferSize: defaultSocketBufferSize,
+func newSocket[T sockaddr](net network[T], typ socktype, proto protocol, lock *sync.Mutex) *socket[T] {
+	events := [...]event{
+		0: makeEvent(lock),
+		1: makeEvent(lock),
 	}
+	sock := &socket[T]{
+		net:      net,
+		typ:      typ,
+		proto:    proto,
+		rev:      &events[0],
+		wev:      &events[1],
+		rbufsize: defaultSocketBufferSize,
+		wbufsize: defaultSocketBufferSize,
+	}
+	if typ == datagram {
+		sock.sendmsg = (*sockbuf[T]).sendmsg
+		sock.recvmsg = (*sockbuf[T]).recvmsg
+	} else {
+		sock.sendmsg = (*sockbuf[T]).send
+		sock.recvmsg = (*sockbuf[T]).recv
+	}
+	return sock
 }
 
 func (s *socket[T]) close() {
+	s.mutex.Lock()
+	rbuf := s.rbuf
+	wbuf := s.wbuf
+	errs := s.errs
+	accept := s.accept
+	cancel := s.cancel
+	closed := (s.flags & sockClosed) != 0
+	s.flags = s.flags.with(sockClosed)
+	s.mutex.Unlock()
+
+	if closed {
+		return
+	}
+
 	_ = s.net.unlink(s)
-	s.recv.close()
-	s.send.close()
-	s.cancel()
+	s.rev.abort()
+	s.wev.abort()
+
+	if rbuf != nil {
+		rbuf.close()
+	}
+	if wbuf != nil {
+		wbuf.close()
+	}
+	if cancel != nil {
+		cancel()
+	}
+
+	if errs != nil {
+		for range errs {
+		}
+	}
+
+	if accept != nil {
+		close(accept)
+		for sock := range accept {
+			sock.close()
+		}
+	}
 }
 
-// TODO: remove host boolean
-func (s *socket[T]) connect(laddr, raddr T, host bool) (*socket[T], wasi.Errno) {
+func (s *socket[T]) connect(peer *socket[T], laddr, raddr T) (*socket[T], wasi.Errno) {
+	lock := s.rev.lock
+	sock := newSocket[T](s.net, s.typ, s.proto, lock)
+	sock.flags = sock.flags.with(sockConn)
+	sock.laddr = laddr
+	sock.raddr = raddr
+
+	if peer == nil {
+		sock.flags = sock.flags.with(sockHost)
+		sock.wbuf = newSocketBuffer[T](lock, int(sock.wbufsize))
+		sock.rbuf = newSocketBuffer[T](lock, int(sock.rbufsize))
+	} else {
+		// Sockets paired on the same network share the same receive and send
+		// buffers, but swapped so data sent by the peer is read by the socket
+		// vice versa.
+		sock.rbuf = peer.wbuf
+		sock.wbuf = peer.rbuf
+		sock.rev = &sock.rbuf.rev
+		sock.wev = &sock.wbuf.wev
+	}
+
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.accept == nil {
+	if s.flags.has(sockClosed) || s.accept == nil {
 		return nil, wasi.ECONNREFUSED
 	}
 
-	// The lock is the same on both the send and receive ends.
-	lock := s.send.ev.lock
-	sock := newSocket[T](s.net, lock, s.typ, s.proto)
-	sock.host = host
-	sock.conn = true
-	sock.laddr = laddr
-	sock.raddr = raddr
-	sock.recvBufferSize = s.recvBufferSize
-	sock.sendBufferSize = s.sendBufferSize
-
 	select {
 	case s.accept <- sock:
-		s.recv.ev.trigger()
+		s.rev.trigger()
 		return sock, wasi.ESUCCESS
 	default:
 		return nil, wasi.ECONNREFUSED
@@ -124,17 +401,17 @@ func (s *socket[T]) connect(laddr, raddr T, host bool) (*socket[T], wasi.Errno) 
 func (s *socket[T]) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
 	switch ev {
 	case wasi.FDReadEvent:
-		return s.recv.ev.poll(ch)
+		return s.rev.poll(ch)
 	case wasi.FDWriteEvent:
-		return s.send.ev.poll(ch)
+		return s.wev.poll(ch)
 	default:
 		return false
 	}
 }
 
 func (s *socket[T]) SockListen(ctx context.Context, backlog int) wasi.Errno {
-	if s.conn {
-		return wasi.EINVAL
+	if s.typ != stream {
+		return wasi.ENOTSUP
 	}
 	if backlog <= 0 || backlog > 128 {
 		backlog = 128
@@ -143,13 +420,15 @@ func (s *socket[T]) SockListen(ctx context.Context, backlog int) wasi.Errno {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.accept == nil {
-		var zero T
-		if s.laddr == zero {
-			if errno := s.net.bind(zero, s); errno != wasi.ESUCCESS {
-				return errno
-			}
+	if s.flags.has(sockClosed | sockConn) {
+		return wasi.EINVAL
+	}
+
+	if !s.flags.has(sockListen) {
+		if errno := s.bindToAny(); errno != wasi.ESUCCESS {
+			return errno
 		}
+		s.flags = s.flags.with(sockListen)
 		s.accept = make(chan *socket[T], backlog)
 	}
 
@@ -157,44 +436,39 @@ func (s *socket[T]) SockListen(ctx context.Context, backlog int) wasi.Errno {
 }
 
 func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno) {
+	if s.typ == datagram {
+		return nil, wasi.ENOTSUP
+	}
+	if !s.flags.has(sockNonBlock) {
+		return nil, wasi.ENOTSUP
+	}
+
 	s.mutex.Lock()
 	accept := s.accept
+	closed := s.flags.has(sockClosed)
 	s.mutex.Unlock()
 
-	if accept == nil {
+	if accept == nil || closed {
 		return nil, wasi.EINVAL
 	}
 
-	var sock *socket[T]
-	s.recv.ev.clear()
-
-	if s.recv.flags.Has(wasi.NonBlock) {
-		select {
-		case sock = <-accept:
-		case <-s.recv.done:
-			return nil, wasi.EBADF
-		default:
-			return nil, wasi.EAGAIN
+	s.rev.clear()
+	select {
+	case sock := <-accept:
+		if sock == nil {
+			// This condition may occur when the socket is closed concurrently,
+			// which closes the accept channel and results in receiving nil
+			// values without blocking.
+			return nil, wasi.EINVAL
 		}
-	} else {
-		select {
-		case sock = <-accept:
-		case <-s.recv.done:
-			return nil, wasi.EBADF
-		case <-ctx.Done():
-			return nil, wasi.MakeErrno(ctx.Err())
+		if len(accept) > 0 {
+			s.rev.trigger()
 		}
+		sock.flags = sock.flags.withFDFlags(flags)
+		return sock, wasi.ESUCCESS
+	default:
+		return nil, wasi.EAGAIN
 	}
-
-	if sock == nil {
-		return nil, wasi.EINVAL
-	}
-
-	if len(accept) > 0 {
-		s.recv.ev.trigger()
-	}
-	_ = sock.FDStatSetFlags(ctx, flags)
-	return sock, wasi.ESUCCESS
 }
 
 func (s *socket[T]) SockBind(ctx context.Context, bind wasi.SocketAddress) wasi.Errno {
@@ -202,11 +476,42 @@ func (s *socket[T]) SockBind(ctx context.Context, bind wasi.SocketAddress) wasi.
 	if errno != wasi.ESUCCESS {
 		return errno
 	}
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	var zero T
-	if s.laddr != zero {
+	if s.flags.has(sockClosed) || s.laddr != zero {
 		return wasi.EINVAL
 	}
 	return s.net.bind(addr, s)
+}
+
+func (s *socket[T]) bindToAny() wasi.Errno {
+	var zero T
+	if s.laddr != zero {
+		return wasi.ESUCCESS
+	}
+	return s.net.bind(zero, s)
+}
+
+func (s *socket[T]) bindToNetwork() wasi.Errno {
+	var zero T
+	if s.laddr != zero {
+		return wasi.ESUCCESS
+	}
+	return s.net.link(s)
+}
+
+func (s *socket[T]) allocateBuffersIfNil() {
+	if s.rbuf == nil {
+		s.rbuf = newSocketBuffer[T](s.rev.lock, int(s.rbufsize))
+		s.rev = &s.rbuf.rev
+	}
+	if s.wbuf == nil {
+		s.wbuf = newSocketBuffer[T](s.wev.lock, int(s.wbufsize))
+		s.wev = &s.wbuf.wev
+	}
 }
 
 func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wasi.Errno {
@@ -214,69 +519,80 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	if errno != wasi.ESUCCESS {
 		return errno
 	}
-	if s.accept != nil {
-		return wasi.EISCONN
-	}
-	if s.conn {
-		return wasi.EALREADY
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.flags.has(sockClosed) {
+		return wasi.ECONNRESET
 	}
 
-	// Automtically assign a local address to the socket if it was not already
-	// bound ahead of time.
-	var zero T
-	if s.laddr == zero {
-		if errno := s.net.link(s); errno != wasi.ESUCCESS {
-			return errno
+	// Stream sockets cannot be connected if they are listening, nor reconnected
+	// if a connection has already been initiated.
+	if s.typ == stream {
+		if s.flags.has(sockListen) {
+			return wasi.EISCONN
+		}
+		if s.flags.has(sockConn) {
+			return wasi.EALREADY
 		}
 	}
-	s.raddr = raddr
 
-	ctx, s.cancel = context.WithCancel(ctx)
+	if errno := s.bindToNetwork(); errno != wasi.ESUCCESS {
+		return errno
+	}
+
+	s.allocateBuffersIfNil()
+	s.flags = s.flags.with(sockConn)
 	// At most three errors are produced to this channel, one when the dial
 	// function failed or the connection is blocking, and up to two if both
 	// the read and write pipes error.
 	errs := make(chan wasi.Errno, 3)
 	s.errs = errs
-	s.conn = true
 
-	blocking := !s.send.flags.Has(wasi.NonBlock)
-	recvBufferSize := s.recvBufferSize
-	sendBufferSize := s.sendBufferSize
-	go func() {
-		var conn net.Conn
-		var errno wasi.Errno
+	if s.typ == datagram {
+		s.raddr = raddr
+		s.wev.trigger()
+		close(errs)
+		return wasi.ESUCCESS
+	}
 
-		if !s.net.contains(s.raddr) {
-			conn, errno = s.net.dial(ctx, s.proto, s.laddr, s.raddr)
-		} else {
-			sock := s.net.socket(netaddr[T]{s.proto, s.raddr})
-			if sock == nil {
-				errno = wasi.ECONNREFUSED
-			} else {
-				sock, errno = sock.connect(s.raddr, s.laddr, false)
-				if errno == wasi.ESUCCESS {
-					conn = newHostConn(sock)
-				}
-			}
-		}
-
-		if errno != wasi.ESUCCESS || blocking {
+	blocking := !s.flags.has(sockNonBlock)
+	if s.net.contains(raddr) {
+		if sock := s.net.socket(netaddr[T]{s.proto, raddr}); sock == nil {
+			errs <- wasi.ECONNREFUSED
+		} else if _, errno := sock.connect(s, raddr, s.laddr); errno != wasi.ESUCCESS {
 			errs <- errno
+		} else {
+			s.raddr = raddr
 		}
+		s.wev.trigger()
+		close(errs)
+	} else {
+		ctx, s.cancel = context.WithCancel(ctx)
+		go func() {
+			upstream, errno := s.net.dial(ctx, s.proto, s.laddr, s.raddr)
+			if errno != wasi.ESUCCESS || blocking {
+				errs <- errno
+			}
 
-		if errno != wasi.ESUCCESS {
-			s.send.close()
-			s.recv.close()
-			close(errs)
-			return
-		}
+			s.wev.trigger()
 
-		// TODO: pool the buffers?
-		sockBuf := make([]byte, recvBufferSize+sendBufferSize)
-		connRef := &connRef{refc: 2, conn: conn, errs: errs}
-		go connRef.copy(s.send, conn, outputReadCloser{s.send}, sockBuf[:recvBufferSize])
-		go connRef.copy(s.recv, inputWriteCloser{s.recv}, conn, sockBuf[recvBufferSize:])
-	}()
+			if errno != wasi.ESUCCESS {
+				close(errs)
+				return
+			}
+
+			downstream := newHostConn(s)
+			rbufsize := s.rbuf.size()
+			wbufsize := s.wbuf.size()
+			buffer := make([]byte, rbufsize+wbufsize)
+			pipe := &connPipe{refc: 2, conn1: upstream, conn2: downstream, errs: errs}
+			go pipe.copy(upstream, downstream, buffer[:rbufsize])
+			go pipe.copy(downstream, upstream, buffer[rbufsize:])
+			go closeReadOnCancel(ctx, upstream)
+		}()
+	}
 
 	if !blocking {
 		return wasi.EINPROGRESS
@@ -290,65 +606,135 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	}
 }
 
-type connRef struct {
-	refc int32
-	conn net.Conn
-	errs chan<- wasi.Errno
-}
-
-func (c *connRef) unref() {
-	if atomic.AddInt32(&c.refc, -1) == 0 {
-		c.conn.Close()
-		close(c.errs)
-	}
-}
-
-func (c *connRef) copy(p *pipe, w io.Writer, r io.Reader, b []byte) {
-	_, err := io.CopyBuffer(w, r, b)
-	if err != nil {
-		c.errs <- wasi.MakeErrno(err)
-	}
-	p.close()
-	c.unref()
-}
-
 func (s *socket[T]) SockRecv(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
-	if errno := s.getErrno(); errno != wasi.ESUCCESS {
-		return 0, 0, errno
-	}
-	// TODO:
-	// - RecvPeek
-	// - RecvWaitAll
-	// - RecvDataTruncated
-	size, errno := s.recv.ch.read(ctx, iovs, s.recv.flags, &s.recv.ev, nil, s.recv.done)
-	return size, 0, errno
-}
-
-func (s *socket[T]) SockSend(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
-	if errno := s.getErrno(); errno != wasi.ESUCCESS {
-		return 0, errno
-	}
-	return s.send.ch.write(ctx, iovs, s.send.flags, &s.send.ev, nil, s.send.done)
-}
-
-func (s *socket[T]) SockSendTo(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno) {
-	if s.accept != nil {
-		return 0, wasi.ENOTSUP
-	}
-	if s.conn {
-		return 0, wasi.EISCONN
-	}
-	return 0, wasi.ENOSYS // TODO: implement sentto
+	size, roflags, _, errno := s.sockRecvFrom(ctx, iovs, flags)
+	return size, roflags, errno
 }
 
 func (s *socket[T]) SockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno) {
-	if s.accept != nil {
-		return 0, 0, nil, wasi.ENOTSUP
+	size, roflags, addr, errno := s.sockRecvFrom(ctx, iovs, flags)
+	if errno != wasi.ESUCCESS {
+		return size, roflags, nil, errno
 	}
-	if s.conn {
-		return 0, 0, nil, wasi.EISCONN
+	return size, roflags, addr.sockAddr(), wasi.ESUCCESS
+}
+
+func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (size wasi.Size, roflags wasi.ROFlags, addr T, errno wasi.Errno) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// TODO:
+	// - RecvPeek
+	// - RecvWaitAll
+	if s.flags.has(sockClosed) {
+		return ^wasi.Size(0), 0, addr, wasi.ECONNRESET
 	}
-	return 0, 0, nil, wasi.ENOSYS // TODO: implement recvfrom
+	if s.flags.has(sockListen) {
+		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
+	}
+	if s.typ == stream && !s.flags.has(sockConn) {
+		return ^wasi.Size(0), 0, addr, wasi.ENOTCONN
+	}
+	if flags.Has(wasi.RecvWaitAll) {
+		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
+	}
+	if flags.Has(wasi.RecvPeek) {
+		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
+	}
+	if !s.flags.has(sockNonBlock) {
+		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
+	}
+	if errno := s.getErrno(); errno != wasi.ESUCCESS {
+		return ^wasi.Size(0), 0, addr, errno
+	}
+
+	s.allocateBuffersIfNil()
+	for {
+		size, roflags, addr, errno := s.recvmsg(s.rbuf, iovs)
+		// Connected sockets may receive packets from other sockets that they
+		// are not connected to (e.g. when using datagram sockets and sendto),
+		// so we drop the packages here when that's the case and move to read
+		// the next packet.
+		if size == 0 && errno == wasi.ESUCCESS { // EOF
+			return size, roflags, addr, errno
+		}
+		if errno != wasi.ESUCCESS { // ERROR
+			return size, roflags, addr, errno
+		}
+		if !s.flags.has(sockConn) || addr == s.raddr { // packet from unconnected socket
+			return size, roflags, addr, errno
+		}
+	}
+}
+
+func (s *socket[T]) SockSend(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
+	if !s.flags.has(sockConn) {
+		return ^wasi.Size(0), wasi.ENOTCONN
+	}
+	return s.sockSendTo(ctx, iovs, flags, s.raddr)
+}
+
+func (s *socket[T]) SockSendTo(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno) {
+	dstAddr, errno := s.net.sockaddr(addr)
+	if errno != wasi.ESUCCESS {
+		return ^wasi.Size(0), errno
+	}
+	return s.sockSendTo(ctx, iovs, flags, dstAddr)
+}
+
+func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags, addr T) (wasi.Size, wasi.Errno) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.flags.has(sockClosed) {
+		return ^wasi.Size(0), wasi.ECONNRESET
+	}
+	if s.flags.has(sockListen) {
+		return ^wasi.Size(0), wasi.ENOTSUP
+	}
+	if s.typ == stream && !s.flags.has(sockConn) {
+		return ^wasi.Size(0), wasi.ENOTCONN
+	}
+	if s.flags.has(sockConn) && addr != s.raddr {
+		return ^wasi.Size(0), wasi.EISCONN
+	}
+	if !s.flags.has(sockNonBlock) {
+		return ^wasi.Size(0), wasi.ENOTSUP
+	}
+
+	if errno := s.getErrno(); errno != wasi.ESUCCESS {
+		return ^wasi.Size(0), errno
+	}
+	if errno := s.bindToAny(); errno != wasi.ESUCCESS {
+		return ^wasi.Size(0), errno
+	}
+	s.allocateBuffersIfNil()
+
+	var sbuf *sockbuf[T]
+	var size wasi.Size
+	if s.typ == stream {
+		sbuf = s.wbuf
+	} else {
+		for _, iov := range iovs {
+			size += wasi.Size(len(iov))
+		}
+		if size > s.wbuf.size() {
+			return 0, wasi.EMSGSIZE
+		}
+		sock := s.net.socket(netaddr[T]{s.proto, addr})
+		if sock == nil {
+			return size, wasi.ESUCCESS
+		}
+		sock.allocateBuffersIfNil()
+		sbuf = sock.rbuf
+	}
+	n, errno := s.sendmsg(sbuf, iovs, s.laddr)
+	// Messages that are too large to fit in the socket buffer are dropped
+	// since this may only happen on datagram sockets which are lossy links.
+	if errno == wasi.EMSGSIZE {
+		return size, wasi.ESUCCESS
+	}
+	return n, errno
 }
 
 func (s *socket[T]) SockLocalAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno) {
@@ -360,6 +746,9 @@ func (s *socket[T]) SockRemoteAddress(ctx context.Context) (wasi.SocketAddress, 
 }
 
 func (s *socket[T]) SockGetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	switch level {
 	case wasi.SocketLevel:
 		return s.getSocketLevelOption(option)
@@ -378,9 +767,9 @@ func (s *socket[T]) getSocketLevelOption(option wasi.SocketOption) (wasi.SocketO
 	case wasi.DontRoute:
 	case wasi.Broadcast:
 	case wasi.SendBufferSize:
-		return wasi.IntValue(s.sendBufferSize), wasi.ESUCCESS
+		return wasi.IntValue(s.wbufsize), wasi.ESUCCESS
 	case wasi.RecvBufferSize:
-		return wasi.IntValue(s.recvBufferSize), wasi.ESUCCESS
+		return wasi.IntValue(s.rbufsize), wasi.ESUCCESS
 	case wasi.KeepAlive:
 	case wasi.OOBInline:
 	case wasi.Linger:
@@ -394,6 +783,9 @@ func (s *socket[T]) getSocketLevelOption(option wasi.SocketOption) (wasi.SocketO
 }
 
 func (s *socket[T]) SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	switch level {
 	case wasi.SocketLevel:
 		return s.setSocketLevelOption(option, value)
@@ -410,9 +802,9 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 	case wasi.DontRoute:
 	case wasi.Broadcast:
 	case wasi.SendBufferSize:
-		return setIntValueLimit(&s.sendBufferSize, value, minSocketBufferSize, maxSocketBufferSize)
+		return setIntValueLimit(&s.wbufsize, value, minSocketBufferSize, maxSocketBufferSize)
 	case wasi.RecvBufferSize:
-		return setIntValueLimit(&s.recvBufferSize, value, minSocketBufferSize, maxSocketBufferSize)
+		return setIntValueLimit(&s.rbufsize, value, minSocketBufferSize, maxSocketBufferSize)
 	case wasi.KeepAlive:
 	case wasi.OOBInline:
 	case wasi.Linger:
@@ -428,14 +820,14 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 func setIntValueLimit(option *int32, value wasi.SocketOptionValue, minval, maxval int32) wasi.Errno {
 	switch v := value.(type) {
 	case wasi.IntValue:
-		if v32 := int32(v); v32 >= 0 {
-			if v32 < minval {
-				v32 = minval
+		if value := int32(v); value >= 0 {
+			if value < minval {
+				value = minval
 			}
-			if v32 > maxval {
-				v32 = maxval
+			if value > maxval {
+				value = maxval
 			}
-			*option = v32
+			*option = value
 			return wasi.ESUCCESS
 		}
 	}
@@ -443,22 +835,29 @@ func setIntValueLimit(option *int32, value wasi.SocketOptionValue, minval, maxva
 }
 
 func (s *socket[T]) SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.Errno {
-	if !s.conn {
+	if (flags & (wasi.ShutdownRD | wasi.ShutdownWR)) == 0 {
+		return wasi.EINVAL
+	}
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.flags.has(sockClosed) || !s.flags.has(sockConn) {
 		return wasi.ENOTCONN
 	}
 
 	if flags.Has(wasi.ShutdownRD) {
-		if s.recv.ev.state() == aborted {
+		if s.rbuf == nil || s.rbuf.rev.state() == aborted {
 			return wasi.ENOTCONN
 		}
-		s.recv.close()
+		s.rbuf.close()
 	}
 
 	if flags.Has(wasi.ShutdownWR) {
-		if s.send.ev.state() == aborted {
+		if s.wbuf == nil || s.wbuf.wev.state() == aborted {
 			return wasi.ENOTCONN
 		}
-		s.send.close()
+		s.wbuf.close()
 	}
 
 	return wasi.ESUCCESS
@@ -466,31 +865,13 @@ func (s *socket[T]) SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.E
 
 func (s *socket[T]) FDClose(ctx context.Context) wasi.Errno {
 	s.close()
-
-	if s.errs != nil {
-		// Drain the errors channel to make sure that all sync operations on the
-		// socket have completed.
-		for range s.errs {
-		}
-	}
-
-	s.mutex.Lock()
-	accept := s.accept
-	s.accept = nil
-	s.mutex.Unlock()
-
-	if accept != nil {
-		close(accept)
-		for sock := range accept {
-			_ = sock.FDClose(ctx)
-		}
-	}
 	return wasi.ESUCCESS
 }
 
 func (s *socket[T]) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
-	_ = s.send.FDStatSetFlags(ctx, flags)
-	_ = s.recv.FDStatSetFlags(ctx, flags)
+	s.mutex.Lock()
+	s.flags = s.flags.withFDFlags(flags)
+	s.mutex.Unlock()
 	return wasi.ESUCCESS
 }
 
@@ -509,263 +890,5 @@ func (s *socket[T]) getErrno() wasi.Errno {
 		return errno
 	default:
 		return wasi.ESUCCESS
-	}
-}
-
-type hostConn[T sockaddr] struct {
-	socket    *socket[T]
-	laddr     net.Addr
-	raddr     net.Addr
-	rdeadline deadline
-	wdeadline deadline
-}
-
-func newHostConn[T sockaddr](socket *socket[T]) *hostConn[T] {
-	return &hostConn[T]{
-		socket:    socket,
-		laddr:     socket.laddr.netAddr(socket.proto),
-		raddr:     socket.raddr.netAddr(socket.proto),
-		rdeadline: makeDeadline(),
-		wdeadline: makeDeadline(),
-	}
-}
-
-func (c *hostConn[T]) Close() error {
-	c.socket.close()
-	c.rdeadline.set(time.Time{})
-	c.wdeadline.set(time.Time{})
-	return nil
-}
-
-func (c *hostConn[T]) Read(b []byte) (int, error) {
-	pipe := c.socket.send
-	pipe.mu.Lock()
-	defer pipe.mu.Unlock()
-
-	if c.rdeadline.expired() {
-		return 0, os.ErrDeadlineExceeded
-	}
-
-	pipe.ev.trigger()
-	select {
-	case pipe.ch <- b:
-		return len(b) - len(<-pipe.ch), nil
-	case <-c.rdeadline.channel():
-		return 0, os.ErrDeadlineExceeded
-	case <-pipe.done:
-		return 0, io.EOF
-	}
-}
-
-func (c *hostConn[T]) Write(b []byte) (n int, err error) {
-	pipe := c.socket.recv
-	pipe.mu.Lock()
-	defer pipe.mu.Unlock()
-
-	if c.wdeadline.expired() {
-		return 0, os.ErrDeadlineExceeded
-	}
-
-	for n < len(b) {
-		pipe.ev.trigger()
-		select {
-		case pipe.ch <- b[n:]:
-			n = len(b) - len(<-pipe.ch)
-		case <-c.wdeadline.channel():
-			return n, os.ErrDeadlineExceeded
-		case <-pipe.done:
-			return n, io.ErrClosedPipe
-		}
-	}
-	return n, nil
-}
-
-func (c *hostConn[T]) LocalAddr() net.Addr {
-	return c.laddr
-}
-
-func (c *hostConn[T]) RemoteAddr() net.Addr {
-	return c.raddr
-}
-
-func (c *hostConn[T]) SetDeadline(t time.Time) error {
-	return errors.Join(c.SetReadDeadline(t), c.SetWriteDeadline(t))
-}
-
-func (c *hostConn[T]) SetReadDeadline(t time.Time) error {
-	select {
-	case <-c.socket.send.done:
-		return net.ErrClosed
-	default:
-		c.rdeadline.set(t)
-		return nil
-	}
-}
-
-func (c *hostConn[T]) SetWriteDeadline(t time.Time) error {
-	select {
-	case <-c.socket.recv.done:
-		return net.ErrClosed
-	default:
-		c.wdeadline.set(t)
-		return nil
-	}
-}
-
-type guestConn[T sockaddr] struct {
-	socket    *socket[T]
-	laddr     net.Addr
-	raddr     net.Addr
-	rdeadline deadline
-	wdeadline deadline
-}
-
-func newGuestConn[T sockaddr](socket *socket[T]) *guestConn[T] {
-	return &guestConn[T]{
-		socket:    socket,
-		laddr:     socket.raddr.netAddr(socket.proto),
-		raddr:     socket.laddr.netAddr(socket.proto),
-		rdeadline: makeDeadline(),
-		wdeadline: makeDeadline(),
-	}
-}
-
-func (c *guestConn[T]) Close() error {
-	c.socket.close()
-	c.rdeadline.set(time.Time{})
-	c.wdeadline.set(time.Time{})
-	return nil
-}
-
-func (c *guestConn[T]) Read(b []byte) (int, error) {
-	if len(b) == 0 {
-		return 0, nil
-	}
-	if c.rdeadline.expired() {
-		return 0, os.ErrDeadlineExceeded
-	}
-	ctx := context.Background()
-	pipe := c.socket.recv
-	timeout := c.rdeadline.channel()
-	iovs := []wasi.IOVec{b}
-	size, errno := pipe.ch.read(ctx, iovs, 0, &pipe.ev, timeout, pipe.done)
-	switch errno {
-	case wasi.ESUCCESS:
-		if size == 0 {
-			return 0, io.EOF
-		}
-		return int(size), nil
-	case wasi.ETIMEDOUT:
-		return int(size), os.ErrDeadlineExceeded
-	case wasi.EBADF:
-		return int(size), net.ErrClosed
-	default:
-		return int(size), errno
-	}
-}
-
-func (c *guestConn[T]) Write(b []byte) (n int, err error) {
-	if len(b) == 0 {
-		return 0, nil
-	}
-	if c.wdeadline.expired() {
-		return 0, os.ErrDeadlineExceeded
-	}
-	ctx := context.Background()
-	pipe := c.socket.send
-	timeout := c.wdeadline.channel()
-	for n < len(b) {
-		iovs := []wasi.IOVec{b[n:]}
-		size, errno := pipe.ch.write(ctx, iovs, 0, &pipe.ev, timeout, pipe.done)
-		n += int(size)
-		switch errno {
-		case wasi.ESUCCESS:
-		case wasi.ETIMEDOUT:
-			return n, os.ErrDeadlineExceeded
-		case wasi.EBADF:
-			return n, net.ErrClosed
-		default:
-			return n, errno
-		}
-	}
-	return n, nil
-}
-
-func (c *guestConn[T]) LocalAddr() net.Addr {
-	return c.laddr
-}
-
-func (c *guestConn[T]) RemoteAddr() net.Addr {
-	return c.raddr
-}
-
-func (c *guestConn[T]) SetDeadline(t time.Time) error {
-	return errors.Join(c.SetReadDeadline(t), c.SetWriteDeadline(t))
-}
-
-func (c *guestConn[T]) SetReadDeadline(t time.Time) error {
-	select {
-	case <-c.socket.recv.done:
-		return net.ErrClosed
-	default:
-		c.rdeadline.set(t)
-		return nil
-	}
-}
-
-func (c *guestConn[T]) SetWriteDeadline(t time.Time) error {
-	select {
-	case <-c.socket.send.done:
-		return net.ErrClosed
-	default:
-		c.wdeadline.set(t)
-		return nil
-	}
-}
-
-type deadline struct {
-	mu sync.Mutex
-	ts time.Time
-	tm *time.Timer
-}
-
-func makeDeadline() deadline {
-	tm := time.NewTimer(0)
-	if !tm.Stop() {
-		<-tm.C
-	}
-	return deadline{tm: tm}
-}
-
-func (d *deadline) channel() <-chan time.Time {
-	return d.tm.C
-}
-
-func (d *deadline) expired() bool {
-	d.mu.Lock()
-	ts := d.ts
-	d.mu.Unlock()
-	return !ts.IsZero() && !ts.After(time.Now())
-}
-
-func (d *deadline) set(t time.Time) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	d.ts = t
-
-	if !d.tm.Stop() {
-		select {
-		case <-d.tm.C:
-		default:
-		}
-	}
-
-	if !t.IsZero() {
-		timeout := time.Until(t)
-		if timeout < 0 {
-			timeout = 0
-		}
-		d.tm.Reset(timeout)
 	}
 }

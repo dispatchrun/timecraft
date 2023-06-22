@@ -5,14 +5,13 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/stealthrocket/wasi-go"
 )
 
 type channel chan []byte
 
-func (ch channel) poll(ctx context.Context, flags wasi.FDFlags, timeout <-chan time.Time, done <-chan struct{}) ([]byte, wasi.Errno) {
+func (ch channel) poll(ctx context.Context, flags wasi.FDFlags, done <-chan struct{}) ([]byte, wasi.Errno) {
 	if flags.Has(wasi.NonBlock) {
 		select {
 		case data := <-ch:
@@ -28,16 +27,14 @@ func (ch channel) poll(ctx context.Context, flags wasi.FDFlags, timeout <-chan t
 			return data, wasi.ESUCCESS
 		case <-done:
 			return nil, wasi.EBADF
-		case <-timeout:
-			return nil, wasi.ETIMEDOUT
 		case <-ctx.Done():
 			return nil, wasi.MakeErrno(context.Cause(ctx))
 		}
 	}
 }
 
-func (ch channel) read(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, timeout <-chan time.Time, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
-	data, errno := ch.poll(ctx, flags, timeout, done)
+func (ch channel) read(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
+	data, errno := ch.poll(ctx, flags, done)
 	if errno != wasi.ESUCCESS {
 		// Make a special case for the error indicating that the done channel
 		// was closed, it must return size=0 and errno=0 to indicate EOF.
@@ -61,8 +58,8 @@ func (ch channel) read(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlag
 	return size, wasi.ESUCCESS
 }
 
-func (ch channel) write(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, timeout <-chan time.Time, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
-	data, errno := ch.poll(ctx, flags, timeout, done)
+func (ch channel) write(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
+	data, errno := ch.poll(ctx, flags, done)
 	if errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), errno
 	}
@@ -125,10 +122,30 @@ func (ev *event) poll(signal chan<- struct{}) bool {
 }
 
 func (ev *event) trigger() {
-	ev.lock.Lock()
-	ev.status.CompareAndSwap(cleared, ready)
-	trigger(ev.signal)
-	ev.lock.Unlock()
+	ev.synchronize(func() {
+		ev.status.CompareAndSwap(cleared, ready)
+		trigger(ev.signal)
+	})
+}
+
+func (ev *event) update(trigger bool) {
+	if trigger {
+		ev.trigger()
+	} else {
+		ev.clear()
+	}
+}
+
+func (ev *event) synchronize(f func()) {
+	synchronize(ev.lock, f)
+}
+
+func synchronize(mu *sync.Mutex, f func()) {
+	if mu != nil {
+		mu.Lock()
+		defer mu.Unlock()
+	}
+	f()
 }
 
 func trigger(signal chan<- struct{}) {
@@ -178,7 +195,7 @@ func (p *pipe) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errn
 type input struct{ *pipe }
 
 func (in input) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return in.ch.read(ctx, iovs, in.flags, &in.ev, nil, in.done)
+	return in.ch.read(ctx, iovs, in.flags, &in.ev, in.done)
 }
 
 func (in input) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
@@ -201,7 +218,7 @@ func (r inputReadCloser) Read(b []byte) (int, error) {
 	ctx := context.Background()
 	flag := wasi.FDFlags(0) // blocking
 	iovs := []wasi.IOVec{b}
-	size, errno := r.in.ch.read(ctx, iovs, flag, &r.in.ev, nil, r.in.done)
+	size, errno := r.in.ch.read(ctx, iovs, flag, &r.in.ev, r.in.done)
 	if errno != wasi.ESUCCESS {
 		return int(size), errno
 	}
@@ -241,7 +258,7 @@ func (w inputWriteCloser) Write(b []byte) (int, error) {
 type output struct{ *pipe }
 
 func (out output) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return out.ch.write(ctx, iovs, out.flags, &out.ev, nil, out.done)
+	return out.ch.write(ctx, iovs, out.flags, &out.ev, out.done)
 }
 
 func (out output) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
@@ -287,7 +304,7 @@ func (w outputWriteCloser) Write(b []byte) (n int, err error) {
 	flag := wasi.FDFlags(0) // blocking
 	for n < len(b) {
 		iovs := []wasi.IOVec{b[n:]}
-		size, errno := w.out.ch.write(ctx, iovs, flag, &w.out.ev, nil, w.out.done)
+		size, errno := w.out.ch.write(ctx, iovs, flag, &w.out.ev, w.out.done)
 		n += int(size)
 		if errno != wasi.ESUCCESS {
 			return n, errno
