@@ -420,7 +420,7 @@ func (s *socket[T]) SockListen(ctx context.Context, backlog int) wasi.Errno {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.flags.has(sockClosed) || s.flags.has(sockConn) {
+	if s.flags.has(sockClosed | sockConn) {
 		return wasi.EINVAL
 	}
 
