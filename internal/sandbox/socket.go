@@ -267,8 +267,8 @@ type socket[T sockaddr] struct {
 	cancel context.CancelFunc
 	// Sizes of the receive and send buffers; must be configured prior to
 	// connecting or accepting connections or it is ignored.
-	rbufsize int
-	wbufsize int
+	rbufsize int32
+	wbufsize int32
 }
 
 const (
@@ -352,8 +352,8 @@ func (s *socket[T]) connect(peer *socket[T], laddr, raddr T) (*socket[T], wasi.E
 
 	if peer == nil {
 		sock.host = true
-		sock.wbuf = newSocketBuffer[T](lock, sock.wbufsize)
-		sock.rbuf = newSocketBuffer[T](lock, sock.rbufsize)
+		sock.wbuf = newSocketBuffer[T](lock, int(sock.wbufsize))
+		sock.rbuf = newSocketBuffer[T](lock, int(sock.rbufsize))
 	} else {
 		// Sockets paired on the same network share the same receive and send
 		// buffers, but swapped so data sent by the peer is read by the socket
@@ -487,11 +487,11 @@ func (s *socket[T]) bindToNetwork() wasi.Errno {
 
 func (s *socket[T]) allocateBuffersIfNil() {
 	if s.rbuf == nil {
-		s.rbuf = newSocketBuffer[T](s.rev.lock, s.rbufsize)
+		s.rbuf = newSocketBuffer[T](s.rev.lock, int(s.rbufsize))
 		s.rev = &s.rbuf.rev
 	}
 	if s.wbuf == nil {
-		s.wbuf = newSocketBuffer[T](s.wev.lock, s.wbufsize)
+		s.wbuf = newSocketBuffer[T](s.wev.lock, int(s.wbufsize))
 		s.wev = &s.wbuf.wev
 	}
 }
@@ -799,10 +799,10 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 	return wasi.EINVAL
 }
 
-func setIntValueLimit(option *int, value wasi.SocketOptionValue, minval, maxval int) wasi.Errno {
+func setIntValueLimit(option *int32, value wasi.SocketOptionValue, minval, maxval int32) wasi.Errno {
 	switch v := value.(type) {
 	case wasi.IntValue:
-		if value := int(v); value >= 0 {
+		if value := int32(v); value >= 0 {
 			if value < minval {
 				value = minval
 			}
