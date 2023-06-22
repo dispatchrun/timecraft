@@ -27,13 +27,12 @@ import (
 	"github.com/tetratelabs/wazero"
 )
 
-// Executor executes WebAssembly modules.
+// ProcessManager runs WebAssembly modules.
 //
 // A running WebAssembly module is known as a process. Processes are allowed
-// to spawn other processes. The Executor thus manages the lifecycle of
-// processes. Two methods are provided: Start to start a process, and Wait to
-// block until all processes have finished executing.
-type Executor struct {
+// to spawn other processes. The ProcessManager manages the lifecycle of
+// processes.
+type ProcessManager struct {
 	registry      *timemachine.Registry
 	runtime       wazero.Runtime
 	serverFactory *ServerFactory
@@ -59,9 +58,9 @@ type ProcessInfo struct {
 	Transport *http.Transport
 }
 
-// NewExecutor creates an Executor.
-func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime, serverFactory *ServerFactory) *Executor {
-	r := &Executor{
+// NewProcessManager creates an ProcessManager.
+func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime, serverFactory *ServerFactory) *ProcessManager {
+	r := &ProcessManager{
 		registry:      registry,
 		runtime:       runtime,
 		serverFactory: serverFactory,
@@ -75,14 +74,14 @@ func NewExecutor(ctx context.Context, registry *timemachine.Registry, runtime wa
 // Start starts a process.
 //
 // The ModuleSpec describes the module to be executed. An optional LogSpec
-// can be provided to instruct the Executor to record a trace of execution
+// can be provided to instruct the ProcessManager to record a trace of execution
 // to a log.
 //
 // If Start returns an error it indicates that there was a problem
 // initializing the WebAssembly module. If the WebAssembly module starts
 // successfully, any errors that occur during execution must be retrieved
 // via Wait.
-func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, error) {
+func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, error) {
 	wasmPath := moduleSpec.Path
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
@@ -90,7 +89,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 		return ProcessID{}, fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
 	}
 
-	wasmModule, err := e.runtime.CompileModule(e.ctx, wasmCode)
+	wasmModule, err := pm.runtime.CompileModule(pm.ctx, wasmCode)
 	if err != nil {
 		return ProcessID{}, err
 	}
@@ -119,7 +118,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 	if logSpec != nil {
 		logSpec.ProcessID = processID
 
-		module, err := e.registry.CreateModule(e.ctx, &format.Module{
+		module, err := pm.registry.CreateModule(pm.ctx, &format.Module{
 			Code: wasmCode,
 		}, object.Tag{
 			Name:  "timecraft.module.name",
@@ -129,7 +128,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 			return ProcessID{}, err
 		}
 
-		runtime, err := e.registry.CreateRuntime(e.ctx, &format.Runtime{
+		runtime, err := pm.registry.CreateRuntime(pm.ctx, &format.Runtime{
 			Runtime: "timecraft",
 			Version: Version(),
 		})
@@ -137,7 +136,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 			return ProcessID{}, err
 		}
 
-		config, err := e.registry.CreateConfig(e.ctx, &format.Config{
+		config, err := pm.registry.CreateConfig(pm.ctx, &format.Config{
 			Runtime: runtime,
 			Modules: []*format.Descriptor{module},
 			Args:    append([]string{wasmName}, moduleSpec.Args...),
@@ -147,7 +146,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 			return ProcessID{}, err
 		}
 
-		process, err := e.registry.CreateProcess(e.ctx, &format.Process{
+		process, err := pm.registry.CreateProcess(pm.ctx, &format.Process{
 			ID:        logSpec.ProcessID,
 			StartTime: logSpec.StartTime,
 			Config:    config,
@@ -156,7 +155,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 			return ProcessID{}, err
 		}
 
-		if err := e.registry.CreateLogManifest(e.ctx, logSpec.ProcessID, &format.Manifest{
+		if err := pm.registry.CreateLogManifest(pm.ctx, logSpec.ProcessID, &format.Manifest{
 			Process:   process,
 			StartTime: logSpec.StartTime,
 		}); err != nil {
@@ -164,7 +163,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 		}
 
 		// TODO: create a writer that writes to many segments
-		logSegment, err = e.registry.CreateLogSegment(e.ctx, logSpec.ProcessID, 0)
+		logSegment, err = pm.registry.CreateLogSegment(pm.ctx, logSpec.ProcessID, 0)
 		if err != nil {
 			return ProcessID{}, err
 		}
@@ -189,7 +188,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
-	server := e.serverFactory.NewServer(e.ctx, processID, moduleSpec, logSpec)
+	server := pm.serverFactory.NewServer(pm.ctx, processID, moduleSpec, logSpec)
 	timecraftSocket, timecraftSocketCleanup := makeSocketPath()
 	serverListener, err := net.Listen("unix", timecraftSocket)
 	if err != nil {
@@ -197,7 +196,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 	}
 	go func() {
 		if err := server.Serve(serverListener); err != nil && !errors.Is(err, net.ErrClosed) {
-			e.cancel(fmt.Errorf("failed to serve gRPC server: %w", err))
+			pm.cancel(fmt.Errorf("failed to serve gRPC server: %w", err))
 		}
 	}()
 
@@ -221,7 +220,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 	if recorder != nil {
 		wrappers = append(wrappers, recorder)
 	}
-	ctx, system, err := wasiBuilder.WithWrappers(wrappers...).Instantiate(e.ctx, e.runtime)
+	ctx, system, err := wasiBuilder.WithWrappers(wrappers...).Instantiate(pm.ctx, pm.runtime)
 	if err != nil {
 		return ProcessID{}, err
 	}
@@ -250,12 +249,12 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 		},
 	}
 
-	e.mu.Lock()
-	e.processes[processID] = process
-	e.mu.Unlock()
+	pm.mu.Lock()
+	pm.processes[processID] = process
+	pm.mu.Unlock()
 
 	// Run the module in the background, and tidy up once complete.
-	e.group.Go(func() error {
+	pm.group.Go(func() error {
 		defer timecraftSocketCleanup()
 		defer workSocketCleanup()
 		defer serverListener.Close()
@@ -267,12 +266,12 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 			defer recordWriter.Flush()
 		}
 		defer func() {
-			e.mu.Lock()
-			delete(e.processes, processID)
-			e.mu.Unlock()
+			pm.mu.Lock()
+			delete(pm.processes, processID)
+			pm.mu.Unlock()
 		}()
 
-		return runModule(ctx, e.runtime, wasmModule)
+		return runModule(ctx, pm.runtime, wasmModule)
 	})
 
 	return processID, nil
@@ -282,17 +281,17 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 //
 // The return flag is true if the process exists and is alive, and
 // false otherwise.
-func (e *Executor) Lookup(processID ProcessID) (process ProcessInfo, ok bool) {
-	e.mu.Lock()
+func (pm *ProcessManager) Lookup(processID ProcessID) (process ProcessInfo, ok bool) {
+	pm.mu.Lock()
 	var p *ProcessInfo
-	if p, ok = e.processes[processID]; ok {
+	if p, ok = pm.processes[processID]; ok {
 		process = *p // copy
 	}
-	e.mu.Unlock()
+	pm.mu.Unlock()
 	return
 }
 
 // Wait blocks until all processes have finished executing.
-func (e *Executor) Wait() error {
-	return e.group.Wait()
+func (pm *ProcessManager) Wait() error {
+	return pm.group.Wait()
 }
