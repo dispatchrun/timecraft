@@ -22,9 +22,8 @@ import (
 type TaskScheduler struct {
 	Executor *Executor
 
-	tasks       map[TaskID]*TaskInfo
-	submissions chan<- *TaskInfo
-	completions chan TaskID
+	queue chan<- *TaskInfo
+	tasks map[TaskID]*TaskInfo
 
 	// TODO: for now tasks are handled by exactly one process. Add a pool of
 	//  processes and then load balance tasks across them
@@ -65,15 +64,16 @@ const (
 
 // TaskInfo is information about a task.
 type TaskInfo struct {
-	id         TaskID
-	createdAt  time.Time
-	state      TaskState
-	processID  ProcessID
-	moduleSpec ModuleSpec
-	logSpec    *LogSpec
-	input      TaskInput
-	output     TaskOutput
-	err        error
+	id          TaskID
+	createdAt   time.Time
+	state       TaskState
+	processID   ProcessID
+	moduleSpec  ModuleSpec
+	logSpec     *LogSpec
+	input       TaskInput
+	output      TaskOutput
+	err         error
+	completions chan<- TaskID
 }
 
 // TaskInput is input for a task.
@@ -94,25 +94,40 @@ type processKey struct {
 //
 // The method returns a TaskID that can be used to query task status and
 // results.
-func (s *TaskScheduler) SubmitTask(moduleSpec ModuleSpec, logSpec *LogSpec, input TaskInput) (TaskID, error) {
+//
+// The method accepts an optional channel that receives a completion
+// notification once the task is complete (succeeds, or fails permanently).
+func (s *TaskScheduler) SubmitTask(moduleSpec ModuleSpec, logSpec *LogSpec, input TaskInput, completions chan<- TaskID) (TaskID, error) {
 	s.once.Do(s.init)
 
 	task := &TaskInfo{
-		id:         uuid.New(),
-		createdAt:  time.Now(),
-		state:      Queued,
-		moduleSpec: moduleSpec,
-		logSpec:    logSpec,
-		input:      input,
+		id:          uuid.New(),
+		createdAt:   time.Now(),
+		state:       Queued,
+		moduleSpec:  moduleSpec,
+		logSpec:     logSpec,
+		input:       input,
+		completions: completions,
 	}
 
 	s.synchronize(func() {
 		s.tasks[task.id] = task
 	})
 
-	s.submissions <- task
+	s.queue <- task
 
 	return task.id, nil
+}
+
+// Lookup looks up a task by ID.
+func (s *TaskScheduler) Lookup(id TaskID) (task TaskInfo, ok bool) {
+	s.synchronize(func() {
+		var t *TaskInfo
+		if t, ok = s.tasks[id]; ok {
+			task = *t // copy
+		}
+	})
+	return
 }
 
 func (s *TaskScheduler) init() {
@@ -122,8 +137,7 @@ func (s *TaskScheduler) init() {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	queue := make(chan *TaskInfo)
-	s.submissions = queue
-	s.completions = make(chan TaskID)
+	s.queue = queue
 
 	// TODO: spawn many goroutines to schedule tasks
 	s.wg.Add(1)
@@ -233,23 +247,9 @@ func (s *TaskScheduler) completeTask(task *TaskInfo, err error, output TaskOutpu
 		}
 	})
 
-	s.completions <- task.id
-}
-
-// Lookup looks up a task by ID.
-func (s *TaskScheduler) Lookup(id TaskID) (task TaskInfo, ok bool) {
-	s.synchronize(func() {
-		var t *TaskInfo
-		if t, ok = s.tasks[id]; ok {
-			task = *t // copy
-		}
-	})
-	return
-}
-
-// Poll returns a channel that receives task IDs that are complete.
-func (s *TaskScheduler) Poll() <-chan TaskID {
-	return s.completions
+	if task.completions != nil {
+		task.completions <- task.id
+	}
 }
 
 func (s *TaskScheduler) synchronize(fn func()) {
