@@ -30,11 +30,6 @@ func (rb *ringbuf[T]) discard(n int) {
 	rb.off += int32(n)
 }
 
-func (rb *ringbuf[T]) reset() {
-	rb.off = 0
-	rb.end = 0
-}
-
 func (rb *ringbuf[T]) read(values []T) int {
 	n := copy(values, rb.buf[rb.off:rb.end])
 	if rb.off += int32(n); rb.off == rb.end {

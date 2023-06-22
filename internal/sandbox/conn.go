@@ -262,7 +262,7 @@ func (c *connPipe) unref() {
 
 func (c *connPipe) copy(dst, src net.Conn, buf []byte) {
 	defer c.unref()
-	defer closeWrite(dst)
+	defer closeWrite(dst) //nolint:errcheck
 	_, err := io.CopyBuffer(dst, src, buf)
 	if err != nil {
 		c.errs <- wasi.MakeErrno(err)
@@ -305,5 +305,5 @@ func closeWrite(conn net.Conn) error {
 
 func closeReadOnCancel(ctx context.Context, conn net.Conn) {
 	<-ctx.Done()
-	closeRead(conn)
+	closeRead(conn) //nolint:errcheck
 }
