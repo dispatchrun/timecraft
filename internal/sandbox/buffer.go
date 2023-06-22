@@ -27,6 +27,12 @@ func (rb *ringbuf[T]) index(i int) *T {
 }
 
 func (rb *ringbuf[T]) discard(n int) {
+	if n < 0 {
+		panic("BUG: discard negative count")
+	}
+	if n > rb.len() {
+		panic("BUG: discard more values than exist in the buffer")
+	}
 	rb.off += int32(n)
 }
 
