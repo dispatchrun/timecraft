@@ -137,9 +137,13 @@ func (ev *event) update(trigger bool) {
 }
 
 func (ev *event) synchronize(f func()) {
-	if ev.lock != nil {
-		ev.lock.Lock()
-		defer ev.lock.Unlock()
+	synchronize(ev.lock, f)
+}
+
+func synchronize(mu *sync.Mutex, f func()) {
+	if mu != nil {
+		mu.Lock()
+		defer mu.Unlock()
 	}
 	f()
 }
