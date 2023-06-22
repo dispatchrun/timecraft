@@ -4,6 +4,7 @@ package sandbox
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/stealthrocket/wasi-go"
 )
@@ -287,6 +288,15 @@ type socket[T sockaddr] struct {
 	// connecting or accepting connections or it is ignored.
 	rbufsize int32
 	wbufsize int32
+	// Timeouts applied when the socket is in blocking mode; configured with the
+	// RecvTimeout and SendTimeout socket options. Zero means no timeout.
+	rtimeout time.Duration
+	wtimeout time.Duration
+	// In blocking mode, this channel is used to poll for read/write operations
+	// and block until the socket becomes ready. The channel is shared with the
+	// System instance that created the socket since a blocking socket method
+	// will prevent any concurrent call to PollOneOff.
+	poll chan struct{}
 }
 
 const (
@@ -295,7 +305,7 @@ const (
 	maxSocketBufferSize     = 65536
 )
 
-func newSocket[T sockaddr](net network[T], typ socktype, proto protocol, lock *sync.Mutex) *socket[T] {
+func newSocket[T sockaddr](net network[T], typ socktype, proto protocol, lock *sync.Mutex, poll chan struct{}) *socket[T] {
 	events := [...]event{
 		0: makeEvent(lock),
 		1: makeEvent(lock),
@@ -308,6 +318,7 @@ func newSocket[T sockaddr](net network[T], typ socktype, proto protocol, lock *s
 		wev:      &events[1],
 		rbufsize: defaultSocketBufferSize,
 		wbufsize: defaultSocketBufferSize,
+		poll:     poll,
 	}
 	if typ == datagram {
 		sock.sendmsg = (*sockbuf[T]).sendmsg
@@ -363,7 +374,7 @@ func (s *socket[T]) close() {
 
 func (s *socket[T]) connect(peer *socket[T], laddr, raddr T) (*socket[T], wasi.Errno) {
 	lock := s.rev.lock
-	sock := newSocket[T](s.net, s.typ, s.proto, lock)
+	sock := newSocket[T](s.net, s.typ, s.proto, lock, s.poll)
 	sock.flags = sock.flags.with(sockConn)
 	sock.laddr = laddr
 	sock.raddr = raddr
@@ -396,6 +407,42 @@ func (s *socket[T]) connect(peer *socket[T], laddr, raddr T) (*socket[T], wasi.E
 	default:
 		return nil, wasi.ECONNREFUSED
 	}
+}
+
+func (s *socket[T]) waitReadyRead(ctx context.Context, mu *sync.Mutex) wasi.Errno {
+	return s.wait(ctx, mu, s.rev, s.rtimeout)
+}
+
+func (s *socket[T]) waitReadyWrite(ctx context.Context, mu *sync.Mutex) wasi.Errno {
+	return s.wait(ctx, mu, s.wev, s.wtimeout)
+}
+
+func (s *socket[T]) wait(ctx context.Context, mu *sync.Mutex, ev *event, timeout time.Duration) wasi.Errno {
+	if s.poll == nil {
+		return wasi.ENOTSUP
+	}
+	if !ev.poll(s.poll) {
+		if mu != nil {
+			mu.Unlock()
+			defer mu.Lock()
+		}
+
+		var deadline <-chan time.Time
+		if timeout > 0 {
+			tm := time.NewTimer(timeout)
+			deadline = tm.C
+			defer tm.Stop()
+		}
+
+		select {
+		case <-s.poll:
+		case <-deadline:
+			return wasi.EAGAIN
+		case <-ctx.Done():
+			return wasi.MakeErrno(ctx.Err())
+		}
+	}
+	return wasi.ESUCCESS
 }
 
 func (s *socket[T]) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
@@ -439,36 +486,53 @@ func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, w
 	if s.typ == datagram {
 		return nil, wasi.ENOTSUP
 	}
-	if !s.flags.has(sockNonBlock) {
-		return nil, wasi.ENOTSUP
-	}
 
 	s.mutex.Lock()
 	accept := s.accept
 	closed := s.flags.has(sockClosed)
+	blocking := !s.flags.has(sockNonBlock)
 	s.mutex.Unlock()
 
 	if accept == nil || closed {
 		return nil, wasi.EINVAL
 	}
 
+	var sock *socket[T]
 	s.rev.clear()
-	select {
-	case sock := <-accept:
-		if sock == nil {
-			// This condition may occur when the socket is closed concurrently,
-			// which closes the accept channel and results in receiving nil
-			// values without blocking.
-			return nil, wasi.EINVAL
+	// Blocking sockets can use the accept channel as a wait point since it
+	// will block the calling goroutine but would also allow for asynchronous
+	// cancellation if the socket is closed by concurrent operation.
+	//
+	// The non-blocking status should never be updated concurrently since
+	// FDStatSetFlags would only be called from the parent System on the same
+	// goroutine, therefore we don't have to concern ourselves with allowing
+	// the socket to be unblocked concurrently through any other means.
+	if blocking {
+		select {
+		case sock = <-accept:
+		case <-ctx.Done():
+			return nil, wasi.MakeErrno(ctx.Err())
 		}
-		if len(accept) > 0 {
-			s.rev.trigger()
+	} else {
+		select {
+		case sock = <-accept:
+		default:
+			return nil, wasi.EAGAIN
 		}
-		sock.flags = sock.flags.withFDFlags(flags)
-		return sock, wasi.ESUCCESS
-	default:
-		return nil, wasi.EAGAIN
 	}
+
+	if sock == nil {
+		// This condition may occur when the socket is closed concurrently,
+		// which closes the accept channel and results in receiving nil
+		// values without blocking.
+		return nil, wasi.EINVAL
+	}
+
+	if len(accept) > 0 {
+		s.rev.trigger()
+	}
+	sock.flags = sock.flags.withFDFlags(flags)
+	return sock, wasi.ESUCCESS
 }
 
 func (s *socket[T]) SockBind(ctx context.Context, bind wasi.SocketAddress) wasi.Errno {
@@ -641,9 +705,6 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 	if flags.Has(wasi.RecvPeek) {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
 	}
-	if !s.flags.has(sockNonBlock) {
-		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
-	}
 	if errno := s.getErrno(); errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), 0, addr, errno
 	}
@@ -655,13 +716,19 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 		// are not connected to (e.g. when using datagram sockets and sendto),
 		// so we drop the packages here when that's the case and move to read
 		// the next packet.
-		if size == 0 && errno == wasi.ESUCCESS { // EOF
-			return size, roflags, addr, errno
-		}
-		if errno != wasi.ESUCCESS { // ERROR
-			return size, roflags, addr, errno
-		}
-		if !s.flags.has(sockConn) || addr == s.raddr { // packet from unconnected socket
+		switch errno {
+		case wasi.ESUCCESS:
+			if size == 0 || !s.flags.has(sockConn) || addr == s.raddr {
+				return size, roflags, addr, errno
+			}
+		case wasi.EAGAIN:
+			if s.flags.has(sockNonBlock) {
+				return size, roflags, addr, errno
+			}
+			if errno := s.waitReadyRead(ctx, &s.mutex); errno != wasi.ESUCCESS {
+				return size, roflags, addr, errno
+			}
+		default: // ERROR
 			return size, roflags, addr, errno
 		}
 	}
@@ -698,9 +765,6 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	if s.flags.has(sockConn) && addr != s.raddr {
 		return ^wasi.Size(0), wasi.EISCONN
 	}
-	if !s.flags.has(sockNonBlock) {
-		return ^wasi.Size(0), wasi.ENOTSUP
-	}
 
 	if errno := s.getErrno(); errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), errno
@@ -728,13 +792,27 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 		sock.allocateBuffersIfNil()
 		sbuf = sock.rbuf
 	}
-	n, errno := s.sendmsg(sbuf, iovs, s.laddr)
-	// Messages that are too large to fit in the socket buffer are dropped
-	// since this may only happen on datagram sockets which are lossy links.
-	if errno == wasi.EMSGSIZE {
-		return size, wasi.ESUCCESS
+
+	for {
+		n, errno := s.sendmsg(sbuf, iovs, s.laddr)
+		// Messages that are too large to fit in the socket buffer are dropped
+		// since this may only happen on datagram sockets which are lossy links.
+		switch errno {
+		case wasi.ESUCCESS:
+			return n, errno
+		case wasi.EMSGSIZE:
+			return size, wasi.ESUCCESS
+		case wasi.EAGAIN:
+			if s.flags.has(sockNonBlock) {
+				return n, errno
+			}
+			if errno := s.waitReadyWrite(ctx, &s.mutex); errno != wasi.ESUCCESS {
+				return n, errno
+			}
+		default:
+			return n, errno
+		}
 	}
-	return n, errno
 }
 
 func (s *socket[T]) SockLocalAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno) {
@@ -766,16 +844,18 @@ func (s *socket[T]) getSocketLevelOption(option wasi.SocketOption) (wasi.SocketO
 		return wasi.IntValue(s.getErrno()), wasi.ESUCCESS
 	case wasi.DontRoute:
 	case wasi.Broadcast:
-	case wasi.SendBufferSize:
-		return wasi.IntValue(s.wbufsize), wasi.ESUCCESS
 	case wasi.RecvBufferSize:
 		return wasi.IntValue(s.rbufsize), wasi.ESUCCESS
+	case wasi.SendBufferSize:
+		return wasi.IntValue(s.wbufsize), wasi.ESUCCESS
 	case wasi.KeepAlive:
 	case wasi.OOBInline:
 	case wasi.Linger:
 	case wasi.RecvLowWatermark:
 	case wasi.RecvTimeout:
+		return wasi.TimeValue(s.rtimeout), wasi.ESUCCESS
 	case wasi.SendTimeout:
+		return wasi.TimeValue(s.wtimeout), wasi.ESUCCESS
 	case wasi.QueryAcceptConnections:
 	case wasi.BindToDevice:
 	}
@@ -801,16 +881,18 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 	case wasi.QuerySocketError:
 	case wasi.DontRoute:
 	case wasi.Broadcast:
-	case wasi.SendBufferSize:
-		return setIntValueLimit(&s.wbufsize, value, minSocketBufferSize, maxSocketBufferSize)
 	case wasi.RecvBufferSize:
 		return setIntValueLimit(&s.rbufsize, value, minSocketBufferSize, maxSocketBufferSize)
+	case wasi.SendBufferSize:
+		return setIntValueLimit(&s.wbufsize, value, minSocketBufferSize, maxSocketBufferSize)
 	case wasi.KeepAlive:
 	case wasi.OOBInline:
 	case wasi.Linger:
 	case wasi.RecvLowWatermark:
 	case wasi.RecvTimeout:
+		return setDurationValue(&s.rtimeout, value)
 	case wasi.SendTimeout:
+		return setDurationValue(&s.wtimeout, value)
 	case wasi.QueryAcceptConnections:
 	case wasi.BindToDevice:
 	}
@@ -818,8 +900,7 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 }
 
 func setIntValueLimit(option *int32, value wasi.SocketOptionValue, minval, maxval int32) wasi.Errno {
-	switch v := value.(type) {
-	case wasi.IntValue:
+	if v, ok := value.(wasi.IntValue); ok {
 		if value := int32(v); value >= 0 {
 			if value < minval {
 				value = minval
@@ -828,6 +909,16 @@ func setIntValueLimit(option *int32, value wasi.SocketOptionValue, minval, maxva
 				value = maxval
 			}
 			*option = value
+			return wasi.ESUCCESS
+		}
+	}
+	return wasi.EINVAL
+}
+
+func setDurationValue(option *time.Duration, value wasi.SocketOptionValue) wasi.Errno {
+	if v, ok := value.(wasi.TimeValue); ok {
+		if duration := time.Duration(v); duration >= 0 {
+			*option = duration
 			return wasi.ESUCCESS
 		}
 	}

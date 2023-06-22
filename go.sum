@@ -22,12 +22,8 @@ github.com/stealthrocket/fsinfo v0.1.1 h1:39UOleFNvnsTI6Jd2cXKQa1cVk80K0NH3OEj9k
 github.com/stealthrocket/fsinfo v0.1.1/go.mod h1:oQVRGlbYCfBmLKWxe+Y2KNUAg8DovaxEaVz/21zZkb4=
 github.com/stealthrocket/net v0.1.4 h1:Wy0bAeu5Y3iiQM1fgsjZOES9AsB0nsXuDK21A3JfPIk=
 github.com/stealthrocket/net v0.1.4/go.mod h1:VvoFod9pYC9mo+bEg2NQB/D+KVOjxfhZjZ5zyvozq7M=
-github.com/stealthrocket/wasi-go v0.6.9 h1:mmeP+diR2H5+cVTrXAGhZYP83lzuKbUtUiITo+A+tC4=
-github.com/stealthrocket/wasi-go v0.6.9/go.mod h1:QSBJGRdwJtcRcNSCqHrqLvuCCVRdvryeENatpYZO/4o=
-github.com/stealthrocket/wasi-go v0.6.10-0.20230621204721-a716bf049ebb h1:aKBdqcQMlc0N4g3ORuQcHlZ75Z/gE+/NqybxJZSIP7E=
-github.com/stealthrocket/wasi-go v0.6.10-0.20230621204721-a716bf049ebb/go.mod h1:QSBJGRdwJtcRcNSCqHrqLvuCCVRdvryeENatpYZO/4o=
-github.com/stealthrocket/wasi-go v0.6.10 h1:LVlXsFhdwmr7y+yByA1G1WXdk35/5Bj/5l5C2YppfaI=
-github.com/stealthrocket/wasi-go v0.6.10/go.mod h1:QSBJGRdwJtcRcNSCqHrqLvuCCVRdvryeENatpYZO/4o=
+github.com/stealthrocket/wasi-go v0.6.11 h1:6HSUlCyo8Td2kU4vkgfRwHKlh+nU2nkFt8NEEc2LS9w=
+github.com/stealthrocket/wasi-go v0.6.11/go.mod h1:QSBJGRdwJtcRcNSCqHrqLvuCCVRdvryeENatpYZO/4o=
 github.com/stealthrocket/wazergo v0.19.1 h1:BPrITETPgSFwiytwmToO0MbUC/+RGC39JScz1JmmG6c=
 github.com/stealthrocket/wazergo v0.19.1/go.mod h1:riI0hxw4ndZA5e6z7PesHg2BtTftcZaMxRcoiGGipTs=
 github.com/stealthrocket/wzprof v0.1.5 h1:abEwQF9KtqV7UQ0hWk7431vul9/FxOg1eRCqwEKo9/4=
