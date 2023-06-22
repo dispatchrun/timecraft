@@ -210,6 +210,11 @@ func (s *TaskScheduler) doHTTP(process *ProcessInfo, task *TaskInfo, request *HT
 	var res *http.Response
 	var err error
 
+	// The process isn't necessarily available to take on work immediately.
+	// Retry with exponential backoff when an ECONNREFUSED is encountered.
+	//
+	// Note that this is not a generic task execution retry facility. We
+	// only retry on ECONNREFUSED.
 	const (
 		maxAttempts = 10
 		minDelay    = 500 * time.Millisecond
