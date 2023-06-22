@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/bufbuild/connect-go"
 	v1 "github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1"
@@ -64,7 +65,7 @@ func (c *Client) SubmitTasks(ctx context.Context, requests []TaskRequest) ([]Tas
 	return taskIDs, nil
 }
 
-// LookupTasks retrieves task information.
+// LookupTasks retrieves task responses by ID.
 func (c *Client) LookupTasks(ctx context.Context, taskIDs []TaskID) ([]TaskResponse, error) {
 	req := connect.NewRequest(&v1.LookupTasksRequest{
 		TaskId: make([]string, len(taskIDs)),
@@ -84,6 +85,46 @@ func (c *Client) LookupTasks(ctx context.Context, taskIDs []TaskID) ([]TaskRespo
 		}
 	}
 	return responses, nil
+}
+
+// PollTasks retrieves tasks that are complete.
+//
+// Tasks are complete when task execution either succeeds or fails permanently.
+//
+// PollTasks will block the goroutine until either batchSize tasks are
+// complete, or the timeout is reached, whichever comes first. If timeout
+// is zero, the timecraft runtime won't block waiting for complete tasks.
+// If the timeout is less than zero, the method will block until batchSize
+// tasks are complete (and thus may block indefinitely).
+func (c *Client) PollTasks(ctx context.Context, batchSize int, timeout time.Duration) ([]TaskResponse, error) {
+	req := connect.NewRequest(&v1.PollTasksRequest{
+		BatchSize: int32(batchSize),
+		TimeoutNs: int64(timeout),
+	})
+	res, err := c.grpcClient.PollTasks(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	responses := make([]TaskResponse, len(res.Msg.Responses))
+	for i, taskResponse := range res.Msg.Responses {
+		responses[i], err = c.makeTaskResponse(taskResponse)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return responses, nil
+}
+
+// DiscardTasks discards a batch of tasks by ID.
+func (c *Client) DiscardTasks(ctx context.Context, taskIDs []TaskID) error {
+	req := connect.NewRequest(&v1.DiscardTasksRequest{
+		TaskId: make([]string, len(taskIDs)),
+	})
+	for i, taskID := range taskIDs {
+		req.Msg.TaskId[i] = string(taskID)
+	}
+	_, err := c.grpcClient.DiscardTasks(ctx, req)
+	return err
 }
 
 func (c *Client) makeTaskRequest(req *TaskRequest) (*v1.TaskRequest, error) {

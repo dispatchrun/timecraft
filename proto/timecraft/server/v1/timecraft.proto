@@ -10,11 +10,12 @@ message TaskRequest {
 }
 
 message TaskResponse {
-  TaskState state = 1;
-  string process_id = 2;
-  string error_message = 3;
+  string task_id = 1;
+  TaskState state = 2;
+  string process_id = 3;
+  string error_message = 4;
   oneof output {
-    HTTPResponse http_response = 4;
+    HTTPResponse http_response = 5;
   }
 }
 
@@ -47,7 +48,7 @@ enum TaskState {
   TASK_STATE_INITIALIZING = 2;
   TASK_STATE_EXECUTING = 3;
   TASK_STATE_ERROR = 4;
-  TASK_STATE_DONE = 5;
+  TASK_STATE_SUCCESS = 5;
 }
 
 message SubmitTasksRequest {
@@ -66,6 +67,21 @@ message LookupTasksResponse {
   repeated TaskResponse responses = 1;
 }
 
+message PollTasksRequest {
+  int32 batch_size = 1;
+  int64 timeout_ns = 2;
+}
+
+message PollTasksResponse {
+  repeated TaskResponse responses = 1;
+}
+
+message DiscardTasksRequest {
+  repeated string task_id = 1;
+}
+
+message DiscardTasksResponse {}
+
 message VersionRequest {}
 
 message VersionResponse {
@@ -75,5 +91,7 @@ message VersionResponse {
 service TimecraftService {
   rpc SubmitTasks(SubmitTasksRequest) returns (SubmitTasksResponse) {}
   rpc LookupTasks(LookupTasksRequest) returns (LookupTasksResponse) {}
+  rpc PollTasks(PollTasksRequest) returns (PollTasksResponse) {}
+  rpc DiscardTasks(DiscardTasksRequest) returns (DiscardTasksResponse) {}
   rpc Version(VersionRequest) returns (VersionResponse) {}
 }
