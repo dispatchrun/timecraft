@@ -56,6 +56,9 @@ type ProcessInfo struct {
 	// Transport is an HTTP transport that can be used to send work to
 	// the process over the work socket.
 	Transport *http.Transport
+
+	ctx    context.Context
+	cancel context.CancelCauseFunc
 }
 
 // NewProcessManager creates an ProcessManager.
@@ -80,7 +83,7 @@ func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runt
 // If Start returns an error it indicates that there was a problem
 // initializing the WebAssembly module. If the WebAssembly module starts
 // successfully, any errors that occur during execution must be retrieved
-// via Wait.
+// via Wait or WaitAll.
 func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, error) {
 	wasmPath := moduleSpec.Path
 	wasmName := filepath.Base(wasmPath)
@@ -225,6 +228,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		return ProcessID{}, err
 	}
 
+	var cancel context.CancelCauseFunc
+	ctx, cancel = context.WithCancelCause(ctx)
+
 	httproxy.Start(ctx)
 
 	process := &ProcessInfo{
@@ -247,6 +253,8 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 				return
 			},
 		},
+		ctx:    ctx,
+		cancel: cancel,
 	}
 
 	pm.mu.Lock()
@@ -254,7 +262,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	pm.mu.Unlock()
 
 	// Run the module in the background, and tidy up once complete.
-	pm.group.Go(func() error {
+	pm.group.Go(func() (err error) {
 		defer timecraftSocketCleanup()
 		defer workSocketCleanup()
 		defer serverListener.Close()
@@ -270,6 +278,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 			delete(pm.processes, processID)
 			pm.mu.Unlock()
 		}()
+		defer cancel(err)
 
 		return runModule(ctx, pm.runtime, wasmModule)
 	})
@@ -291,7 +300,34 @@ func (pm *ProcessManager) Lookup(processID ProcessID) (process ProcessInfo, ok b
 	return
 }
 
-// Wait blocks until all processes have finished executing.
-func (pm *ProcessManager) Wait() error {
+// Wait blocks until a process exits.
+func (pm *ProcessManager) Wait(processID ProcessID) error {
+	pm.mu.Lock()
+	p, ok := pm.processes[processID]
+	pm.mu.Unlock()
+
+	if !ok {
+		return errors.New("process not found")
+	}
+
+	<-p.ctx.Done()
+
+	err := context.Cause(p.ctx)
+	switch err {
+	case context.Canceled:
+		err = nil
+	}
+
+	return err
+}
+
+// WaitAll blocks until all processes have exited.
+func (pm *ProcessManager) WaitAll() error {
 	return pm.group.Wait()
+}
+
+// Close closes the process manager.
+func (pm *ProcessManager) Close() error {
+	pm.cancel(nil)
+	return pm.WaitAll()
 }

@@ -98,6 +98,7 @@ func run(ctx context.Context, args []string) error {
 	serverFactory := &timecraft.ServerFactory{Scheduler: scheduler}
 
 	processManager := timecraft.NewProcessManager(ctx, registry, runtime, serverFactory)
+	defer processManager.Close()
 
 	scheduler.ProcessManager = processManager
 
@@ -139,8 +140,10 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintf(os.Stderr, "%s\n", logSpec.ProcessID)
 	}
 
-	if _, err := processManager.Start(moduleSpec, logSpec); err != nil {
+	processID, err := processManager.Start(moduleSpec, logSpec)
+	if err != nil {
 		return err
 	}
-	return processManager.Wait()
+	return processManager.Wait(processID)
+	// return processManager.WaitAll()
 }
