@@ -169,6 +169,17 @@ func (s *Server) PollTasks(ctx context.Context, req *connect.Request[v1.PollTask
 	panic("not implemented")
 }
 
+func (s *Server) DiscardTasks(ctx context.Context, req *connect.Request[v1.DiscardTasksRequest]) (*connect.Response[v1.DiscardTasksResponse], error) {
+	for i, rawTaskID := range req.Msg.TaskId {
+		taskID, err := uuid.Parse(rawTaskID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("task ID at index %d is invalid: %w", i, err))
+		}
+		_ = s.scheduler.Discard(taskID)
+	}
+	return connect.NewResponse(&v1.DiscardTasksResponse{}), nil
+}
+
 func (s *Server) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
 	return connect.NewResponse(&v1.VersionResponse{Version: Version()}), nil
 }

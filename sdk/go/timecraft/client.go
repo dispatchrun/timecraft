@@ -115,6 +115,18 @@ func (c *Client) PollTasks(ctx context.Context, batchSize int, timeout time.Dura
 	return responses, nil
 }
 
+// DiscardTasks discards a batch of tasks by ID.
+func (c *Client) DiscardTasks(ctx context.Context, taskIDs []TaskID) error {
+	req := connect.NewRequest(&v1.DiscardTasksRequest{
+		TaskId: make([]string, len(taskIDs)),
+	})
+	for i, taskID := range taskIDs {
+		req.Msg.TaskId[i] = string(taskID)
+	}
+	_, err := c.grpcClient.DiscardTasks(ctx, req)
+	return err
+}
+
 func (c *Client) makeTaskRequest(req *TaskRequest) (*v1.TaskRequest, error) {
 	r := &v1.TaskRequest{
 		Module: &v1.ModuleSpec{Path: req.Module.Path, Args: req.Module.Args},

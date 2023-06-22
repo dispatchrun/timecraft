@@ -76,6 +76,12 @@ message PollTasksResponse {
   repeated TaskResponse responses = 1;
 }
 
+message DiscardTasksRequest {
+  repeated string task_id = 1;
+}
+
+message DiscardTasksResponse {}
+
 message VersionRequest {}
 
 message VersionResponse {
@@ -86,5 +92,6 @@ service TimecraftService {
   rpc SubmitTasks(SubmitTasksRequest) returns (SubmitTasksResponse) {}
   rpc LookupTasks(LookupTasksRequest) returns (LookupTasksResponse) {}
   rpc PollTasks(PollTasksRequest) returns (PollTasksResponse) {}
+  rpc DiscardTasks(DiscardTasksRequest) returns (DiscardTasksResponse) {}
   rpc Version(VersionRequest) returns (VersionResponse) {}
 }
