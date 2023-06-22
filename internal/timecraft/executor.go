@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/stealthrocket/timecraft/sdk"
@@ -49,10 +51,12 @@ type ProcessID = uuid.UUID
 
 // ProcessInfo is information about a process.
 type ProcessInfo struct {
-	ID         ProcessID
-	WorkSocket string
+	// ID is the ID of the process.
+	ID ProcessID
 
-	cancel context.CancelFunc
+	// Transport is an HTTP transport that can be used to send work to
+	// the process over the work socket.
+	Transport *http.Transport
 }
 
 // NewExecutor creates an Executor.
@@ -222,17 +226,32 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 		return ProcessID{}, err
 	}
 
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-
 	httproxy.Start(ctx)
 
-	e.mu.Lock()
-	e.processes[processID] = &ProcessInfo{
-		ID:         processID,
-		WorkSocket: workSocket,
-		cancel:     cancel,
+	process := &ProcessInfo{
+		ID: processID,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (conn net.Conn, err error) {
+				// The process isn't necessarily available to take on work immediately.
+				// Retry with exponential backoff when an ECONNREFUSED is encountered.
+				// TODO: make these configurable?
+				const (
+					maxAttempts = 10
+					minDelay    = 500 * time.Millisecond
+					maxDelay    = 5 * time.Second
+				)
+				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
+					var d net.Dialer
+					conn, err = d.DialContext(ctx, "unix", workSocket)
+					return err != nil && errors.Is(err, syscall.ECONNREFUSED)
+				})
+				return
+			},
+		},
 	}
+
+	e.mu.Lock()
+	e.processes[processID] = process
 	e.mu.Unlock()
 
 	// Run the module in the background, and tidy up once complete.

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"sync"
@@ -200,17 +199,9 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 }
 
 func (s *TaskScheduler) doHTTP(process *ProcessInfo, task *TaskInfo, request *HTTPRequest) {
-	// TODO: better handling of race condition between spawning process and it
-	//  being ready to take on work
-	time.Sleep(1 * time.Second)
-
 	client := http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "unix", process.WorkSocket)
-			},
-		},
+		Transport: process.Transport,
+		// TODO: timeout
 	}
 
 	res, err := client.Do(&http.Request{
@@ -226,8 +217,8 @@ func (s *TaskScheduler) doHTTP(process *ProcessInfo, task *TaskInfo, request *HT
 		})
 		return
 	}
-	defer res.Body.Close()
 
+	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		s.synchronize(func() {
