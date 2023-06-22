@@ -304,37 +304,51 @@ type network[T sockaddr] interface {
 func connect[N network[T], T sockaddr](n N, addr netaddr[T]) (net.Conn, error) {
 	makeError := func(errno wasi.Errno) error {
 		netAddr := addr.netAddr()
-		return &net.OpError{Op: "connect", Net: netAddr.Network(), Addr: netAddr, Err: errno}
+		return &net.OpError{
+			Op:   "connect",
+			Net:  netAddr.Network(),
+			Addr: netAddr,
+			Err:  errno, // TODO: convert to syscall error
+		}
 	}
 	sock := n.socket(addr)
-	if sock == nil || sock.accept == nil {
+	if sock == nil {
 		return nil, makeError(wasi.ECONNREFUSED)
 	}
 	var zero T
-	conn, errno := sock.connect(zero, zero, true)
+	conn, errno := sock.connect(nil, zero, zero)
 	if errno != wasi.ESUCCESS {
 		return nil, makeError(errno)
 	}
-	return newHostConn(conn), nil
+	return newConn(conn), nil
 }
 
 func listen[N network[T], T sockaddr](n N, lock *sync.Mutex, addr netaddr[T]) (net.Listener, error) {
-	sock := newSocket[T](n, lock, stream, addr.protocol)
-	sock.accept = make(chan *socket[T], 128)
+	accept := make(chan *socket[T], 128)
+	socket := newSocket[T](n, stream, addr.protocol, lock)
+	socket.accept = accept
+	socket.listen = true
 
-	if errno := n.bind(addr.sockaddr, sock); errno != wasi.ESUCCESS {
+	if errno := n.bind(addr.sockaddr, socket); errno != wasi.ESUCCESS {
 		netAddr := addr.netAddr()
-		return nil, &net.OpError{Op: "listen", Net: netAddr.Network(), Addr: netAddr, Err: errno}
+		return nil, &net.OpError{
+			Op:   "listen",
+			Net:  netAddr.Network(),
+			Addr: netAddr,
+			Err:  errno, // TODO: convert to syscall error
+		}
 	}
 
 	lstn := &listener[T]{
-		socket: sock,
-		addr:   sock.laddr.netAddr(sock.proto),
+		accept: accept,
+		socket: socket,
+		addr:   socket.laddr.netAddr(socket.proto),
 	}
 	return lstn, nil
 }
 
 type listener[T sockaddr] struct {
+	accept chan *socket[T]
 	socket *socket[T]
 	addr   net.Addr
 }
@@ -349,16 +363,15 @@ func (l *listener[T]) Addr() net.Addr {
 }
 
 func (l *listener[T]) Accept() (net.Conn, error) {
-	select {
-	case socket := <-l.socket.accept:
-		if socket.host {
-			return newGuestConn(socket), nil
-		} else {
-			return newHostConn(socket), nil
-		}
-	case <-l.socket.recv.done:
+	socket, ok := <-l.accept
+	if !ok {
 		return nil, net.ErrClosed
 	}
+	conn := newConn(socket)
+	if socket.host {
+		conn.swap()
+	}
+	return conn, nil
 }
 
 type ipnet[T inaddr[T]] struct {

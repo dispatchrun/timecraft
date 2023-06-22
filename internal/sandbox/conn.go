@@ -1,18 +1,16 @@
 package sandbox
 
 import (
-	"context"
-	"errors"
 	"io"
 	"net"
 	"os"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/stealthrocket/wasi-go"
 )
 
+/*
 type packetConn[T sockaddr] struct {
 	net       network[T]
 	proto     protocol
@@ -124,216 +122,147 @@ func (c *packetConn[T]) SetWriteDeadline(t time.Time) error {
 		return nil
 	}
 }
+*/
 
-type hostConn[T sockaddr] struct {
-	socket    *socket[T]
-	laddr     net.Addr
-	raddr     net.Addr
+type conn[T sockaddr] struct {
+	socket *socket[T]
+	laddr  net.Addr
+	raddr  net.Addr
+
+	rmu       sync.Mutex
+	rev       *event
+	rbuf      *sockbuf[T]
 	rdeadline deadline
+	rpoll     chan struct{}
+
+	wmu       sync.Mutex
+	wev       *event
+	wbuf      *sockbuf[T]
 	wdeadline deadline
+	wpoll     chan struct{}
+
+	done chan struct{}
+	once sync.Once
 }
 
-func newHostConn[T sockaddr](socket *socket[T]) *hostConn[T] {
-	return &hostConn[T]{
+func newConn[T sockaddr](socket *socket[T]) *conn[T] {
+	return &conn[T]{
 		socket:    socket,
+		rbuf:      socket.rbuf,
+		wbuf:      socket.wbuf,
+		rev:       socket.rev,
+		wev:       socket.wev,
 		laddr:     socket.laddr.netAddr(socket.proto),
 		raddr:     socket.raddr.netAddr(socket.proto),
 		rdeadline: makeDeadline(),
 		wdeadline: makeDeadline(),
+		rpoll:     make(chan struct{}),
+		wpoll:     make(chan struct{}),
+		done:      make(chan struct{}),
 	}
 }
 
-func (c *hostConn[T]) Close() error {
+func (c *conn[T]) swap() {
+	c.rbuf, c.wbuf = c.wbuf, c.rbuf
+	c.rev, c.wev = c.wev, c.rev
+}
+
+func (c *conn[T]) Close() error {
 	c.socket.close()
 	c.rdeadline.set(time.Time{})
 	c.wdeadline.set(time.Time{})
+	c.once.Do(func() { close(c.done) })
 	return nil
 }
 
-func (c *hostConn[T]) Read(b []byte) (int, error) {
-	pipe := c.socket.send
-	pipe.mu.Lock()
-	defer pipe.mu.Unlock()
+func (c *conn[T]) Read(b []byte) (int, error) {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	for {
+		if c.rdeadline.expired() {
+			return 0, os.ErrDeadlineExceeded
+		}
 
-	if c.rdeadline.expired() {
-		return 0, os.ErrDeadlineExceeded
-	}
+		if !c.rev.poll(c.rpoll) {
+			select {
+			case <-c.rpoll:
+			case <-c.done:
+				return 0, io.EOF
+			case <-c.rdeadline.channel():
+				return 0, os.ErrDeadlineExceeded
+			}
+		}
 
-	pipe.ev.trigger()
-	select {
-	case pipe.ch <- b:
-		return len(b) - len(<-pipe.ch), nil
-	case <-c.rdeadline.channel():
-		return 0, os.ErrDeadlineExceeded
-	case <-pipe.done:
-		return 0, io.EOF
-	}
-}
-
-func (c *hostConn[T]) Write(b []byte) (n int, err error) {
-	pipe := c.socket.recv
-	pipe.mu.Lock()
-	defer pipe.mu.Unlock()
-
-	if c.wdeadline.expired() {
-		return 0, os.ErrDeadlineExceeded
-	}
-
-	for n < len(b) {
-		pipe.ev.trigger()
-		select {
-		case pipe.ch <- b[n:]:
-			n = len(b) - len(<-pipe.ch)
-		case <-c.wdeadline.channel():
-			return n, os.ErrDeadlineExceeded
-		case <-pipe.done:
-			return n, io.ErrClosedPipe
+		n, _, _, errno := c.rbuf.recv([]wasi.IOVec{b})
+		if errno == wasi.ESUCCESS {
+			if n == 0 {
+				return 0, io.EOF
+			}
+			return int(n), nil
+		}
+		if errno != wasi.EAGAIN {
+			return int(n), errno // TODO: convert to syscall error
 		}
 	}
-	return n, nil
 }
 
-func (c *hostConn[T]) LocalAddr() net.Addr {
+func (c *conn[T]) Write(b []byte) (int, error) {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+
+	var n int
+	for {
+		if c.wdeadline.expired() {
+			return n, os.ErrDeadlineExceeded
+		}
+
+		if !c.wev.poll(c.wpoll) {
+			select {
+			case <-c.wpoll:
+			case <-c.done:
+				return n, io.EOF
+			case <-c.wdeadline.channel():
+				return n, os.ErrDeadlineExceeded
+			}
+		}
+
+		r, errno := c.wbuf.send([]wasi.IOVec{b}, c.socket.laddr)
+		n += int(r)
+		if errno == wasi.ESUCCESS {
+			if int(r) < len(b) {
+				b = b[r:]
+				continue
+			}
+			return n, nil
+		}
+		if errno != wasi.EAGAIN {
+			return n, errno // TODO: convert to syscall error
+		}
+	}
+}
+
+func (c *conn[T]) LocalAddr() net.Addr {
 	return c.laddr
 }
 
-func (c *hostConn[T]) RemoteAddr() net.Addr {
+func (c *conn[T]) RemoteAddr() net.Addr {
 	return c.raddr
 }
 
-func (c *hostConn[T]) SetDeadline(t time.Time) error {
-	return errors.Join(c.SetReadDeadline(t), c.SetWriteDeadline(t))
-}
-
-func (c *hostConn[T]) SetReadDeadline(t time.Time) error {
-	select {
-	case <-c.socket.send.done:
-		return net.ErrClosed
-	default:
-		c.rdeadline.set(t)
-		return nil
-	}
-}
-
-func (c *hostConn[T]) SetWriteDeadline(t time.Time) error {
-	select {
-	case <-c.socket.recv.done:
-		return net.ErrClosed
-	default:
-		c.wdeadline.set(t)
-		return nil
-	}
-}
-
-type guestConn[T sockaddr] struct {
-	socket    *socket[T]
-	laddr     net.Addr
-	raddr     net.Addr
-	rdeadline deadline
-	wdeadline deadline
-}
-
-func newGuestConn[T sockaddr](socket *socket[T]) *guestConn[T] {
-	return &guestConn[T]{
-		socket:    socket,
-		laddr:     socket.raddr.netAddr(socket.proto),
-		raddr:     socket.laddr.netAddr(socket.proto),
-		rdeadline: makeDeadline(),
-		wdeadline: makeDeadline(),
-	}
-}
-
-func (c *guestConn[T]) Close() error {
-	c.socket.close()
-	c.rdeadline.set(time.Time{})
-	c.wdeadline.set(time.Time{})
+func (c *conn[T]) SetDeadline(t time.Time) error {
+	c.rdeadline.set(t)
+	c.wdeadline.set(t)
 	return nil
 }
 
-func (c *guestConn[T]) Read(b []byte) (int, error) {
-	if len(b) == 0 {
-		return 0, nil
-	}
-	if c.rdeadline.expired() {
-		return 0, os.ErrDeadlineExceeded
-	}
-	ctx := context.Background()
-	pipe := c.socket.recv
-	timeout := c.rdeadline.channel()
-	iovs := []wasi.IOVec{b}
-	size, errno := pipe.ch.read(ctx, iovs, 0, &pipe.ev, timeout, pipe.done)
-	switch errno {
-	case wasi.ESUCCESS:
-		if size == 0 {
-			return 0, io.EOF
-		}
-		return int(size), nil
-	case wasi.ETIMEDOUT:
-		return int(size), os.ErrDeadlineExceeded
-	case wasi.EBADF:
-		return int(size), net.ErrClosed
-	default:
-		return int(size), errno
-	}
+func (c *conn[T]) SetReadDeadline(t time.Time) error {
+	c.rdeadline.set(t)
+	return nil
 }
 
-func (c *guestConn[T]) Write(b []byte) (n int, err error) {
-	if len(b) == 0 {
-		return 0, nil
-	}
-	if c.wdeadline.expired() {
-		return 0, os.ErrDeadlineExceeded
-	}
-	ctx := context.Background()
-	pipe := c.socket.send
-	timeout := c.wdeadline.channel()
-	for n < len(b) {
-		iovs := []wasi.IOVec{b[n:]}
-		size, errno := pipe.ch.write(ctx, iovs, 0, &pipe.ev, timeout, pipe.done)
-		n += int(size)
-		switch errno {
-		case wasi.ESUCCESS:
-		case wasi.ETIMEDOUT:
-			return n, os.ErrDeadlineExceeded
-		case wasi.EBADF:
-			return n, net.ErrClosed
-		default:
-			return n, errno
-		}
-	}
-	return n, nil
-}
-
-func (c *guestConn[T]) LocalAddr() net.Addr {
-	return c.laddr
-}
-
-func (c *guestConn[T]) RemoteAddr() net.Addr {
-	return c.raddr
-}
-
-func (c *guestConn[T]) SetDeadline(t time.Time) error {
-	return errors.Join(c.SetReadDeadline(t), c.SetWriteDeadline(t))
-}
-
-func (c *guestConn[T]) SetReadDeadline(t time.Time) error {
-	select {
-	case <-c.socket.recv.done:
-		return net.ErrClosed
-	default:
-		c.rdeadline.set(t)
-		return nil
-	}
-}
-
-func (c *guestConn[T]) SetWriteDeadline(t time.Time) error {
-	select {
-	case <-c.socket.send.done:
-		return net.ErrClosed
-	default:
-		c.wdeadline.set(t)
-		return nil
-	}
+func (c *conn[T]) SetWriteDeadline(t time.Time) error {
+	c.wdeadline.set(t)
+	return nil
 }
 
 type deadline struct {

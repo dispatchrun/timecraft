@@ -125,10 +125,22 @@ func (ev *event) poll(signal chan<- struct{}) bool {
 }
 
 func (ev *event) trigger() {
-	ev.lock.Lock()
+	if ev.lock != nil {
+		ev.lock.Lock()
+	}
 	ev.status.CompareAndSwap(cleared, ready)
 	trigger(ev.signal)
-	ev.lock.Unlock()
+	if ev.lock != nil {
+		ev.lock.Unlock()
+	}
+}
+
+func (ev *event) update(trigger bool) {
+	if trigger {
+		ev.trigger()
+	} else {
+		ev.clear()
+	}
 }
 
 func trigger(signal chan<- struct{}) {
