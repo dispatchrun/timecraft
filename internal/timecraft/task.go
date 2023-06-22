@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
-	"net"
+	"math"
 	"net/http"
 	"net/url"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -200,34 +202,49 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 }
 
 func (s *TaskScheduler) doHTTP(process *ProcessInfo, task *TaskInfo, request *HTTPRequest) {
-	// TODO: better handling of race condition between spawning process and it
-	//  being ready to take on work
-	time.Sleep(1 * time.Second)
-
 	client := http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "unix", process.WorkSocket)
-			},
-		},
+		Transport: process.Transport,
+		// TODO: timeout
 	}
 
-	res, err := client.Do(&http.Request{
-		Method: request.Method,
-		URL:    &url.URL{Scheme: "http", Host: "timecraft", Path: request.Path},
-		Header: request.Headers,
-		Body:   io.NopCloser(bytes.NewReader(request.Body)),
-	})
+	var res *http.Response
+	var err error
+
+	const (
+		maxAttempts = 10
+		minDelay    = 500 * time.Millisecond
+		maxDelay    = 5 * time.Second
+	)
+	for i := 0; true; i++ {
+		res, err = client.Do(&http.Request{
+			Method: request.Method,
+			URL:    &url.URL{Scheme: "http", Host: "timecraft", Path: request.Path},
+			Header: request.Headers,
+			Body:   io.NopCloser(bytes.NewReader(request.Body)),
+		})
+		if err == nil || !errors.Is(err, syscall.ECONNREFUSED) || i == maxAttempts {
+			break
+		}
+		delay := minDelay * time.Duration(math.Pow(2, float64(i)))
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+		time.Sleep(delay)
+		i++
+	}
 	if err != nil {
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			err = fmt.Errorf("failed to connect to process after %d attempts: %w", maxAttempts, err)
+		}
+		// TODO: kill process here?
 		s.synchronize(func() {
 			task.state = Error
 			task.err = err
 		})
 		return
 	}
-	defer res.Body.Close()
 
+	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		s.synchronize(func() {

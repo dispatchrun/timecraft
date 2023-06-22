@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -49,8 +50,12 @@ type ProcessID = uuid.UUID
 
 // ProcessInfo is information about a process.
 type ProcessInfo struct {
-	ID         ProcessID
-	WorkSocket string
+	// ID is the ID of the process.
+	ID ProcessID
+
+	// Transport is an HTTP transport that can be used to send work to
+	// the process over the work socket.
+	Transport *http.Transport
 
 	cancel context.CancelFunc
 }
@@ -229,9 +234,14 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 
 	e.mu.Lock()
 	e.processes[processID] = &ProcessInfo{
-		ID:         processID,
-		WorkSocket: workSocket,
-		cancel:     cancel,
+		ID: processID,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "unix", workSocket)
+			},
+		},
+		cancel: cancel,
 	}
 	e.mu.Unlock()
 
