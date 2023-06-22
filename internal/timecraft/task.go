@@ -295,7 +295,10 @@ func (s *TaskScheduler) completeTask(task *TaskInfo, err error, output TaskOutpu
 	})
 
 	if task.completions != nil {
-		task.completions <- task.id
+		select {
+		case <-s.ctx.Done():
+		case task.completions <- task.id:
+		}
 	}
 }
 
