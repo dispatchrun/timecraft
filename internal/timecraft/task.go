@@ -73,6 +73,8 @@ type TaskInfo struct {
 	input       TaskInput
 	output      TaskOutput
 	err         error
+	ctx         context.Context
+	cancel      context.CancelFunc
 	completions chan<- TaskID
 }
 
@@ -112,6 +114,8 @@ func (s *TaskScheduler) Submit(moduleSpec ModuleSpec, logSpec *LogSpec, input Ta
 		completions: completions,
 	}
 
+	task.ctx, task.cancel = context.WithCancel(s.ctx)
+
 	s.synchronize(func() {
 		s.tasks[task.id] = task
 	})
@@ -135,7 +139,9 @@ func (s *TaskScheduler) Lookup(id TaskID) (task TaskInfo, ok bool) {
 // Discard discards a task by ID.
 func (s *TaskScheduler) Discard(id TaskID) (ok bool) {
 	s.synchronize(func() {
-		if _, ok = s.tasks[id]; ok {
+		var task *TaskInfo
+		if task, ok = s.tasks[id]; ok {
+			task.cancel()
 			delete(s.tasks, id)
 		}
 	})
@@ -223,12 +229,14 @@ func (s *TaskScheduler) executeHTTPTask(process *ProcessInfo, task *TaskInfo, re
 		// TODO: timeout
 	}
 
-	res, err := client.Do(&http.Request{
+	req := (&http.Request{
 		Method: request.Method,
 		URL:    &url.URL{Scheme: "http", Host: "timecraft", Path: request.Path},
 		Header: request.Headers,
 		Body:   io.NopCloser(bytes.NewReader(request.Body)),
-	})
+	}).WithContext(task.ctx)
+
+	res, err := client.Do(req)
 	if err != nil {
 		s.completeTask(task, err, nil)
 		return
