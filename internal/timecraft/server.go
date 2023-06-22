@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"time"
@@ -21,9 +22,10 @@ type ServerFactory struct {
 }
 
 // NewServer creates a new Server.
-func (f *ServerFactory) NewServer(processID uuid.UUID, moduleSpec ModuleSpec, logSpec *LogSpec) *Server {
+func (f *ServerFactory) NewServer(ctx context.Context, processID uuid.UUID, moduleSpec ModuleSpec, logSpec *LogSpec) *Server {
 	return &Server{
-		scheduler:  f.Scheduler,
+		ctx:        ctx,
+		tasks:      NewTaskGroup(f.Scheduler),
 		processID:  processID,
 		moduleSpec: moduleSpec,
 		logSpec:    logSpec,
@@ -35,10 +37,15 @@ func (f *ServerFactory) NewServer(processID uuid.UUID, moduleSpec ModuleSpec, lo
 type Server struct {
 	serverv1connect.UnimplementedTimecraftServiceHandler
 
-	scheduler  *TaskScheduler
+	ctx        context.Context
+	tasks      *TaskGroup
 	processID  uuid.UUID
 	moduleSpec ModuleSpec
 	logSpec    *LogSpec
+}
+
+func (s *Server) Close() error {
+	return s.tasks.Close()
 }
 
 // Serve serves using the specified net.Listener.
@@ -104,7 +111,7 @@ func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 		input = httpRequest
 	}
 
-	taskID, err := s.scheduler.Submit(moduleSpec, logSpec, input, nil)
+	taskID, err := s.tasks.Submit(moduleSpec, logSpec, input)
 	if err != nil {
 		return TaskID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to submit task: %w", err))
 	}
@@ -115,29 +122,27 @@ func (s *Server) LookupTasks(ctx context.Context, req *connect.Request[v1.Lookup
 	res := connect.NewResponse(&v1.LookupTasksResponse{
 		Responses: make([]*v1.TaskResponse, len(req.Msg.TaskId)),
 	})
-	for i, taskID := range req.Msg.TaskId {
-		taskResponse, err := s.lookupTask(taskID)
+	for i, rawTaskID := range req.Msg.TaskId {
+		taskID, err := uuid.Parse(rawTaskID)
 		if err != nil {
-			return nil, err
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid task ID: %w", err))
 		}
-		res.Msg.Responses[i] = taskResponse
+		res.Msg.Responses[i] = s.lookupTask(taskID)
 	}
 	return res, nil
 }
 
-func (s *Server) lookupTask(rawTaskID string) (*v1.TaskResponse, error) {
-	taskID, err := uuid.Parse(rawTaskID)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid task ID: %w", err))
-	}
-	task, ok := s.scheduler.Lookup(taskID)
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no task with ID %s", taskID))
-	}
-	res := &v1.TaskResponse{
+func (s *Server) lookupTask(taskID TaskID) (res *v1.TaskResponse) {
+	res = &v1.TaskResponse{
 		TaskId: taskID.String(),
-		State:  v1.TaskState(task.state),
 	}
+	task, ok := s.tasks.Lookup(taskID)
+	if !ok {
+		res.State = v1.TaskState_TASK_STATE_ERROR
+		res.ErrorMessage = "task not found"
+		return
+	}
+	res.State = v1.TaskState(task.state)
 	if task.processID != (ProcessID{}) {
 		res.ProcessId = task.processID.String()
 	}
@@ -158,7 +163,7 @@ func (s *Server) lookupTask(rawTaskID string) (*v1.TaskResponse, error) {
 		}
 		res.Output = &v1.TaskResponse_HttpResponse{HttpResponse: httpResponse}
 	}
-	return res, nil
+	return
 }
 
 func (s *Server) PollTasks(ctx context.Context, req *connect.Request[v1.PollTasksRequest]) (*connect.Response[v1.PollTasksResponse], error) {
@@ -166,7 +171,32 @@ func (s *Server) PollTasks(ctx context.Context, req *connect.Request[v1.PollTask
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("batch size must be > 0"))
 	}
 
-	panic("not implemented")
+	delay := time.Duration(req.Msg.TimeoutNs)
+	if delay < 0 {
+		delay = math.MaxInt64
+	}
+	timeout := time.After(delay)
+
+	res := connect.NewResponse(&v1.PollTasksResponse{})
+
+poll_loop:
+	for {
+		select {
+		case <-ctx.Done():
+			break poll_loop
+		case <-s.ctx.Done():
+			break poll_loop
+		case <-timeout:
+			break poll_loop
+		case taskID := <-s.tasks.Poll():
+			taskResponse := s.lookupTask(taskID)
+			res.Msg.Responses = append(res.Msg.Responses, taskResponse)
+			if len(res.Msg.Responses) == int(req.Msg.BatchSize) {
+				break poll_loop
+			}
+		}
+	}
+	return res, nil
 }
 
 func (s *Server) DiscardTasks(ctx context.Context, req *connect.Request[v1.DiscardTasksRequest]) (*connect.Response[v1.DiscardTasksResponse], error) {
@@ -175,7 +205,7 @@ func (s *Server) DiscardTasks(ctx context.Context, req *connect.Request[v1.Disca
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("task ID at index %d is invalid: %w", i, err))
 		}
-		_ = s.scheduler.Discard(taskID)
+		_ = s.tasks.Discard(taskID)
 	}
 	return connect.NewResponse(&v1.DiscardTasksResponse{}), nil
 }

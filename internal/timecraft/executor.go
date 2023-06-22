@@ -189,7 +189,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
-	server := e.serverFactory.NewServer(processID, moduleSpec, logSpec)
+	server := e.serverFactory.NewServer(e.ctx, processID, moduleSpec, logSpec)
 	timecraftSocket, timecraftSocketCleanup := makeSocketPath()
 	serverListener, err := net.Listen("unix", timecraftSocket)
 	if err != nil {
@@ -259,6 +259,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 		defer timecraftSocketCleanup()
 		defer workSocketCleanup()
 		defer serverListener.Close()
+		defer server.Close()
 		defer system.Close(ctx)
 		defer wasmModule.Close(ctx)
 		if logSpec != nil {

@@ -279,10 +279,99 @@ func (s *TaskScheduler) synchronize(fn func()) {
 	fn()
 }
 
+// Close closes the TaskGroup and discards all in-flight tasks.
 func (s *TaskScheduler) Close() error {
 	s.once.Do(s.init)
 
 	s.cancel()
 	s.wg.Wait()
+	return nil
+}
+
+// TaskGroup manages a logical group of tasks.
+//
+// It exposes nearly the same API as the TaskScheduler, but adds a new Poll
+// method, ensures that only tasks local to the group can be retrieved or
+// discarded through the same group, and automatically discards all in-flight
+// tasks when closed.
+type TaskGroup struct {
+	scheduler   *TaskScheduler
+	tasks       map[TaskID]struct{}
+	completions chan TaskID
+	mu          sync.Mutex
+}
+
+// NewTaskGroup creates a new task group.
+func NewTaskGroup(s *TaskScheduler) *TaskGroup {
+	return &TaskGroup{
+		scheduler:   s,
+		tasks:       map[TaskID]struct{}{},
+		completions: make(chan TaskID),
+	}
+}
+
+// Submit submits a task for execution.
+//
+// See TaskScheduler.Submit for more information.
+func (g *TaskGroup) Submit(moduleSpec ModuleSpec, logSpec *LogSpec, input TaskInput) (TaskID, error) {
+	taskID, err := g.scheduler.Submit(moduleSpec, logSpec, input, g.completions)
+	if err != nil {
+		return TaskID{}, err
+	}
+	g.mu.Lock()
+	g.tasks[taskID] = struct{}{}
+	g.mu.Unlock()
+	return taskID, nil
+}
+
+// Lookup looks up a task by ID.
+//
+// See TaskScheduler.Lookup for more information.
+func (g *TaskGroup) Lookup(id TaskID) (task TaskInfo, ok bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if _, ok = g.tasks[id]; !ok {
+		return
+	}
+
+	return g.scheduler.Lookup(id)
+}
+
+// Poll returns a channel that receives completion notifications
+// for tasks in the group.
+func (g *TaskGroup) Poll() <-chan TaskID {
+	return g.completions
+}
+
+// Discard discards a task by ID.
+//
+// See TaskScheduler.Discard for more information.
+func (g *TaskGroup) Discard(id TaskID) (ok bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if _, ok = g.tasks[id]; !ok {
+		return
+	}
+	ok = g.scheduler.Discard(id)
+	delete(g.tasks, id)
+	return
+}
+
+// Close closes the TaskGroup and discards all in-flight tasks.
+func (g *TaskGroup) Close() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	for taskID := range g.tasks {
+		g.scheduler.Discard(taskID)
+	}
+	g.tasks = nil
+
+	// Note: we don't close(g.completions) here in case the scheduler tries to
+	// write a completion notification to the channel (which would cause a
+	// panic). Just let the channel be garbage collected.
+
 	return nil
 }
