@@ -145,5 +145,4 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	return processManager.Wait(processID)
-	// return processManager.WaitAll()
 }

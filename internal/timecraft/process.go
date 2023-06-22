@@ -278,7 +278,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 			delete(pm.processes, processID)
 			pm.mu.Unlock()
 		}()
-		defer cancel(err)
+		defer func() {
+			cancel(err)
+		}()
 
 		return runModule(ctx, pm.runtime, wasmModule)
 	})
@@ -317,7 +319,6 @@ func (pm *ProcessManager) Wait(processID ProcessID) error {
 	case context.Canceled:
 		err = nil
 	}
-
 	return err
 }
 
