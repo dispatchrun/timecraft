@@ -13,6 +13,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// Task scheduler configuration.
+// TODO: make this configurable via TaskScheduler and/or via Submit(..)
+const (
+	// executionTimeout is the time limit for tasks once they're executing.
+	executionTimeout = 1 * time.Minute
+
+	// expiryTimeout is the maximum amount of time a task can be
+	// queued for before it expires.
+	expiryTimeout = 10 * time.Minute
+)
+
 // TaskScheduler schedules tasks.
 //
 // A task is a unit of work. A process (managed by the Executor) is
@@ -176,6 +187,11 @@ func (s *TaskScheduler) scheduleLoop(queue <-chan *TaskInfo) {
 }
 
 func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
+	if time.Since(task.createdAt) > expiryTimeout {
+		s.completeTask(task, errors.New("task expired"), nil)
+		return
+	}
+
 	// TODO: add other parts of the ModuleSpec to the key
 	key := processKey{path: task.moduleSpec.Path}
 
@@ -226,7 +242,7 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 func (s *TaskScheduler) executeHTTPTask(process *ProcessInfo, task *TaskInfo, request *HTTPRequest) {
 	client := http.Client{
 		Transport: process.Transport,
-		// TODO: timeout
+		Timeout:   executionTimeout,
 	}
 
 	req := (&http.Request{
