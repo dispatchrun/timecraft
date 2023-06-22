@@ -232,8 +232,7 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 
 	httproxy.Start(ctx)
 
-	e.mu.Lock()
-	e.processes[processID] = &ProcessInfo{
+	process := &ProcessInfo{
 		ID: processID,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -243,6 +242,9 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 		},
 		cancel: cancel,
 	}
+
+	e.mu.Lock()
+	e.processes[processID] = process
 	e.mu.Unlock()
 
 	// Run the module in the background, and tidy up once complete.
