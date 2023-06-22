@@ -421,7 +421,11 @@ func (s *socket[T]) wait(ctx context.Context, mu *sync.Mutex, ev *event, timeout
 	if s.poll == nil {
 		return wasi.ENOTSUP
 	}
-	if !ev.poll(s.poll) {
+
+	var ready bool
+	ev.synchronize(func() { ready = ev.poll(s.poll) })
+
+	if !ready {
 		if mu != nil {
 			mu.Unlock()
 			defer mu.Lock()
