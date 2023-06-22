@@ -320,7 +320,7 @@ func connect[N network[T], T sockaddr](n N, addr netaddr[T]) (net.Conn, error) {
 	if errno != wasi.ESUCCESS {
 		return nil, makeError(errno)
 	}
-	return newConn(conn), nil
+	return newHostConn(conn), nil
 }
 
 func listen[N network[T], T sockaddr](n N, lock *sync.Mutex, addr netaddr[T]) (net.Listener, error) {
@@ -342,7 +342,6 @@ func listen[N network[T], T sockaddr](n N, lock *sync.Mutex, addr netaddr[T]) (n
 	lstn := &listener[T]{
 		accept: accept,
 		socket: socket,
-		addr:   socket.laddr.netAddr(socket.proto),
 	}
 	return lstn, nil
 }
@@ -350,7 +349,6 @@ func listen[N network[T], T sockaddr](n N, lock *sync.Mutex, addr netaddr[T]) (n
 type listener[T sockaddr] struct {
 	accept chan *socket[T]
 	socket *socket[T]
-	addr   net.Addr
 }
 
 func (l *listener[T]) Close() error {
@@ -359,7 +357,7 @@ func (l *listener[T]) Close() error {
 }
 
 func (l *listener[T]) Addr() net.Addr {
-	return l.addr
+	return l.socket.laddr.netAddr(l.socket.proto)
 }
 
 func (l *listener[T]) Accept() (net.Conn, error) {
@@ -367,11 +365,11 @@ func (l *listener[T]) Accept() (net.Conn, error) {
 	if !ok {
 		return nil, net.ErrClosed
 	}
-	conn := newConn(socket)
 	if socket.host {
-		conn.swap()
+		return newGuestConn(socket), nil
+	} else {
+		return newHostConn(socket), nil
 	}
-	return conn, nil
 }
 
 type ipnet[T inaddr[T]] struct {

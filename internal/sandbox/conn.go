@@ -126,8 +126,8 @@ func (c *packetConn[T]) SetWriteDeadline(t time.Time) error {
 
 type conn[T sockaddr] struct {
 	socket *socket[T]
-	laddr  net.Addr
-	raddr  net.Addr
+	laddr  T
+	raddr  T
 
 	rmu       sync.Mutex
 	rev       *event
@@ -148,12 +148,6 @@ type conn[T sockaddr] struct {
 func newConn[T sockaddr](socket *socket[T]) *conn[T] {
 	return &conn[T]{
 		socket:    socket,
-		rbuf:      socket.rbuf,
-		wbuf:      socket.wbuf,
-		rev:       socket.rev,
-		wev:       socket.wev,
-		laddr:     socket.laddr.netAddr(socket.proto),
-		raddr:     socket.raddr.netAddr(socket.proto),
 		rdeadline: makeDeadline(),
 		wdeadline: makeDeadline(),
 		rpoll:     make(chan struct{}),
@@ -162,9 +156,26 @@ func newConn[T sockaddr](socket *socket[T]) *conn[T] {
 	}
 }
 
-func (c *conn[T]) swap() {
-	c.rbuf, c.wbuf = c.wbuf, c.rbuf
-	c.rev, c.wev = c.wev, c.rev
+func newHostConn[T sockaddr](socket *socket[T]) *conn[T] {
+	c := newConn(socket)
+	c.laddr = socket.raddr
+	c.raddr = socket.laddr
+	c.rbuf = socket.wbuf
+	c.wbuf = socket.rbuf
+	c.rev = &socket.wbuf.rev
+	c.wev = &socket.rbuf.wev
+	return c
+}
+
+func newGuestConn[T sockaddr](socket *socket[T]) *conn[T] {
+	c := newConn(socket)
+	c.laddr = socket.laddr
+	c.raddr = socket.raddr
+	c.rbuf = socket.rbuf
+	c.wbuf = socket.wbuf
+	c.rev = &socket.rbuf.rev
+	c.wev = &socket.wbuf.wev
+	return c
 }
 
 func (c *conn[T]) Close() error {
@@ -178,6 +189,7 @@ func (c *conn[T]) Close() error {
 func (c *conn[T]) Read(b []byte) (int, error) {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
+
 	for {
 		if c.rdeadline.expired() {
 			return 0, os.ErrDeadlineExceeded
@@ -226,7 +238,7 @@ func (c *conn[T]) Write(b []byte) (int, error) {
 			}
 		}
 
-		r, errno := c.wbuf.send([]wasi.IOVec{b}, c.socket.laddr)
+		r, errno := c.wbuf.send([]wasi.IOVec{b}, c.laddr)
 		n += int(r)
 		if errno == wasi.ESUCCESS {
 			if int(r) < len(b) {
@@ -242,27 +254,42 @@ func (c *conn[T]) Write(b []byte) (int, error) {
 }
 
 func (c *conn[T]) LocalAddr() net.Addr {
-	return c.laddr
+	return c.laddr.netAddr(c.socket.proto)
 }
 
 func (c *conn[T]) RemoteAddr() net.Addr {
-	return c.raddr
+	return c.raddr.netAddr(c.socket.proto)
 }
 
 func (c *conn[T]) SetDeadline(t time.Time) error {
-	c.rdeadline.set(t)
-	c.wdeadline.set(t)
-	return nil
+	select {
+	case <-c.done:
+		return net.ErrClosed
+	default:
+		c.rdeadline.set(t)
+		c.wdeadline.set(t)
+		return nil
+	}
 }
 
 func (c *conn[T]) SetReadDeadline(t time.Time) error {
-	c.rdeadline.set(t)
-	return nil
+	select {
+	case <-c.done:
+		return net.ErrClosed
+	default:
+		c.rdeadline.set(t)
+		return nil
+	}
 }
 
 func (c *conn[T]) SetWriteDeadline(t time.Time) error {
-	c.wdeadline.set(t)
-	return nil
+	select {
+	case <-c.done:
+		return net.ErrClosed
+	default:
+		c.wdeadline.set(t)
+		return nil
+	}
 }
 
 type deadline struct {

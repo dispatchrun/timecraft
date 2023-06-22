@@ -47,8 +47,8 @@ func TestSandboxSystem(t *testing.T) {
 		go copyAndClose(config.Stdout, stdout)
 		go copyAndClose(config.Stderr, stderr)
 
-		//return sys, nil
-		return wasi.Trace(os.Stderr, sys), nil
+		return sys, nil
+		//return wasi.Trace(os.Stderr, sys), nil
 	})
 }
 

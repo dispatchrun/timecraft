@@ -176,10 +176,8 @@ func (sb *sockbuf[T]) sendmsg(iovs []wasi.IOVec, addr T) (size wasi.Size, errno 
 		size += wasi.Size(len(iov))
 	}
 
-	// Messages that are too large to fit in the socket buffer are dropped
-	// since this may only happen on datagram sockets which are lossy links.
 	if sb.buf.cap() < int(size) {
-		return size, wasi.ESUCCESS
+		return ^wasi.Size(0), wasi.EMSGSIZE
 	}
 	if sb.buf.avail() < int(size) {
 		return ^wasi.Size(0), wasi.EAGAIN
@@ -718,10 +716,10 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	s.allocateBuffersIfNil()
 
 	var sbuf *sockbuf[T]
+	var size wasi.Size
 	if s.typ == stream {
 		sbuf = s.wbuf
 	} else {
-		size := wasi.Size(0)
 		for _, iov := range iovs {
 			size += wasi.Size(len(iov))
 		}
@@ -735,7 +733,13 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 		sock.allocateBuffersIfNil()
 		sbuf = sock.rbuf
 	}
-	return s.sendmsg(sbuf, iovs, s.laddr)
+	n, errno := s.sendmsg(sbuf, iovs, s.laddr)
+	// Messages that are too large to fit in the socket buffer are dropped
+	// since this may only happen on datagram sockets which are lossy links.
+	if errno == wasi.EMSGSIZE {
+		return size, wasi.ESUCCESS
+	}
+	return n, errno
 }
 
 func (s *socket[T]) SockLocalAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno) {
