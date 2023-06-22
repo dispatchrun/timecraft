@@ -261,13 +261,13 @@ type socket[T sockaddr] struct {
 	raddr T
 	laddr T
 	bound T
+	mutex sync.Mutex
 	flags sockflags
 	// Events indicating readiness for read or write operations on the socket.
 	rev *event
 	wev *event
 	// For listening sockets, this event and channel are used to pass
 	// connections between the two ends of the network.
-	mutex  sync.Mutex
 	accept chan *socket[T]
 	// Connected sockets have a bidirectional pipe that links between the two
 	// ends of the socket pair.
