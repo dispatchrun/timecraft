@@ -30,14 +30,14 @@ const (
 	threadCount = 8
 )
 
-// TaskScheduler schedules tasks.
+// TaskScheduler schedules tasks across processes.
 //
-// A task is a unit of work. A process (managed by the Executor) is
+// A task is a unit of work. A process (managed by the ProcessManager) is
 // responsible for executing one or more tasks. The management of processes to
 // execute tasks and the scheduling of tasks across processes are both
-// implementation details.
+// implementation details of the scheduler.
 type TaskScheduler struct {
-	Executor *Executor
+	ProcessManager *ProcessManager
 
 	queue chan<- *TaskInfo
 	tasks map[TaskID]*TaskInfo
@@ -212,16 +212,16 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 		})
 		if ok {
 			// Check that the process is still alive.
-			process, ok = s.Executor.Lookup(processID)
+			process, ok = s.ProcessManager.Lookup(processID)
 		}
 
 		if !ok {
 			var err error
-			processID, err = s.Executor.Start(task.moduleSpec, task.logSpec)
+			processID, err = s.ProcessManager.Start(task.moduleSpec, task.logSpec)
 			if err != nil {
 				return nil, err
 			}
-			process, ok = s.Executor.Lookup(processID)
+			process, ok = s.ProcessManager.Lookup(processID)
 			if !ok {
 				return nil, errors.New("failed to start process")
 			}
