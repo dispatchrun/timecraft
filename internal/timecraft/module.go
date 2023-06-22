@@ -1,7 +1,9 @@
 package timecraft
 
 import (
+	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/timemachine"
@@ -44,8 +46,22 @@ type ModuleSpec struct {
 
 // Key is a string that uniquely identifies the ModuleSpec.
 func (m *ModuleSpec) Key() string {
-	// TODO: add more fields to key
-	return m.Path
+	// TODO: we need a hashable key, but ModuleSpec has nested slices. We also
+	//  need a string key for the singleflight library. This isn't very
+	//  efficient, doesn't consider all fields, and doesn't handle fields that
+	//  need canonicalization (e.g. sorting of environment variables)
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(":%d:%s", len(m.Path), m.Path))
+	b.WriteString(fmt.Sprintf(":%d", len(m.Args)))
+	for _, arg := range m.Args {
+		b.WriteString(fmt.Sprintf(":%d:%s", len(arg), arg))
+	}
+	b.WriteString(fmt.Sprintf(":%d", len(m.Env)))
+	for _, env := range m.Env {
+		b.WriteString(fmt.Sprintf(":%d:%s", len(env), env))
+	}
+	return b.String()
 }
 
 // LogSpec is details about the log that records a trace of execution.
