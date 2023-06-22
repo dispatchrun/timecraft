@@ -54,9 +54,9 @@ const (
 	// status.
 	Error
 
-	// Done indicates that the task executed successfully. This is a terminal
+	// Success indicates that the task executed successfully. This is a terminal
 	// status.
-	Done
+	Success
 )
 
 // TaskInput is input to a task.

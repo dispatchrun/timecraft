@@ -23,8 +23,9 @@ import (
 type TaskScheduler struct {
 	Executor *Executor
 
-	queue chan<- *TaskInfo
-	tasks map[TaskID]*TaskInfo
+	tasks       map[TaskID]*TaskInfo
+	submissions chan<- *TaskInfo
+	completions chan TaskID
 
 	// TODO: for now tasks are handled by exactly one process. Add a pool of
 	//  processes and then load balance tasks across them
@@ -58,9 +59,9 @@ const (
 	// status.
 	Error
 
-	// Done indicates that the task executed successfully. This is a terminal
+	// Success indicates that the task executed successfully. This is a terminal
 	// status.
-	Done
+	Success
 )
 
 // TaskInfo is information about a task.
@@ -110,7 +111,7 @@ func (s *TaskScheduler) SubmitTask(moduleSpec ModuleSpec, logSpec *LogSpec, inpu
 		s.tasks[task.id] = task
 	})
 
-	s.queue <- task
+	s.submissions <- task
 
 	return task.id, nil
 }
@@ -122,7 +123,8 @@ func (s *TaskScheduler) init() {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 
 	queue := make(chan *TaskInfo)
-	s.queue = queue
+	s.submissions = queue
+	s.completions = make(chan TaskID)
 
 	// TODO: spawn many goroutines to schedule tasks
 	s.wg.Add(1)
@@ -164,18 +166,12 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 		// TODO: use singleflight to initialize the process
 		processID, err = s.Executor.Start(task.moduleSpec, task.logSpec)
 		if err != nil {
-			s.synchronize(func() {
-				task.state = Error
-				task.err = err
-			})
+			s.completeTask(task, err, nil)
 			return
 		}
 		process, ok = s.Executor.Lookup(processID)
 		if !ok {
-			s.synchronize(func() {
-				task.state = Error
-				task.err = errors.New("failed to start process")
-			})
+			s.completeTask(task, errors.New("failed to start process"), nil)
 			return
 		}
 		s.synchronize(func() {
@@ -190,16 +186,13 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 
 	switch input := task.input.(type) {
 	case *HTTPRequest:
-		s.doHTTP(&process, task, input)
+		s.executeHTTPTask(&process, task, input)
 	default:
-		s.synchronize(func() {
-			task.state = Error
-			task.err = errors.New("invalid task input")
-		})
+		s.completeTask(task, errors.New("invalid task input"), nil)
 	}
 }
 
-func (s *TaskScheduler) doHTTP(process *ProcessInfo, task *TaskInfo, request *HTTPRequest) {
+func (s *TaskScheduler) executeHTTPTask(process *ProcessInfo, task *TaskInfo, request *HTTPRequest) {
 	// TODO: better handling of race condition between spawning process and it
 	//  being ready to take on work
 	time.Sleep(1 * time.Second)
@@ -220,31 +213,36 @@ func (s *TaskScheduler) doHTTP(process *ProcessInfo, task *TaskInfo, request *HT
 		Body:   io.NopCloser(bytes.NewReader(request.Body)),
 	})
 	if err != nil {
-		s.synchronize(func() {
-			task.state = Error
-			task.err = err
-		})
+		s.completeTask(task, err, nil)
 		return
 	}
 	defer res.Body.Close()
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		s.synchronize(func() {
-			task.state = Error
-			task.err = err
-		})
+		s.completeTask(task, err, nil)
 		return
 	}
 
+	s.completeTask(task, nil, &HTTPResponse{
+		StatusCode: res.StatusCode,
+		Headers:    res.Header,
+		Body:       body,
+	})
+}
+
+func (s *TaskScheduler) completeTask(task *TaskInfo, err error, output TaskOutput) {
 	s.synchronize(func() {
-		task.state = Done
-		task.output = &HTTPResponse{
-			StatusCode: res.StatusCode,
-			Headers:    res.Header,
-			Body:       body,
+		if err != nil {
+			task.state = Error
+			task.err = err
+		} else {
+			task.state = Success
+			task.output = output
 		}
 	})
+
+	s.completions <- task.id
 }
 
 // Lookup looks up a task by ID.
@@ -256,6 +254,11 @@ func (s *TaskScheduler) Lookup(id TaskID) (task TaskInfo, ok bool) {
 		}
 	})
 	return
+}
+
+// Poll returns a channel that receives task IDs that are complete.
+func (s *TaskScheduler) Poll() <-chan TaskID {
+	return s.completions
 }
 
 func (s *TaskScheduler) synchronize(fn func()) {

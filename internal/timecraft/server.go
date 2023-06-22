@@ -2,6 +2,7 @@ package timecraft
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -134,7 +135,8 @@ func (s *Server) lookupTask(rawTaskID string) (*v1.TaskResponse, error) {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no task with ID %s", taskID))
 	}
 	res := &v1.TaskResponse{
-		State: v1.TaskState(task.state),
+		TaskId: taskID.String(),
+		State:  v1.TaskState(task.state),
 	}
 	if task.processID != (ProcessID{}) {
 		res.ProcessId = task.processID.String()
@@ -157,6 +159,14 @@ func (s *Server) lookupTask(rawTaskID string) (*v1.TaskResponse, error) {
 		res.Output = &v1.TaskResponse_HttpResponse{HttpResponse: httpResponse}
 	}
 	return res, nil
+}
+
+func (s *Server) PollTasks(ctx context.Context, req *connect.Request[v1.PollTasksRequest]) (*connect.Response[v1.PollTasksResponse], error) {
+	if req.Msg.BatchSize <= 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("batch size must be > 0"))
+	}
+
+	panic("not implemented")
 }
 
 func (s *Server) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
