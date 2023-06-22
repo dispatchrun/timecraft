@@ -8,6 +8,36 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
+type sockflags uint32
+
+const (
+	sockClosed sockflags = 1 << iota
+	sockConn
+	sockHost
+	sockListen
+	sockNonBlock
+)
+
+func (f sockflags) has(flags sockflags) bool {
+	return (f & flags) != 0
+}
+
+func (f sockflags) with(flags sockflags) sockflags {
+	return f | flags
+}
+
+func (f sockflags) without(flags sockflags) sockflags {
+	return f & ^flags
+}
+
+func (f sockflags) withFDFlags(flags wasi.FDFlags) sockflags {
+	if flags.Has(wasi.NonBlock) {
+		return f.with(sockNonBlock)
+	} else {
+		return f.without(sockNonBlock)
+	}
+}
+
 type packet[T sockaddr] struct {
 	addr T
 	size wasi.Size
@@ -231,7 +261,7 @@ type socket[T sockaddr] struct {
 	raddr T
 	laddr T
 	bound T
-	flags wasi.FDFlags
+	flags sockflags
 	// Events indicating readiness for read or write operations on the socket.
 	rev *event
 	wev *event
@@ -247,18 +277,6 @@ type socket[T sockaddr] struct {
 	// difference in behavior between stream and datagram sockets.
 	sendmsg func(*sockbuf[T], []wasi.IOVec, T) (wasi.Size, wasi.Errno)
 	recvmsg func(*sockbuf[T], []wasi.IOVec) (wasi.Size, wasi.ROFlags, T, wasi.Errno)
-	// This field is set to true if the socket was created by the host, which
-	// allows listeners to detect if they are accepting connections from the
-	// guest, and construct the right connection type.
-	host bool
-	// A boolean used to indicate that this is a connected socket.
-	conn bool
-	// A boolean used to indicate that this is a listening socket.
-	listen bool
-	// A boolean indicating whether the socket has been closed. Closing may
-	// happen asynchronously so the expectation is for the methods to acquire
-	// the mutex lock before reading this value.
-	closed bool
 	// For connected sockets, this channel is used to asynchronously receive
 	// notification that a connection has been established.
 	errs <-chan wasi.Errno
@@ -307,9 +325,9 @@ func (s *socket[T]) close() {
 	wbuf := s.wbuf
 	errs := s.errs
 	accept := s.accept
-	closed := s.closed
 	cancel := s.cancel
-	s.closed = true
+	closed := (s.flags & sockClosed) != 0
+	s.flags = s.flags.with(sockClosed)
 	s.mutex.Unlock()
 
 	if closed {
@@ -346,12 +364,12 @@ func (s *socket[T]) close() {
 func (s *socket[T]) connect(peer *socket[T], laddr, raddr T) (*socket[T], wasi.Errno) {
 	lock := s.rev.lock
 	sock := newSocket[T](s.net, s.typ, s.proto, lock)
-	sock.conn = true
+	sock.flags = sock.flags.with(sockConn)
 	sock.laddr = laddr
 	sock.raddr = raddr
 
 	if peer == nil {
-		sock.host = true
+		sock.flags = sock.flags.with(sockHost)
 		sock.wbuf = newSocketBuffer[T](lock, int(sock.wbufsize))
 		sock.rbuf = newSocketBuffer[T](lock, int(sock.rbufsize))
 	} else {
@@ -367,7 +385,7 @@ func (s *socket[T]) connect(peer *socket[T], laddr, raddr T) (*socket[T], wasi.E
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.accept == nil || s.closed {
+	if s.flags.has(sockClosed) || s.accept == nil {
 		return nil, wasi.ECONNREFUSED
 	}
 
@@ -402,16 +420,16 @@ func (s *socket[T]) SockListen(ctx context.Context, backlog int) wasi.Errno {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.closed || s.conn {
+	if s.flags.has(sockClosed) || s.flags.has(sockConn) {
 		return wasi.EINVAL
 	}
 
-	if !s.listen {
+	if !s.flags.has(sockListen) {
 		if errno := s.bindToAny(); errno != wasi.ESUCCESS {
 			return errno
 		}
+		s.flags = s.flags.with(sockListen)
 		s.accept = make(chan *socket[T], backlog)
-		s.listen = true
 	}
 
 	return wasi.ESUCCESS
@@ -421,13 +439,13 @@ func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, w
 	if s.typ == datagram {
 		return nil, wasi.ENOTSUP
 	}
-	if !s.flags.Has(wasi.NonBlock) {
+	if !s.flags.has(sockNonBlock) {
 		return nil, wasi.ENOTSUP
 	}
 
 	s.mutex.Lock()
 	accept := s.accept
-	closed := s.closed
+	closed := s.flags.has(sockClosed)
 	s.mutex.Unlock()
 
 	if accept == nil || closed {
@@ -446,7 +464,7 @@ func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, w
 		if len(accept) > 0 {
 			s.rev.trigger()
 		}
-		sock.flags = flags
+		sock.flags = sock.flags.withFDFlags(flags)
 		return sock, wasi.ESUCCESS
 	default:
 		return nil, wasi.EAGAIN
@@ -463,7 +481,7 @@ func (s *socket[T]) SockBind(ctx context.Context, bind wasi.SocketAddress) wasi.
 	defer s.mutex.Unlock()
 
 	var zero T
-	if s.closed || s.laddr != zero {
+	if s.flags.has(sockClosed) || s.laddr != zero {
 		return wasi.EINVAL
 	}
 	return s.net.bind(addr, s)
@@ -505,17 +523,17 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.closed {
+	if s.flags.has(sockClosed) {
 		return wasi.ECONNRESET
 	}
 
 	// Stream sockets cannot be connected if they are listening, nor reconnected
 	// if a connection has already been initiated.
 	if s.typ == stream {
-		if s.listen {
+		if s.flags.has(sockListen) {
 			return wasi.EISCONN
 		}
-		if s.conn {
+		if s.flags.has(sockConn) {
 			return wasi.EALREADY
 		}
 	}
@@ -525,12 +543,12 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	}
 
 	s.allocateBuffersIfNil()
+	s.flags = s.flags.with(sockConn)
 	// At most three errors are produced to this channel, one when the dial
 	// function failed or the connection is blocking, and up to two if both
 	// the read and write pipes error.
 	errs := make(chan wasi.Errno, 3)
 	s.errs = errs
-	s.conn = true
 
 	if s.typ == datagram {
 		s.raddr = raddr
@@ -539,7 +557,7 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		return wasi.ESUCCESS
 	}
 
-	blocking := !s.flags.Has(wasi.NonBlock)
+	blocking := !s.flags.has(sockNonBlock)
 	if s.net.contains(raddr) {
 		if sock := s.net.socket(netaddr[T]{s.proto, raddr}); sock == nil {
 			errs <- wasi.ECONNREFUSED
@@ -608,13 +626,13 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 	// TODO:
 	// - RecvPeek
 	// - RecvWaitAll
-	if s.closed {
+	if s.flags.has(sockClosed) {
 		return ^wasi.Size(0), 0, addr, wasi.ECONNRESET
 	}
-	if s.listen {
+	if s.flags.has(sockListen) {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
 	}
-	if s.typ == stream && !s.conn {
+	if s.typ == stream && !s.flags.has(sockConn) {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTCONN
 	}
 	if flags.Has(wasi.RecvWaitAll) {
@@ -623,7 +641,7 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 	if flags.Has(wasi.RecvPeek) {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
 	}
-	if !s.flags.Has(wasi.NonBlock) {
+	if !s.flags.has(sockNonBlock) {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
 	}
 	if errno := s.getErrno(); errno != wasi.ESUCCESS {
@@ -643,14 +661,14 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 		if errno != wasi.ESUCCESS { // ERROR
 			return size, roflags, addr, errno
 		}
-		if !s.conn || addr == s.raddr { // packet from unconnected socket
+		if !s.flags.has(sockConn) || addr == s.raddr { // packet from unconnected socket
 			return size, roflags, addr, errno
 		}
 	}
 }
 
 func (s *socket[T]) SockSend(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
-	if !s.conn {
+	if !s.flags.has(sockConn) {
 		return ^wasi.Size(0), wasi.ENOTCONN
 	}
 	return s.sockSendTo(ctx, iovs, flags, s.raddr)
@@ -668,19 +686,19 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.closed {
+	if s.flags.has(sockClosed) {
 		return ^wasi.Size(0), wasi.ECONNRESET
 	}
-	if s.listen {
+	if s.flags.has(sockListen) {
 		return ^wasi.Size(0), wasi.ENOTSUP
 	}
-	if s.typ == stream && !s.conn {
+	if s.typ == stream && !s.flags.has(sockConn) {
 		return ^wasi.Size(0), wasi.ENOTCONN
 	}
-	if s.conn && addr != s.raddr {
+	if s.flags.has(sockConn) && addr != s.raddr {
 		return ^wasi.Size(0), wasi.EISCONN
 	}
-	if !s.flags.Has(wasi.NonBlock) {
+	if !s.flags.has(sockNonBlock) {
 		return ^wasi.Size(0), wasi.ENOTSUP
 	}
 
@@ -824,7 +842,7 @@ func (s *socket[T]) SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.E
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.closed || !s.conn {
+	if s.flags.has(sockClosed) || !s.flags.has(sockConn) {
 		return wasi.ENOTCONN
 	}
 
@@ -852,7 +870,7 @@ func (s *socket[T]) FDClose(ctx context.Context) wasi.Errno {
 
 func (s *socket[T]) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
 	s.mutex.Lock()
-	s.flags = flags
+	s.flags = s.flags.withFDFlags(flags)
 	s.mutex.Unlock()
 	return wasi.ESUCCESS
 }

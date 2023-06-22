@@ -326,8 +326,8 @@ func connect[N network[T], T sockaddr](n N, addr netaddr[T]) (net.Conn, error) {
 func listen[N network[T], T sockaddr](n N, lock *sync.Mutex, addr netaddr[T]) (net.Listener, error) {
 	accept := make(chan *socket[T], 128)
 	socket := newSocket[T](n, stream, addr.protocol, lock)
+	socket.flags = socket.flags.with(sockListen)
 	socket.accept = accept
-	socket.listen = true
 
 	if errno := n.bind(addr.sockaddr, socket); errno != wasi.ESUCCESS {
 		netAddr := addr.netAddr()
@@ -365,7 +365,7 @@ func (l *listener[T]) Accept() (net.Conn, error) {
 	if !ok {
 		return nil, net.ErrClosed
 	}
-	if socket.host {
+	if socket.flags.has(sockHost) {
 		return newGuestConn(socket), nil
 	} else {
 		return newHostConn(socket), nil
