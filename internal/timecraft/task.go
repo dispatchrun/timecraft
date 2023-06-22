@@ -4,13 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -207,41 +204,13 @@ func (s *TaskScheduler) doHTTP(process *ProcessInfo, task *TaskInfo, request *HT
 		// TODO: timeout
 	}
 
-	var res *http.Response
-	var err error
-
-	// The process isn't necessarily available to take on work immediately.
-	// Retry with exponential backoff when an ECONNREFUSED is encountered.
-	//
-	// Note that this is not a generic task execution retry facility. We
-	// only retry on ECONNREFUSED.
-	const (
-		maxAttempts = 10
-		minDelay    = 500 * time.Millisecond
-		maxDelay    = 5 * time.Second
-	)
-	for i := 0; true; i++ {
-		res, err = client.Do(&http.Request{
-			Method: request.Method,
-			URL:    &url.URL{Scheme: "http", Host: "timecraft", Path: request.Path},
-			Header: request.Headers,
-			Body:   io.NopCloser(bytes.NewReader(request.Body)),
-		})
-		if err == nil || !errors.Is(err, syscall.ECONNREFUSED) || i == maxAttempts {
-			break
-		}
-		delay := minDelay * time.Duration(math.Pow(2, float64(i)))
-		if delay > maxDelay {
-			delay = maxDelay
-		}
-		time.Sleep(delay)
-		i++
-	}
+	res, err := client.Do(&http.Request{
+		Method: request.Method,
+		URL:    &url.URL{Scheme: "http", Host: "timecraft", Path: request.Path},
+		Header: request.Headers,
+		Body:   io.NopCloser(bytes.NewReader(request.Body)),
+	})
 	if err != nil {
-		if errors.Is(err, syscall.ECONNREFUSED) {
-			err = fmt.Errorf("failed to connect to process after %d attempts: %w", maxAttempts, err)
-		}
-		// TODO: kill process here?
 		s.synchronize(func() {
 			task.state = Error
 			task.err = err

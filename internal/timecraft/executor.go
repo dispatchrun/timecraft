@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/stealthrocket/timecraft/sdk"
@@ -56,8 +57,6 @@ type ProcessInfo struct {
 	// Transport is an HTTP transport that can be used to send work to
 	// the process over the work socket.
 	Transport *http.Transport
-
-	cancel context.CancelFunc
 }
 
 // NewExecutor creates an Executor.
@@ -227,20 +226,27 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 		return ProcessID{}, err
 	}
 
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-
 	httproxy.Start(ctx)
 
 	process := &ProcessInfo{
 		ID: processID,
 		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "unix", workSocket)
+			DialContext: func(ctx context.Context, network, addr string) (conn net.Conn, err error) {
+				// The process isn't necessarily available to take on work immediately.
+				// Retry with exponential backoff when an ECONNREFUSED is encountered.
+				const (
+					maxAttempts = 10
+					minDelay    = 500 * time.Millisecond
+					maxDelay    = 5 * time.Second
+				)
+				retry(maxAttempts, minDelay, maxDelay, func() bool {
+					var d net.Dialer
+					conn, err = d.DialContext(ctx, "unix", workSocket)
+					return err != nil && errors.Is(err, syscall.ECONNREFUSED)
+				})
+				return
 			},
 		},
-		cancel: cancel,
 	}
 
 	e.mu.Lock()
