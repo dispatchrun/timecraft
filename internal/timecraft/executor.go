@@ -234,12 +234,13 @@ func (e *Executor) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, er
 			DialContext: func(ctx context.Context, network, addr string) (conn net.Conn, err error) {
 				// The process isn't necessarily available to take on work immediately.
 				// Retry with exponential backoff when an ECONNREFUSED is encountered.
+				// TODO: make these configurable?
 				const (
 					maxAttempts = 10
 					minDelay    = 500 * time.Millisecond
 					maxDelay    = 5 * time.Second
 				)
-				retry(maxAttempts, minDelay, maxDelay, func() bool {
+				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
 					var d net.Dialer
 					conn, err = d.DialContext(ctx, "unix", workSocket)
 					return err != nil && errors.Is(err, syscall.ECONNREFUSED)
