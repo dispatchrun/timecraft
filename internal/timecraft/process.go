@@ -248,7 +248,14 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
 					var d net.Dialer
 					conn, err = d.DialContext(ctx, "unix", workSocket)
-					return err != nil && errors.Is(err, syscall.ECONNREFUSED)
+					if err == nil {
+						return false
+					}
+					var se syscall.Errno
+					if !errors.As(err, &se) {
+						return false
+					}
+					return se == syscall.ECONNREFUSED || se == syscall.ENOENT
 				})
 				return
 			},
