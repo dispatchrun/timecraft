@@ -1,128 +1,16 @@
 package sandbox
 
 import (
+	"context"
 	"io"
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/stealthrocket/wasi-go"
 )
-
-/*
-type packetConn[T sockaddr] struct {
-	net       network[T]
-	proto     protocol
-	laddr     T
-	raddr     T
-	rdeadline deadline
-	wdeadline deadline
-	once      sync.Once
-	done      chan struct{}
-}
-
-func newPacketConn[T sockaddr](socket *socket[T]) *packetConn[T] {
-	return &packetConn[T]{
-		net:       socket.net,
-		proto:     socket.proto,
-		laddr:     socket.laddr,
-		raddr:     socket.raddr,
-		rdeadline: makeDeadline(),
-		wdeadline: makeDeadline(),
-		done:      make(chan struct{}),
-	}
-}
-
-func (c *packetConn[T]) Close() error {
-	c.once.Do(func() { close(c.done) })
-	c.rdeadline.set(time.Time{})
-	c.wdeadline.set(time.Time{})
-	return nil
-}
-
-func (c *packetConn[T]) Read(b []byte) (int, error) {
-	s := c.net.socket(netaddr[T]{c.proto, c.raddr})
-	if s == nil {
-		return 0, syscall.ECONNREFUSED
-	}
-
-	pipe := s.send
-	pipe.mu.Lock()
-	defer pipe.mu.Unlock()
-
-	if c.rdeadline.expired() {
-		return 0, os.ErrDeadlineExceeded
-	}
-
-	select {
-	case pipe.ch <- b:
-		pipe.ev.trigger()
-		return len(b) - len(<-pipe.ch), nil
-	case <-c.rdeadline.channel():
-		return 0, os.ErrDeadlineExceeded
-	case <-c.done:
-		return 0, io.EOF
-	}
-}
-
-func (c *packetConn[T]) Write(b []byte) (n int, err error) {
-	s := c.net.socket(netaddr[T]{c.proto, c.raddr})
-	if s == nil {
-		return len(b), nil
-	}
-
-	pipe := s.recv
-	pipe.mu.Lock()
-	defer pipe.mu.Unlock()
-
-	if c.wdeadline.expired() {
-		return 0, os.ErrDeadlineExceeded
-	}
-
-	select {
-	case pipe.ch <- b:
-		pipe.ev.trigger()
-		return len(b) - len(<-pipe.ch), nil
-	case <-c.wdeadline.channel():
-		return n, os.ErrDeadlineExceeded
-	case <-c.done:
-		return n, io.ErrClosedPipe
-	}
-}
-
-func (c *packetConn[T]) LocalAddr() net.Addr {
-	return c.laddr.netAddr(c.proto)
-}
-
-func (c *packetConn[T]) RemoteAddr() net.Addr {
-	return c.raddr.netAddr(c.proto)
-}
-
-func (c *packetConn[T]) SetDeadline(t time.Time) error {
-	return errors.Join(c.SetReadDeadline(t), c.SetWriteDeadline(t))
-}
-
-func (c *packetConn[T]) SetReadDeadline(t time.Time) error {
-	select {
-	case <-c.done:
-		return net.ErrClosed
-	default:
-		c.rdeadline.set(t)
-		return nil
-	}
-}
-
-func (c *packetConn[T]) SetWriteDeadline(t time.Time) error {
-	select {
-	case <-c.done:
-		return net.ErrClosed
-	default:
-		c.wdeadline.set(t)
-		return nil
-	}
-}
-*/
 
 type conn[T sockaddr] struct {
 	socket *socket[T]
@@ -150,8 +38,8 @@ func newConn[T sockaddr](socket *socket[T]) *conn[T] {
 		socket:    socket,
 		rdeadline: makeDeadline(),
 		wdeadline: makeDeadline(),
-		rpoll:     make(chan struct{}),
-		wpoll:     make(chan struct{}),
+		rpoll:     make(chan struct{}, 1),
+		wpoll:     make(chan struct{}, 1),
 		done:      make(chan struct{}),
 	}
 }
@@ -186,23 +74,23 @@ func (c *conn[T]) Close() error {
 	return nil
 }
 
+func (c *conn[T]) CloseRead() error {
+	c.rbuf.close()
+	return nil
+}
+
+func (c *conn[T]) CloseWrite() error {
+	c.wbuf.close()
+	return nil
+}
+
 func (c *conn[T]) Read(b []byte) (int, error) {
-	c.rmu.Lock()
+	c.rmu.Lock() // serialize reads
 	defer c.rmu.Unlock()
 
 	for {
 		if c.rdeadline.expired() {
 			return 0, os.ErrDeadlineExceeded
-		}
-
-		if !c.rev.poll(c.rpoll) {
-			select {
-			case <-c.rpoll:
-			case <-c.done:
-				return 0, io.EOF
-			case <-c.rdeadline.channel():
-				return 0, os.ErrDeadlineExceeded
-			}
 		}
 
 		n, _, _, errno := c.rbuf.recv([]wasi.IOVec{b})
@@ -215,11 +103,24 @@ func (c *conn[T]) Read(b []byte) (int, error) {
 		if errno != wasi.EAGAIN {
 			return int(n), errno // TODO: convert to syscall error
 		}
+
+		var ready bool
+		c.rev.synchronize(func() { ready = c.rev.poll(c.rpoll) })
+
+		if !ready {
+			select {
+			case <-c.rpoll:
+			case <-c.done:
+				return 0, io.EOF
+			case <-c.rdeadline.channel():
+				return 0, os.ErrDeadlineExceeded
+			}
+		}
 	}
 }
 
 func (c *conn[T]) Write(b []byte) (int, error) {
-	c.wmu.Lock()
+	c.wmu.Lock() // serialize writes
 	defer c.wmu.Unlock()
 
 	var n int
@@ -228,7 +129,25 @@ func (c *conn[T]) Write(b []byte) (int, error) {
 			return n, os.ErrDeadlineExceeded
 		}
 
-		if !c.wev.poll(c.wpoll) {
+		r, errno := c.wbuf.send([]wasi.IOVec{b}, c.laddr)
+		if rn := int(int32(r)); rn > 0 {
+			n += rn
+			b = b[rn:]
+		}
+		if errno == wasi.ESUCCESS {
+			if len(b) != 0 {
+				continue
+			}
+			return n, nil
+		}
+		if errno != wasi.EAGAIN {
+			return n, errno // TODO: convert to syscall error
+		}
+
+		var ready bool
+		c.wev.synchronize(func() { ready = c.wev.poll(c.wpoll) })
+
+		if !ready {
 			select {
 			case <-c.wpoll:
 			case <-c.done:
@@ -236,19 +155,6 @@ func (c *conn[T]) Write(b []byte) (int, error) {
 			case <-c.wdeadline.channel():
 				return n, os.ErrDeadlineExceeded
 			}
-		}
-
-		r, errno := c.wbuf.send([]wasi.IOVec{b}, c.laddr)
-		n += int(r)
-		if errno == wasi.ESUCCESS {
-			if int(r) < len(b) {
-				b = b[r:]
-				continue
-			}
-			return n, nil
-		}
-		if errno != wasi.EAGAIN {
-			return n, errno // TODO: convert to syscall error
 		}
 	}
 }
@@ -337,4 +243,67 @@ func (d *deadline) set(t time.Time) {
 		}
 		d.tm.Reset(timeout)
 	}
+}
+
+type connPipe struct {
+	refc  int32
+	conn1 net.Conn
+	conn2 net.Conn
+	errs  chan<- wasi.Errno
+}
+
+func (c *connPipe) unref() {
+	if atomic.AddInt32(&c.refc, -1) == 0 {
+		c.conn1.Close()
+		c.conn2.Close()
+		close(c.errs)
+	}
+}
+
+func (c *connPipe) copy(dst, src net.Conn, buf []byte) {
+	defer c.unref()
+	defer closeWrite(dst)
+	_, err := io.CopyBuffer(dst, src, buf)
+	if err != nil {
+		c.errs <- wasi.MakeErrno(err)
+	}
+}
+
+type closeReader interface {
+	CloseRead() error
+}
+
+type closeWriter interface {
+	CloseWrite() error
+}
+
+var (
+	_ closeReader = (*net.TCPConn)(nil)
+	_ closeWriter = (*net.TCPConn)(nil)
+
+	_ closeReader = (*conn[ipv4])(nil)
+	_ closeWriter = (*conn[ipv4])(nil)
+)
+
+func closeRead(conn net.Conn) error {
+	switch c := conn.(type) {
+	case closeReader:
+		return c.CloseRead()
+	default:
+		return conn.Close()
+	}
+}
+
+func closeWrite(conn net.Conn) error {
+	switch c := conn.(type) {
+	case closeWriter:
+		return c.CloseWrite()
+	default:
+		return c.Close()
+	}
+}
+
+func closeReadOnCancel(ctx context.Context, conn net.Conn) {
+	<-ctx.Done()
+	closeRead(conn)
 }

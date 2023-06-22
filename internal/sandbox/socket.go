@@ -255,6 +255,10 @@ type socket[T sockaddr] struct {
 	conn bool
 	// A boolean used to indicate that this is a listening socket.
 	listen bool
+	// A boolean indicating whether the socket has been closed. Closing may
+	// happen asynchronously so the expectation is for the methods to acquire
+	// the mutex lock before reading this value.
+	closed bool
 	// For connected sockets, this channel is used to asynchronously receive
 	// notification that a connection has been established.
 	errs <-chan wasi.Errno
@@ -298,24 +302,38 @@ func newSocket[T sockaddr](net network[T], typ socktype, proto protocol, lock *s
 }
 
 func (s *socket[T]) close() {
+	s.mutex.Lock()
+	rbuf := s.rbuf
+	wbuf := s.wbuf
+	errs := s.errs
+	accept := s.accept
+	closed := s.closed
+	cancel := s.cancel
+	s.closed = true
+	s.mutex.Unlock()
+
+	if closed {
+		return
+	}
+
 	_ = s.net.unlink(s)
 	s.rev.abort()
 	s.wev.abort()
 
-	if s.rbuf != nil {
-		s.rbuf.close()
+	if rbuf != nil {
+		rbuf.close()
 	}
-	if s.wbuf != nil {
-		s.wbuf.close()
+	if wbuf != nil {
+		wbuf.close()
 	}
-	if s.cancel != nil {
-		s.cancel()
+	if cancel != nil {
+		cancel()
 	}
 
-	s.mutex.Lock()
-	accept := s.accept
-	s.accept = nil
-	s.mutex.Unlock()
+	if errs != nil {
+		for range errs {
+		}
+	}
 
 	if accept != nil {
 		close(accept)
@@ -349,7 +367,7 @@ func (s *socket[T]) connect(peer *socket[T], laddr, raddr T) (*socket[T], wasi.E
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.accept == nil {
+	if s.accept == nil || s.closed {
 		return nil, wasi.ECONNREFUSED
 	}
 
@@ -377,15 +395,16 @@ func (s *socket[T]) SockListen(ctx context.Context, backlog int) wasi.Errno {
 	if s.typ != stream {
 		return wasi.ENOTSUP
 	}
-	if s.conn {
-		return wasi.EINVAL
-	}
 	if backlog <= 0 || backlog > 128 {
 		backlog = 128
 	}
 
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if s.closed || s.conn {
+		return wasi.EINVAL
+	}
 
 	if !s.listen {
 		if errno := s.bindToAny(); errno != wasi.ESUCCESS {
@@ -408,9 +427,10 @@ func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, w
 
 	s.mutex.Lock()
 	accept := s.accept
+	closed := s.closed
 	s.mutex.Unlock()
 
-	if accept == nil {
+	if accept == nil || closed {
 		return nil, wasi.EINVAL
 	}
 
@@ -418,6 +438,9 @@ func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, w
 	select {
 	case sock := <-accept:
 		if sock == nil {
+			// This condition may occur when the socket is closed concurrently,
+			// which closes the accept channel and results in receiving nil
+			// values without blocking.
 			return nil, wasi.EINVAL
 		}
 		if len(accept) > 0 {
@@ -435,8 +458,12 @@ func (s *socket[T]) SockBind(ctx context.Context, bind wasi.SocketAddress) wasi.
 	if errno != wasi.ESUCCESS {
 		return errno
 	}
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	var zero T
-	if s.laddr != zero {
+	if s.closed || s.laddr != zero {
 		return wasi.EINVAL
 	}
 	return s.net.bind(addr, s)
@@ -475,6 +502,13 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		return errno
 	}
 
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.closed {
+		return wasi.ECONNRESET
+	}
+
 	// Stream sockets cannot be connected if they are listening, nor reconnected
 	// if a connection has already been initiated.
 	if s.typ == stream {
@@ -486,143 +520,73 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		}
 	}
 
-	if !s.net.contains(raddr) {
-		return wasi.EHOSTUNREACH
-	}
 	if errno := s.bindToNetwork(); errno != wasi.ESUCCESS {
 		return errno
 	}
 
-	/*
-		// Datagram sockets can be reconnected, so we must cancel any previous
-		// connetion.
-		if s.cancel != nil {
-			s.send.close()
-			s.recv.close()
-			s.cancel()
-			s.cancel = nil
-			for range s.errs {
-			}
-			s.errs = nil
-		}
-	*/
-
-	//ctx, s.cancel = context.WithCancel(ctx)
+	s.allocateBuffersIfNil()
 	// At most three errors are produced to this channel, one when the dial
 	// function failed or the connection is blocking, and up to two if both
 	// the read and write pipes error.
 	errs := make(chan wasi.Errno, 3)
-	defer close(errs)
 	s.errs = errs
 	s.conn = true
-	s.allocateBuffersIfNil()
 
 	if s.typ == datagram {
 		s.raddr = raddr
 		s.wev.trigger()
+		close(errs)
 		return wasi.ESUCCESS
 	}
 
-	if sock := s.net.socket(netaddr[T]{s.proto, raddr}); sock == nil {
-		errs <- wasi.ECONNREFUSED
-	} else if _, errno := sock.connect(s, raddr, s.laddr); errno != wasi.ESUCCESS {
-		errs <- errno
+	blocking := !s.flags.Has(wasi.NonBlock)
+	if s.net.contains(raddr) {
+		if sock := s.net.socket(netaddr[T]{s.proto, raddr}); sock == nil {
+			errs <- wasi.ECONNREFUSED
+		} else if _, errno := sock.connect(s, raddr, s.laddr); errno != wasi.ESUCCESS {
+			errs <- errno
+		} else {
+			s.raddr = raddr
+		}
+		s.wev.trigger()
+		close(errs)
 	} else {
-		s.raddr = raddr
-	}
-	s.wev.trigger()
-	return wasi.EINPROGRESS
-
-	/*
-		blocking := !s.send.flags.Has(wasi.NonBlock)
-		recvBufferSize := s.recvBufferSize
-		sendBufferSize := s.sendBufferSize
-
+		ctx, s.cancel = context.WithCancel(ctx)
 		go func() {
-			var conn net.Conn
-			var errno wasi.Errno
-
-			if s.net.contains(raddr) {
-				sock := s.net.socket(netaddr[T]{proto, raddr})
-				if sock == nil {
-					errno = wasi.ECONNREFUSED
-				} else {
-					sock, errno = sock.connect(s, raddr, s.laddr)
-					if errno == wasi.ESUCCESS {
-						conn = newHostConn(sock)
-					}
-				}
-			} else {
-				//conn, errno = s.net.dial(ctx, s.proto, s.laddr, raddr)
-			}
-
+			upstream, errno := s.net.dial(ctx, s.proto, s.laddr, s.raddr)
 			if errno != wasi.ESUCCESS || blocking {
 				errs <- errno
 			}
 
+			s.wev.trigger()
+
 			if errno != wasi.ESUCCESS {
-				send.close()
-				recv.close()
 				close(errs)
-			} else {
-				send.ev.trigger()
-				spawnSocketConn(ctx, conn, send, recv, sendBufferSize, recvBufferSize, errs)
+				return
 			}
+
+			downstream := newHostConn(s)
+			rbufsize := s.rbuf.size()
+			wbufsize := s.wbuf.size()
+			buffer := make([]byte, rbufsize+wbufsize)
+			pipe := &connPipe{refc: 2, conn1: upstream, conn2: downstream, errs: errs}
+			go pipe.copy(upstream, downstream, buffer[:rbufsize])
+			go pipe.copy(downstream, upstream, buffer[rbufsize:])
+			go closeReadOnCancel(ctx, upstream)
 		}()
+	}
 
-		if !blocking {
-			return wasi.EINPROGRESS
-		}
+	if !blocking {
+		return wasi.EINPROGRESS
+	}
 
-		select {
-		case errno := <-errs:
-			return errno
-		case <-ctx.Done():
-			s.cancel()
-			return wasi.MakeErrno(ctx.Err())
-		}
-	*/
-}
-
-/*
-type connRef struct {
-	refc int32
-	conn net.Conn
-	errs chan<- wasi.Errno
-}
-
-func spawnSocketConn(ctx context.Context, conn net.Conn, send, recv *pipe, sendBufferSize, recvBufferSize int32, errs chan<- wasi.Errno) {
-	// TODO: pool the buffers?
-	sockBuf := make([]byte, recvBufferSize+sendBufferSize)
-	connRef := &connRef{refc: 2, conn: conn, errs: errs}
-	go connRef.copy(send, conn, outputReadCloser{send}, sockBuf[:recvBufferSize])
-	go connRef.copy(recv, inputWriteCloser{recv}, conn, sockBuf[recvBufferSize:])
-	go closeOnCancel(ctx, conn, send, recv)
-}
-
-func (c *connRef) unref() {
-	if atomic.AddInt32(&c.refc, -1) == 0 {
-		c.conn.Close()
-		close(c.errs)
+	select {
+	case errno := <-errs:
+		return errno
+	case <-ctx.Done():
+		return wasi.MakeErrno(ctx.Err())
 	}
 }
-
-func (c *connRef) copy(p *pipe, w io.Writer, r io.Reader, b []byte) {
-	_, err := io.CopyBuffer(w, r, b)
-	if err != nil {
-		c.errs <- wasi.MakeErrno(err)
-	}
-	p.close()
-	c.unref()
-}
-
-func closeOnCancel(ctx context.Context, conn net.Conn, send, recv *pipe) {
-	<-ctx.Done()
-	conn.Close()
-	send.close()
-	recv.close()
-}
-*/
 
 func (s *socket[T]) SockRecv(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
 	size, roflags, _, errno := s.sockRecvFrom(ctx, iovs, flags)
@@ -638,9 +602,15 @@ func (s *socket[T]) SockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 }
 
 func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (size wasi.Size, roflags wasi.ROFlags, addr T, errno wasi.Errno) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	// TODO:
 	// - RecvPeek
 	// - RecvWaitAll
+	if s.closed {
+		return ^wasi.Size(0), 0, addr, wasi.ECONNRESET
+	}
 	if s.listen {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
 	}
@@ -659,6 +629,7 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 	if errno := s.getErrno(); errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), 0, addr, errno
 	}
+
 	s.allocateBuffersIfNil()
 	for {
 		size, roflags, addr, errno := s.recvmsg(s.rbuf, iovs)
@@ -694,6 +665,12 @@ func (s *socket[T]) SockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 }
 
 func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags, addr T) (wasi.Size, wasi.Errno) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.closed {
+		return ^wasi.Size(0), wasi.ECONNRESET
+	}
 	if s.listen {
 		return ^wasi.Size(0), wasi.ENOTSUP
 	}
@@ -751,6 +728,9 @@ func (s *socket[T]) SockRemoteAddress(ctx context.Context) (wasi.SocketAddress, 
 }
 
 func (s *socket[T]) SockGetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	switch level {
 	case wasi.SocketLevel:
 		return s.getSocketLevelOption(option)
@@ -785,6 +765,9 @@ func (s *socket[T]) getSocketLevelOption(option wasi.SocketOption) (wasi.SocketO
 }
 
 func (s *socket[T]) SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	switch level {
 	case wasi.SocketLevel:
 		return s.setSocketLevelOption(option, value)
@@ -834,7 +817,14 @@ func setIntValueLimit(option *int, value wasi.SocketOptionValue, minval, maxval 
 }
 
 func (s *socket[T]) SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.Errno {
-	if !s.conn {
+	if (flags & (wasi.ShutdownRD | wasi.ShutdownWR)) == 0 {
+		return wasi.EINVAL
+	}
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.closed || !s.conn {
 		return wasi.ENOTCONN
 	}
 
@@ -861,7 +851,9 @@ func (s *socket[T]) FDClose(ctx context.Context) wasi.Errno {
 }
 
 func (s *socket[T]) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
+	s.mutex.Lock()
 	s.flags = flags
+	s.mutex.Unlock()
 	return wasi.ESUCCESS
 }
 
