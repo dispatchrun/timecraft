@@ -2,6 +2,7 @@ package tracing
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -153,6 +154,7 @@ var (
 	http1RequestFormatPrefix  = []byte("> ")
 	http1ResponseFormatPrefix = []byte("< ")
 	newLine                   = []byte("\n")
+	httpContentEncoding       = []byte("Content-Encoding")
 )
 
 type http1Message struct {
@@ -177,7 +179,12 @@ func (msg *http1Message) format(state fmt.State, verb rune, prefix []byte) {
 		write(startLine)
 		write(newLine)
 
+		var contentEncoding []byte
 		unparsed := http1HeaderRange(header, func(name, value []byte) bool {
+			switch {
+			case bytes.EqualFold(name, httpContentEncoding):
+				contentEncoding = value
+			}
 			write(name)
 			write(http1HeaderSeparator)
 			write(http1TrimCRLFSuffix(value))
@@ -187,6 +194,7 @@ func (msg *http1Message) format(state fmt.State, verb rune, prefix []byte) {
 
 		write(unparsed)
 		write(newLine)
+
 		switch verb {
 		case 'x':
 			hexdump := hex.Dumper(state)
@@ -194,6 +202,13 @@ func (msg *http1Message) format(state fmt.State, verb rune, prefix []byte) {
 			hexdump.Close()
 
 		default:
+			switch string(contentEncoding) {
+			case "gzip":
+				b, err := gunzip(body)
+				if err == nil {
+					body = b
+				}
+			}
 			if utf8.Valid(body) {
 				state.Write(body)
 				if len(body) > 0 && body[len(body)-1] != '\n' {
@@ -210,6 +225,18 @@ func (msg *http1Message) format(state fmt.State, verb rune, prefix []byte) {
 		startLine = bytes.TrimSuffix(startLine, []byte(" HTTP/1.1"))
 		state.Write(startLine)
 	}
+}
+
+func gunzip(data []byte) ([]byte, error) {
+	r, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	b := new(bytes.Buffer)
+	b.Grow(5 * len(data))
+	_, err = b.ReadFrom(r)
+	return b.Bytes(), err
 }
 
 type http1Request struct {
