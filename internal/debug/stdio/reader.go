@@ -15,10 +15,12 @@ import (
 type Reader struct {
 	Records   stream.Reader[timemachine.Record]
 	StartTime time.Time
+	Stdin     int
 	Stdout    int
 	Stderr    int
 
 	buffer  bytes.Buffer
+	stdin   wasi.FD
 	stdout  wasi.FD
 	stderr  wasi.FD
 	iovecs  []wasi.IOVec
@@ -36,6 +38,9 @@ func makeFD(fd int) wasi.FD {
 }
 
 func (r *Reader) Read(b []byte) (n int, err error) {
+	if r.stdin != noneFD {
+		r.stdin = makeFD(r.Stdin)
+	}
 	if r.stdout != noneFD {
 		r.stdout = makeFD(r.Stdout)
 	}
@@ -51,7 +56,7 @@ func (r *Reader) Read(b []byte) (n int, err error) {
 		if n == len(b) || err != nil {
 			return n, err
 		}
-		if r.stdout == noneFD && r.stderr == noneFD {
+		if r.stdin == noneFD && r.stdout == noneFD && r.stderr == noneFD {
 			return n, io.EOF
 		}
 		var rn int
@@ -65,6 +70,8 @@ func (r *Reader) Read(b []byte) (n int, err error) {
 					return n, err
 				}
 				switch fd {
+				case r.stdin:
+					r.stdin = noneFD
 				case r.stdout:
 					r.stdout = noneFD
 				case r.stderr:
@@ -80,10 +87,25 @@ func (r *Reader) Read(b []byte) (n int, err error) {
 					continue
 				}
 				switch from {
+				case r.stdin:
+					r.stdin = to
 				case r.stdout:
 					r.stdout = to
 				case r.stderr:
 					r.stderr = to
+				}
+
+			case wasicall.FDRead:
+				if record.Time.Before(r.StartTime) {
+					continue
+				}
+				fd, iovecs, size, _, err := r.codec.DecodeFDRead(record.FunctionCall, r.iovecs[:0])
+				if err != nil {
+					return n, err
+				}
+				switch fd {
+				case r.stdin:
+					writeIOVecs(&r.buffer, iovecs, size)
 				}
 
 			case wasicall.FDWrite:
@@ -96,16 +118,20 @@ func (r *Reader) Read(b []byte) (n int, err error) {
 				}
 				switch fd {
 				case r.stdout, r.stderr:
-					for _, iov := range iovecs {
-						iovLen := wasi.Size(len(iov))
-						if iovLen > size {
-							iovLen = size
-						}
-						size -= iovLen
-						r.buffer.Write(iov[:iovLen])
-					}
+					writeIOVecs(&r.buffer, iovecs, size)
 				}
 			}
 		}
+	}
+}
+
+func writeIOVecs(output io.Writer, iovecs []wasi.IOVec, size wasi.Size) {
+	for _, iov := range iovecs {
+		iovLen := wasi.Size(len(iov))
+		if iovLen > size {
+			iovLen = size
+		}
+		size -= iovLen
+		output.Write(iov[:iovLen])
 	}
 }
