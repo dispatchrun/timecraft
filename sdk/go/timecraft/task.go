@@ -18,6 +18,9 @@ type TaskRequest struct {
 
 // TaskResponse is information about a task from the timecraft runtime.
 type TaskResponse struct {
+	// ID is the task identifier.
+	ID TaskID
+
 	// State is the current state of the task.
 	State TaskState
 
@@ -88,4 +91,5 @@ func (*HTTPResponse) taskOutput() {}
 type ModuleSpec struct {
 	Path string
 	Args []string
+	Env  []string
 }

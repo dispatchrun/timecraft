@@ -129,7 +129,11 @@ func (c *Client) DiscardTasks(ctx context.Context, taskIDs []TaskID) error {
 
 func (c *Client) makeTaskRequest(req *TaskRequest) (*v1.TaskRequest, error) {
 	r := &v1.TaskRequest{
-		Module: &v1.ModuleSpec{Path: req.Module.Path, Args: req.Module.Args},
+		Module: &v1.ModuleSpec{
+			Path: req.Module.Path,
+			Args: req.Module.Args,
+			Env:  req.Module.Env,
+		},
 	}
 	switch in := req.Input.(type) {
 	case *HTTPRequest:
@@ -153,6 +157,7 @@ func (c *Client) makeTaskRequest(req *TaskRequest) (*v1.TaskRequest, error) {
 
 func (c *Client) makeTaskResponse(res *v1.TaskResponse) (TaskResponse, error) {
 	taskResponse := TaskResponse{
+		ID:        TaskID(res.TaskId),
 		State:     TaskState(res.State),
 		ProcessID: ProcessID(res.ProcessId),
 	}

@@ -83,6 +83,7 @@ func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 	moduleSpec.Dials = nil     // not supported
 	moduleSpec.Listens = nil   // not supported
 	moduleSpec.Args = req.Module.Args
+	moduleSpec.Env = append(moduleSpec.Env[:len(moduleSpec.Env):len(moduleSpec.Env)], req.Module.Env...)
 	if path := req.Module.Path; path != "" {
 		moduleSpec.Path = path
 	}
