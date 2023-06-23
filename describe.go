@@ -800,7 +800,7 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, processID forma
 				CreatedAt: human.Time(seg.CreatedAt),
 			}
 
-			lastTime := time.Time(logSegment.CreatedAt)
+			var firstTime, lastTime time.Time
 			for {
 				b, err := logReader.ReadRecordBatch()
 				if err != nil {
@@ -811,7 +811,7 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, processID forma
 						u := human.Ratio(logSegment.UncompressedSize)
 						logSegment.CompressionRatio = 1 - c/u
 						logSegment.NumBatches = len(logSegment.RecordBatches)
-						logSegment.Duration = human.Duration(lastTime.Sub(time.Time(logSegment.CreatedAt)))
+						logSegment.Duration = human.Duration(lastTime.Sub(firstTime))
 						segch <- logSegment
 					}
 					break
@@ -828,6 +828,9 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, processID forma
 					compression      = b.Compression()
 				)
 
+				if firstTime.IsZero() {
+					firstTime = firstTimestamp
+				}
 				lastTime = lastTimestamp
 				logSegment.NumRecords += numRecords
 				logSegment.CompressedSize += compressedSize
