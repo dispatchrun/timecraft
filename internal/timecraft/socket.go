@@ -30,14 +30,23 @@ type virtualSocketsSystem struct {
 	out map[wasi.UnixAddress]wasi.UnixAddress
 }
 
+func (s *virtualSocketsSystem) SockAccept(ctx context.Context, fd wasi.FD, flags wasi.FDFlags) (wasi.FD, wasi.SocketAddress, wasi.SocketAddress, wasi.Errno) {
+	fd, peer, addr, errno := s.System.SockAccept(ctx, fd, flags)
+	peer, errno = s.translateAddressOut(peer, errno)
+	addr, errno = s.translateAddressOut(addr, errno)
+	return fd, peer, addr, errno
+}
+
 func (s *virtualSocketsSystem) SockBind(ctx context.Context, fd wasi.FD, addr wasi.SocketAddress) (wasi.SocketAddress, wasi.Errno) {
 	addr = s.translateAddressIn(addr)
-	return s.System.SockBind(ctx, fd, addr)
+	local, errno := s.System.SockBind(ctx, fd, addr)
+	return s.translateAddressOut(local, errno)
 }
 
 func (s *virtualSocketsSystem) SockConnect(ctx context.Context, fd wasi.FD, addr wasi.SocketAddress) (wasi.SocketAddress, wasi.Errno) {
 	addr = s.translateAddressIn(addr)
-	return s.System.SockConnect(ctx, fd, addr)
+	peer, errno := s.System.SockConnect(ctx, fd, addr)
+	return s.translateAddressOut(peer, errno)
 }
 
 func (s *virtualSocketsSystem) SockLocalAddress(ctx context.Context, fd wasi.FD) (wasi.SocketAddress, wasi.Errno) {
@@ -48,6 +57,12 @@ func (s *virtualSocketsSystem) SockLocalAddress(ctx context.Context, fd wasi.FD)
 func (s *virtualSocketsSystem) SockRemoteAddress(ctx context.Context, fd wasi.FD) (wasi.SocketAddress, wasi.Errno) {
 	addr, errno := s.System.SockRemoteAddress(ctx, fd)
 	return s.translateAddressOut(addr, errno)
+}
+
+func (s *virtualSocketsSystem) SockRecvFrom(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno) {
+	size, oflags, peer, errno := s.System.SockRecvFrom(ctx, fd, iovecs, flags)
+	peer, errno = s.translateAddressOut(peer, errno)
+	return size, oflags, peer, errno
 }
 
 func (s *virtualSocketsSystem) translateAddressIn(addr wasi.SocketAddress) wasi.SocketAddress {
