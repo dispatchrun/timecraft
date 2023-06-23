@@ -256,11 +256,15 @@ func (s *TaskScheduler) executeHTTPTask(process *ProcessInfo, task *TaskInfo, re
 		Timeout:   executionTimeout,
 	}
 
+	request.Headers.Set("User-Agent", "timecraft "+Version())
+	request.Headers.Set("Transfer-Encoding", "identity")
+
 	req := (&http.Request{
-		Method: request.Method,
-		URL:    &url.URL{Scheme: "http", Host: "timecraft", Path: request.Path},
-		Header: request.Headers,
-		Body:   io.NopCloser(bytes.NewReader(request.Body)),
+		Method:        request.Method,
+		URL:           &url.URL{Scheme: "http", Host: "timecraft", Path: request.Path},
+		Header:        request.Headers,
+		Body:          io.NopCloser(bytes.NewReader(request.Body)),
+		ContentLength: int64(len(request.Body)),
 	}).WithContext(task.ctx)
 
 	res, err := client.Do(req)
