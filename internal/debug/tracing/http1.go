@@ -422,9 +422,7 @@ func http1HeaderRange(header []byte, do func(name, value []byte) bool) []byte {
 			break
 		}
 		value, header = http1ParseFieldValue(header)
-		if len(value) == 0 {
-			break
-		}
+
 		if !do(name, value) {
 			break
 		}
