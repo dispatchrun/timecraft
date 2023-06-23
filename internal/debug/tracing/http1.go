@@ -196,6 +196,9 @@ func (msg *http1Message) format(state fmt.State, verb rune, prefix []byte) {
 		default:
 			if utf8.Valid(body) {
 				state.Write(body)
+				if len(body) > 0 && body[len(body)-1] != '\n' {
+					state.Write(newLine)
+				}
 			} else {
 				fmt.Fprintf(state, "(binary content)")
 			}
