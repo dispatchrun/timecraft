@@ -270,6 +270,8 @@ type network[T sockaddr] interface {
 	contains(T) bool
 	// Returns true if the network supports the given protocol.
 	supports(protocol) bool
+	// Constructs a socket address for the network from a net.Addr.
+	netaddr(addr net.Addr) (T, wasi.Errno)
 	// Constructs a socket address for the network from a wasi.SocketAddress.
 	sockaddr(addr wasi.SocketAddress) (T, wasi.Errno)
 	// Returns the socket associated with the given network address.
@@ -373,10 +375,11 @@ func (l *listener[T]) Accept() (net.Conn, error) {
 }
 
 type ipnet[T inaddr[T]] struct {
-	mutex    sync.Mutex
-	ipaddr   netip.Addr
-	sockets  map[netaddr[T]]*socket[T]
-	dialFunc func(context.Context, string, string) (net.Conn, error)
+	mutex            sync.Mutex
+	ipaddr           netip.Addr
+	sockets          map[netaddr[T]]*socket[T]
+	dialFunc         func(context.Context, string, string) (net.Conn, error)
+	listenPacketFunc func(context.Context, string, string) (net.PacketConn, error)
 }
 
 func (n *ipnet[T]) address() (sockaddr T) {
@@ -389,6 +392,23 @@ func (n *ipnet[T]) contains(sockaddr T) bool {
 
 func (n *ipnet[T]) supports(proto protocol) bool {
 	return proto == ip || proto == tcp || proto == udp
+}
+
+func (n *ipnet[T]) netaddr(networkAddress net.Addr) (sockaddr T, errno wasi.Errno) {
+	var addrPort netip.AddrPort
+	switch na := networkAddres.(type) {
+	case *net.TCPAddr:
+		addrPort = na.AddrPort()
+	case *net.UDPAddr:
+		addrPort = na.AddrPort()
+	default:
+		return sockaddr, wasi.EAFNOSUPPORT
+	}
+	var addr = addrPort.Addr()
+	var port = addrPort.Port()
+	sockaddr = sockaddr.withAddr(addr)
+	sockaddr = sockaddr.withPort(int(port))
+	return sockaddr, wasi.ESUCCESS
 }
 
 func (n *ipnet[T]) sockaddr(socketAddress wasi.SocketAddress) (sockaddr T, errno wasi.Errno) {
@@ -413,7 +433,7 @@ func (n *ipnet[T]) sockaddr(socketAddress wasi.SocketAddress) (sockaddr T, errno
 	}
 	sockaddr = sockaddr.withAddr(addr)
 	sockaddr = sockaddr.withPort(port)
-	return sockaddr, errno
+	return sockaddr, wasi.ESUCCESS
 }
 
 func (n *ipnet[T]) socket(addr netaddr[T]) *socket[T] {
@@ -498,10 +518,11 @@ func (n *ipnet[T]) dial(ctx context.Context, proto protocol, laddr, raddr T) (ne
 }
 
 type unixnet struct {
-	mutex    sync.Mutex
-	name     string
-	sockets  map[netaddr[unix]]*socket[unix]
-	dialFunc func(context.Context, string, string) (net.Conn, error)
+	mutex            sync.Mutex
+	name             string
+	sockets          map[netaddr[unix]]*socket[unix]
+	dialFunc         func(context.Context, string, string) (net.Conn, error)
+	listenPacketFunc func(context.Context, string, string) (net.PacketConn, error)
 }
 
 func (n *unixnet) address() unix {
@@ -514,6 +535,15 @@ func (n *unixnet) contains(addr unix) bool {
 
 func (n *unixnet) supports(proto protocol) bool {
 	return proto == 0
+}
+
+func (n *unixnet) netaddr(addr net.Addr) (unix, wasi.Errno) {
+	switch na := addr.(type) {
+	case *net.UnixAddr:
+		return unix{name: na.Name}, wasi.ESUCCESS
+	default:
+		return unix{}, wasi.EAFNOSUPPORT
+	}
 }
 
 func (n *unixnet) sockaddr(addr wasi.SocketAddress) (unix, wasi.Errno) {

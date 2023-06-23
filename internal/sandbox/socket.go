@@ -585,6 +585,10 @@ func (s *socket[T]) bindToNetwork() wasi.Errno {
 	return s.net.link(s)
 }
 
+func (s *socket[T]) openPacketConn() wasi.Errno {
+
+}
+
 func (s *socket[T]) allocateBuffersIfNil() {
 	if s.rbuf == nil {
 		s.rbuf = newSocketBuffer[T](s.rev.lock, int(s.rbufsize))

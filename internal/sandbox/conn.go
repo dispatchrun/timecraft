@@ -307,3 +307,58 @@ func closeReadOnCancel(ctx context.Context, conn net.Conn) {
 	<-ctx.Done()
 	closeRead(conn) //nolint:errcheck
 }
+
+func (s *socket[T]) readFromPacketConn(conn net.PacketConn, wg *sync.WaitGroup) {
+	defer wg.Done()
+	defer s.rbuf.close()
+
+	buf := make([]byte, s.rbuf.size())
+	for {
+		size, addr, err := conn.ReadFrom(buf)
+		if err != nil {
+			return
+		}
+		// TODO:
+		// - capture metric about packets that were dropped
+		// - log details about the reason why a packet was dropped
+		peer, errno := s.net.netaddr(addr)
+		if errno != wasi.ESUCCESS {
+			continue
+		}
+		_, errno := s.rbuf.sendmsg([]wasi.IOVec{buf[:size]}, peer)
+		if errno != wasi.ESUCCESS {
+			continue
+		}
+	}
+}
+
+func (s *socket[T]) writeToPacketConn(conn net.PacketConn, wg *sync.WaitGroup) {
+	defer wg.Done()
+	defer s.wbuf.close()
+
+	buf := make([]byte, s.wbuf.size())
+	sig := make(chan struct{}, 1)
+	for {
+		size, _, addr, errno := s.wbuf.recvmsg([]wasi.IOVec{buf}, 0)
+		switch errno {
+		case wasi.ESUCCESS:
+			if size == 0 {
+				return
+			}
+		case wasi.EAGAIN:
+			var ready bool
+			s.wev.synchronize(func() { ready = s.wbuf.poll(sig) })
+			if !ready {
+				<-sig
+			}
+		default:
+			// TODO:
+			// - log details about the reason why we abort
+			return
+		}
+		_, err := conn.WriteTo(buf[:size], addr.netAddr(s.proto))
+		if err != nil {
+			return
+		}
+	}
+}
