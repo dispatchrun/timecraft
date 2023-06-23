@@ -33,15 +33,19 @@ func (rb *ringbuf[T]) discard(n int) {
 	if n > rb.len() {
 		panic("BUG: discard more values than exist in the buffer")
 	}
-	rb.off += int32(n)
-}
-
-func (rb *ringbuf[T]) read(values []T) int {
-	n := copy(values, rb.buf[rb.off:rb.end])
 	if rb.off += int32(n); rb.off == rb.end {
 		rb.off = 0
 		rb.end = 0
 	}
+}
+
+func (rb *ringbuf[T]) peek(values []T, off int) int {
+	return copy(values, rb.buf[rb.off+int32(off):rb.end])
+}
+
+func (rb *ringbuf[T]) read(values []T) int {
+	n := rb.peek(values, 0)
+	rb.discard(n)
 	return n
 }
 

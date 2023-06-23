@@ -57,7 +57,7 @@ func testSocketBufferReadEmpty(t *testing.T) {
 	s := newSocketBuffer[ipv4](nil, 0)
 	b := make([]byte, 32)
 
-	n, flags, _, errno := s.recv([]wasi.IOVec{b})
+	n, flags, _, errno := s.recv([]wasi.IOVec{b}, 0)
 	assert.Equal(t, n, ^wasi.Size(0))
 	assert.Equal(t, flags, 0)
 	assert.Equal(t, errno, wasi.EAGAIN)
@@ -76,14 +76,14 @@ func testSocketBufferWriteAndRead(t *testing.T) {
 	assert.Equal(t, n, 12)
 	assert.Equal(t, errno, wasi.ESUCCESS)
 
-	n, flags, addr2, errno := s.recv([]wasi.IOVec{b})
+	n, flags, addr2, errno := s.recv([]wasi.IOVec{b}, 0)
 	assert.Equal(t, n, 12)
 	assert.Equal(t, flags, 0)
 	assert.Equal(t, addr2, addr1)
 	assert.Equal(t, errno, wasi.ESUCCESS)
 	assert.Equal(t, string(b[:n]), "Hello World!")
 
-	n, flags, addr3, errno := s.recv([]wasi.IOVec{b})
+	n, flags, addr3, errno := s.recv([]wasi.IOVec{b}, 0)
 	assert.Equal(t, n, ^wasi.Size(0))
 	assert.Equal(t, flags, 0)
 	assert.Equal(t, addr3, ipv4{})
@@ -112,7 +112,7 @@ func testSocketBufferWriteAndReadChunks(t *testing.T) {
 	assert.Equal(t, errno, wasi.ESUCCESS)
 
 	for _, c := range []byte("Hello World!") {
-		n, flags, addr2, errno := s.recv([]wasi.IOVec{b[:1]})
+		n, flags, addr2, errno := s.recv([]wasi.IOVec{b[:1]}, 0)
 		assert.Equal(t, n, 1)
 		assert.Equal(t, flags, 0)
 		assert.Equal(t, addr2, addr1)
@@ -120,7 +120,7 @@ func testSocketBufferWriteAndReadChunks(t *testing.T) {
 		assert.Equal(t, string(b[:n]), string([]byte{c}))
 	}
 
-	n, flags, addr3, errno := s.recv([]wasi.IOVec{b})
+	n, flags, addr3, errno := s.recv([]wasi.IOVec{b}, 0)
 	assert.Equal(t, n, ^wasi.Size(0))
 	assert.Equal(t, flags, 0)
 	assert.Equal(t, addr3, ipv4{})
@@ -153,7 +153,7 @@ func testSocketBufferWriteAndReadVector(t *testing.T) {
 		make([]byte, 3),
 	}
 
-	n, flags, addr2, errno := s.recv(iov2)
+	n, flags, addr2, errno := s.recv(iov2, 0)
 	assert.Equal(t, n, 12)
 	assert.Equal(t, flags, 0)
 	assert.Equal(t, addr2, addr1)
@@ -166,7 +166,7 @@ func testSocketBufferWriteAndReadVector(t *testing.T) {
 	b = append(b, iov2[3][:1]...) // "!"
 	assert.Equal(t, string(b), "Hello World!")
 
-	n, flags, addr3, errno := s.recv([]wasi.IOVec{b})
+	n, flags, addr3, errno := s.recv([]wasi.IOVec{b}, 0)
 	assert.Equal(t, n, ^wasi.Size(0))
 	assert.Equal(t, flags, 0)
 	assert.Equal(t, addr3, ipv4{})
@@ -225,14 +225,14 @@ func testSocketBufferAssociateAddressAndData(t *testing.T) {
 	assert.Equal(t, n, 12)
 	assert.Equal(t, errno, wasi.ESUCCESS)
 
-	n, flags, src1, errno := s.recvmsg([]wasi.IOVec{b})
+	n, flags, src1, errno := s.recvmsg([]wasi.IOVec{b}, 0)
 	assert.Equal(t, n, 13)
 	assert.Equal(t, flags, 0)
 	assert.Equal(t, src1, addr1)
 	assert.Equal(t, errno, wasi.ESUCCESS)
 	assert.Equal(t, string(b[:n]), "hello, world!")
 
-	n, flags, src2, errno := s.recvmsg([]wasi.IOVec{b})
+	n, flags, src2, errno := s.recvmsg([]wasi.IOVec{b}, 0)
 	assert.Equal(t, n, 12)
 	assert.Equal(t, flags, 0)
 	assert.Equal(t, src2, addr2)
