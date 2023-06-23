@@ -18,11 +18,31 @@ type Request struct {
 	msg  ConnMessage
 }
 
+func (r Request) Format(w fmt.State, v rune) {
+	if r.msg != nil {
+		r.msg.Format(w, v)
+	} else if r.Err != nil {
+		fmt.Fprintf(w, "Request error: %s", r.Err.Error())
+	} else {
+		fmt.Fprint(w, "unknown")
+	}
+}
+
 type Response struct {
 	Time time.Duration
 	Span time.Duration
 	Err  error
 	msg  ConnMessage
+}
+
+func (r Response) Format(w fmt.State, v rune) {
+	if r.msg != nil {
+		r.msg.Format(w, v)
+	} else if r.Err != nil {
+		fmt.Fprintf(w, "Response error: %s", r.Err.Error())
+	} else {
+		fmt.Fprint(w, "unknown")
+	}
 }
 
 // Exchange values represent the exchange of a request and response between
@@ -42,14 +62,14 @@ func (e Exchange) Format(w fmt.State, v rune) {
 
 	if w.Flag('+') {
 		fmt.Fprintf(w, "\n")
-		e.Req.msg.Format(w, v)
-		e.Res.msg.Format(w, v)
+		e.Req.Format(w, v)
+		e.Res.Format(w, v)
 	} else {
 		fmt.Fprintf(w, ": ")
-		e.Req.msg.Format(w, v)
+		e.Req.Format(w, v)
 
 		fmt.Fprintf(w, " => ")
-		e.Res.msg.Format(w, v)
+		e.Res.Format(w, v)
 	}
 }
 
