@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -267,6 +268,8 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	pm.mu.Lock()
 	pm.processes[processID] = process
 	pm.mu.Unlock()
+
+	log.Printf("process - spawning %s as %s", moduleSpec.Path, processID)
 
 	// Run the module in the background, and tidy up once complete.
 	pm.group.Go(func() (err error) {

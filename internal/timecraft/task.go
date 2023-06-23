@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -241,6 +242,8 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 		task.state = Executing
 		task.processID = process.ID
 	})
+
+	log.Printf("task - executing task %s in process %s", task.id, process.ID)
 
 	switch input := task.input.(type) {
 	case *HTTPRequest:
