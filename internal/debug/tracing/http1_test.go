@@ -350,6 +350,15 @@ func TestHttp1HeaderRange(t *testing.T) {
 				{name: "Content-Type", value: "text/plain; charset=utf-8"},
 			},
 		},
+
+		{
+			scenario: "header with empty value",
+			input: "Accept-Encoding:\r\n" +
+				"\r\n",
+			fields: []field{
+				{name: "Accept-Encoding", value: ""},
+			},
+		},
 	}
 
 	for _, test := range tests {
