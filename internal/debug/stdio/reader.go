@@ -105,7 +105,7 @@ func (r *Reader) Read(b []byte) (n int, err error) {
 				}
 				switch fd {
 				case r.stdin:
-					writeIOVecs(&r.buffer, iovecs, size)
+					r.writeIOVecs(iovecs, size)
 				}
 
 			case wasicall.FDWrite:
@@ -118,20 +118,20 @@ func (r *Reader) Read(b []byte) (n int, err error) {
 				}
 				switch fd {
 				case r.stdout, r.stderr:
-					writeIOVecs(&r.buffer, iovecs, size)
+					r.writeIOVecs(iovecs, size)
 				}
 			}
 		}
 	}
 }
 
-func writeIOVecs(output io.Writer, iovecs []wasi.IOVec, size wasi.Size) {
+func (r *Reader) writeIOVecs(iovecs []wasi.IOVec, size wasi.Size) {
 	for _, iov := range iovecs {
 		iovLen := wasi.Size(len(iov))
 		if iovLen > size {
 			iovLen = size
 		}
 		size -= iovLen
-		output.Write(iov[:iovLen])
+		r.buffer.Write(iov[:iovLen])
 	}
 }
