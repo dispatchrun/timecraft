@@ -1,9 +1,11 @@
 package timecraft
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -28,10 +30,31 @@ func NewClient() (*Client, error) {
 }
 
 var httpClient = &http.Client{
-	Transport: &http.Transport{
-		DialContext: dialContext,
-		// TODO: timeouts/limits
+	Transport: &bufferingTransport{
+		&http.Transport{
+			DialContext: dialContext,
+			// TODO: timeouts/limits
+		},
 	},
+}
+
+// FIXME: temporarily disable Transfer-Encoding:chunked
+type bufferingTransport struct {
+	transport http.RoundTripper
+}
+
+func (b bufferingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	request.Body.Close()
+
+	request.ContentLength = int64(len(body))
+	request.TransferEncoding = []string{"identity"}
+	request.Body = io.NopCloser(bytes.NewReader(body))
+
+	return b.transport.RoundTrip(request)
 }
 
 // Client is a timecraft client.
