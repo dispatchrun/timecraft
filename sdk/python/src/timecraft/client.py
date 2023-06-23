@@ -78,7 +78,7 @@ class HTTPRequest(TaskInput):
             "body": self.body,
         }
         if self.body is not None:
-            remap(http_request, "body", "body", base64.b64encode)
+            remap(http_request, "body", "body", lambda body: base64.b64encode(body).decode("utf-8"))
         return {
             "httpRequest": http_request
         }
