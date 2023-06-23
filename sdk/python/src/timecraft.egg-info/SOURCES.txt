@@ -1,9 +1,0 @@
-pyproject.toml
-src/timecraft/__init__.py
-src/timecraft/client.py
-src/timecraft/http.py
-src/timecraft.egg-info/PKG-INFO
-src/timecraft.egg-info/SOURCES.txt
-src/timecraft.egg-info/dependency_links.txt
-src/timecraft.egg-info/requires.txt
-src/timecraft.egg-info/top_level.txt
