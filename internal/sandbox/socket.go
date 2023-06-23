@@ -41,7 +41,7 @@ func (f sockflags) withFDFlags(flags wasi.FDFlags) sockflags {
 
 type packet[T sockaddr] struct {
 	addr T
-	size wasi.Size
+	size int
 }
 
 type sockbuf[T sockaddr] struct {
@@ -86,10 +86,11 @@ func (sb *sockbuf[T]) size() wasi.Size {
 	return wasi.Size(size)
 }
 
-func (sb *sockbuf[T]) recv(iovs []wasi.IOVec) (size wasi.Size, roflags wasi.ROFlags, addr T, errno wasi.Errno) {
+func (sb *sockbuf[T]) recv(iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, T, wasi.Errno) {
 	sb.lock()
 	defer sb.unlock()
 
+	var addr T
 	if sb.src.len() == 0 {
 		if sb.rev.state() == aborted {
 			return 0, 0, addr, wasi.ESUCCESS
@@ -97,8 +98,9 @@ func (sb *sockbuf[T]) recv(iovs []wasi.IOVec) (size wasi.Size, roflags wasi.ROFl
 		return ^wasi.Size(0), 0, addr, wasi.EAGAIN
 	}
 
+	var size int
 	for _, iov := range iovs {
-		size += wasi.Size(len(iov))
+		size += len(iov)
 	}
 
 	packet := sb.src.index(0)
@@ -109,25 +111,30 @@ func (sb *sockbuf[T]) recv(iovs []wasi.IOVec) (size wasi.Size, roflags wasi.ROFl
 
 	remain := size
 	for _, iov := range iovs {
-		if remain < wasi.Size(len(iov)) {
+		if remain < len(iov) {
 			iov = iov[:remain]
 		}
-		n := sb.buf.read(iov)
-		if remain -= wasi.Size(n); remain == 0 {
+		n := sb.buf.peek(iov, size-remain)
+		if remain -= n; remain == 0 {
 			break
 		}
 	}
 
-	if packet.size -= size; packet.size == 0 {
-		sb.src.discard(1)
+	if !flags.Has(wasi.RecvPeek) {
+		sb.buf.discard(size)
+		packet.size -= size
+		if packet.size == 0 {
+			sb.src.discard(1)
+		}
 	}
-	return size, 0, addr, wasi.ESUCCESS
+	return wasi.Size(size), 0, addr, wasi.ESUCCESS
 }
 
-func (sb *sockbuf[T]) recvmsg(iovs []wasi.IOVec) (size wasi.Size, flags wasi.ROFlags, addr T, errno wasi.Errno) {
+func (sb *sockbuf[T]) recvmsg(iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, T, wasi.Errno) {
 	sb.lock()
 	defer sb.unlock()
 
+	var addr T
 	if sb.src.len() == 0 {
 		if sb.rev.state() == aborted {
 			return 0, 0, addr, wasi.ESUCCESS
@@ -135,40 +142,45 @@ func (sb *sockbuf[T]) recvmsg(iovs []wasi.IOVec) (size wasi.Size, flags wasi.ROF
 		return ^wasi.Size(0), 0, addr, wasi.EAGAIN
 	}
 
+	var size int
 	for _, iov := range iovs {
-		size += wasi.Size(len(iov))
+		size += len(iov)
 	}
 
 	packet := sb.src.index(0)
 	addr = packet.addr
+	var roflags wasi.ROFlags
 	switch {
 	case packet.size < size:
 		size = packet.size
 	case packet.size > size:
-		flags |= wasi.RecvDataTruncated
+		roflags |= wasi.RecvDataTruncated
 	}
 
 	remain := size
 	for _, iov := range iovs {
-		if remain < wasi.Size(len(iov)) {
+		if remain < len(iov) {
 			iov = iov[:remain]
 		}
-		n := sb.buf.read(iov)
-		if remain -= wasi.Size(n); remain == 0 {
+		n := sb.buf.peek(iov, size-remain)
+		if remain -= n; remain == 0 {
 			break
 		}
 	}
 
-	sb.buf.discard(int(packet.size - size))
-	sb.src.discard(1)
-	return size, flags, addr, wasi.ESUCCESS
+	if !flags.Has(wasi.RecvPeek) {
+		sb.buf.discard(packet.size)
+		sb.src.discard(1)
+	}
+	return wasi.Size(size), roflags, addr, wasi.ESUCCESS
 }
 
-func (sb *sockbuf[T]) send(iovs []wasi.IOVec, addr T) (size wasi.Size, errno wasi.Errno) {
+func (sb *sockbuf[T]) send(iovs []wasi.IOVec, addr T) (wasi.Size, wasi.Errno) {
 	sb.lock()
 	defer sb.unlock()
 
 	if sb.buf.avail() == 0 {
+		var errno wasi.Errno
 		if sb.wev.state() == aborted {
 			errno = wasi.ECONNRESET
 		} else {
@@ -177,9 +189,10 @@ func (sb *sockbuf[T]) send(iovs []wasi.IOVec, addr T) (size wasi.Size, errno was
 		return ^wasi.Size(0), errno
 	}
 
+	var size int
 	for _, iov := range iovs {
 		n := sb.buf.write(iov)
-		size += wasi.Size(n)
+		size += n
 		if n < len(iov) {
 			break
 		}
@@ -189,10 +202,10 @@ func (sb *sockbuf[T]) send(iovs []wasi.IOVec, addr T) (size wasi.Size, errno was
 		addr: addr,
 		size: size,
 	})
-	return size, wasi.ESUCCESS
+	return wasi.Size(size), wasi.ESUCCESS
 }
 
-func (sb *sockbuf[T]) sendmsg(iovs []wasi.IOVec, addr T) (size wasi.Size, errno wasi.Errno) {
+func (sb *sockbuf[T]) sendmsg(iovs []wasi.IOVec, addr T) (wasi.Size, wasi.Errno) {
 	sb.lock()
 	defer sb.unlock()
 
@@ -203,8 +216,9 @@ func (sb *sockbuf[T]) sendmsg(iovs []wasi.IOVec, addr T) (size wasi.Size, errno 
 		return ^wasi.Size(0), wasi.EAGAIN
 	}
 
+	var size int
 	for _, iov := range iovs {
-		size += wasi.Size(len(iov))
+		size += len(iov)
 	}
 
 	if sb.buf.cap() < int(size) {
@@ -222,7 +236,7 @@ func (sb *sockbuf[T]) sendmsg(iovs []wasi.IOVec, addr T) (size wasi.Size, errno 
 		addr: addr,
 		size: size,
 	})
-	return size, wasi.ESUCCESS
+	return wasi.Size(size), wasi.ESUCCESS
 }
 
 type socktype wasi.SocketType
@@ -277,7 +291,7 @@ type socket[T sockaddr] struct {
 	// Functions used to send and receive message on the socket, implement the
 	// difference in behavior between stream and datagram sockets.
 	sendmsg func(*sockbuf[T], []wasi.IOVec, T) (wasi.Size, wasi.Errno)
-	recvmsg func(*sockbuf[T], []wasi.IOVec) (wasi.Size, wasi.ROFlags, T, wasi.Errno)
+	recvmsg func(*sockbuf[T], []wasi.IOVec, wasi.RIFlags) (wasi.Size, wasi.ROFlags, T, wasi.Errno)
 	// For connected sockets, this channel is used to asynchronously receive
 	// notification that a connection has been established.
 	errs <-chan wasi.Errno
@@ -706,16 +720,13 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 	if flags.Has(wasi.RecvWaitAll) {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
 	}
-	if flags.Has(wasi.RecvPeek) {
-		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
-	}
 	if errno := s.getErrno(); errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), 0, addr, errno
 	}
 
 	s.allocateBuffersIfNil()
 	for {
-		size, roflags, addr, errno := s.recvmsg(s.rbuf, iovs)
+		size, roflags, addr, errno := s.recvmsg(s.rbuf, iovs, flags)
 		// Connected sockets may receive packets from other sockets that they
 		// are not connected to (e.g. when using datagram sockets and sendto),
 		// so we drop the packages here when that's the case and move to read

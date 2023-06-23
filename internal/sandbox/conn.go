@@ -93,7 +93,7 @@ func (c *conn[T]) Read(b []byte) (int, error) {
 			return 0, os.ErrDeadlineExceeded
 		}
 
-		n, _, _, errno := c.rbuf.recv([]wasi.IOVec{b})
+		n, _, _, errno := c.rbuf.recv([]wasi.IOVec{b}, 0)
 		if errno == wasi.ESUCCESS {
 			if n == 0 {
 				return 0, io.EOF
