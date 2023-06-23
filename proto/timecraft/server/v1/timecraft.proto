@@ -22,6 +22,7 @@ message TaskResponse {
 message ModuleSpec {
   string path = 1;
   repeated string args = 2;
+  repeated string env = 3;
 }
 
 message HTTPRequest {
