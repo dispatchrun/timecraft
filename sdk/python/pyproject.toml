@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "timecraft"
+version = "0.0.1"
+authors = [
+  { name="Stealth Rocket", email="contact@stealthrocket.tech" },
+]
+description = "SDK for the Timecraft runtime"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Environment :: WebAssembly :: WASI",
+]
+dependencies = [
+    "requests >= 2.31.0",
+]
