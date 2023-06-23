@@ -111,6 +111,10 @@ func (ev *event) clear() {
 	ev.status.CompareAndSwap(ready, cleared)
 }
 
+// poll checks if the event has been triggered, and if it didn't it installs
+// the given signal channel to be notified the next time it happens. This method
+// must be called while holding the event lock. Use the synchronize method to
+// acquire the event lock from code paths that do not alreayd own it.
 func (ev *event) poll(signal chan<- struct{}) bool {
 	if ev.status.Load() != cleared {
 		ev.signal = nil

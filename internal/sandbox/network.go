@@ -325,7 +325,7 @@ func connect[N network[T], T sockaddr](n N, addr netaddr[T]) (net.Conn, error) {
 
 func listen[N network[T], T sockaddr](n N, lock *sync.Mutex, addr netaddr[T]) (net.Listener, error) {
 	accept := make(chan *socket[T], 128)
-	socket := newSocket[T](n, stream, addr.protocol, lock)
+	socket := newSocket[T](n, stream, addr.protocol, lock, nil)
 	socket.flags = socket.flags.with(sockListen)
 	socket.accept = accept
 

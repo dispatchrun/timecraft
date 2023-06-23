@@ -81,12 +81,12 @@ type System struct {
 	rand  io.Reader
 	fsys  fs.FS
 	wasi.FileTable[File]
+	poll   chan struct{}
 	lock   *sync.Mutex
 	stdin  *pipe
 	stdout *pipe
 	stderr *pipe
 	root   wasi.FD
-	poll   chan struct{}
 	ipv4   ipnet[ipv4]
 	ipv6   ipnet[ipv6]
 	unix   unixnet
@@ -338,11 +338,11 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 	var socket File
 	switch pf {
 	case wasi.InetFamily:
-		socket = newSocket[ipv4](&s.ipv4, socktype(st), protocol(proto), s.lock)
+		socket = newSocket[ipv4](&s.ipv4, socktype(st), protocol(proto), s.lock, s.poll)
 	case wasi.Inet6Family:
-		socket = newSocket[ipv6](&s.ipv6, socktype(st), protocol(proto), s.lock)
+		socket = newSocket[ipv6](&s.ipv6, socktype(st), protocol(proto), s.lock, s.poll)
 	case wasi.UnixFamily:
-		socket = newSocket[unix](&s.unix, socktype(st), protocol(proto), s.lock)
+		socket = newSocket[unix](&s.unix, socktype(st), protocol(proto), s.lock, s.poll)
 	default:
 		return none, wasi.EAFNOSUPPORT
 	}
