@@ -6,27 +6,34 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 )
 
-const Port = 65535
+var mu sync.Mutex
+var port = 6789
 
 // Start an HTTP proxy. Cancel context to terminate.
 func Start(ctx context.Context) {
+	mu.Lock()
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	port++
+	mu.Unlock()
+
 	s := &http.Server{
-		Addr:           fmt.Sprintf("127.0.0.1:%d", Port),
+		Addr:           addr,
 		Handler:        http.HandlerFunc(handler),
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 	go func() {
-		log.Printf("Starting httproxy server on %s", s.Addr)
+		log.Printf("httproxy - starting server on %s", addr)
 		err := s.ListenAndServe()
 		if err == http.ErrServerClosed {
-			log.Println("Httproxy server terminated.")
+			log.Println("httproxy - server terminated")
 		} else {
-			log.Println("Httproxy server terminated with error", err)
+			log.Println("httproxy - server terminated with error", err)
 		}
 	}()
 }
@@ -37,7 +44,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 	u.Host = req.Host
 	outgoing, err := http.NewRequest(req.Method, u.String(), req.Body)
 	if err != nil {
-		log.Println("invalid request received by proxy:", err)
+		log.Println("httproxy - invalid request:", err)
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
@@ -48,7 +55,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 
 	resp, err := client.Do(outgoing)
 	if err != nil {
-		log.Println("proxy could not perform request:", err)
+		log.Println("httproxy - could not perform request:", err)
 		http.Error(w, "could not perform request", http.StatusInternalServerError)
 	}
 	defer resp.Body.Close()
@@ -58,7 +65,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 
 	_, err = io.Copy(w, resp.Body)
 	if err != nil {
-		log.Println("proxy could not write back body:", err)
+		log.Println("httproxy - could not write back body:", err)
 	}
 }
 
