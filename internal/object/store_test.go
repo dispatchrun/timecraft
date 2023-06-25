@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stealthrocket/timecraft/internal/testing/assert"
+	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"golang.org/x/exp/slices"

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
-	"github.com/stealthrocket/timecraft/internal/testing/assert"
+	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/wasi-go"
 )
 

@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stealthrocket/timecraft/format"
-	"github.com/stealthrocket/timecraft/internal/testing/assert"
+	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 )

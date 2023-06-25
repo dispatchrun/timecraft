@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stealthrocket/timecraft/internal/testing/assert"
+	"github.com/stealthrocket/timecraft/internal/assert"
 )
 
 const text = `

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/stealthrocket/timecraft/internal/testing/assert"
+	"github.com/stealthrocket/timecraft/internal/assert"
 )
 
 func TestPipeInput(t *testing.T) {
