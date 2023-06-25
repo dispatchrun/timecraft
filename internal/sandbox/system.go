@@ -74,10 +74,6 @@ func Dial(dial func(context.Context, string, string) (net.Conn, error)) Option {
 // Listenpacket configures the function used to create datagram sockets on the
 // host network.
 //
-// The function it accepts is similar to net.ListenPacket but accepts an extra
-// context.Context as first argument to propagate the context through the call
-// stack when the function is being called.
-//
 // If not set, the guest module cannot open host datagram sockets.
 func ListenPacket(listenPacket func(context.Context, string, string) (net.PacketConn, error)) Option {
 	return func(s *System) {

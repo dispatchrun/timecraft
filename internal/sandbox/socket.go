@@ -490,7 +490,7 @@ func (s *socket[T]) SockListen(ctx context.Context, backlog int) wasi.Errno {
 	}
 
 	if !s.flags.has(sockListen) {
-		if errno := s.bindToAny(); errno != wasi.ESUCCESS {
+		if errno := s.bindToAny(ctx); errno != wasi.ESUCCESS {
 			return errno
 		}
 		s.flags = s.flags.with(sockListen)
@@ -566,27 +566,60 @@ func (s *socket[T]) SockBind(ctx context.Context, bind wasi.SocketAddress) wasi.
 	if s.flags.has(sockClosed) || s.laddr != zero {
 		return wasi.EINVAL
 	}
-	return s.net.bind(addr, s)
+	return s.bind(ctx, func() wasi.Errno { return s.net.bind(addr, s) })
 }
 
-func (s *socket[T]) bindToAny() wasi.Errno {
+func (s *socket[T]) bindToAny(ctx context.Context) wasi.Errno {
+	var zero T
+	return s.bind(ctx, func() wasi.Errno { return s.net.bind(zero, s) })
+}
+
+func (s *socket[T]) bindToNetwork(ctx context.Context) wasi.Errno {
+	return s.bind(ctx, func() wasi.Errno { return s.net.link(s) })
+}
+
+func (s *socket[T]) bind(ctx context.Context, bind func() wasi.Errno) wasi.Errno {
 	var zero T
 	if s.laddr != zero {
 		return wasi.ESUCCESS
 	}
-	return s.net.bind(zero, s)
+	if s.typ == datagram {
+		switch errno := s.openPacketTunnel(ctx); errno {
+		case wasi.ESUCCESS:
+		case wasi.ENOTSUP:
+		default:
+			return errno
+		}
+	}
+	return bind()
 }
 
-func (s *socket[T]) bindToNetwork() wasi.Errno {
-	var zero T
-	if s.laddr != zero {
+func (s *socket[T]) openPacketTunnel(ctx context.Context) wasi.Errno {
+	if s.errs != nil {
 		return wasi.ESUCCESS
 	}
-	return s.net.link(s)
-}
+	conn, errno := s.net.listenPacket(ctx, s.proto)
+	if errno != wasi.ESUCCESS {
+		return errno
+	}
+	ctx, s.cancel = context.WithCancel(ctx)
+	errs := make(chan wasi.Errno, 2)
+	s.errs = errs
 
-func (s *socket[T]) openPacketConn() wasi.Errno {
+	rbufsize := s.rbuf.size()
+	wbufsize := s.wbuf.size()
+	buffer := make([]byte, rbufsize+wbufsize)
+	tunnel := &packetConnTunnel[T]{
+		refc: 2,
+		sock: s,
+		conn: conn,
+		errs: errs,
+	}
 
+	go tunnel.readFromPacketConn(buffer[:rbufsize])
+	go tunnel.writeToPacketConn(buffer[rbufsize:])
+	go tunnel.closeOnCancel(ctx)
+	return wasi.ESUCCESS
 }
 
 func (s *socket[T]) allocateBuffersIfNil() {
@@ -624,24 +657,24 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		}
 	}
 
-	if errno := s.bindToNetwork(); errno != wasi.ESUCCESS {
+	if errno := s.bindToNetwork(ctx); errno != wasi.ESUCCESS {
 		return errno
 	}
 
 	s.allocateBuffersIfNil()
 	s.flags = s.flags.with(sockConn)
+
+	if s.typ == datagram {
+		s.raddr = raddr
+		s.wev.trigger()
+		return wasi.ESUCCESS
+	}
+
 	// At most three errors are produced to this channel, one when the dial
 	// function failed or the connection is blocking, and up to two if both
 	// the read and write pipes error.
 	errs := make(chan wasi.Errno, 3)
 	s.errs = errs
-
-	if s.typ == datagram {
-		s.raddr = raddr
-		s.wev.trigger()
-		close(errs)
-		return wasi.ESUCCESS
-	}
 
 	blocking := !s.flags.has(sockNonBlock)
 	if s.net.contains(raddr) {
@@ -657,7 +690,7 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	} else {
 		ctx, s.cancel = context.WithCancel(ctx)
 		go func() {
-			upstream, errno := s.net.dial(ctx, s.proto, s.laddr, s.raddr)
+			upstream, errno := s.net.dial(ctx, s.proto, s.raddr)
 			if errno != wasi.ESUCCESS || blocking {
 				errs <- errno
 			}
@@ -673,9 +706,15 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 			rbufsize := s.rbuf.size()
 			wbufsize := s.wbuf.size()
 			buffer := make([]byte, rbufsize+wbufsize)
-			pipe := &connPipe{refc: 2, conn1: upstream, conn2: downstream, errs: errs}
-			go pipe.copy(upstream, downstream, buffer[:rbufsize])
-			go pipe.copy(downstream, upstream, buffer[rbufsize:])
+			tunnel := &connTunnel{
+				refc:  2,
+				conn1: upstream,
+				conn2: downstream,
+				errs:  errs,
+			}
+
+			go tunnel.copy(upstream, downstream, buffer[:rbufsize])
+			go tunnel.copy(downstream, upstream, buffer[rbufsize:])
 			go closeReadOnCancel(ctx, upstream)
 		}()
 	}
@@ -709,9 +748,6 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	// TODO:
-	// - RecvPeek
-	// - RecvWaitAll
 	if s.flags.has(sockClosed) {
 		return ^wasi.Size(0), 0, addr, wasi.ECONNRESET
 	}
@@ -747,7 +783,7 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 			if errno := s.waitReadyRead(ctx, &s.mutex); errno != wasi.ESUCCESS {
 				return size, roflags, addr, errno
 			}
-		default: // ERROR
+		default:
 			return size, roflags, addr, errno
 		}
 	}
@@ -788,23 +824,29 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	if errno := s.getErrno(); errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), errno
 	}
-	if errno := s.bindToAny(); errno != wasi.ESUCCESS {
+	if errno := s.bindToAny(ctx); errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), errno
 	}
 	s.allocateBuffersIfNil()
 
+	var sock *socket[T]
 	var sbuf *sockbuf[T]
-	var size wasi.Size
-	if s.typ == stream {
+
+	if s.typ == stream || !s.net.contains(addr) {
+		sock = s
 		sbuf = s.wbuf
 	} else {
+		// When the destination is a datagram socket on the same network we can
+		// send the datagram directly to its receive buffer, bypassing the need
+		// to copy the data between socket buffers.
+		var size wasi.Size
 		for _, iov := range iovs {
 			size += wasi.Size(len(iov))
 		}
 		if size > s.wbuf.size() {
 			return 0, wasi.EMSGSIZE
 		}
-		sock := s.net.socket(netaddr[T]{s.proto, addr})
+		sock = s.net.socket(netaddr[T]{s.proto, addr})
 		if sock == nil {
 			return size, wasi.ESUCCESS
 		}
@@ -813,7 +855,7 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	}
 
 	for {
-		n, errno := s.sendmsg(sbuf, iovs, s.laddr)
+		n, errno := sock.sendmsg(sbuf, iovs, s.laddr)
 		// Messages that are too large to fit in the socket buffer are dropped
 		// since this may only happen on datagram sockets which are lossy links.
 		switch errno {
@@ -825,7 +867,7 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 			if s.flags.has(sockNonBlock) {
 				return n, errno
 			}
-			if errno := s.waitReadyWrite(ctx, &s.mutex); errno != wasi.ESUCCESS {
+			if errno := sock.waitReadyWrite(ctx, &sock.mutex); errno != wasi.ESUCCESS {
 				return n, errno
 			}
 		default:

@@ -12,14 +12,14 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
-// Connect opens a connection to a listening socket on the guest module network.
+// Dial opens a connection to a listening socket on the guest module network.
 //
 // This function has a signature that matches the one commonly used in the
 // Go standard library as a hook to customize how and where network connections
 // are estalibshed. The intent is for this function to be used when the host
 // needs to establish a connection to the guest, maybe indirectly such as using
 // a http.Transport and setting this method as the transport's dial function.
-func (s *System) Connect(ctx context.Context, network, address string) (net.Conn, error) {
+func (s *System) Dial(ctx context.Context, network, address string) (net.Conn, error) {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		addrPort, err := netip.ParseAddrPort(address)
@@ -300,7 +300,9 @@ type network[T sockaddr] interface {
 	// linked to the network.
 	unlink(sock *socket[T]) wasi.Errno
 	// Open an outbound connection to the given network address.
-	dial(ctx context.Context, proto protocol, laddr, raddr T) (net.Conn, wasi.Errno)
+	dial(ctx context.Context, proto protocol, addr T) (net.Conn, wasi.Errno)
+	// Open a listening packet connection for the given network address.
+	listenPacket(ctx context.Context, proto protocol) (net.PacketConn, wasi.Errno)
 }
 
 func connect[N network[T], T sockaddr](n N, addr netaddr[T]) (net.Conn, error) {
@@ -396,7 +398,7 @@ func (n *ipnet[T]) supports(proto protocol) bool {
 
 func (n *ipnet[T]) netaddr(networkAddress net.Addr) (sockaddr T, errno wasi.Errno) {
 	var addrPort netip.AddrPort
-	switch na := networkAddres.(type) {
+	switch na := networkAddress.(type) {
 	case *net.TCPAddr:
 		addrPort = na.AddrPort()
 	case *net.UDPAddr:
@@ -507,10 +509,18 @@ func (n *ipnet[T]) unlink(sock *socket[T]) wasi.Errno {
 	return wasi.ESUCCESS
 }
 
-func (n *ipnet[T]) dial(ctx context.Context, proto protocol, laddr, raddr T) (net.Conn, wasi.Errno) {
+func (n *ipnet[T]) dial(ctx context.Context, proto protocol, addr T) (net.Conn, wasi.Errno) {
 	// The address to connect to is not on the local network, fallback to
 	//  using the dial function for outbound connections if one exists.
-	c, err := n.dialFunc(ctx, proto.String(), raddr.String())
+	c, err := n.dialFunc(ctx, proto.String(), addr.String())
+	if err != nil {
+		return nil, wasi.MakeErrno(err)
+	}
+	return c, wasi.ESUCCESS
+}
+
+func (n *ipnet[T]) listenPacket(ctx context.Context, proto protocol) (net.PacketConn, wasi.Errno) {
+	c, err := n.listenPacketFunc(ctx, proto.String(), "")
 	if err != nil {
 		return nil, wasi.MakeErrno(err)
 	}
@@ -600,8 +610,16 @@ func (n *unixnet) unlink(sock *socket[unix]) wasi.Errno {
 	return wasi.ESUCCESS
 }
 
-func (n *unixnet) dial(ctx context.Context, _ protocol, laddr, raddr unix) (net.Conn, wasi.Errno) {
-	c, err := n.dialFunc(ctx, "unix", raddr.String())
+func (n *unixnet) dial(ctx context.Context, _ protocol, addr unix) (net.Conn, wasi.Errno) {
+	c, err := n.dialFunc(ctx, "unix", addr.String())
+	if err != nil {
+		return nil, wasi.MakeErrno(err)
+	}
+	return c, wasi.ESUCCESS
+}
+
+func (n *unixnet) listenPacket(ctx context.Context, _ protocol) (net.PacketConn, wasi.Errno) {
+	c, err := n.listenPacketFunc(ctx, "unixgram", "")
 	if err != nil {
 		return nil, wasi.MakeErrno(err)
 	}

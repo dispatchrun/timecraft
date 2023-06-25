@@ -245,14 +245,14 @@ func (d *deadline) set(t time.Time) {
 	}
 }
 
-type connPipe struct {
+type connTunnel struct {
 	refc  int32
 	conn1 net.Conn
 	conn2 net.Conn
 	errs  chan<- wasi.Errno
 }
 
-func (c *connPipe) unref() {
+func (c *connTunnel) unref() {
 	if atomic.AddInt32(&c.refc, -1) == 0 {
 		c.conn1.Close()
 		c.conn2.Close()
@@ -260,7 +260,7 @@ func (c *connPipe) unref() {
 	}
 }
 
-func (c *connPipe) copy(dst, src net.Conn, buf []byte) {
+func (c *connTunnel) copy(dst, src net.Conn, buf []byte) {
 	defer c.unref()
 	defer closeWrite(dst) //nolint:errcheck
 	_, err := io.CopyBuffer(dst, src, buf)
@@ -308,38 +308,50 @@ func closeReadOnCancel(ctx context.Context, conn net.Conn) {
 	closeRead(conn) //nolint:errcheck
 }
 
-func (s *socket[T]) readFromPacketConn(conn net.PacketConn, wg *sync.WaitGroup) {
-	defer wg.Done()
-	defer s.rbuf.close()
+type packetConnTunnel[T sockaddr] struct {
+	refc int32
+	sock *socket[T]
+	conn net.PacketConn
+	errs chan<- wasi.Errno
+}
 
-	buf := make([]byte, s.rbuf.size())
+func (p *packetConnTunnel[T]) unref() {
+	if atomic.AddInt32(&p.refc, -1) == 0 {
+		p.conn.Close()
+		close(p.errs)
+	}
+}
+
+func (p *packetConnTunnel[T]) readFromPacketConn(buf []byte) {
+	defer p.unref()
+	defer p.sock.rbuf.close()
+
 	for {
-		size, addr, err := conn.ReadFrom(buf)
+		size, addr, err := p.conn.ReadFrom(buf)
 		if err != nil {
 			return
 		}
 		// TODO:
 		// - capture metric about packets that were dropped
 		// - log details about the reason why a packet was dropped
-		peer, errno := s.net.netaddr(addr)
+		peer, errno := p.sock.net.netaddr(addr)
 		if errno != wasi.ESUCCESS {
 			continue
 		}
-		_, errno := s.rbuf.sendmsg([]wasi.IOVec{buf[:size]}, peer)
+		_, errno = p.sock.rbuf.sendmsg([]wasi.IOVec{buf[:size]}, peer)
 		if errno != wasi.ESUCCESS {
 			continue
 		}
 	}
 }
 
-func (s *socket[T]) writeToPacketConn(conn net.PacketConn, wg *sync.WaitGroup) {
-	defer wg.Done()
-	defer s.wbuf.close()
+func (p *packetConnTunnel[T]) writeToPacketConn(buf []byte) {
+	defer p.unref()
+	defer p.sock.wbuf.close()
 
-	buf := make([]byte, s.wbuf.size())
 	sig := make(chan struct{}, 1)
 	for {
-		size, _, addr, errno := s.wbuf.recvmsg([]wasi.IOVec{buf}, 0)
+		size, _, addr, errno := p.sock.wbuf.recvmsg([]wasi.IOVec{buf}, 0)
 		switch errno {
 		case wasi.ESUCCESS:
 			if size == 0 {
@@ -347,7 +359,7 @@ func (s *socket[T]) writeToPacketConn(conn net.PacketConn, wg *sync.WaitGroup) {
 			}
 		case wasi.EAGAIN:
 			var ready bool
-			s.wev.synchronize(func() { ready = s.wbuf.poll(sig) })
+			p.sock.wev.synchronize(func() { ready = p.sock.wev.poll(sig) })
 			if !ready {
 				<-sig
 			}
@@ -356,9 +368,14 @@ func (s *socket[T]) writeToPacketConn(conn net.PacketConn, wg *sync.WaitGroup) {
 			// - log details about the reason why we abort
 			return
 		}
-		_, err := conn.WriteTo(buf[:size], addr.netAddr(s.proto))
+		_, err := p.conn.WriteTo(buf[:size], addr.netAddr(p.sock.proto))
 		if err != nil {
 			return
 		}
 	}
+}
+
+func (p *packetConnTunnel[T]) closeOnCancel(ctx context.Context) {
+	<-ctx.Done()
+	p.conn.Close()
 }
