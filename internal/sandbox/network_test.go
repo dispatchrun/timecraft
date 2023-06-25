@@ -142,7 +142,7 @@ type connectedPacketConn struct {
 
 func (c *connectedPacketConn) Close() error {
 	if cr, ok := c.peer.(interface{ CloseRead() error }); ok {
-		cr.CloseRead()
+		_ = cr.CloseRead()
 	}
 	return c.PacketConn.Close()
 }
