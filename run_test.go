@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/stealthrocket/timecraft/internal/assert"
+	"github.com/stealthrocket/timecraft/internal/testing/assert"
 )
 
 var run = tests{

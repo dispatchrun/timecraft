@@ -3,7 +3,7 @@ package main_test
 import (
 	"testing"
 
-	"github.com/stealthrocket/timecraft/internal/assert"
+	"github.com/stealthrocket/timecraft/internal/testing/assert"
 )
 
 var get = tests{

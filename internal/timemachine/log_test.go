@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stealthrocket/timecraft/format"
-	"github.com/stealthrocket/timecraft/internal/assert"
+	"github.com/stealthrocket/timecraft/internal/testing/assert"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"golang.org/x/exp/slices"

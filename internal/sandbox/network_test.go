@@ -5,7 +5,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/stealthrocket/timecraft/internal/assert"
+	"github.com/stealthrocket/timecraft/internal/testing/assert"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"golang.org/x/net/nettest"
 )

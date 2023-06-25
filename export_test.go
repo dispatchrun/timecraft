@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stealthrocket/timecraft/internal/assert"
+	"github.com/stealthrocket/timecraft/internal/testing/assert"
 )
 
 var export = tests{

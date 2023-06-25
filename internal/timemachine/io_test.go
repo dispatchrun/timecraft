@@ -5,7 +5,7 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/stealthrocket/timecraft/internal/assert"
+	"github.com/stealthrocket/timecraft/internal/testing/assert"
 )
 
 func TestBufferedReadSeeker(t *testing.T) {

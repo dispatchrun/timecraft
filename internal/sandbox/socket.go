@@ -9,6 +9,13 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
+func sumIOVecLen(iovs []wasi.IOVec) (n int) {
+	for _, iov := range iovs {
+		n += len(iov)
+	}
+	return n
+}
+
 type sockflags uint32
 
 const (
@@ -79,11 +86,11 @@ func (sb *sockbuf[T]) unlock() {
 	sb.mu.Unlock()
 }
 
-func (sb *sockbuf[T]) size() wasi.Size {
+func (sb *sockbuf[T]) size() int {
 	sb.mu.Lock()
 	size := sb.buf.cap()
 	sb.mu.Unlock()
-	return wasi.Size(size)
+	return size
 }
 
 func (sb *sockbuf[T]) recv(iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, T, wasi.Errno) {
@@ -98,11 +105,7 @@ func (sb *sockbuf[T]) recv(iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wa
 		return ^wasi.Size(0), 0, addr, wasi.EAGAIN
 	}
 
-	var size int
-	for _, iov := range iovs {
-		size += len(iov)
-	}
-
+	size := sumIOVecLen(iovs)
 	packet := sb.src.index(0)
 	addr = packet.addr
 	if packet.size < size {
@@ -142,11 +145,7 @@ func (sb *sockbuf[T]) recvmsg(iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size,
 		return ^wasi.Size(0), 0, addr, wasi.EAGAIN
 	}
 
-	var size int
-	for _, iov := range iovs {
-		size += len(iov)
-	}
-
+	size := sumIOVecLen(iovs)
 	packet := sb.src.index(0)
 	addr = packet.addr
 	var roflags wasi.ROFlags
@@ -216,11 +215,7 @@ func (sb *sockbuf[T]) sendmsg(iovs []wasi.IOVec, addr T) (wasi.Size, wasi.Errno)
 		return ^wasi.Size(0), wasi.EAGAIN
 	}
 
-	var size int
-	for _, iov := range iovs {
-		size += len(iov)
-	}
-
+	size := sumIOVecLen(iovs)
 	if sb.buf.cap() < int(size) {
 		return ^wasi.Size(0), wasi.EMSGSIZE
 	}
@@ -836,19 +831,16 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 		sock = s
 		sbuf = s.wbuf
 	} else {
+		size := sumIOVecLen(iovs)
 		// When the destination is a datagram socket on the same network we can
 		// send the datagram directly to its receive buffer, bypassing the need
 		// to copy the data between socket buffers.
-		var size wasi.Size
-		for _, iov := range iovs {
-			size += wasi.Size(len(iov))
-		}
 		if size > s.wbuf.size() {
 			return 0, wasi.EMSGSIZE
 		}
 		sock = s.net.socket(netaddr[T]{s.proto, addr})
 		if sock == nil {
-			return size, wasi.ESUCCESS
+			return wasi.Size(size), wasi.ESUCCESS
 		}
 		sock.allocateBuffersIfNil()
 		sbuf = sock.rbuf
@@ -862,7 +854,7 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 		case wasi.ESUCCESS:
 			return n, errno
 		case wasi.EMSGSIZE:
-			return size, wasi.ESUCCESS
+			return wasi.Size(sumIOVecLen(iovs)), wasi.ESUCCESS
 		case wasi.EAGAIN:
 			if s.flags.has(sockNonBlock) {
 				return n, errno

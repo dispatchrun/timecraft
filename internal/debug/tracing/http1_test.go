@@ -3,7 +3,7 @@ package tracing
 import (
 	"testing"
 
-	"github.com/stealthrocket/timecraft/internal/assert"
+	"github.com/stealthrocket/timecraft/internal/testing/assert"
 )
 
 func TestHttp1ParseCRLF(t *testing.T) {
