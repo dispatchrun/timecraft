@@ -418,6 +418,10 @@ func (s *socket[T]) connect(peer *socket[T], laddr, raddr T) (*socket[T], wasi.E
 	}
 }
 
+func (s *socket[T]) synchronize(f func()) {
+	synchronize(&s.mutex, f)
+}
+
 func (s *socket[T]) waitReadyRead(ctx context.Context, mu *sync.Mutex) wasi.Errno {
 	return s.wait(ctx, mu, s.rev, s.rtimeout)
 }
@@ -758,8 +762,8 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 	if errno := s.getErrno(); errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), 0, addr, errno
 	}
-
 	s.allocateBuffersIfNil()
+
 	for {
 		size, roflags, addr, errno := s.recvmsg(s.rbuf, iovs, flags)
 		// Connected sockets may receive packets from other sockets that they
@@ -815,7 +819,6 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	if s.flags.has(sockConn) && addr != s.raddr {
 		return ^wasi.Size(0), wasi.EISCONN
 	}
-
 	if errno := s.getErrno(); errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), errno
 	}
@@ -842,8 +845,10 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 		if sock == nil {
 			return wasi.Size(size), wasi.ESUCCESS
 		}
-		sock.allocateBuffersIfNil()
-		sbuf = sock.rbuf
+		sock.synchronize(func() {
+			sock.allocateBuffersIfNil()
+			sbuf = sock.rbuf
+		})
 	}
 
 	for {
