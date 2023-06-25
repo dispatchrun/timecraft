@@ -3,11 +3,12 @@ package sandbox_test
 import (
 	"context"
 	"io"
+	"net"
 	"testing"
 	"time"
 
-	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
+	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/wasi-go"
 )
 
@@ -202,4 +203,32 @@ func TestPollDeadline(t *testing.T) {
 			}})
 		})
 	}
+}
+
+func TestSystemListenPortZero(t *testing.T) {
+	ctx := context.Background()
+	sys := sandbox.New()
+
+	lstn, err := sys.Listen(ctx, "tcp", "127.0.0.1:0")
+	assert.OK(t, err)
+
+	addr, ok := lstn.Addr().(*net.TCPAddr)
+	assert.True(t, ok)
+	assert.True(t, addr.IP.Equal(net.IPv4(127, 0, 0, 1)))
+	assert.NotEqual(t, addr.Port, 0)
+	assert.OK(t, lstn.Close())
+}
+
+func TestSystemListenAnyAddress(t *testing.T) {
+	ctx := context.Background()
+	sys := sandbox.New()
+
+	lstn, err := sys.Listen(ctx, "tcp", ":4242")
+	assert.OK(t, err)
+
+	addr, ok := lstn.Addr().(*net.TCPAddr)
+	assert.True(t, ok)
+	assert.True(t, addr.IP.Equal(net.IPv4(0, 0, 0, 0)))
+	assert.Equal(t, addr.Port, 4242)
+	assert.OK(t, lstn.Close())
 }

@@ -71,6 +71,18 @@ func Dial(dial func(context.Context, string, string) (net.Conn, error)) Option {
 	}
 }
 
+// Listenpacket configures the function used to create datagram sockets on the
+// host network.
+//
+// If not set, the guest module cannot open host datagram sockets.
+func ListenPacket(listenPacket func(context.Context, string, string) (net.PacketConn, error)) Option {
+	return func(s *System) {
+		s.ipv4.listenPacketFunc = listenPacket
+		s.ipv6.listenPacketFunc = listenPacket
+		s.unix.listenPacketFunc = listenPacket
+	}
+}
+
 // System is an implementation of the wasi.System interface which sandboxes all
 // interactions of the guest module with the world.
 type System struct {
@@ -99,6 +111,9 @@ func New(opts ...Option) *System {
 	dial := func(context.Context, string, string) (net.Conn, error) {
 		return nil, syscall.ECONNREFUSED
 	}
+	listenPacket := func(context.Context, string, string) (net.PacketConn, error) {
+		return nil, syscall.EOPNOTSUPP
+	}
 
 	s := &System{
 		lock:   lock,
@@ -107,15 +122,18 @@ func New(opts ...Option) *System {
 		stderr: newPipe(lock),
 		poll:   make(chan struct{}, 1),
 		ipv4: ipnet[ipv4]{
-			ipaddr:   netip.AddrFrom4([4]byte{127, 0, 0, 1}),
-			dialFunc: dial,
+			ipaddr:           netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			dialFunc:         dial,
+			listenPacketFunc: listenPacket,
 		},
 		ipv6: ipnet[ipv6]{
-			ipaddr:   netip.AddrFrom16([16]byte{15: 1}),
-			dialFunc: dial,
+			ipaddr:           netip.AddrFrom16([16]byte{15: 1}),
+			dialFunc:         dial,
+			listenPacketFunc: listenPacket,
 		},
 		unix: unixnet{
-			dialFunc: dial,
+			dialFunc:         dial,
+			listenPacketFunc: listenPacket,
 		},
 	}
 
