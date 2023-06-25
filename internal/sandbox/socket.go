@@ -390,16 +390,27 @@ func (s *socket[T]) connect(peer *socket[T], laddr, raddr T) (*socket[T], wasi.E
 
 	if peer == nil {
 		sock.flags = sock.flags.with(sockHost)
-		sock.wbuf = newSocketBuffer[T](lock, int(sock.wbufsize))
 		sock.rbuf = newSocketBuffer[T](lock, int(sock.rbufsize))
+		sock.wbuf = newSocketBuffer[T](lock, int(sock.wbufsize))
 	} else {
 		// Sockets paired on the same network share the same receive and send
 		// buffers, but swapped so data sent by the peer is read by the socket
 		// vice versa.
 		sock.rbuf = peer.wbuf
 		sock.wbuf = peer.rbuf
-		sock.rev = &sock.rbuf.rev
-		sock.wev = &sock.wbuf.wev
+	}
+
+	sock.rev = &sock.rbuf.rev
+	sock.wev = &sock.wbuf.wev
+
+	if sock.typ == datagram {
+		// When connecting a datagram socket, the new socket must be bound to
+		// the network in order to have an address to receive packets on.
+		if errno := sock.net.link(sock); errno != wasi.ESUCCESS {
+			return nil, errno
+		}
+		sock.allocateBuffersIfNil()
+		return sock, wasi.ESUCCESS
 	}
 
 	s.mutex.Lock()
@@ -422,21 +433,13 @@ func (s *socket[T]) synchronize(f func()) {
 	synchronize(&s.mutex, f)
 }
 
-func (s *socket[T]) waitReadyRead(ctx context.Context, mu *sync.Mutex) wasi.Errno {
-	return s.wait(ctx, mu, s.rev, s.rtimeout)
-}
-
-func (s *socket[T]) waitReadyWrite(ctx context.Context, mu *sync.Mutex) wasi.Errno {
-	return s.wait(ctx, mu, s.wev, s.wtimeout)
-}
-
-func (s *socket[T]) wait(ctx context.Context, mu *sync.Mutex, ev *event, timeout time.Duration) wasi.Errno {
-	if s.poll == nil {
+func wait(ctx context.Context, mu *sync.Mutex, ev *event, timeout time.Duration, poll chan struct{}) wasi.Errno {
+	if poll == nil {
 		return wasi.ENOTSUP
 	}
 
 	var ready bool
-	ev.synchronize(func() { ready = ev.poll(s.poll) })
+	ev.synchronize(func() { ready = ev.poll(poll) })
 
 	if !ready {
 		if mu != nil {
@@ -452,7 +455,7 @@ func (s *socket[T]) wait(ctx context.Context, mu *sync.Mutex, ev *event, timeout
 		}
 
 		select {
-		case <-s.poll:
+		case <-poll:
 		case <-deadline:
 			return wasi.EAGAIN
 		case <-ctx.Done():
@@ -580,6 +583,9 @@ func (s *socket[T]) bindToNetwork(ctx context.Context) wasi.Errno {
 func (s *socket[T]) bind(ctx context.Context, bind func() wasi.Errno) wasi.Errno {
 	var zero T
 	if s.laddr != zero {
+		return wasi.ESUCCESS
+	}
+	if s.flags.has(sockConn) {
 		return wasi.ESUCCESS
 	}
 	if s.typ == datagram {
@@ -779,7 +785,7 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 			if s.flags.has(sockNonBlock) {
 				return size, roflags, addr, errno
 			}
-			if errno := s.waitReadyRead(ctx, &s.mutex); errno != wasi.ESUCCESS {
+			if errno := wait(ctx, &s.mutex, s.rev, s.rtimeout, s.poll); errno != wasi.ESUCCESS {
 				return size, roflags, addr, errno
 			}
 		default:
@@ -827,12 +833,14 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	}
 	s.allocateBuffersIfNil()
 
-	var sock *socket[T]
 	var sbuf *sockbuf[T]
+	var sev *event
+	var smu *sync.Mutex
 
 	if s.typ == stream || !s.net.contains(addr) {
-		sock = s
 		sbuf = s.wbuf
+		sev = s.wev
+		smu = &s.mutex
 	} else {
 		size := sumIOVecLen(iovs)
 		// When the destination is a datagram socket on the same network we can
@@ -841,18 +849,28 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 		if size > s.wbuf.size() {
 			return 0, wasi.EMSGSIZE
 		}
-		sock = s.net.socket(netaddr[T]{s.proto, addr})
-		if sock == nil {
+		sock := s.net.socket(netaddr[T]{s.proto, addr})
+		if sock == nil || sock.typ != datagram {
 			return wasi.Size(size), wasi.ESUCCESS
 		}
+
+		// We're sending the packet to a different socket so there is no need to
+		// hold the current socket's mutex anymore. Also prevent deadlock if the
+		// other peer was concurrently trying to synchronize on the receiver to
+		// send it a packet.
+		s.mutex.Unlock()
+		defer s.mutex.Lock()
+
 		sock.synchronize(func() {
 			sock.allocateBuffersIfNil()
 			sbuf = sock.rbuf
+			sev = &sock.rbuf.wev
+			smu = &sock.mutex
 		})
 	}
 
 	for {
-		n, errno := sock.sendmsg(sbuf, iovs, s.laddr)
+		n, errno := s.sendmsg(sbuf, iovs, s.laddr)
 		// Messages that are too large to fit in the socket buffer are dropped
 		// since this may only happen on datagram sockets which are lossy links.
 		switch errno {
@@ -864,7 +882,7 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 			if s.flags.has(sockNonBlock) {
 				return n, errno
 			}
-			if errno := sock.waitReadyWrite(ctx, &sock.mutex); errno != wasi.ESUCCESS {
+			if errno := wait(ctx, smu, sev, s.wtimeout, s.poll); errno != wasi.ESUCCESS {
 				return n, errno
 			}
 		default:

@@ -5,12 +5,11 @@ import (
 	"net"
 	"testing"
 
-	"github.com/stealthrocket/timecraft/internal/testing/assert"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"golang.org/x/net/nettest"
 )
 
-func TestNetwork(t *testing.T) {
+func TestConn(t *testing.T) {
 	tests := []struct {
 		network string
 		address string
@@ -18,12 +17,12 @@ func TestNetwork(t *testing.T) {
 	}{
 		{
 			network: "tcp4",
-			address: "127.0.0.1:80",
+			address: "127.0.0.1:0",
 		},
 
 		{
 			network: "tcp6",
-			address: "[::1]:80",
+			address: "[::1]:0",
 		},
 
 		{
@@ -84,30 +83,79 @@ func TestNetwork(t *testing.T) {
 	}
 }
 
-func TestSystemListenPortZero(t *testing.T) {
-	ctx := context.Background()
-	sys := sandbox.New()
+func TestPacketConn(t *testing.T) {
+	tests := []struct {
+		network string
+		address string
+		options []sandbox.Option
+	}{
+		{
+			network: "udp4",
+			address: "127.0.0.1:0",
+		},
 
-	lstn, err := sys.Listen(ctx, "tcp", "127.0.0.1:0")
-	assert.OK(t, err)
+		{
+			network: "udp6",
+			address: "[::1]:0",
+		},
+	}
 
-	addr, ok := lstn.Addr().(*net.TCPAddr)
-	assert.True(t, ok)
-	assert.True(t, addr.IP.Equal(net.IPv4(127, 0, 0, 1)))
-	assert.NotEqual(t, addr.Port, 0)
-	assert.OK(t, lstn.Close())
+	for _, test := range tests {
+		t.Run(test.network, func(t *testing.T) {
+			nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
+				ctx := context.Background()
+				sys := sandbox.New(test.options...)
+
+				l, err := sys.ListenPacket(ctx, test.network, test.address)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+
+				addr := l.LocalAddr()
+				c, err := sys.Dial(ctx, addr.Network(), addr.String())
+				if err != nil {
+					l.Close()
+					return nil, nil, nil, err
+				}
+
+				c1 = &connectedPacketConn{
+					PacketConn: l,
+					peer:       c.(net.PacketConn),
+				}
+
+				c2 = &connectedPacketConn{
+					PacketConn: c.(net.PacketConn),
+					peer:       l,
+				}
+
+				stop = func() { c1.Close(); c2.Close(); sys.Close(ctx) }
+				return c1, c2, stop, nil
+			})
+		})
+	}
 }
 
-func TestSystemListenAnyAddress(t *testing.T) {
-	ctx := context.Background()
-	sys := sandbox.New()
+type connectedPacketConn struct {
+	net.PacketConn
+	peer net.PacketConn
+}
 
-	lstn, err := sys.Listen(ctx, "tcp", ":4242")
-	assert.OK(t, err)
+func (c *connectedPacketConn) Close() error {
+	if cr, ok := c.peer.(interface{ CloseRead() error }); ok {
+		cr.CloseRead()
+	}
+	return c.PacketConn.Close()
+}
 
-	addr, ok := lstn.Addr().(*net.TCPAddr)
-	assert.True(t, ok)
-	assert.True(t, addr.IP.Equal(net.IPv4(0, 0, 0, 0)))
-	assert.Equal(t, addr.Port, 4242)
-	assert.OK(t, lstn.Close())
+func (c *connectedPacketConn) Read(b []byte) (int, error) {
+	n, _, err := c.ReadFrom(b)
+	return n, err
+}
+
+func (c *connectedPacketConn) Write(b []byte) (int, error) {
+	return c.WriteTo(b, c.peer.LocalAddr())
+}
+
+func (c *connectedPacketConn) RemoteAddr() net.Addr {
+	return c.peer.LocalAddr()
 }

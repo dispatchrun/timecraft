@@ -7,7 +7,6 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/stealthrocket/wasi-go"
@@ -209,18 +208,12 @@ var (
 
 type packetConn[T sockaddr] struct {
 	socket *socket[T]
-	laddr  T
-	raddr  T
 
 	rmu       sync.Mutex
-	rev       *event
-	rbuf      *sockbuf[T]
 	rdeadline deadline
 	rpoll     chan struct{}
 
 	wmu       sync.Mutex
-	wev       *event
-	wbuf      *sockbuf[T]
 	wdeadline deadline
 	wpoll     chan struct{}
 
@@ -239,28 +232,6 @@ func newPacketConn[T sockaddr](socket *socket[T]) *packetConn[T] {
 	}
 }
 
-func newHostPacketConn[T sockaddr](socket *socket[T]) *packetConn[T] {
-	c := newPacketConn(socket)
-	c.laddr = socket.raddr
-	c.raddr = socket.laddr
-	c.rbuf = socket.wbuf
-	c.wbuf = socket.rbuf
-	c.rev = &socket.wbuf.rev
-	c.wev = &socket.rbuf.wev
-	return c
-}
-
-func newGuestPacketConn[T sockaddr](socket *socket[T]) *packetConn[T] {
-	c := newPacketConn(socket)
-	c.laddr = socket.laddr
-	c.raddr = socket.raddr
-	c.rbuf = socket.rbuf
-	c.wbuf = socket.wbuf
-	c.rev = &socket.rbuf.rev
-	c.wev = &socket.wbuf.wev
-	return c
-}
-
 func (c *packetConn[T]) Close() error {
 	c.socket.close()
 	c.rdeadline.set(time.Time{})
@@ -270,12 +241,12 @@ func (c *packetConn[T]) Close() error {
 }
 
 func (c *packetConn[T]) CloseRead() error {
-	c.rbuf.close()
+	c.socket.rbuf.close()
 	return nil
 }
 
 func (c *packetConn[T]) CloseWrite() error {
-	c.wbuf.close()
+	c.socket.wbuf.close()
 	return nil
 }
 
@@ -297,17 +268,23 @@ func (c *packetConn[T]) readFrom(b []byte) (int, T, error) {
 	defer c.rmu.Unlock()
 
 	var zero T
+	select {
+	case <-c.done:
+		return 0, zero, io.EOF
+	default:
+	}
+
 	for {
 		if c.rdeadline.expired() {
 			return 0, zero, c.newError("read", os.ErrDeadlineExceeded)
 		}
 
-		n, _, addr, errno := c.rbuf.recvmsg([]wasi.IOVec{b}, 0)
+		n, _, addr, errno := c.socket.rbuf.recvmsg([]wasi.IOVec{b}, 0)
 		if errno == wasi.ESUCCESS {
 			if n == 0 {
 				return 0, zero, io.EOF
 			}
-			if c.raddr != zero && addr != c.raddr {
+			if c.socket.raddr != zero && c.socket.raddr != addr {
 				continue
 			}
 			return int(n), addr, nil
@@ -317,7 +294,7 @@ func (c *packetConn[T]) readFrom(b []byte) (int, T, error) {
 		}
 
 		var ready bool
-		c.rev.synchronize(func() { ready = c.rev.poll(c.rpoll) })
+		c.socket.rev.synchronize(func() { ready = c.socket.rev.poll(c.rpoll) })
 
 		if !ready {
 			select {
@@ -332,7 +309,7 @@ func (c *packetConn[T]) readFrom(b []byte) (int, T, error) {
 }
 
 func (c *packetConn[T]) Write(b []byte) (int, error) {
-	return c.writeTo(b, c.laddr)
+	return c.writeTo(b, c.socket.laddr)
 }
 
 func (c *packetConn[T]) WriteTo(b []byte, addr net.Addr) (int, error) {
@@ -354,23 +331,20 @@ func (c *packetConn[T]) writeTo(b []byte, addr T) (int, error) {
 	}
 
 	var sbuf *sockbuf[T]
-	var skev *event
+	var sev *event
 
-	if addr == c.laddr {
-		sbuf = c.wbuf
-		skev = c.wev
+	if addr == c.socket.laddr {
+		sbuf = c.socket.rbuf
+		sev = &c.socket.rbuf.wev
 	} else {
-		if len(b) > c.wbuf.size() {
-			return 0, c.newError("write", syscall.EMSGSIZE)
-		}
 		sock := c.socket.net.socket(netaddr[T]{c.socket.proto, addr})
-		if sock == nil {
+		if sock == nil || sock.typ != datagram {
 			return len(b), nil
 		}
 		sock.synchronize(func() {
 			sock.allocateBuffersIfNil()
-			sbuf = sock.wbuf
-			skev = sock.wev
+			sbuf = sock.rbuf
+			sev = &sock.rbuf.wev
 		})
 	}
 
@@ -379,7 +353,7 @@ func (c *packetConn[T]) writeTo(b []byte, addr T) (int, error) {
 			return 0, c.newError("write", os.ErrDeadlineExceeded)
 		}
 
-		n, errno := sbuf.sendmsg([]wasi.IOVec{b}, c.laddr)
+		n, errno := sbuf.sendmsg([]wasi.IOVec{b}, c.socket.laddr)
 		if errno == wasi.ESUCCESS {
 			return int(n), nil
 		}
@@ -391,7 +365,7 @@ func (c *packetConn[T]) writeTo(b []byte, addr T) (int, error) {
 		}
 
 		var ready bool
-		skev.synchronize(func() { ready = skev.poll(c.wpoll) })
+		sev.synchronize(func() { ready = sev.poll(c.wpoll) })
 
 		if !ready {
 			select {
@@ -406,11 +380,11 @@ func (c *packetConn[T]) writeTo(b []byte, addr T) (int, error) {
 }
 
 func (c *packetConn[T]) LocalAddr() net.Addr {
-	return c.laddr.netAddr(c.socket.proto)
+	return c.socket.laddr.netAddr(c.socket.proto)
 }
 
 func (c *packetConn[T]) RemoteAddr() net.Addr {
-	return c.raddr.netAddr(c.socket.proto)
+	return c.socket.raddr.netAddr(c.socket.proto)
 }
 
 func (c *packetConn[T]) SetDeadline(t time.Time) error {
