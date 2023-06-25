@@ -330,6 +330,10 @@ func (c *packetConn[T]) writeTo(b []byte, addr T) (int, error) {
 	default:
 	}
 
+	if !c.socket.net.contains(addr) {
+		return len(b), nil
+	}
+
 	var sbuf *sockbuf[T]
 	var sev *event
 
