@@ -101,7 +101,7 @@ func (c *conn[T]) Read(b []byte) (int, error) {
 			return int(n), nil
 		}
 		if errno != wasi.EAGAIN {
-			return int(n), c.newError("read", errno) // TODO: convert to syscall error
+			return int(n), c.newError("read", errno.Syscall())
 		}
 
 		var ready bool
@@ -141,7 +141,7 @@ func (c *conn[T]) Write(b []byte) (int, error) {
 			return n, nil
 		}
 		if errno != wasi.EAGAIN {
-			return n, c.newError("write", errno) // TODO: convert to syscall error
+			return n, c.newError("write", errno.Syscall())
 		}
 
 		var ready bool
@@ -290,7 +290,7 @@ func (c *packetConn[T]) readFrom(b []byte) (int, T, error) {
 			return int(n), addr, nil
 		}
 		if errno != wasi.EAGAIN {
-			return int(n), zero, c.newError("read", errno) // TODO: convert to syscall error
+			return int(n), zero, c.newError("read", errno.Syscall())
 		}
 
 		var ready bool
@@ -365,7 +365,7 @@ func (c *packetConn[T]) writeTo(b []byte, addr T) (int, error) {
 			return len(b), nil
 		}
 		if errno != wasi.EAGAIN {
-			return 0, c.newError("write", errno) // TODO: convert to syscall error
+			return 0, c.newError("write", errno.Syscall())
 		}
 
 		var ready bool

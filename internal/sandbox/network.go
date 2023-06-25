@@ -220,7 +220,7 @@ func connect[N network[T], T sockaddr](s *System, n N, addr netaddr[T]) (net.Con
 			Op:   "connect",
 			Net:  netAddr.Network(),
 			Addr: netAddr,
-			Err:  errno, // TODO: convert to syscall error
+			Err:  errno.Syscall(),
 		}
 	}
 	sock := n.socket(addr)
@@ -251,7 +251,7 @@ func listen[N network[T], T sockaddr](s *System, n N, addr netaddr[T]) (net.List
 			Op:   "listen",
 			Net:  netAddr.Network(),
 			Addr: netAddr,
-			Err:  errno, // TODO: convert to syscall error
+			Err:  errno.Syscall(),
 		}
 	}
 
@@ -272,7 +272,7 @@ func listenPacket[N network[T], T sockaddr](s *System, n N, addr netaddr[T]) (ne
 			Op:   "listen",
 			Net:  netAddr.Network(),
 			Addr: netAddr,
-			Err:  errno, // TODO: convert to syscall error
+			Err:  errno.Syscall(),
 		}
 	}
 
