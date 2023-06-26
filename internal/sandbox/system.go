@@ -204,7 +204,7 @@ func New(opts ...Option) *System {
 			wasi.FDFlags(0),
 		)
 		if errno != wasi.ESUCCESS {
-			panic(&fs.PathError{"open", "/", errno.Syscall()})
+			panic(&fs.PathError{Op: "open", Path: "/", Err: errno.Syscall()})
 		}
 		s.root = s.Preopen(f, "/", wasi.FDStat{
 			FileType:         wasi.DirectoryType,
