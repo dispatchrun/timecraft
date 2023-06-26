@@ -1,4 +1,4 @@
-.PHONY: clean flatbuffers generate test testdata
+.PHONY: clean flatbuffers generate test testdata docker-build docker-buildx
 .PRECIOUS: %.wasm
 
 GO ?= go
