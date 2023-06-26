@@ -47,10 +47,10 @@ func Rand(rand io.Reader) Option {
 	return func(s *System) { s.rand = rand }
 }
 
-// FS configures the file system to expose to the guest module.
+// FileSystem configures the file system to expose to the guest module.
 //
 // If not set, the guest module sees an empty file system.
-func FS(fsys fs.FS) Option {
+func FileSystem(fsys FS) Option {
 	return func(s *System) { s.fsys = fsys }
 }
 
@@ -122,7 +122,7 @@ type System struct {
 	epoch time.Time
 	time  func() time.Time
 	rand  io.Reader
-	fsys  fs.FS
+	fsys  FS
 	wasi.FileTable[File]
 	poll   chan struct{}
 	lock   *sync.Mutex
@@ -195,9 +195,16 @@ func New(opts ...Option) *System {
 	})
 
 	if s.fsys != nil {
-		f, err := openFile(s.fsys, ".")
-		if err != nil {
-			panic(err)
+		f, errno := s.fsys.PathOpen(context.Background(),
+			wasi.LookupFlags(0),
+			"/",
+			wasi.OpenDirectory,
+			wasi.DirectoryRights,
+			wasi.DirectoryRights|wasi.FileRights,
+			wasi.FDFlags(0),
+		)
+		if errno != wasi.ESUCCESS {
+			panic(&fs.PathError{Op: "open", Path: "/", Err: errno.Syscall()})
 		}
 		s.root = s.Preopen(f, "/", wasi.FDStat{
 			FileType:         wasi.DirectoryType,
