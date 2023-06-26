@@ -173,6 +173,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	}
 
 	var system wasi.System = guest
+	system = NewHTLSSystem(system)
 	var logSegment io.WriteCloser
 	var recordWriter *timemachine.LogRecordWriter
 	var processID ProcessID
