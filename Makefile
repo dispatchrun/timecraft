@@ -1,7 +1,21 @@
-.PHONY: clean flatbuffers generate test testdata
+.PHONY: clean flatbuffers generate test testdata docker-build docker-buildx
 .PRECIOUS: %.wasm
 
 GO ?= go
+
+ifeq ($(GITHUB_BRANCH_NAME),)
+	branch := $(shell git rev-parse --abbrev-ref HEAD)-
+else
+	branch := $(GITHUB_BRANCH_NAME)-
+endif
+commit_timestamp := $(shell git show --no-patch --format=%ct)-
+ifeq ($(GITHUB_SHA),)
+	commit := $(shell git rev-parse --short=8 HEAD)
+else
+	commit := $(shell echo $(GITHUB_SHA) | cut -c1-8)
+endif
+container.version ?= $(if $(RELEASE_TAG),$(RELEASE_TAG),$(shell git describe --tags || echo '$(subst /,-,$(branch))$(commit_timestamp)$(commit)'))
+container.image ?= ghcr.io/stealthrocket/timecraft
 
 testdata.go.src = \
 	$(wildcard testdata/go/*.go) \
@@ -68,3 +82,9 @@ testdata/wasi-testsuite/.git: .gitmodules
 %_generated.go: %.fbs
 	flatc --go --gen-onefile --go-namespace $(basename $(notdir $<)) --go-module-name github.com/stealthrocket/timecraft/format -o $(dir $@) $<
 	goimports -w $@
+
+docker-build: 
+	docker build -f Dockerfile -t $(container.image):$(container.version) .
+
+docker-buildx:
+	docker buildx build --push --platform=linux/amd64,linux/arm64 -f Dockerfile -t $(container.image):$(container.version) .
