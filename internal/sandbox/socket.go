@@ -381,17 +381,19 @@ func (s *socket[T]) close() {
 	}
 }
 
-func (s *socket[T]) connect(peer *socket[T], laddr, raddr T) (*socket[T], wasi.Errno) {
-	lock := s.rev.lock
-	sock := newSocket[T](s.net, s.typ, s.proto, lock, s.poll)
+func (s *socket[T]) newSocket() *socket[T] {
+	return newSocket[T](s.net, s.typ, s.proto, s.rev.lock, s.poll)
+}
+
+func (s *socket[T]) connect(peer, sock *socket[T], laddr, raddr T) wasi.Errno {
 	sock.flags = sock.flags.with(sockConn)
 	sock.laddr = laddr
 	sock.raddr = raddr
 
 	if peer == nil {
 		sock.flags = sock.flags.with(sockHost)
-		sock.rbuf = newSocketBuffer[T](lock, int(sock.rbufsize))
-		sock.wbuf = newSocketBuffer[T](lock, int(sock.wbufsize))
+		sock.rbuf = newSocketBuffer[T](s.rev.lock, int(sock.rbufsize))
+		sock.wbuf = newSocketBuffer[T](s.wev.lock, int(sock.wbufsize))
 	} else {
 		// Sockets paired on the same network share the same receive and send
 		// buffers, but swapped so data sent by the peer is read by the socket
@@ -407,25 +409,25 @@ func (s *socket[T]) connect(peer *socket[T], laddr, raddr T) (*socket[T], wasi.E
 		// When connecting a datagram socket, the new socket must be bound to
 		// the network in order to have an address to receive packets on.
 		if errno := sock.net.link(sock); errno != wasi.ESUCCESS {
-			return nil, errno
+			return errno
 		}
 		sock.allocateBuffersIfNil()
-		return sock, wasi.ESUCCESS
+		return wasi.ESUCCESS
 	}
 
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
 	if s.flags.has(sockClosed) || s.accept == nil {
-		return nil, wasi.ECONNREFUSED
+		return wasi.ECONNREFUSED
 	}
 
 	select {
 	case s.accept <- sock:
 		s.rev.trigger()
-		return sock, wasi.ESUCCESS
+		return wasi.ESUCCESS
 	default:
-		return nil, wasi.ECONNREFUSED
+		return wasi.ECONNREFUSED
 	}
 }
 
@@ -491,15 +493,26 @@ func (s *socket[T]) SockListen(ctx context.Context, backlog int) wasi.Errno {
 		return wasi.EINVAL
 	}
 
-	if !s.flags.has(sockListen) {
-		if errno := s.bindToAny(ctx); errno != wasi.ESUCCESS {
-			return errno
-		}
-		s.flags = s.flags.with(sockListen)
-		s.accept = make(chan *socket[T], backlog)
+	if s.flags.has(sockListen) {
+		return wasi.ESUCCESS
 	}
 
-	return wasi.ESUCCESS
+	if errno := s.bindToAny(ctx); errno != wasi.ESUCCESS {
+		return errno
+	}
+
+	s.flags = s.flags.with(sockListen)
+	s.accept = make(chan *socket[T], backlog)
+
+	l, errno := s.net.listen(ctx, s.proto, s.laddr)
+	if errno != wasi.ESUCCESS {
+		if errno == wasi.ENOTSUP {
+			errno = wasi.ESUCCESS
+		}
+	} else {
+		s.startListenTunnel(ctx, l)
+	}
+	return errno
 }
 
 func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno) {
@@ -603,27 +616,11 @@ func (s *socket[T]) openPacketTunnel(ctx context.Context) wasi.Errno {
 	if s.errs != nil {
 		return wasi.ESUCCESS
 	}
-	conn, errno := s.net.listenPacket(ctx, s.proto)
+	conn, errno := s.net.listenPacket(ctx, s.proto, s.laddr)
 	if errno != wasi.ESUCCESS {
 		return errno
 	}
-	ctx, s.cancel = context.WithCancel(ctx)
-	errs := make(chan wasi.Errno, 2)
-	s.errs = errs
-
-	rbufsize := s.rbuf.size()
-	wbufsize := s.wbuf.size()
-	buffer := make([]byte, rbufsize+wbufsize)
-	tunnel := &packetConnTunnel[T]{
-		refc: 2,
-		sock: s,
-		conn: conn,
-		errs: errs,
-	}
-
-	go tunnel.readFromPacketConn(buffer[:rbufsize])
-	go tunnel.writeToPacketConn(buffer[rbufsize:])
-	go tunnel.closeOnCancel(ctx)
+	s.startPacketTunnel(ctx, conn)
 	return wasi.ESUCCESS
 }
 
@@ -683,12 +680,16 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 
 	blocking := !s.flags.has(sockNonBlock)
 	if s.net.contains(raddr) {
-		if sock := s.net.socket(netaddr[T]{s.proto, raddr}); sock == nil {
+		if server := s.net.socket(netaddr[T]{s.proto, raddr}); server == nil {
 			errs <- wasi.ECONNREFUSED
-		} else if _, errno := sock.connect(s, raddr, s.laddr); errno != wasi.ESUCCESS {
-			errs <- errno
 		} else {
-			s.raddr = raddr
+			peer := server.newSocket()
+			errno := server.connect(s, peer, raddr, s.laddr)
+			if errno != wasi.ESUCCESS {
+				errs <- errno
+			} else {
+				s.raddr = raddr
+			}
 		}
 		s.wev.trigger()
 		close(errs)
@@ -710,17 +711,7 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 			downstream := newHostConn(s)
 			rbufsize := s.rbuf.size()
 			wbufsize := s.wbuf.size()
-			buffer := make([]byte, rbufsize+wbufsize)
-			tunnel := &connTunnel{
-				refc:  2,
-				conn1: upstream,
-				conn2: downstream,
-				errs:  errs,
-			}
-
-			go tunnel.copy(upstream, downstream, buffer[:rbufsize])
-			go tunnel.copy(downstream, upstream, buffer[rbufsize:])
-			go closeReadOnCancel(ctx, upstream)
+			startConnTunnel(ctx, downstream, upstream, rbufsize, wbufsize, errs)
 		}()
 	}
 

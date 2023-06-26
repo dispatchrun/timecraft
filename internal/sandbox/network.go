@@ -228,7 +228,8 @@ func connect[N network[T], T sockaddr](s *System, n N, addr netaddr[T]) (net.Con
 		return nil, makeError(wasi.ECONNREFUSED)
 	}
 	var zero T
-	conn, errno := sock.connect(nil, zero, addr.sockaddr)
+	conn := sock.newSocket()
+	errno := sock.connect(nil, conn, zero, addr.sockaddr)
 	if errno != wasi.ESUCCESS {
 		return nil, makeError(errno)
 	}
@@ -328,6 +329,7 @@ type inaddr[T sockaddr] interface {
 	addrPort() netip.AddrPort
 	withAddr(netip.Addr) T
 	withPort(int) T
+	unspecified() T
 	sockaddr
 }
 
@@ -354,6 +356,10 @@ func (inaddr ipv4) withAddr(addr netip.Addr) ipv4 {
 
 func (inaddr ipv4) withPort(port int) ipv4 {
 	return ipv4{addr: inaddr.addr, port: uint32(port)}
+}
+
+func (inaddr ipv4) unspecified() ipv4 {
+	return ipv4{port: inaddr.port}
 }
 
 func (inaddr ipv4) sockAddr() wasi.SocketAddress {
@@ -387,6 +393,10 @@ func (inaddr ipv6) withAddr(addr netip.Addr) ipv6 {
 
 func (inaddr ipv6) withPort(port int) ipv6 {
 	return ipv6{addr: inaddr.addr, port: uint32(port)}
+}
+
+func (inaddr ipv6) unspecified() ipv6 {
+	return ipv6{port: inaddr.port}
 }
 
 func (inaddr ipv6) sockAddr() wasi.SocketAddress {
@@ -485,24 +495,27 @@ type network[T sockaddr] interface {
 	unlink(sock *socket[T]) wasi.Errno
 	// Open an outbound connection to the given network address.
 	dial(ctx context.Context, proto protocol, addr T) (net.Conn, wasi.Errno)
+	// Open a listener accepting connections for the given network address.
+	listen(ctx context.Context, proto protocol, addr T) (net.Listener, wasi.Errno)
 	// Open a listening packet connection for the given network address.
-	listenPacket(ctx context.Context, proto protocol) (net.PacketConn, wasi.Errno)
+	listenPacket(ctx context.Context, proto protocol, addr T) (net.PacketConn, wasi.Errno)
 }
 
 type ipnet[T inaddr[T]] struct {
 	mutex            sync.Mutex
-	ipaddr           netip.Addr
+	ipnet            netip.Prefix
 	sockets          map[netaddr[T]]*socket[T]
 	dialFunc         func(context.Context, string, string) (net.Conn, error)
+	listenFunc       func(context.Context, string, string) (net.Listener, error)
 	listenPacketFunc func(context.Context, string, string) (net.PacketConn, error)
 }
 
 func (n *ipnet[T]) address() (sockaddr T) {
-	return sockaddr.withAddr(n.ipaddr)
+	return sockaddr.withAddr(n.ipnet.Addr())
 }
 
 func (n *ipnet[T]) contains(sockaddr T) bool {
-	return sockaddr.addrPort().Addr() == n.ipaddr
+	return n.ipnet.Contains(sockaddr.addrPort().Addr())
 }
 
 func (n *ipnet[T]) supports(proto protocol) bool {
@@ -565,8 +578,8 @@ func (n *ipnet[T]) bind(addr T, sock *socket[T]) wasi.Errno {
 	// they cannot bind to arbitrary endpoints.
 	switch ipaddr := bound.sockaddr.addrPort().Addr(); {
 	case ipaddr.IsUnspecified():
-		bound.sockaddr = bound.sockaddr.withAddr(n.ipaddr)
-	case ipaddr != n.ipaddr:
+		bound.sockaddr = bound.sockaddr.withAddr(n.ipnet.Addr())
+	case ipaddr != n.ipnet.Addr():
 		return wasi.EADDRNOTAVAIL
 	}
 
@@ -607,7 +620,7 @@ func (n *ipnet[T]) bind(addr T, sock *socket[T]) wasi.Errno {
 
 func (n *ipnet[T]) link(sock *socket[T]) wasi.Errno {
 	var addr T
-	return n.bind(addr.withAddr(n.ipaddr), sock)
+	return n.bind(addr.withAddr(n.ipnet.Addr()), sock)
 }
 
 func (n *ipnet[T]) unlink(sock *socket[T]) wasi.Errno {
@@ -623,8 +636,6 @@ func (n *ipnet[T]) unlink(sock *socket[T]) wasi.Errno {
 }
 
 func (n *ipnet[T]) dial(ctx context.Context, proto protocol, addr T) (net.Conn, wasi.Errno) {
-	// The address to connect to is not on the local network, fallback to
-	//  using the dial function for outbound connections if one exists.
 	c, err := n.dialFunc(ctx, proto.String(), addr.String())
 	if err != nil {
 		return nil, wasi.MakeErrno(err)
@@ -632,12 +643,26 @@ func (n *ipnet[T]) dial(ctx context.Context, proto protocol, addr T) (net.Conn, 
 	return c, wasi.ESUCCESS
 }
 
-func (n *ipnet[T]) listenPacket(ctx context.Context, proto protocol) (net.PacketConn, wasi.Errno) {
-	c, err := n.listenPacketFunc(ctx, proto.String(), "")
+func (n *ipnet[T]) listen(ctx context.Context, proto protocol, addr T) (net.Listener, wasi.Errno) {
+	network, address := listenNetworkAddress(proto, addr)
+	l, err := n.listenFunc(ctx, network, address)
+	if err != nil {
+		return nil, wasi.MakeErrno(err)
+	}
+	return l, wasi.ESUCCESS
+}
+
+func (n *ipnet[T]) listenPacket(ctx context.Context, proto protocol, addr T) (net.PacketConn, wasi.Errno) {
+	network, address := listenNetworkAddress(proto, addr)
+	c, err := n.listenPacketFunc(ctx, network, address)
 	if err != nil {
 		return nil, wasi.MakeErrno(err)
 	}
 	return c, wasi.ESUCCESS
+}
+
+func listenNetworkAddress[T inaddr[T]](proto protocol, addr T) (network, address string) {
+	return proto.String(), addr.unspecified().String()
 }
 
 type unixnet struct {
@@ -645,6 +670,7 @@ type unixnet struct {
 	name             string
 	sockets          map[netaddr[unix]]*socket[unix]
 	dialFunc         func(context.Context, string, string) (net.Conn, error)
+	listenFunc       func(context.Context, string, string) (net.Listener, error)
 	listenPacketFunc func(context.Context, string, string) (net.PacketConn, error)
 }
 
@@ -731,8 +757,16 @@ func (n *unixnet) dial(ctx context.Context, _ protocol, addr unix) (net.Conn, wa
 	return c, wasi.ESUCCESS
 }
 
-func (n *unixnet) listenPacket(ctx context.Context, _ protocol) (net.PacketConn, wasi.Errno) {
-	c, err := n.listenPacketFunc(ctx, "unixgram", "")
+func (n *unixnet) listen(ctx context.Context, _ protocol, addr unix) (net.Listener, wasi.Errno) {
+	l, err := n.listenFunc(ctx, "unix", addr.String())
+	if err != nil {
+		return nil, wasi.MakeErrno(err)
+	}
+	return l, wasi.ESUCCESS
+}
+
+func (n *unixnet) listenPacket(ctx context.Context, _ protocol, addr unix) (net.PacketConn, wasi.Errno) {
+	c, err := n.listenPacketFunc(ctx, "unixgram", addr.String())
 	if err != nil {
 		return nil, wasi.MakeErrno(err)
 	}
