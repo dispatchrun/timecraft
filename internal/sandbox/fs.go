@@ -15,7 +15,7 @@ import (
 // The interface has a single method allowing the sandbox to open the root
 // directory.
 type FS interface {
-	PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (AnyFile, wasi.Errno)
+	PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno)
 }
 
 // ErrFS returns a FS value which always returns the given error.
@@ -23,7 +23,7 @@ func ErrFS(errno wasi.Errno) FS { return errFS(errno) }
 
 type errFS wasi.Errno
 
-func (err errFS) PathOpen(context.Context, wasi.LookupFlags, string, wasi.OpenFlags, wasi.Rights, wasi.Rights, wasi.FDFlags) (AnyFile, wasi.Errno) {
+func (err errFS) PathOpen(context.Context, wasi.LookupFlags, string, wasi.OpenFlags, wasi.Rights, wasi.Rights, wasi.FDFlags) (File, wasi.Errno) {
 	return nil, wasi.Errno(err)
 }
 
@@ -41,7 +41,7 @@ func DirFS(path string) FS {
 
 type dirFS string
 
-func (dir dirFS) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, filePath string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (AnyFile, wasi.Errno) {
+func (dir dirFS) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, filePath string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
 	filePath = path.Join(string(dir), filePath)
 	f, errno := wasisys.FD(sysunix.AT_FDCWD).PathOpen(ctx, lookupFlags, filePath, openFlags, rightsDefault, rightsInheriting, fdFlags)
 	if errno != wasi.ESUCCESS {
@@ -131,7 +131,7 @@ func (f *dirFile) PathFileStatSetTimes(ctx context.Context, lookupFlags wasi.Loo
 	return f.fd.PathFileStatSetTimes(ctx, lookupFlags, path, accessTime, modifyTime, fstFlags)
 }
 
-func (f *dirFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir AnyFile, newPath string) wasi.Errno {
+func (f *dirFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir File, newPath string) wasi.Errno {
 	d, ok := newDir.(*dirFile)
 	if !ok {
 		return wasi.ENOTDIR
@@ -139,7 +139,7 @@ func (f *dirFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath 
 	return f.fd.PathLink(ctx, flags, oldPath, d.fd, newPath)
 }
 
-func (f *dirFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (AnyFile, wasi.Errno) {
+func (f *dirFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
 	fd, errno := f.fd.PathOpen(ctx, lookupFlags, path, openFlags, rightsDefault, rightsInheriting, fdFlags)
 	if errno != wasi.ESUCCESS {
 		return nil, errno
@@ -155,7 +155,7 @@ func (f *dirFile) PathRemoveDirectory(ctx context.Context, path string) wasi.Err
 	return f.fd.PathRemoveDirectory(ctx, path)
 }
 
-func (f *dirFile) PathRename(ctx context.Context, oldPath string, newDir AnyFile, newPath string) wasi.Errno {
+func (f *dirFile) PathRename(ctx context.Context, oldPath string, newDir File, newPath string) wasi.Errno {
 	d, ok := newDir.(*dirFile)
 	if !ok {
 		return wasi.ENOTDIR

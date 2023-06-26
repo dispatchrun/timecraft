@@ -123,7 +123,7 @@ type System struct {
 	time  func() time.Time
 	rand  io.Reader
 	fsys  FS
-	wasi.FileTable[AnyFile]
+	wasi.FileTable[File]
 	poll   chan struct{}
 	lock   *sync.Mutex
 	stdin  *pipe
@@ -400,7 +400,7 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 		return none, wasi.EPROTONOSUPPORT
 	}
 
-	var socket AnyFile
+	var socket File
 	switch pf {
 	case wasi.InetFamily:
 		socket = newSocket[ipv4](&s.ipv4, socktype(st), protocol(proto), s.lock, s.poll)
