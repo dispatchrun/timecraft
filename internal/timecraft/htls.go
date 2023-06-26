@@ -114,6 +114,35 @@ func (s *htlsSystem) SockRecv(ctx context.Context, fd wasi.FD, iovecs []wasi.IOV
 	return wasi.Size(n), 0, wasi.ESUCCESS
 }
 
+func (s *htlsSystem) SockShutdown(ctx context.Context, fd wasi.FD, flags wasi.SDFlags) wasi.Errno {
+	c, ok := s.conns[fd]
+	if !ok || c.conn == nil {
+		return s.System.SockShutdown(ctx, fd, flags)
+	}
+
+	err := c.conn.Close()
+	delete(s.conns, fd)
+
+	return wasi.MakeErrno(err)
+}
+
+func (s *htlsSystem) Close(ctx context.Context) error {
+	var err error
+	for _, c := range s.conns {
+		if c.conn != nil {
+			cerr := c.conn.Close()
+			if cerr != nil {
+				err = cerr
+			}
+		}
+	}
+	cerr := s.System.Close(ctx)
+	if cerr != nil {
+		err = cerr
+	}
+	return wasi.MakeErrno(err)
+}
+
 // implements net.Conn over a wasi system
 type wasiConn struct {
 	sys wasi.System
