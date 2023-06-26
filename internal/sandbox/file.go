@@ -88,7 +88,7 @@ func (f *file) FDFileStatGet(ctx context.Context) (stat wasi.FileStat, errno was
 	return makeFileStat(info), wasi.ESUCCESS
 }
 
-func (f *file) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
+func (f *file) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (AnyFile, wasi.Errno) {
 	if !lookupFlags.Has(wasi.SymlinkFollow) {
 		return nil, wasi.EINVAL
 	}

@@ -515,7 +515,7 @@ func (s *socket[T]) SockListen(ctx context.Context, backlog int) wasi.Errno {
 	return errno
 }
 
-func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno) {
+func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (AnyFile, wasi.Errno) {
 	if s.typ == datagram {
 		return nil, wasi.ENOTSUP
 	}

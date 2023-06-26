@@ -6,12 +6,12 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
-// File is the interface implemented by all flavors of files that can be
+// AnyFile is the interface implemented by all flavors of files that can be
 // registered in a sandboxed System.
-type File interface {
-	wasi.File[File]
+type AnyFile interface {
+	wasi.File[AnyFile]
 	FDPoll(ev wasi.EventType, ch chan<- struct{}) bool
-	SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno)
+	SockAccept(ctx context.Context, flags wasi.FDFlags) (AnyFile, wasi.Errno)
 	SockBind(ctx context.Context, addr wasi.SocketAddress) wasi.Errno
 	SockConnect(ctx context.Context, peer wasi.SocketAddress) wasi.Errno
 	SockListen(ctx context.Context, backlog int) wasi.Errno
@@ -101,11 +101,11 @@ func (defaultFile) PathFileStatSetTimes(ctx context.Context, lookupFlags wasi.Lo
 	return wasi.EBADF
 }
 
-func (defaultFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir File, newPath string) wasi.Errno {
+func (defaultFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir AnyFile, newPath string) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (defaultFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
+func (defaultFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (AnyFile, wasi.Errno) {
 	return nil, wasi.EBADF
 }
 
@@ -117,7 +117,7 @@ func (defaultFile) PathRemoveDirectory(ctx context.Context, path string) wasi.Er
 	return wasi.EBADF
 }
 
-func (defaultFile) PathRename(ctx context.Context, oldPath string, newDir File, newPath string) wasi.Errno {
+func (defaultFile) PathRename(ctx context.Context, oldPath string, newDir AnyFile, newPath string) wasi.Errno {
 	return wasi.EBADF
 }
 
@@ -141,7 +141,7 @@ func (defaultFile) SockListen(ctx context.Context, backlog int) wasi.Errno {
 	return wasi.ENOTSOCK
 }
 
-func (defaultFile) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno) {
+func (defaultFile) SockAccept(ctx context.Context, flags wasi.FDFlags) (AnyFile, wasi.Errno) {
 	return nil, wasi.ENOTSOCK
 }
 
