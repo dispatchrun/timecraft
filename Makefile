@@ -83,8 +83,8 @@ testdata/wasi-testsuite/.git: .gitmodules
 	flatc --go --gen-onefile --go-namespace $(basename $(notdir $<)) --go-module-name github.com/stealthrocket/timecraft/format -o $(dir $@) $<
 	goimports -w $@
 
-container-build: 
+docker-build: 
 	docker build -f Dockerfile -t $(container.image):$(container.version) .
 
-container-buildx:
+docker-buildx:
 	docker buildx build --push --platform=linux/amd64,linux/arm64 -f Dockerfile -t $(container.image):$(container.version) .
