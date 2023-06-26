@@ -71,7 +71,24 @@ func Dial(dial func(context.Context, string, string) (net.Conn, error)) Option {
 	}
 }
 
-// Listenpacket configures the function used to create datagram sockets on the
+// Listen configures the function used to create listeners accepting connections
+// from the host network and routing them to a listening socket on the guest.
+//
+// The creation of listeners is driven by the guest, when it opens a listening
+// socket, the listen function is invoked with the port number that the socket
+// is bound to in order to create a bridge between the host and guest network.
+//
+// If not set, the guest module cannot accept inbound connections frrom the host
+// network.
+func Listen(listen func(context.Context, string, string) (net.Listener, error)) Option {
+	return func(s *System) {
+		s.ipv4.listenFunc = listen
+		s.ipv6.listenFunc = listen
+		s.unix.listenFunc = listen
+	}
+}
+
+// ListenPacket configures the function used to create datagram sockets on the
 // host network.
 //
 // If not set, the guest module cannot open host datagram sockets.
@@ -81,6 +98,20 @@ func ListenPacket(listenPacket func(context.Context, string, string) (net.Packet
 		s.ipv6.listenPacketFunc = listenPacket
 		s.unix.listenPacketFunc = listenPacket
 	}
+}
+
+// IPv4Network configures the network used by the sandbox IPv4 network.
+//
+// Default to "127.0.0.1/8"
+func IPv4Network(ipnet netip.Prefix) Option {
+	return func(s *System) { s.ipv4.ipnet = ipnet }
+}
+
+// IPv6Network configures the network used by the sandbox IPv6 network.
+//
+// Default to "::1/128"
+func IPv6Network(ipnet netip.Prefix) Option {
+	return func(s *System) { s.ipv6.ipnet = ipnet }
 }
 
 // System is an implementation of the wasi.System interface which sandboxes all
@@ -111,6 +142,9 @@ func New(opts ...Option) *System {
 	dial := func(context.Context, string, string) (net.Conn, error) {
 		return nil, syscall.ECONNREFUSED
 	}
+	listen := func(context.Context, string, string) (net.Listener, error) {
+		return nil, syscall.EOPNOTSUPP
+	}
 	listenPacket := func(context.Context, string, string) (net.PacketConn, error) {
 		return nil, syscall.EOPNOTSUPP
 	}
@@ -121,18 +155,24 @@ func New(opts ...Option) *System {
 		stdout: newPipe(lock),
 		stderr: newPipe(lock),
 		poll:   make(chan struct{}, 1),
+
 		ipv4: ipnet[ipv4]{
-			ipaddr:           netip.AddrFrom4([4]byte{127, 0, 0, 1}),
+			ipnet:            netip.PrefixFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 8),
 			dialFunc:         dial,
+			listenFunc:       listen,
 			listenPacketFunc: listenPacket,
 		},
+
 		ipv6: ipnet[ipv6]{
-			ipaddr:           netip.AddrFrom16([16]byte{15: 1}),
+			ipnet:            netip.PrefixFrom(netip.AddrFrom16([16]byte{15: 1}), 128),
 			dialFunc:         dial,
+			listenFunc:       listen,
 			listenPacketFunc: listenPacket,
 		},
+
 		unix: unixnet{
 			dialFunc:         dial,
+			listenFunc:       listen,
 			listenPacketFunc: listenPacket,
 		},
 	}

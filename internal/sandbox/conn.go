@@ -495,6 +495,19 @@ type connTunnel struct {
 	errs  chan<- wasi.Errno
 }
 
+func startConnTunnel(ctx context.Context, downstream, upstream net.Conn, rbufsize, wbufsize int, errs chan<- wasi.Errno) {
+	buffer := make([]byte, rbufsize+wbufsize)
+	tunnel := &connTunnel{
+		refc:  2,
+		conn1: downstream,
+		conn2: upstream,
+		errs:  errs,
+	}
+	go tunnel.copy(upstream, downstream, buffer[:rbufsize])
+	go tunnel.copy(downstream, upstream, buffer[rbufsize:])
+	go closeReadOnCancel(ctx, upstream)
+}
+
 func (c *connTunnel) unref() {
 	if atomic.AddInt32(&c.refc, -1) == 0 {
 		c.conn1.Close()
@@ -528,7 +541,7 @@ var (
 	_ closeWriter = (*conn[ipv4])(nil)
 )
 
-func closeRead(conn net.Conn) error {
+func closeRead(conn io.Closer) error {
 	switch c := conn.(type) {
 	case closeReader:
 		return c.CloseRead()
@@ -537,7 +550,7 @@ func closeRead(conn net.Conn) error {
 	}
 }
 
-func closeWrite(conn net.Conn) error {
+func closeWrite(conn io.Closer) error {
 	switch c := conn.(type) {
 	case closeWriter:
 		return c.CloseWrite()
@@ -546,9 +559,14 @@ func closeWrite(conn net.Conn) error {
 	}
 }
 
-func closeReadOnCancel(ctx context.Context, conn net.Conn) {
+func closeReadOnCancel(ctx context.Context, conn io.Closer) {
 	<-ctx.Done()
 	closeRead(conn) //nolint:errcheck
+}
+
+func closeOnCancel(ctx context.Context, conn io.Closer) {
+	<-ctx.Done()
+	conn.Close() //nolint:errcheck
 }
 
 type packetConnTunnel[T sockaddr] struct {
@@ -556,6 +574,28 @@ type packetConnTunnel[T sockaddr] struct {
 	sock *socket[T]
 	conn net.PacketConn
 	errs chan<- wasi.Errno
+}
+
+func (s *socket[T]) startPacketTunnel(ctx context.Context, conn net.PacketConn) {
+	ctx, s.cancel = context.WithCancel(ctx)
+
+	errs := make(chan wasi.Errno, 2)
+	s.errs = errs
+
+	rbufsize := s.rbuf.size()
+	wbufsize := s.wbuf.size()
+
+	buffer := make([]byte, rbufsize+wbufsize)
+	tunnel := &packetConnTunnel[T]{
+		refc: 2,
+		sock: s,
+		conn: conn,
+		errs: errs,
+	}
+
+	go tunnel.readFromPacketConn(buffer[:rbufsize])
+	go tunnel.writeToPacketConn(buffer[rbufsize:])
+	go closeOnCancel(ctx, conn)
 }
 
 func (p *packetConnTunnel[T]) unref() {
@@ -618,7 +658,73 @@ func (p *packetConnTunnel[T]) writeToPacketConn(buf []byte) {
 	}
 }
 
-func (p *packetConnTunnel[T]) closeOnCancel(ctx context.Context) {
-	<-ctx.Done()
-	p.conn.Close()
+type listenTunnel[T sockaddr] struct {
+	listener net.Listener
+	socket   *socket[T]
+	rbufsize int32
+	wbufsize int32
+	errs     chan<- wasi.Errno
+}
+
+func (s *socket[T]) startListenTunnel(ctx context.Context, l net.Listener) {
+	ctx, s.cancel = context.WithCancel(ctx)
+
+	errs := make(chan wasi.Errno, 1)
+	s.errs = errs
+
+	tunnel := listenTunnel[T]{
+		listener: l,
+		socket:   s,
+		rbufsize: s.rbufsize,
+		wbufsize: s.wbufsize,
+		errs:     errs,
+	}
+
+	go tunnel.acceptConnections()
+	go closeOnCancel(ctx, l)
+}
+
+func (l listenTunnel[T]) acceptConnections() {
+	defer l.listener.Close()
+	defer l.socket.close()
+	defer close(l.errs)
+
+	for {
+		downstream, err := l.listener.Accept()
+
+		if err != nil {
+			if isTemporary(err) {
+				continue
+			} else {
+				l.errs <- wasi.MakeErrno(err)
+				return
+			}
+		}
+
+		socket := l.socket.newSocket()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		socket.cancel = cancel
+
+		errs := make(chan wasi.Errno, 2)
+		socket.errs = errs
+
+		raddr, _ := l.socket.net.netaddr(downstream.RemoteAddr())
+
+		errno := l.socket.connect(nil, socket, raddr, l.socket.laddr)
+		if errno != wasi.ESUCCESS {
+			downstream.Close()
+			continue
+		}
+
+		upstream := newHostConn(socket)
+		rbufsize := int(l.rbufsize)
+		wbufsize := int(l.wbufsize)
+		startConnTunnel(ctx, downstream, upstream, rbufsize, wbufsize, errs)
+	}
+}
+
+func isTemporary(err error) bool {
+	e, _ := err.(interface{ Temporary() bool })
+	return e != nil && e.Temporary()
 }
