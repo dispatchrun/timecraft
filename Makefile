@@ -86,5 +86,8 @@ testdata/wasi-testsuite/.git: .gitmodules
 container-build: 
 	docker build -f Dockerfile -t $(container.image):$(container.version) .
 
+container-buildx:
+	docker buildx buildx --platform=linux/amd64,linux/arm64 -f Dockerfile -t $(container.image):$(container.version) .
+
 container-push:
 	docker push $(container.image):$(container.version)
