@@ -51,11 +51,11 @@ class TaskRequest:
 
 @dataclass
 class TaskResponse:
-    taskID: TaskID
+    id: TaskID
     state: TaskState
     error: Optional[str] = None
     output: Optional[TaskOutput] = None
-    processID: Optional[ProcessID] = None
+    process_id: Optional[ProcessID] = None
 
 @dataclass
 class HTTPRequest(TaskInput):
@@ -176,6 +176,6 @@ class Client:
     def _remap_task(self, r: dict):
         remap(r, "state", "state", TaskState)
         remap(r, "errorMessage", "error")
-        remap(r, "processId", "processID", ProcessID)
+        remap(r, "processId", "process_id", ProcessID)
         remap(r, "httpResponse", "output", HTTPResponse.deserialize)
-        remap(r, "taskId", "taskID", TaskID)
+        remap(r, "taskId", "id", TaskID)
