@@ -938,8 +938,10 @@ func (s *socket[T]) getSocketLevelOption(option wasi.SocketOption) (wasi.SocketO
 		return wasi.TimeValue(s.wtimeout), wasi.ESUCCESS
 	case wasi.QueryAcceptConnections:
 	case wasi.BindToDevice:
+	default:
+		return nil, wasi.EINVAL
 	}
-	return nil, wasi.EINVAL
+	return nil, wasi.ENOPROTOOPT
 }
 
 func (s *socket[T]) SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
@@ -975,8 +977,10 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 		return setDurationValue(&s.wtimeout, value)
 	case wasi.QueryAcceptConnections:
 	case wasi.BindToDevice:
+	default:
+		return wasi.EINVAL
 	}
-	return wasi.EINVAL
+	return wasi.ENOPROTOOPT
 }
 
 func setIntValueLimit(option *int32, value wasi.SocketOptionValue, minval, maxval int32) wasi.Errno {
