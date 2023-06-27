@@ -131,7 +131,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 
 	ipv4, ok := pm.ipv4.Get()
 	if !ok {
-		return ProcessID{}, fmt.Errorf("exhausted IPv3 address pool: %s", &pm.ipv4)
+		return ProcessID{}, fmt.Errorf("exhausted IPv4 address pool: %s", &pm.ipv4)
 	}
 	ipv6, ok := pm.ipv6.Get()
 	if !ok {
