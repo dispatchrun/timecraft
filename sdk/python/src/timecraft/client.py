@@ -1,5 +1,5 @@
 import base64
-from typing import List, Optional
+from typing import Optional
 from pprint import pprint
 from enum import Enum
 import dataclasses
@@ -153,10 +153,29 @@ class Client:
 
         responses = []
         for r in out:
-            remap(r, "state", "state", TaskState)
-            remap(r, "errorMessage", "error")
-            remap(r, "processId", "processID", ProcessID)
-            remap(r, "httpResponse", "output", HTTPResponse.deserialize)
-            remap(r, "taskId", "taskID", TaskID)
+            self._remap_task(r)
             responses.append(TaskResponse(**r))
         return responses
+
+    def poll_tasks(self, batch_size: int, timeout_ns: int):
+        poll_tasks_request = {
+            "batchSize": batch_size,
+            "timeoutNs": timeout_ns,
+        }
+        out = self._rpc("PollTasks", poll_tasks_request)["responses"]
+
+        responses = []
+        for r in out:
+            self._remap_task(r)
+            responses.append(TaskResponse(**r))
+        return responses
+
+    def discard_tasks(self, tasks: list[TaskID]):
+        self._rpc("DiscardTasks", {"taskId": tasks})
+
+    def _remap_task(self, r: dict):
+        remap(r, "state", "state", TaskState)
+        remap(r, "errorMessage", "error")
+        remap(r, "processId", "processID", ProcessID)
+        remap(r, "httpResponse", "output", HTTPResponse.deserialize)
+        remap(r, "taskId", "taskID", TaskID)
