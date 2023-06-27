@@ -111,7 +111,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		sandbox.Dial(dialer.DialContext),
 		sandbox.Listen(listen.Listen),
 		sandbox.ListenPacket(listen.ListenPacket),
-		sandbox.NameResolver(net.DefaultResolver),
+		sandbox.Resolver(net.DefaultResolver),
 	}
 
 	for _, dir := range moduleSpec.Dirs {

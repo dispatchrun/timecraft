@@ -120,11 +120,11 @@ func IPv6Network(ipnet netip.Prefix) Option {
 	return func(s *System) { s.ipv6.ipnet = ipnet }
 }
 
-// NameResolver configures the name resolver used when the guest attempts to
+// Resolver configures the name resolver used when the guest attempts to
 // lookup addresses.
 //
 // Default to disabling name resolution.
-func NameResolver(rslv Resolver) Option {
+func Resolver(rslv ServiceResolver) Option {
 	return func(s *System) { s.rslv = rslv }
 }
 
@@ -146,7 +146,7 @@ type System struct {
 	ipv4   ipnet[ipv4]
 	ipv6   ipnet[ipv6]
 	unix   unixnet
-	rslv   Resolver
+	rslv   ServiceResolver
 	mounts []mountPoint
 }
 

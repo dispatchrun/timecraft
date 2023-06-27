@@ -5,11 +5,11 @@ import (
 	"net"
 )
 
-// Resolver is an interface used to implement service name resolution on System
-// instances.
+// ServiceResolver is an interface used to implement service name resolution on
+// System instances.
 //
 // net.Resolver is a valid implementation of this interface.
-type Resolver interface {
+type ServiceResolver interface {
 	LookupPort(ctx context.Context, network, service string) (int, error)
 	LookupIP(ctx context.Context, network, hostname string) ([]net.IP, error)
 }
