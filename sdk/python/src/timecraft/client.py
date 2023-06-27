@@ -4,7 +4,6 @@ from pprint import pprint
 from enum import Enum
 import dataclasses
 from dataclasses import dataclass
-from .http import Session
 import requests
 
 def remap(d, before, after, f=None):
@@ -105,10 +104,10 @@ class Client:
     Client to interface with the Timecraft server.
     """
 
-    _root = "http+unix://\0timecraft.sock"
+    _root = "http//0.0.0.0:3001"
     
     def __init__(self):
-        self.session = Session()
+        self.session = requests.Session()
 
     def _rpc(self, endpoint, payload):
         r = self.session.post(self._root+"/timecraft.server.v1.TimecraftService/" + endpoint, json=payload)
