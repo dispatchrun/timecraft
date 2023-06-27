@@ -318,9 +318,10 @@ type socket[T sockaddr] struct {
 	// System instance that created the socket since a blocking socket method
 	// will prevent any concurrent call to PollOneOff.
 	poll chan struct{}
-	// To perform hTLS, connect waits() on this channel to receive a
+	// To perform hTLS, connect() waits on this channel to receive a
 	// hostname. If a recv, send, or poll operation is performed on the
-	// socket, connect moves on.
+	// socket, connect moves on and htls cannot be established beyond that
+	// point.
 	htls chan string
 }
 
