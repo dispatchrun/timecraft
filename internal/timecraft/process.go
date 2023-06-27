@@ -2,6 +2,7 @@ package timecraft
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -13,17 +14,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/stealthrocket/timecraft/sdk"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
-	"github.com/stealthrocket/timecraft/internal/httproxy"
 	"github.com/stealthrocket/timecraft/internal/object"
+	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
+	"github.com/stealthrocket/timecraft/sdk"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
+	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
+	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero"
 )
 
@@ -97,20 +100,41 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		return ProcessID{}, err
 	}
 
-	wasiBuilder := imports.NewBuilder().
-		WithName(wasmName).
-		WithArgs(moduleSpec.Args...).
-		WithEnv(moduleSpec.Env...).
-		WithDirs(moduleSpec.Dirs...).
-		WithListens(moduleSpec.Listens...).
-		WithDials(moduleSpec.Dials...).
-		WithStdio(moduleSpec.Stdin, moduleSpec.Stdout, moduleSpec.Stderr).
-		WithSocketsExtension(moduleSpec.Sockets, wasmModule)
+	dialer := &net.Dialer{}
+	listen := &net.ListenConfig{}
 
+	options := []sandbox.Option{
+		sandbox.Args(append([]string{wasmName}, moduleSpec.Args...)...),
+		sandbox.Environ(moduleSpec.Env...),
+		sandbox.Time(time.Now),
+		sandbox.Rand(rand.Reader),
+		sandbox.Dial(dialer.DialContext),
+		sandbox.Listen(listen.Listen),
+		sandbox.ListenPacket(listen.ListenPacket),
+		sandbox.Resolver(net.DefaultResolver),
+	}
+
+	for _, dir := range moduleSpec.Dirs {
+		options = append(options, sandbox.Mount(dir, sandbox.DirFS(dir)))
+	}
+
+	guest := sandbox.New(options...)
+
+	for _, addr := range moduleSpec.Listens {
+		if err := listenTCP(pm.ctx, guest, addr); err != nil {
+			return ProcessID{}, err
+		}
+	}
+
+	for _, addr := range moduleSpec.Dials {
+		if err := dialTCP(pm.ctx, guest, addr); err != nil {
+			return ProcessID{}, err
+		}
+	}
+
+	var system wasi.System = guest
 	var logSegment io.WriteCloser
 	var recordWriter *timemachine.LogRecordWriter
-	var recorder func(wasi.System) wasi.System
-
 	var processID ProcessID
 	if logSpec != nil && logSpec.ProcessID != (ProcessID{}) {
 		processID = logSpec.ProcessID
@@ -173,18 +197,16 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		logWriter := timemachine.NewLogWriter(logSegment)
 		recordWriter = timemachine.NewLogRecordWriter(logWriter, logSpec.BatchSize, logSpec.Compression)
 
-		recorder = func(s wasi.System) wasi.System {
-			var b timemachine.RecordBuilder
-			return wasicall.NewRecorder(s, func(id wasicall.SyscallID, syscallBytes []byte) {
-				b.Reset(logSpec.StartTime)
-				b.SetTimestamp(time.Now())
-				b.SetFunctionID(int(id))
-				b.SetFunctionCall(syscallBytes)
-				if err := recordWriter.WriteRecord(&b); err != nil {
-					panic(err) // caught/handled by wazero
-				}
-			})
-		}
+		var b timemachine.RecordBuilder
+		system = wasicall.NewRecorder(system, func(id wasicall.SyscallID, syscallBytes []byte) {
+			b.Reset(logSpec.StartTime)
+			b.SetTimestamp(time.Now())
+			b.SetFunctionID(int(id))
+			b.SetFunctionCall(syscallBytes)
+			if err := recordWriter.WriteRecord(&b); err != nil {
+				panic(err) // caught/handled by wazero
+			}
+		})
 	} else {
 		processID = uuid.New()
 	}
@@ -192,8 +214,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := pm.serverFactory.NewServer(pm.ctx, processID, moduleSpec, logSpec)
-	timecraftSocket, timecraftSocketCleanup := makeSocketPath()
-	serverListener, err := net.Listen("unix", timecraftSocket)
+	serverListener, err := guest.Listen(pm.ctx, "tcp", sdk.TimecraftAddress)
 	if err != nil {
 		return ProcessID{}, err
 	}
@@ -203,35 +224,37 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		}
 	}()
 
-	workSocket, workSocketCleanup := makeSocketPath()
-
-	// Wrap the wasi.System to make the gRPC server accessible via a virtual
-	// socket, to trace system calls (if applicable), and to record system
-	// calls to the log. The order is important here!
-	var wrappers []func(wasi.System) wasi.System
-	wrappers = append(wrappers, func(system wasi.System) wasi.System {
-		return NewVirtualSocketsSystem(system, map[string]string{
-			sdk.TimecraftSocket: timecraftSocket,
-			sdk.WorkSocket:      workSocket,
-		})
-	})
 	if moduleSpec.Trace != nil {
-		wrappers = append(wrappers, func(system wasi.System) wasi.System {
-			return wasi.Trace(moduleSpec.Trace, system)
-		})
+		system = wasi.Trace(moduleSpec.Trace, system)
 	}
-	if recorder != nil {
-		wrappers = append(wrappers, recorder)
+
+	if moduleSpec.Stdin != nil {
+		stdin := guest.Stdin()
+		go func() { _, _ = io.Copy(stdin, moduleSpec.Stdin); stdin.Close() }()
 	}
-	ctx, system, err := wasiBuilder.WithWrappers(wrappers...).Instantiate(pm.ctx, pm.runtime)
+	if moduleSpec.Stdout == nil {
+		moduleSpec.Stdout = io.Discard
+	}
+	if moduleSpec.Stderr == nil {
+		moduleSpec.Stderr = io.Discard
+	}
+	stdout := guest.Stdout()
+	stderr := guest.Stderr()
+	go func() { _, _ = io.Copy(moduleSpec.Stdout, stdout); stdout.Close() }()
+	go func() { _, _ = io.Copy(moduleSpec.Stderr, stderr); stderr.Close() }()
+
+	extensions := imports.DetectExtensions(wasmModule)
+	hostModule := wasi_snapshot_preview1.NewHostModule(extensions...)
+	wasiModule := wazergo.MustInstantiate(pm.ctx, pm.runtime,
+		hostModule,
+		wasi_snapshot_preview1.WithWASI(system),
+	)
 	if err != nil {
 		return ProcessID{}, err
 	}
 
-	var cancel context.CancelCauseFunc
-	ctx, cancel = context.WithCancelCause(ctx)
-
-	httproxy.Start(ctx)
+	ctx := wazergo.WithModuleInstance(pm.ctx, wasiModule)
+	ctx, cancel := context.WithCancelCause(ctx)
 
 	process := &ProcessInfo{
 		ID: processID,
@@ -246,16 +269,15 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 					maxDelay    = 5 * time.Second
 				)
 				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
-					var d net.Dialer
-					conn, err = d.DialContext(ctx, "unix", workSocket)
-					if err == nil {
+					conn, err = guest.Dial(ctx, "tcp", sdk.WorkAddress)
+					switch {
+					case errors.Is(err, syscall.ECONNREFUSED):
+						return true
+					case errors.Is(err, syscall.ENOENT):
+						return true
+					default:
 						return false
 					}
-					var se syscall.Errno
-					if !errors.As(err, &se) {
-						return false
-					}
-					return se == syscall.ECONNREFUSED || se == syscall.ENOENT
 				})
 				return
 			},
@@ -270,11 +292,10 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 
 	// Run the module in the background, and tidy up once complete.
 	pm.group.Go(func() (err error) {
-		defer timecraftSocketCleanup()
-		defer workSocketCleanup()
 		defer serverListener.Close()
 		defer server.Close()
 		defer system.Close(ctx)
+		defer wasiModule.Close(ctx)
 		defer wasmModule.Close(ctx)
 		if logSpec != nil {
 			defer logSegment.Close()
@@ -285,11 +306,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 			delete(pm.processes, processID)
 			pm.mu.Unlock()
 		}()
-		defer func() {
-			cancel(err)
-		}()
-
-		return runModule(ctx, pm.runtime, wasmModule)
+		defer func() { cancel(err) }()
+		err = runModule(ctx, pm.runtime, wasmModule)
+		return
 	})
 
 	return processID, nil
@@ -338,4 +357,93 @@ func (pm *ProcessManager) WaitAll() error {
 func (pm *ProcessManager) Close() error {
 	pm.cancel(nil)
 	return pm.WaitAll()
+}
+
+func dialTCP(ctx context.Context, system *sandbox.System, address string) error {
+	addrInfos, err := getaddrinfo(ctx, system, address, wasi.AddressInfo{
+		Family:     wasi.UnspecifiedFamily,
+		SocketType: wasi.StreamSocket,
+		Protocol:   wasi.TCPProtocol,
+	})
+	if err != nil {
+		return err
+	}
+
+	var lastSyscall string
+	var lastErrno wasi.Errno
+
+	for _, addrInfo := range addrInfos {
+		socket, errno := system.SockOpen(ctx, addrInfo.Family, addrInfo.SocketType, addrInfo.Protocol,
+			wasi.SockConnectionRights,
+			wasi.SockConnectionRights,
+		)
+		if errno != wasi.ESUCCESS {
+			lastSyscall, lastErrno = "socket", errno
+			continue
+		}
+		if _, errno := system.SockConnect(ctx, socket, addrInfo.Address); errno != wasi.ESUCCESS {
+			_ = system.FDClose(ctx, socket)
+			lastSyscall, lastErrno = "connect", errno
+			continue
+		}
+		_ = system.FDStatSetFlags(ctx, socket, wasi.NonBlock)
+		system.PreopenFD(socket)
+		return nil
+	}
+
+	return os.NewSyscallError(lastSyscall, lastErrno.Syscall())
+}
+
+func listenTCP(ctx context.Context, system *sandbox.System, address string) error {
+	addrInfos, err := getaddrinfo(ctx, system, address, wasi.AddressInfo{
+		Flags:      wasi.Passive,
+		Family:     wasi.UnspecifiedFamily,
+		SocketType: wasi.StreamSocket,
+		Protocol:   wasi.TCPProtocol,
+	})
+	if err != nil {
+		return err
+	}
+
+	var lastSyscall string
+	var lastErrno wasi.Errno
+
+	for _, addrInfo := range addrInfos {
+		socket, errno := system.SockOpen(ctx, addrInfo.Family, addrInfo.SocketType, addrInfo.Protocol,
+			wasi.SockListenRights,
+			wasi.SockConnectionRights,
+		)
+		if errno != wasi.ESUCCESS {
+			lastSyscall, lastErrno = "socket", errno
+			continue
+		}
+		if _, errno := system.SockBind(ctx, socket, addrInfo.Address); errno != wasi.ESUCCESS {
+			_ = system.FDClose(ctx, socket)
+			lastSyscall, lastErrno = "bind", errno
+			continue
+		}
+		if errno := system.SockListen(ctx, socket, 0); errno != wasi.ESUCCESS {
+			_ = system.FDClose(ctx, socket)
+			lastSyscall, lastErrno = "listen", errno
+			continue
+		}
+		_ = system.FDStatSetFlags(ctx, socket, wasi.NonBlock)
+		system.PreopenFD(socket)
+		return nil
+	}
+
+	return os.NewSyscallError(lastSyscall, lastErrno.Syscall())
+}
+
+func getaddrinfo(ctx context.Context, system wasi.System, address string, hints wasi.AddressInfo) ([]wasi.AddressInfo, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]wasi.AddressInfo, 8)
+	n, errno := system.SockAddressInfo(ctx, host, port, hints, results)
+	if errno != wasi.ESUCCESS {
+		return nil, os.NewSyscallError("getaddrinfo", errno.Syscall())
+	}
+	return results[:n], nil
 }

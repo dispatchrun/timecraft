@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -47,11 +48,16 @@ func Rand(rand io.Reader) Option {
 	return func(s *System) { s.rand = rand }
 }
 
-// FileSystem configures the file system to expose to the guest module.
+// Mount configures a mount point to expose a file system to the guest module.
 //
-// If not set, the guest module sees an empty file system.
-func FileSystem(fsys FS) Option {
-	return func(s *System) { s.fsys = fsys }
+// If no endpoints are set, the guest does not have a file system.
+func Mount(path string, fsys FS) Option {
+	return func(s *System) {
+		s.mounts = append(s.mounts, mountPoint{
+			path: path,
+			fsys: fsys,
+		})
+	}
 }
 
 // Socket configures a unix socket to be exposed to the guest module.
@@ -114,6 +120,14 @@ func IPv6Network(ipnet netip.Prefix) Option {
 	return func(s *System) { s.ipv6.ipnet = ipnet }
 }
 
+// Resolver configures the name resolver used when the guest attempts to
+// lookup addresses.
+//
+// Default to disabling name resolution.
+func Resolver(rslv ServiceResolver) Option {
+	return func(s *System) { s.rslv = rslv }
+}
+
 // System is an implementation of the wasi.System interface which sandboxes all
 // interactions of the guest module with the world.
 type System struct {
@@ -122,7 +136,6 @@ type System struct {
 	epoch time.Time
 	time  func() time.Time
 	rand  io.Reader
-	fsys  FS
 	wasi.FileTable[File]
 	poll   chan struct{}
 	lock   *sync.Mutex
@@ -133,6 +146,13 @@ type System struct {
 	ipv4   ipnet[ipv4]
 	ipv6   ipnet[ipv6]
 	unix   unixnet
+	rslv   ServiceResolver
+	mounts []mountPoint
+}
+
+type mountPoint struct {
+	path string
+	fsys FS
 }
 
 // New creates a new System instance, applying the list of options passed as
@@ -155,6 +175,8 @@ func New(opts ...Option) *System {
 		stdout: newPipe(lock),
 		stderr: newPipe(lock),
 		poll:   make(chan struct{}, 1),
+		root:   ^wasi.FD(0),
+		rslv:   defaultResolver{},
 
 		ipv4: ipnet[ipv4]{
 			ipnet:            netip.PrefixFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 8),
@@ -194,23 +216,29 @@ func New(opts ...Option) *System {
 		RightsBase: wasi.TTYRights & ^wasi.FDReadRight,
 	})
 
-	if s.fsys != nil {
-		f, errno := s.fsys.PathOpen(context.Background(),
+	for _, mount := range s.mounts {
+		f, errno := mount.fsys.PathOpen(context.Background(),
 			wasi.LookupFlags(0),
-			"/",
+			".",
 			wasi.OpenDirectory,
 			wasi.DirectoryRights,
 			wasi.DirectoryRights|wasi.FileRights,
 			wasi.FDFlags(0),
 		)
 		if errno != wasi.ESUCCESS {
-			panic(&fs.PathError{Op: "open", Path: "/", Err: errno.Syscall()})
+			panic(&fs.PathError{Op: "open", Path: mount.path, Err: errno.Syscall()})
 		}
-		s.root = s.Preopen(f, "/", wasi.FDStat{
+		fd := s.Preopen(f, mount.path, wasi.FDStat{
 			FileType:         wasi.DirectoryType,
 			RightsBase:       wasi.DirectoryRights,
 			RightsInheriting: wasi.DirectoryRights | wasi.FileRights,
 		})
+		if s.root == ^wasi.FD(0) {
+			// TODO: this is a bit of a hack intended to pass the fstest test
+			// suite, ideally we should have a mechanism to create a unified
+			// view of all mount points when converting to a fs.FS.
+			s.root = fd
+		}
 	}
 
 	if s.time != nil {
@@ -230,7 +258,7 @@ func (s *System) Stderr() io.ReadCloser { return outputReadCloser{s.stderr} }
 
 // FS returns a fs.FS exposing the file system mounted to the guest module.
 func (s *System) FS() fs.FS {
-	if s.fsys == nil {
+	if s.root == ^wasi.FD(0) {
 		return nil
 	}
 	// TODO: if we have a use case for it, we might want to pass the context
@@ -400,6 +428,17 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 		return none, wasi.EPROTONOSUPPORT
 	}
 
+	if proto == wasi.IPProtocol {
+		switch pf {
+		case wasi.InetFamily, wasi.Inet6Family:
+			if st == wasi.StreamSocket {
+				proto = wasi.TCPProtocol
+			} else {
+				proto = wasi.UDPProtocol
+			}
+		}
+	}
+
 	var socket File
 	switch pf {
 	case wasi.InetFamily:
@@ -510,8 +549,133 @@ func (s *System) SockRemoteAddress(ctx context.Context, fd wasi.FD) (wasi.Socket
 }
 
 func (s *System) SockAddressInfo(ctx context.Context, name, service string, hints wasi.AddressInfo, results []wasi.AddressInfo) (int, wasi.Errno) {
-	// TODO: implement name resolution
-	return 0, wasi.ENOSYS
+	if len(results) == 0 {
+		return 0, wasi.EINVAL
+	}
+	// TODO: support AI_ADDRCONFIG, AI_CANONNAME, AI_V4MAPPED, AI_V4MAPPED_CFG, AI_ALL
+
+	var network string
+	f, p, t := hints.Family, hints.Protocol, hints.SocketType
+	switch {
+	case t == wasi.StreamSocket && p != wasi.UDPProtocol:
+		switch f {
+		case wasi.UnspecifiedFamily:
+			network = "tcp"
+		case wasi.InetFamily:
+			network = "tcp4"
+		case wasi.Inet6Family:
+			network = "tcp6"
+		default:
+			return 0, wasi.ENOTSUP // EAI_FAMILY
+		}
+	case t == wasi.DatagramSocket && p != wasi.TCPProtocol:
+		switch f {
+		case wasi.UnspecifiedFamily:
+			network = "udp"
+		case wasi.InetFamily:
+			network = "udp4"
+		case wasi.Inet6Family:
+			network = "udp6"
+		default:
+			return 0, wasi.ENOTSUP // EAI_FAMILY
+		}
+	case t == wasi.AnySocket:
+		switch f {
+		case wasi.UnspecifiedFamily:
+			network = "ip"
+		case wasi.InetFamily:
+			network = "ip4"
+		case wasi.Inet6Family:
+			network = "ip6"
+		default:
+			return 0, wasi.ENOTSUP // EAI_FAMILY
+		}
+	default:
+		return 0, wasi.ENOTSUP // EAI_SOCKTYPE / EAI_PROTOCOL
+	}
+
+	var port int
+	var err error
+	if hints.Flags.Has(wasi.NumericService) {
+		port, err = strconv.Atoi(service)
+	} else {
+		port, err = s.rslv.LookupPort(ctx, network, service)
+	}
+	if err != nil || port < 0 || port > 65535 {
+		return 0, wasi.EINVAL // EAI_NONAME / EAI_SERVICE
+	}
+
+	var ip net.IP
+	if hints.Flags.Has(wasi.NumericHost) {
+		ip = net.ParseIP(name)
+		if ip == nil {
+			return 0, wasi.EINVAL
+		}
+	} else if name == "" {
+		if !hints.Flags.Has(wasi.Passive) {
+			return 0, wasi.EINVAL
+		}
+		if hints.Family == wasi.Inet6Family {
+			ip = net.IPv6zero
+		} else {
+			ip = net.IPv4zero
+		}
+	}
+
+	makeAddressInfo := func(ip net.IP, port int) wasi.AddressInfo {
+		addrInfo := wasi.AddressInfo{
+			Flags:      hints.Flags,
+			SocketType: hints.SocketType,
+			Protocol:   hints.Protocol,
+		}
+		if ipv4 := ip.To4(); ipv4 != nil {
+			inet4Addr := &wasi.Inet4Address{Port: port}
+			copy(inet4Addr.Addr[:], ipv4)
+			addrInfo.Family = wasi.InetFamily
+			addrInfo.Address = inet4Addr
+		} else {
+			inet6Addr := &wasi.Inet6Address{Port: port}
+			copy(inet6Addr.Addr[:], ip)
+			addrInfo.Family = wasi.Inet6Family
+			addrInfo.Address = inet6Addr
+		}
+		return addrInfo
+	}
+
+	if ip != nil {
+		results[0] = makeAddressInfo(ip, port)
+		return 1, wasi.ESUCCESS
+	}
+
+	// LookupIP requires the network to be one of "ip", "ip4", or "ip6".
+	switch network {
+	case "tcp", "udp":
+		network = "ip"
+	case "tcp4", "udp4":
+		network = "ip4"
+	case "tcp6", "udp6":
+		network = "ip6"
+	}
+
+	ips, err := s.rslv.LookupIP(ctx, network, name)
+	if err != nil {
+		return 0, wasi.ECANCELED // TODO: better errors on name resolution failure
+	}
+
+	addrs4 := make([]wasi.AddressInfo, 0, 8)
+	addrs6 := make([]wasi.AddressInfo, 0, 8)
+
+	for _, ip := range ips {
+		if ip.To4() != nil {
+			addrs4 = append(addrs4, makeAddressInfo(ip, port))
+		} else {
+			addrs6 = append(addrs6, makeAddressInfo(ip, port))
+		}
+	}
+
+	n := copy(results[0:], addrs4)
+	n += copy(results[n:], addrs6)
+	return n, wasi.ESUCCESS
 }
 
 type timeout struct {

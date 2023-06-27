@@ -3,6 +3,7 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -21,7 +22,6 @@ type sockflags uint32
 const (
 	sockClosed sockflags = 1 << iota
 	sockConn
-	sockHost
 	sockListen
 	sockNonBlock
 )
@@ -263,6 +263,17 @@ func (st socktype) supports(proto protocol) bool {
 	}
 }
 
+func (st socktype) fileType() wasi.FileType {
+	switch st {
+	case datagram:
+		return wasi.SocketDGramType
+	case stream:
+		return wasi.SocketStreamType
+	default:
+		return wasi.UnknownType
+	}
+}
+
 type socket[T sockaddr] struct {
 	defaultFile
 	net   network[T]
@@ -339,6 +350,10 @@ func newSocket[T sockaddr](net network[T], typ socktype, proto protocol, lock *s
 	return sock
 }
 
+func (s *socket[T]) String() string {
+	return fmt.Sprintf("%s->%s", s.raddr, s.laddr)
+}
+
 func (s *socket[T]) close() {
 	s.mutex.Lock()
 	rbuf := s.rbuf
@@ -391,7 +406,6 @@ func (s *socket[T]) connect(peer, sock *socket[T], laddr, raddr T) wasi.Errno {
 	sock.raddr = raddr
 
 	if peer == nil {
-		sock.flags = sock.flags.with(sockHost)
 		sock.rbuf = newSocketBuffer[T](s.rev.lock, int(sock.rbufsize))
 		sock.wbuf = newSocketBuffer[T](s.wev.lock, int(sock.wbufsize))
 	} else {
@@ -569,7 +583,7 @@ func (s *socket[T]) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, w
 }
 
 func (s *socket[T]) SockBind(ctx context.Context, bind wasi.SocketAddress) wasi.Errno {
-	addr, errno := s.net.sockaddr(bind)
+	addr, errno := s.net.bindAddr(bind)
 	if errno != wasi.ESUCCESS {
 		return errno
 	}
@@ -636,7 +650,7 @@ func (s *socket[T]) allocateBuffersIfNil() {
 }
 
 func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wasi.Errno {
-	raddr, errno := s.net.sockaddr(addr)
+	raddr, errno := s.net.connAddr(addr)
 	if errno != wasi.ESUCCESS {
 		return errno
 	}
@@ -793,7 +807,7 @@ func (s *socket[T]) SockSend(ctx context.Context, iovs []wasi.IOVec, flags wasi.
 }
 
 func (s *socket[T]) SockSendTo(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno) {
-	dstAddr, errno := s.net.sockaddr(addr)
+	dstAddr, errno := s.net.connAddr(addr)
 	if errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), errno
 	}
@@ -1031,6 +1045,10 @@ func (s *socket[T]) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi
 	s.flags = s.flags.withFDFlags(flags)
 	s.mutex.Unlock()
 	return wasi.ESUCCESS
+}
+
+func (s *socket[T]) FDFileStatGet(ctx context.Context) (wasi.FileStat, wasi.Errno) {
+	return wasi.FileStat{FileType: s.typ.fileType()}, wasi.ESUCCESS
 }
 
 func (s *socket[T]) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {

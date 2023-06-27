@@ -35,9 +35,9 @@ type ModuleSpec struct {
 	Sockets string
 
 	// Stdio file descriptors.
-	Stdin  int
-	Stdout int
-	Stderr int
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
 
 	// Trace is an optional writer that receives a trace of system calls
 	// made by the module.

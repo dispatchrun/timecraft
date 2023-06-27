@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -64,6 +65,10 @@ func newGuestConn[T sockaddr](socket *socket[T]) *conn[T] {
 	c.rev = &socket.rbuf.rev
 	c.wev = &socket.wbuf.wev
 	return c
+}
+
+func (c *conn[T]) String() string {
+	return fmt.Sprintf("%s->%s", c.raddr, c.laddr)
 }
 
 func (c *conn[T]) Close() error {
@@ -232,6 +237,10 @@ func newPacketConn[T sockaddr](socket *socket[T]) *packetConn[T] {
 	}
 }
 
+func (c *packetConn[T]) String() string {
+	return fmt.Sprintf("%s->%s", c.socket.raddr, c.socket.laddr)
+}
+
 func (c *packetConn[T]) Close() error {
 	c.socket.close()
 	c.rdeadline.set(time.Time{})
@@ -313,7 +322,7 @@ func (c *packetConn[T]) Write(b []byte) (int, error) {
 }
 
 func (c *packetConn[T]) WriteTo(b []byte, addr net.Addr) (int, error) {
-	sockaddr, errno := c.socket.net.netaddr(addr)
+	sockaddr, errno := c.socket.net.sockAddr(addr)
 	if errno != wasi.ESUCCESS {
 		return 0, c.newError("write", errno)
 	}
@@ -505,7 +514,7 @@ func startConnTunnel(ctx context.Context, downstream, upstream net.Conn, rbufsiz
 	}
 	go tunnel.copy(upstream, downstream, buffer[:rbufsize])
 	go tunnel.copy(downstream, upstream, buffer[rbufsize:])
-	go closeReadOnCancel(ctx, upstream)
+	go closeReadOnCancel(ctx, upstream, downstream)
 }
 
 func (c *connTunnel) unref() {
@@ -559,9 +568,10 @@ func closeWrite(conn io.Closer) error {
 	}
 }
 
-func closeReadOnCancel(ctx context.Context, conn io.Closer) {
+func closeReadOnCancel(ctx context.Context, conn1, conn2 io.Closer) {
 	<-ctx.Done()
-	closeRead(conn) //nolint:errcheck
+	closeRead(conn1) //nolint:errcheck
+	closeRead(conn2) //nolint:errcheck
 }
 
 func closeOnCancel(ctx context.Context, conn io.Closer) {
@@ -617,7 +627,7 @@ func (p *packetConnTunnel[T]) readFromPacketConn(buf []byte) {
 		// TODO:
 		// - capture metric about packets that were dropped
 		// - log details about the reason why a packet was dropped
-		peer, errno := p.sock.net.netaddr(addr)
+		peer, errno := p.sock.net.sockAddr(addr)
 		if errno != wasi.ESUCCESS {
 			continue
 		}
@@ -702,6 +712,7 @@ func (l listenTunnel[T]) acceptConnections() {
 		}
 
 		socket := l.socket.newSocket()
+		socket.flags = socket.flags.with(sockConn)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		socket.cancel = cancel
@@ -709,9 +720,9 @@ func (l listenTunnel[T]) acceptConnections() {
 		errs := make(chan wasi.Errno, 2)
 		socket.errs = errs
 
-		raddr, _ := l.socket.net.netaddr(downstream.RemoteAddr())
+		raddr, _ := l.socket.net.sockAddr(downstream.RemoteAddr())
 
-		errno := l.socket.connect(nil, socket, raddr, l.socket.laddr)
+		errno := l.socket.connect(nil, socket, l.socket.laddr, raddr)
 		if errno != wasi.ESUCCESS {
 			downstream.Close()
 			continue

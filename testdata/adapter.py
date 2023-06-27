@@ -39,6 +39,6 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     r = subprocess.run([TIMECRAFT, "replay", "--config", config_file, process_id])
     if r.returncode != status:
-        raise RuntimeError(f"timecraft replay exited with unexpected code {r.returncode}")
+       raise RuntimeError(f"timecraft replay exited with unexpected code {r.returncode}")
 
 sys.exit(status)
