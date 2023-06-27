@@ -58,10 +58,10 @@ test: testdata wasi-testsuite
 
 testdata: $(testdata.go.wasm)
 
-%_test.wasm: %_test.go
+%_test.wasm: %_test.go go.mod
 	GOARCH=wasm GOOS=wasip1 $(GO) test -c -o $@ $<
 
-%.wasm: %.go
+%.wasm: %.go go.mod
 	GOARCH=wasm GOOS=wasip1 $(GO) build -o $@ $<
 
 wasi-testsuite: timecraft testdata/wasi-testsuite
@@ -83,7 +83,7 @@ testdata/wasi-testsuite/.git: .gitmodules
 	flatc --go --gen-onefile --go-namespace $(basename $(notdir $<)) --go-module-name github.com/stealthrocket/timecraft/format -o $(dir $@) $<
 	goimports -w $@
 
-docker-build: 
+docker-build:
 	docker build -f Dockerfile -t $(container.image):$(container.version) .
 
 docker-buildx:
