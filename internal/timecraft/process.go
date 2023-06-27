@@ -24,6 +24,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/timecraft/sdk"
 	"github.com/stealthrocket/wasi-go"
+	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero"
@@ -229,11 +230,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	go func() { _, _ = io.Copy(moduleSpec.Stdout, stdout); stdout.Close() }()
 	go func() { _, _ = io.Copy(moduleSpec.Stderr, stderr); stderr.Close() }()
 
-	hostModule := wasi_snapshot_preview1.NewHostModule(
-		wasi_snapshot_preview1.WasmEdgeV2,
-	)
-
-	moduleInstance := wazergo.MustInstantiate(pm.ctx, pm.runtime,
+	extensions := imports.DetectExtensions(wasmModule)
+	hostModule := wasi_snapshot_preview1.NewHostModule(extensions...)
+	wasiModule := wazergo.MustInstantiate(pm.ctx, pm.runtime,
 		hostModule,
 		wasi_snapshot_preview1.WithWASI(system),
 	)
@@ -241,7 +240,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		return ProcessID{}, err
 	}
 
-	ctx := wazergo.WithModuleInstance(pm.ctx, moduleInstance)
+	ctx := wazergo.WithModuleInstance(pm.ctx, wasiModule)
 	ctx, cancel := context.WithCancelCause(ctx)
 
 	process := &ProcessInfo{
@@ -283,7 +282,8 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		defer serverListener.Close()
 		defer server.Close()
 		defer system.Close(ctx)
-		defer moduleInstance.Close(ctx)
+		defer wasiModule.Close(ctx)
+		defer wasmModule.Close(ctx)
 		if logSpec != nil {
 			defer logSegment.Close()
 			defer recordWriter.Flush()
@@ -293,11 +293,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 			delete(pm.processes, processID)
 			pm.mu.Unlock()
 		}()
-		defer func() {
-			cancel(err)
-		}()
-
-		return runModule(ctx, pm.runtime, wasmModule)
+		defer func() { cancel(err) }()
+		err = runModule(ctx, pm.runtime, wasmModule)
+		return
 	})
 
 	return processID, nil
