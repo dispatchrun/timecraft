@@ -119,8 +119,20 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	}
 
 	guest := sandbox.New(options...)
-	system := wasi.System(guest)
 
+	for _, addr := range moduleSpec.Listens {
+		if err := listenTCP(pm.ctx, guest, addr); err != nil {
+			return ProcessID{}, err
+		}
+	}
+
+	for _, addr := range moduleSpec.Dials {
+		if err := dialTCP(pm.ctx, guest, addr); err != nil {
+			return ProcessID{}, err
+		}
+	}
+
+	var system wasi.System = guest
 	var logSegment io.WriteCloser
 	var recordWriter *timemachine.LogRecordWriter
 	var processID ProcessID
@@ -345,4 +357,93 @@ func (pm *ProcessManager) WaitAll() error {
 func (pm *ProcessManager) Close() error {
 	pm.cancel(nil)
 	return pm.WaitAll()
+}
+
+func dialTCP(ctx context.Context, system *sandbox.System, address string) error {
+	addrInfos, err := getaddrinfo(ctx, system, address, wasi.AddressInfo{
+		Family:     wasi.UnspecifiedFamily,
+		SocketType: wasi.StreamSocket,
+		Protocol:   wasi.TCPProtocol,
+	})
+	if err != nil {
+		return err
+	}
+
+	var lastSyscall string
+	var lastErrno wasi.Errno
+
+	for _, addrInfo := range addrInfos {
+		socket, errno := system.SockOpen(ctx, addrInfo.Family, addrInfo.SocketType, addrInfo.Protocol,
+			wasi.SockConnectionRights,
+			wasi.SockConnectionRights,
+		)
+		if errno != wasi.ESUCCESS {
+			lastSyscall, lastErrno = "socket", errno
+			continue
+		}
+		if _, errno := system.SockConnect(ctx, socket, addrInfo.Address); errno != wasi.ESUCCESS {
+			_ = system.FDClose(ctx, socket)
+			lastSyscall, lastErrno = "connect", errno
+			continue
+		}
+		_ = system.FDStatSetFlags(ctx, socket, wasi.NonBlock)
+		system.PreopenFD(socket)
+		return nil
+	}
+
+	return os.NewSyscallError(lastSyscall, lastErrno.Syscall())
+}
+
+func listenTCP(ctx context.Context, system *sandbox.System, address string) error {
+	addrInfos, err := getaddrinfo(ctx, system, address, wasi.AddressInfo{
+		Flags:      wasi.Passive,
+		Family:     wasi.UnspecifiedFamily,
+		SocketType: wasi.StreamSocket,
+		Protocol:   wasi.TCPProtocol,
+	})
+	if err != nil {
+		return err
+	}
+
+	var lastSyscall string
+	var lastErrno wasi.Errno
+
+	for _, addrInfo := range addrInfos {
+		socket, errno := system.SockOpen(ctx, addrInfo.Family, addrInfo.SocketType, addrInfo.Protocol,
+			wasi.SockListenRights,
+			wasi.SockConnectionRights,
+		)
+		if errno != wasi.ESUCCESS {
+			lastSyscall, lastErrno = "socket", errno
+			continue
+		}
+		if _, errno := system.SockBind(ctx, socket, addrInfo.Address); errno != wasi.ESUCCESS {
+			_ = system.FDClose(ctx, socket)
+			lastSyscall, lastErrno = "bind", errno
+			continue
+		}
+		if errno := system.SockListen(ctx, socket, 0); errno != wasi.ESUCCESS {
+			_ = system.FDClose(ctx, socket)
+			lastSyscall, lastErrno = "listen", errno
+			continue
+		}
+		_ = system.FDStatSetFlags(ctx, socket, wasi.NonBlock)
+		system.PreopenFD(socket)
+		return nil
+	}
+
+	return os.NewSyscallError(lastSyscall, lastErrno.Syscall())
+}
+
+func getaddrinfo(ctx context.Context, system wasi.System, address string, hints wasi.AddressInfo) ([]wasi.AddressInfo, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]wasi.AddressInfo, 8)
+	n, errno := system.SockAddressInfo(ctx, host, port, hints, results)
+	if errno != wasi.ESUCCESS {
+		return nil, os.NewSyscallError("getaddrinfo", errno.Syscall())
+	}
+	return results[:n], nil
 }
