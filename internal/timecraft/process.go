@@ -244,8 +244,6 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	ctx := wazergo.WithModuleInstance(pm.ctx, moduleInstance)
 	ctx, cancel := context.WithCancelCause(ctx)
 
-	//httproxy.Start(ctx)
-
 	process := &ProcessInfo{
 		ID: processID,
 		Transport: &http.Transport{
