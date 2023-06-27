@@ -62,10 +62,6 @@ func (s *htlsSystem) SockSetOpt(ctx context.Context, fd wasi.FD, level wasi.Sock
 		}
 		binary.LittleEndian.PutUint32(s.buf, uint32(v))
 		c.name = append(c.name, s.buf[:r]...)
-
-		if cap(c.name) == len(c.name) {
-			fmt.Println("ESTABLISHED HTLS ON SOCKET", fd, "TO:", string(c.name))
-		}
 	}
 
 	return 0
@@ -84,7 +80,7 @@ func (s *htlsSystem) SockSend(ctx context.Context, fd wasi.FD, iovecs []wasi.IOV
 			panic(fmt.Errorf("client hasn't sent the full hostname with setsockopt: %d/%d bytes", len(c.name), cap(c.name)))
 		}
 
-		c.conn = tls.Client(wasiConn{s.System, fd}, &tls.Config{
+		c.conn = tls.Client(&wasiConn{sys: s.System, fd: fd}, &tls.Config{
 			ServerName: string(c.name),
 		})
 	}
@@ -116,11 +112,32 @@ func (s *htlsSystem) SockRecv(ctx context.Context, fd wasi.FD, iovecs []wasi.IOV
 
 func (s *htlsSystem) SockShutdown(ctx context.Context, fd wasi.FD, flags wasi.SDFlags) wasi.Errno {
 	c, ok := s.conns[fd]
-	if !ok || c.conn == nil {
+	if !ok {
 		return s.System.SockShutdown(ctx, fd, flags)
 	}
 
-	err := c.conn.Close()
+	var err error
+	if c.conn == nil {
+		err = s.System.SockShutdown(ctx, fd, flags)
+	} else {
+		err = c.conn.Close()
+	}
+	delete(s.conns, fd)
+
+	return wasi.MakeErrno(err)
+}
+
+func (s *htlsSystem) FDClose(ctx context.Context, fd wasi.FD) wasi.Errno {
+	c, ok := s.conns[fd]
+	if !ok {
+		return s.System.FDClose(ctx, fd)
+	}
+	var err error
+	if c.conn == nil {
+		err = s.System.FDClose(ctx, fd)
+	} else {
+		err = c.conn.Close()
+	}
 	delete(s.conns, fd)
 
 	return wasi.MakeErrno(err)
@@ -140,17 +157,27 @@ func (s *htlsSystem) Close(ctx context.Context) error {
 	if cerr != nil {
 		err = cerr
 	}
-	return wasi.MakeErrno(err)
+	s.conns = nil
+	return err
 }
 
 // implements net.Conn over a wasi system
 type wasiConn struct {
 	sys wasi.System
 	fd  wasi.FD
+
+	readdl  time.Time
+	writedl time.Time
 }
 
-func (c wasiConn) Read(b []byte) (n int, err error) {
-	ctx := context.TODO()
+func (c *wasiConn) Read(b []byte) (n int, err error) {
+	ctx := context.Background()
+	if !c.readdl.IsZero() {
+		ctx2, cancel := context.WithDeadline(ctx, c.readdl)
+		ctx = ctx2
+		defer cancel()
+	}
+
 	iovecs := []wasi.IOVec{b}
 	// TODO roflags
 	s, _, errno := c.sys.SockRecv(ctx, c.fd, iovecs, 0)
@@ -160,8 +187,13 @@ func (c wasiConn) Read(b []byte) (n int, err error) {
 	return int(s), nil
 }
 
-func (c wasiConn) Write(b []byte) (n int, err error) {
-	ctx := context.TODO()
+func (c *wasiConn) Write(b []byte) (n int, err error) {
+	ctx := context.Background()
+	if !c.writedl.IsZero() {
+		ctx2, cancel := context.WithDeadline(ctx, c.writedl)
+		ctx = ctx2
+		defer cancel()
+	}
 	iovecs := []wasi.IOVec{b}
 	// TODO roflags
 	s, errno := c.sys.SockSend(ctx, c.fd, iovecs, 0)
@@ -171,31 +203,32 @@ func (c wasiConn) Write(b []byte) (n int, err error) {
 	return int(s), nil
 }
 
-func (c wasiConn) Close() error {
-	ctx := context.TODO()
-	errno := c.sys.SockShutdown(ctx, c.fd, 0)
-	if errno != wasi.ESUCCESS {
-		return errno
-	}
+func (c *wasiConn) Close() error {
 	return nil
 }
 
-func (c wasiConn) LocalAddr() net.Addr {
+func (c *wasiConn) LocalAddr() net.Addr {
 	panic("TODO LocalAddr")
 }
 
-func (c wasiConn) RemoteAddr() net.Addr {
+func (c *wasiConn) RemoteAddr() net.Addr {
 	panic("TODO RemoteAddr")
 }
 
-func (c wasiConn) SetDeadline(t time.Time) error {
-	panic("TODO setdeadline")
+func (c *wasiConn) SetDeadline(t time.Time) error {
+	err := c.SetReadDeadline(t)
+	if err != nil {
+		return err
+	}
+	return c.SetWriteDeadline(t)
 }
 
-func (c wasiConn) SetReadDeadline(t time.Time) error {
-	panic("TODO setreaddeadline")
+func (c *wasiConn) SetReadDeadline(t time.Time) error {
+	c.readdl = t
+	return nil
 }
 
-func (c wasiConn) SetWriteDeadline(t time.Time) error {
-	panic("TODO setwritedeadline")
+func (c *wasiConn) SetWriteDeadline(t time.Time) error {
+	c.writedl = t
+	return nil
 }
