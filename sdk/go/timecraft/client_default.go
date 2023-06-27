@@ -11,5 +11,5 @@ import (
 
 func dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	var d net.Dialer
-	return d.DialContext(ctx, "tcp", sdk.TimecraftSocket)
+	return d.DialContext(ctx, "tcp", sdk.TimecraftAddress)
 }

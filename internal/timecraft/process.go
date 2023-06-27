@@ -200,7 +200,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := pm.serverFactory.NewServer(pm.ctx, processID, moduleSpec, logSpec)
-	serverListener, err := guest.Listen(pm.ctx, "tcp", sdk.TimecraftSocket)
+	serverListener, err := guest.Listen(pm.ctx, "tcp", sdk.TimecraftAddress)
 	if err != nil {
 		return ProcessID{}, err
 	}
@@ -259,7 +259,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 					maxDelay    = 5 * time.Second
 				)
 				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
-					conn, err = guest.Dial(ctx, "tcp", sdk.WorkSocket)
+					conn, err = guest.Dial(ctx, "tcp", sdk.WorkAddress)
 					if err == nil {
 						return false
 					}
