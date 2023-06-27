@@ -3,13 +3,13 @@ package timecraft
 import (
 	"context"
 	"crypto/tls"
-	"encoding/binary"
-	"fmt"
 	"net"
 	"time"
 
 	"github.com/stealthrocket/wasi-go"
 )
+
+const htlsHostnameOption = 0x9000 + 1
 
 // NewHTLSSystem creates a wasi.System that offloads TLS operations to the host.
 func NewHTLSSystem(system wasi.System) wasi.System {
@@ -18,54 +18,26 @@ func NewHTLSSystem(system wasi.System) wasi.System {
 
 type htlsSystem struct {
 	wasi.System
-
-	conns map[wasi.FD]*conn
-	buf   []byte // 4 bytes
-}
-
-type conn struct {
-	name []byte
-	conn *tls.Conn
+	conns map[wasi.FD]*tls.Conn
 }
 
 func (s *htlsSystem) SockSetOpt(ctx context.Context, fd wasi.FD, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
-	if level != 255 {
+	if level != wasi.ReservedLevel {
 		return s.System.SockSetOpt(ctx, fd, level, option, value)
 	}
-
-	v := value.(wasi.IntValue)
-
-	// option values need to match wasi_socket_ext.c
-	switch option {
-	case 1:
-		if s.conns == nil {
-			s.conns = make(map[wasi.FD]*conn)
-		}
-		if _, exists := s.conns[fd]; exists {
-			panic("fd in htls table already exists")
-		}
-		s.conns[fd] = &conn{
-			name: make([]byte, 0, v),
-		}
-	case 2:
-		c, ok := s.conns[fd]
-		if !ok {
-			return wasi.EINVAL
-		}
-		left := cap(c.name) - len(c.name)
-		r := 4
-		if left < r {
-			r = left
-		}
-
-		if cap(s.buf) < 4 {
-			s.buf = make([]byte, 4)
-		}
-		binary.LittleEndian.PutUint32(s.buf, uint32(v))
-		c.name = append(c.name, s.buf[:r]...)
+	if option != htlsHostnameOption {
+		return wasi.EINVAL
 	}
-
-	return 0
+	if s.conns == nil {
+		s.conns = make(map[wasi.FD]*tls.Conn)
+	}
+	if _, exists := s.conns[fd]; exists {
+		panic("fd in htls table already exists")
+	}
+	s.conns[fd] = tls.Client(&wasiConn{sys: s.System, fd: fd}, &tls.Config{
+		ServerName: string(value.(wasi.StringValue)),
+	})
+	return wasi.ESUCCESS
 }
 
 func (s *htlsSystem) SockSend(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
@@ -73,24 +45,10 @@ func (s *htlsSystem) SockSend(ctx context.Context, fd wasi.FD, iovecs []wasi.IOV
 	if !ok {
 		return s.System.SockSend(ctx, fd, iovecs, flags)
 	}
-
-	// First action on the socket since the socket options were transmitted.
-	// Time to set up TLS on the connection.
-	if c.conn == nil {
-		if cap(c.name) != len(c.name) {
-			panic(fmt.Errorf("client hasn't sent the full hostname with setsockopt: %d/%d bytes", len(c.name), cap(c.name)))
-		}
-
-		c.conn = tls.Client(&wasiConn{sys: s.System, fd: fd}, &tls.Config{
-			ServerName: string(c.name),
-		})
-	}
-
-	n, err := c.conn.Write(iovecs[0])
+	n, err := c.Write(iovecs[0])
 	if err != nil {
 		return wasi.Size(n), wasi.MakeErrno(err)
 	}
-
 	return wasi.Size(n), wasi.ESUCCESS
 }
 
@@ -99,12 +57,7 @@ func (s *htlsSystem) SockRecv(ctx context.Context, fd wasi.FD, iovecs []wasi.IOV
 	if !ok {
 		return s.System.SockRecv(ctx, fd, iovecs, flags)
 	}
-
-	if c.conn == nil {
-		panic("client should have tried to write on the connection first")
-	}
-
-	n, err := c.conn.Read(iovecs[0])
+	n, err := c.Read(iovecs[0])
 	if err != nil {
 		return wasi.Size(n), 0, wasi.MakeErrno(err)
 	}
@@ -116,15 +69,8 @@ func (s *htlsSystem) SockShutdown(ctx context.Context, fd wasi.FD, flags wasi.SD
 	if !ok {
 		return s.System.SockShutdown(ctx, fd, flags)
 	}
-
-	var err error
-	if c.conn == nil {
-		err = s.System.SockShutdown(ctx, fd, flags)
-	} else {
-		err = c.conn.Close()
-	}
+	err := c.Close()
 	delete(s.conns, fd)
-
 	return wasi.MakeErrno(err)
 }
 
@@ -133,25 +79,17 @@ func (s *htlsSystem) FDClose(ctx context.Context, fd wasi.FD) wasi.Errno {
 	if !ok {
 		return s.System.FDClose(ctx, fd)
 	}
-	var err error
-	if c.conn == nil {
-		err = s.System.FDClose(ctx, fd)
-	} else {
-		err = c.conn.Close()
-	}
+	err := c.Close()
 	delete(s.conns, fd)
-
 	return wasi.MakeErrno(err)
 }
 
 func (s *htlsSystem) Close(ctx context.Context) error {
 	var err error
 	for _, c := range s.conns {
-		if c.conn != nil {
-			cerr := c.conn.Close()
-			if cerr != nil {
-				err = cerr
-			}
+		cerr := c.Close()
+		if cerr != nil {
+			err = cerr
 		}
 	}
 	cerr := s.System.Close(ctx)
