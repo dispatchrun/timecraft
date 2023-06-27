@@ -1040,7 +1040,7 @@ func (s *socket[T]) setReservedLevelOption(option wasi.SocketOption, value wasi.
 	switch option {
 	case 0x9000 + 1:
 		if s.htls == nil {
-			// Can only enable hTLS during before the first recv/send/poll.
+			// Can only enable hTLS before the first recv/send/poll.
 			return wasi.EINVAL
 		}
 		s.htls <- string(value.(wasi.StringValue))
