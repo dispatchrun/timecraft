@@ -24,11 +24,11 @@ func TestConn(t *testing.T) {
 		},
 		{
 			scenario: "tcp4",
-			function: func(t *testing.T) { testConn(t, "tcp4", "127.0.0.1:0") },
+			function: func(t *testing.T) { testConn(t, "tcp4", ":0") },
 		},
 		{
 			scenario: "tcp6",
-			function: func(t *testing.T) { testConn(t, "tcp6", "[::1]:0") },
+			function: func(t *testing.T) { testConn(t, "tcp6", ":0") },
 		},
 	}
 

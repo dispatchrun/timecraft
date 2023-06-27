@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sync"
@@ -18,11 +19,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
+	"github.com/stealthrocket/timecraft/internal/ipam"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
-	"github.com/stealthrocket/timecraft/sdk"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
@@ -46,6 +47,9 @@ type ProcessManager struct {
 	group  *errgroup.Group
 	ctx    context.Context
 	cancel context.CancelCauseFunc
+
+	ipv4 ipam.IPv4Pool
+	ipv6 ipam.IPv6Pool
 }
 
 // ProcessID is a process identifier.
@@ -64,6 +68,17 @@ type ProcessInfo struct {
 	cancel context.CancelCauseFunc
 }
 
+const (
+	ipv4NetAddrNumBits = 32
+	ipv6NetAddrNumBits = 128
+
+	ipv4NetMaskNumBits = 20
+	ipv6NetMaskNumBits = 24
+
+	ipv4NetMask = ipv4NetAddrNumBits - ipv4NetMaskNumBits
+	ipv6NetMask = ipv6NetAddrNumBits - ipv6NetMaskNumBits
+)
+
 // NewProcessManager creates an ProcessManager.
 func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime, serverFactory *ServerFactory) *ProcessManager {
 	r := &ProcessManager{
@@ -74,6 +89,20 @@ func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runt
 	}
 	r.group, ctx = errgroup.WithContext(ctx)
 	r.ctx, r.cancel = context.WithCancelCause(ctx)
+
+	ipv4 := ipam.IPv4{172, 16, 0, 0}
+	ipv6 := ipam.IPv6{}
+
+	_, err := rand.Read(ipv6[:])
+	if err != nil {
+		panic(err)
+	}
+	ipv6[13] = 0
+	ipv6[14] = 0
+	ipv6[15] = 0
+
+	r.ipv4.Reset(ipv4, ipv4NetMask)
+	r.ipv6.Reset(ipv6, ipv6NetMask)
 	return r
 }
 
@@ -100,6 +129,15 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		return ProcessID{}, err
 	}
 
+	ipv4, ok := pm.ipv4.Get()
+	if !ok {
+		return ProcessID{}, fmt.Errorf("exhausted IPv4 address pool: %s", &pm.ipv4)
+	}
+	ipv6, ok := pm.ipv6.Get()
+	if !ok {
+		return ProcessID{}, fmt.Errorf("exhausted IPv6 address pool: %s", &pm.ipv6)
+	}
+
 	dialer := &net.Dialer{}
 	listen := &net.ListenConfig{}
 
@@ -112,6 +150,8 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		sandbox.Listen(listen.Listen),
 		sandbox.ListenPacket(listen.ListenPacket),
 		sandbox.Resolver(net.DefaultResolver),
+		sandbox.IPv4Network(netip.PrefixFrom(netip.AddrFrom4(ipv4), ipv4NetMask)),
+		sandbox.IPv6Network(netip.PrefixFrom(netip.AddrFrom16(ipv6), ipv6NetMask)),
 	}
 
 	for _, dir := range moduleSpec.Dirs {
@@ -214,7 +254,8 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := pm.serverFactory.NewServer(pm.ctx, processID, moduleSpec, logSpec)
-	serverListener, err := guest.Listen(pm.ctx, "tcp", sdk.TimecraftAddress)
+	serverAddress := netip.AddrPortFrom(netip.AddrFrom4(ipv4), 3001)
+	serverListener, err := guest.Listen(pm.ctx, "tcp", serverAddress.String())
 	if err != nil {
 		return ProcessID{}, err
 	}
@@ -229,8 +270,19 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	}
 
 	if moduleSpec.Stdin != nil {
+		// TODO: THIS GOROUTINE LEAKS!!!
+		//
+		// We need to figure out how to close moduleSpec.Stdin so this goroutine
+		// can abort and be part of the process manager error group.
+		//
+		// Technically, it's not a big deal because stdin is nil for all guest
+		// modules except the main one, and when the main module terminates we
+		// exit as well, but we should address at some point.
 		stdin := guest.Stdin()
-		go func() { _, _ = io.Copy(stdin, moduleSpec.Stdin); stdin.Close() }()
+		go func() {
+			defer stdin.Close()
+			_, _ = io.Copy(stdin, moduleSpec.Stdin)
+		}()
 	}
 	if moduleSpec.Stdout == nil {
 		moduleSpec.Stdout = io.Discard
@@ -238,10 +290,11 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	if moduleSpec.Stderr == nil {
 		moduleSpec.Stderr = io.Discard
 	}
+
 	stdout := guest.Stdout()
 	stderr := guest.Stderr()
-	go func() { _, _ = io.Copy(moduleSpec.Stdout, stdout); stdout.Close() }()
-	go func() { _, _ = io.Copy(moduleSpec.Stderr, stderr); stderr.Close() }()
+	pm.group.Go(func() error { return copyAndClose(moduleSpec.Stdout, stdout) })
+	pm.group.Go(func() error { return copyAndClose(moduleSpec.Stderr, stderr) })
 
 	extensions := imports.DetectExtensions(wasmModule)
 	hostModule := wasi_snapshot_preview1.NewHostModule(extensions...)
@@ -269,7 +322,8 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 					maxDelay    = 5 * time.Second
 				)
 				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
-					conn, err = guest.Dial(ctx, "tcp", sdk.WorkAddress)
+					address := netip.AddrPortFrom(netip.AddrFrom4(ipv4), 3000)
+					conn, err = guest.Dial(ctx, "tcp", address.String())
 					switch {
 					case errors.Is(err, syscall.ECONNREFUSED):
 						return true
@@ -291,27 +345,36 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	pm.mu.Unlock()
 
 	// Run the module in the background, and tidy up once complete.
-	pm.group.Go(func() (err error) {
-		defer serverListener.Close()
-		defer server.Close()
-		defer system.Close(ctx)
-		defer wasiModule.Close(ctx)
-		defer wasmModule.Close(ctx)
+	pm.group.Go(func() error {
+		err := runModule(ctx, pm.runtime, wasmModule)
+		cancel(err)
+
+		pm.mu.Lock()
+		delete(pm.processes, processID)
+		pm.mu.Unlock()
+
 		if logSpec != nil {
-			defer logSegment.Close()
-			defer recordWriter.Flush()
+			recordWriter.Flush()
+			logSegment.Close()
 		}
-		defer func() {
-			pm.mu.Lock()
-			delete(pm.processes, processID)
-			pm.mu.Unlock()
-		}()
-		defer func() { cancel(err) }()
-		err = runModule(ctx, pm.runtime, wasmModule)
-		return
+
+		wasmModule.Close(ctx)
+		wasiModule.Close(ctx)
+
+		system.Close(ctx)
+		server.Close()
+
+		serverListener.Close()
+		return err
 	})
 
 	return processID, nil
+}
+
+func copyAndClose(w io.Writer, r io.ReadCloser) error {
+	defer r.Close()
+	_, err := io.Copy(w, r)
+	return err
 }
 
 // Lookup looks up a process by ID.

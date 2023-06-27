@@ -17,12 +17,12 @@ func TestConn(t *testing.T) {
 	}{
 		{
 			network: "tcp4",
-			address: "127.0.0.1:0",
+			address: ":0",
 		},
 
 		{
 			network: "tcp6",
-			address: "[::1]:0",
+			address: "[::]:0",
 		},
 
 		{
@@ -91,7 +91,7 @@ func TestPacketConn(t *testing.T) {
 	}{
 		{
 			network: "udp4",
-			address: "127.0.0.1:0",
+			address: ":0",
 		},
 
 		{
@@ -121,11 +121,13 @@ func TestPacketConn(t *testing.T) {
 				c1 = &connectedPacketConn{
 					PacketConn: l,
 					peer:       c.(net.PacketConn),
+					addr:       c.LocalAddr(),
 				}
 
 				c2 = &connectedPacketConn{
 					PacketConn: c.(net.PacketConn),
 					peer:       l,
+					addr:       c.RemoteAddr(),
 				}
 
 				stop = func() { c1.Close(); c2.Close(); sys.Close(ctx) }
@@ -138,6 +140,7 @@ func TestPacketConn(t *testing.T) {
 type connectedPacketConn struct {
 	net.PacketConn
 	peer net.PacketConn
+	addr net.Addr
 }
 
 func (c *connectedPacketConn) Close() error {
@@ -153,9 +156,9 @@ func (c *connectedPacketConn) Read(b []byte) (int, error) {
 }
 
 func (c *connectedPacketConn) Write(b []byte) (int, error) {
-	return c.WriteTo(b, c.peer.LocalAddr())
+	return c.WriteTo(b, c.RemoteAddr())
 }
 
 func (c *connectedPacketConn) RemoteAddr() net.Addr {
-	return c.peer.LocalAddr()
+	return c.addr
 }

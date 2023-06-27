@@ -34,6 +34,9 @@ timecraft.src.go = \
 	$(wildcard */*/*.go) \
 	$(wildcard */*/*/*.go)
 
+timecraft.sdk.src.go = \
+	$(wildcard sdk/*.go sdk/go/timecraft/*.go)
+
 timecraft: go.mod $(timecraft.src.go)
 	$(GO) build -o timecraft
 
@@ -58,10 +61,10 @@ test: testdata wasi-testsuite
 
 testdata: $(testdata.go.wasm)
 
-%_test.wasm: %_test.go go.mod
+%_test.wasm: %_test.go go.mod $(timecraft.sdk.src.go)
 	GOARCH=wasm GOOS=wasip1 $(GO) test -c -o $@ $<
 
-%.wasm: %.go go.mod
+%.wasm: %.go go.mod $(timecraft.sdk.src.go)
 	GOARCH=wasm GOOS=wasip1 $(GO) build -o $@ $<
 
 wasi-testsuite: timecraft testdata/wasi-testsuite
