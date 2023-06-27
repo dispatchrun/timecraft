@@ -69,8 +69,14 @@ type ProcessInfo struct {
 }
 
 const (
-	ipv4NetMask = 12
-	ipv6NetMask = 104
+	ipv4NetAddrNumBits = 32
+	ipv6NetAddrNumBits = 128
+
+	ipv4NetMaskNumBits = 20
+	ipv6NetMaskNumBits = 24
+
+	ipv4NetMask = ipv4NetAddrNumBits - ipv4NetMaskNumBits
+	ipv6NetMask = ipv6NetAddrNumBits - ipv6NetMaskNumBits
 )
 
 // NewProcessManager creates an ProcessManager.
@@ -87,7 +93,10 @@ func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runt
 	ipv4 := ipam.IPv4{172, 16, 0, 0}
 	ipv6 := ipam.IPv6{}
 
-	rand.Read(ipv6[:])
+	_, err := rand.Read(ipv6[:])
+	if err != nil {
+		panic(err)
+	}
 	ipv6[13] = 0
 	ipv6[14] = 0
 	ipv6[15] = 0
