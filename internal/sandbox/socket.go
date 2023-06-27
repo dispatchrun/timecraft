@@ -3,6 +3,7 @@ package sandbox
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"sync"
 	"time"
@@ -317,6 +318,10 @@ type socket[T sockaddr] struct {
 	// System instance that created the socket since a blocking socket method
 	// will prevent any concurrent call to PollOneOff.
 	poll chan struct{}
+	// To perform hTLS, connect waits() on this channel to receive a
+	// hostname. If a recv, send, or poll operation is performed on the
+	// socket, connect moves on.
+	htls chan string
 }
 
 const (
@@ -708,10 +713,35 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		close(errs)
 	} else {
 		ctx, s.cancel = context.WithCancel(ctx)
+		s.htls = make(chan string)
 		go func() {
 			upstream, errno := s.net.dial(ctx, s.proto, raddr)
 			if errno != wasi.ESUCCESS || blocking {
 				errs <- errno
+			}
+
+			if errno == wasi.ESUCCESS {
+				select {
+				case hostname, ok := <-s.htls:
+					if !ok {
+						// Operation performed before setsockopt
+						// was called to setup htls. Move on.
+					} else {
+						// upgrade tls
+						tlsconn := tls.Client(upstream, &tls.Config{
+							ServerName: hostname,
+						})
+						err := tlsconn.HandshakeContext(ctx)
+						if err != nil {
+							errno = wasi.MakeErrno(err)
+							errs <- errno
+						} else {
+							upstream = tlsconn
+						}
+					}
+				case <-ctx.Done():
+					// Socket was closed
+				}
 			}
 
 			s.wev.trigger()
@@ -763,6 +793,10 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 	}
 	if s.flags.has(sockListen) {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
+	}
+	if s.htls != nil {
+		close(s.htls)
+		s.htls = nil
 	}
 	if s.typ == stream && !s.flags.has(sockConn) {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTCONN
@@ -823,6 +857,10 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	}
 	if s.flags.has(sockListen) {
 		return ^wasi.Size(0), wasi.ENOTSUP
+	}
+	if s.htls != nil {
+		close(s.htls)
+		s.htls = nil
 	}
 	if s.typ == stream && !s.flags.has(sockConn) {
 		return ^wasi.Size(0), wasi.ENOTCONN
@@ -954,6 +992,8 @@ func (s *socket[T]) SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel
 		return s.setSocketLevelOption(option, value)
 	case wasi.TcpLevel:
 		return s.setTcpLevelOption(option, value)
+	case wasi.ReservedLevel:
+		return s.setReservedLevelOption(option, value)
 	default:
 		return wasi.EINVAL
 	}
@@ -989,10 +1029,25 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 func (s *socket[T]) setTcpLevelOption(option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
 	switch option {
 	case wasi.TcpNoDelay:
-		// ???
+		// TCP no-delay is enabled by default in Go.
 		return wasi.ESUCCESS
 	}
-	return wasi.EINVAL
+	return wasi.ENOPROTOOPT
+}
+
+func (s *socket[T]) setReservedLevelOption(option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+	switch option {
+	case 0x9000 + 1:
+		if s.htls == nil {
+			// Can only enable hTLS during before the first recv/send/poll.
+			return wasi.EINVAL
+		}
+		s.htls <- string(value.(wasi.StringValue))
+		close(s.htls)
+		s.htls = nil
+		return wasi.ESUCCESS
+	}
+	return wasi.ENOPROTOOPT
 }
 
 func setIntValueLimit(option *int32, value wasi.SocketOptionValue, minval, maxval int32) wasi.Errno {
