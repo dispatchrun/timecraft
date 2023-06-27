@@ -11,7 +11,7 @@ import (
 
 // StartWorker starts a timecraft worker.
 func StartWorker(handler http.Handler) error {
-	l, err := wasip1.Listen("unix", sdk.WorkSocket)
+	l, err := wasip1.Listen("tcp", sdk.WorkSocket)
 	if err != nil {
 		return err
 	}

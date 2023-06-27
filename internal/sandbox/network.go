@@ -299,11 +299,7 @@ func (l *listener[T]) Accept() (net.Conn, error) {
 	if !ok {
 		return nil, net.ErrClosed
 	}
-	if socket.flags.has(sockHost) {
-		return newGuestConn(socket), nil
-	} else {
-		return newHostConn(socket), nil
-	}
+	return newGuestConn(socket), nil
 }
 
 type sockaddr interface {
@@ -351,6 +347,12 @@ func (inaddr ipv4) addrPort() netip.AddrPort {
 }
 
 func (inaddr ipv4) withAddr(addr netip.Addr) ipv4 {
+	switch {
+	case addr.Is4In6():
+		addr = addr.Unmap()
+	case addr.Is6():
+		return ipv4{}
+	}
 	return ipv4{addr: addr.As4(), port: inaddr.port}
 }
 
@@ -464,10 +466,10 @@ type network[T sockaddr] interface {
 	contains(T) bool
 	// Returns true if the network supports the given protocol.
 	supports(protocol) bool
-	// Constructs a socket address for the network from a net.Addr.
-	netaddr(addr net.Addr) (T, wasi.Errno)
-	// Constructs a socket address for the network from a wasi.SocketAddress.
-	sockaddr(addr wasi.SocketAddress) (T, wasi.Errno)
+	// Constructs a socket address for the network.
+	sockAddr(addr net.Addr) (T, wasi.Errno)
+	bindAddr(addr wasi.SocketAddress) (T, wasi.Errno)
+	connAddr(addr wasi.SocketAddress) (T, wasi.Errno)
 	// Returns the socket associated with the given network address.
 	socket(addr netaddr[T]) *socket[T]
 	// Binds a socket to an address. Unlink must be called to remove the
@@ -522,7 +524,7 @@ func (n *ipnet[T]) supports(proto protocol) bool {
 	return proto == ip || proto == tcp || proto == udp
 }
 
-func (n *ipnet[T]) netaddr(networkAddress net.Addr) (sockaddr T, errno wasi.Errno) {
+func (n *ipnet[T]) sockAddr(networkAddress net.Addr) (sockaddr T, errno wasi.Errno) {
 	var addrPort netip.AddrPort
 	switch na := networkAddress.(type) {
 	case *net.TCPAddr:
@@ -539,7 +541,15 @@ func (n *ipnet[T]) netaddr(networkAddress net.Addr) (sockaddr T, errno wasi.Errn
 	return sockaddr, wasi.ESUCCESS
 }
 
-func (n *ipnet[T]) sockaddr(socketAddress wasi.SocketAddress) (sockaddr T, errno wasi.Errno) {
+func (n *ipnet[T]) bindAddr(socketAddress wasi.SocketAddress) (T, wasi.Errno) {
+	return n.makeAddr(socketAddress, true)
+}
+
+func (n *ipnet[T]) connAddr(socketAddress wasi.SocketAddress) (T, wasi.Errno) {
+	return n.makeAddr(socketAddress, false)
+}
+
+func (n *ipnet[T]) makeAddr(socketAddress wasi.SocketAddress, bind bool) (sockaddr T, errno wasi.Errno) {
 	var anyAddr T
 	if anyAddr.family() != socketAddress.Family() {
 		return sockaddr, wasi.EAFNOSUPPORT
@@ -558,6 +568,9 @@ func (n *ipnet[T]) sockaddr(socketAddress wasi.SocketAddress) (sockaddr T, errno
 	}
 	if port < 0 || port > math.MaxUint16 {
 		return sockaddr, wasi.EINVAL
+	}
+	if !bind && addr.IsUnspecified() {
+		addr = n.ipnet.Addr()
 	}
 	sockaddr = sockaddr.withAddr(addr)
 	sockaddr = sockaddr.withPort(port)
@@ -686,7 +699,7 @@ func (n *unixnet) supports(proto protocol) bool {
 	return proto == 0
 }
 
-func (n *unixnet) netaddr(addr net.Addr) (unix, wasi.Errno) {
+func (n *unixnet) sockAddr(addr net.Addr) (unix, wasi.Errno) {
 	switch na := addr.(type) {
 	case *net.UnixAddr:
 		return unix{name: na.Name}, wasi.ESUCCESS
@@ -695,7 +708,15 @@ func (n *unixnet) netaddr(addr net.Addr) (unix, wasi.Errno) {
 	}
 }
 
-func (n *unixnet) sockaddr(addr wasi.SocketAddress) (unix, wasi.Errno) {
+func (n *unixnet) bindAddr(addr wasi.SocketAddress) (unix, wasi.Errno) {
+	return n.makeAddr(addr)
+}
+
+func (n *unixnet) connAddr(addr wasi.SocketAddress) (unix, wasi.Errno) {
+	return n.makeAddr(addr)
+}
+
+func (n *unixnet) makeAddr(addr wasi.SocketAddress) (unix, wasi.Errno) {
 	switch sa := addr.(type) {
 	case *wasi.UnixAddress:
 		return unix{name: sa.Name}, wasi.ESUCCESS

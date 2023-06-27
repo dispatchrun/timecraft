@@ -110,9 +110,9 @@ func run(ctx context.Context, args []string) error {
 		Dials:   dials,
 		Listens: listens,
 		Sockets: string(sockets),
-		Stdin:   int(os.Stdin.Fd()),
-		Stdout:  int(os.Stdout.Fd()),
-		Stderr:  int(os.Stderr.Fd()),
+		Stdin:   os.Stdin,
+		Stdout:  os.Stdout,
+		Stderr:  os.Stderr,
 	}
 	if trace {
 		moduleSpec.Trace = os.Stderr

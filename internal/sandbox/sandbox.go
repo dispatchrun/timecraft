@@ -29,8 +29,11 @@ type File interface {
 // defaultFile is useful to declare all file methods as not implemented by
 // embedding the type.
 //
-// Note that FDClose isn't declared because it is critical to the lifecycle of
-// all files, so we want to leverage the compiler to make sure it always exists.
+// FDClose isn't declared because it is critical to the lifecycle of all files,
+// so we want to leverage the compiler to make sure it always exists.
+//
+// FDFileStatGet isn't declared because all implementations should advertize
+// their file type.
 type defaultFile struct{}
 
 func (defaultFile) FDAdvise(ctx context.Context, offset, length wasi.FileSize, advice wasi.Advice) wasi.Errno {
@@ -47,10 +50,6 @@ func (defaultFile) FDDataSync(ctx context.Context) wasi.Errno {
 
 func (defaultFile) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
 	return wasi.EBADF
-}
-
-func (defaultFile) FDFileStatGet(ctx context.Context) (wasi.FileStat, wasi.Errno) {
-	return wasi.FileStat{}, wasi.EBADF
 }
 
 func (defaultFile) FDFileStatSetSize(ctx context.Context, size wasi.FileSize) wasi.Errno {

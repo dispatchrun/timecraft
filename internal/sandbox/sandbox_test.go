@@ -14,7 +14,7 @@ import (
 
 func TestSandboxFS(t *testing.T) {
 	ctx := context.Background()
-	sys := sandbox.New(sandbox.FileSystem(sandbox.DirFS("testdata")))
+	sys := sandbox.New(sandbox.Mount("/", sandbox.DirFS("testdata")))
 	defer sys.Close(ctx)
 	assert.OK(t, fstest.TestFS(sys.FS(),
 		"answer",
@@ -36,7 +36,7 @@ func TestSandboxSystem(t *testing.T) {
 		}
 
 		if config.RootFS != "" {
-			options = append(options, sandbox.FileSystem(sandbox.DirFS(config.RootFS)))
+			options = append(options, sandbox.Mount("/", sandbox.DirFS(config.RootFS)))
 		}
 
 		sys := sandbox.New(options...)

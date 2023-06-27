@@ -2,6 +2,7 @@ package timecraft
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -13,17 +14,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/stealthrocket/timecraft/sdk"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
-	"github.com/stealthrocket/timecraft/internal/httproxy"
 	"github.com/stealthrocket/timecraft/internal/object"
+	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
+	"github.com/stealthrocket/timecraft/sdk"
 	"github.com/stealthrocket/wasi-go"
-	"github.com/stealthrocket/wasi-go/imports"
+	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
+	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero"
 )
 
@@ -97,20 +99,28 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		return ProcessID{}, err
 	}
 
-	wasiBuilder := imports.NewBuilder().
-		WithName(wasmName).
-		WithArgs(moduleSpec.Args...).
-		WithEnv(moduleSpec.Env...).
-		WithDirs(moduleSpec.Dirs...).
-		WithListens(moduleSpec.Listens...).
-		WithDials(moduleSpec.Dials...).
-		WithStdio(moduleSpec.Stdin, moduleSpec.Stdout, moduleSpec.Stderr).
-		WithSocketsExtension(moduleSpec.Sockets, wasmModule)
+	dialer := &net.Dialer{}
+	listen := &net.ListenConfig{}
+
+	options := []sandbox.Option{
+		sandbox.Args(append([]string{wasmName}, moduleSpec.Args...)...),
+		sandbox.Environ(moduleSpec.Env...),
+		sandbox.Time(time.Now),
+		sandbox.Rand(rand.Reader),
+		sandbox.Dial(dialer.DialContext),
+		sandbox.Listen(listen.Listen),
+		sandbox.ListenPacket(listen.ListenPacket),
+	}
+
+	for _, dir := range moduleSpec.Dirs {
+		options = append(options, sandbox.Mount(dir, sandbox.DirFS(dir)))
+	}
+
+	guest := sandbox.New(options...)
+	system := wasi.System(guest)
 
 	var logSegment io.WriteCloser
 	var recordWriter *timemachine.LogRecordWriter
-	var recorder func(wasi.System) wasi.System
-
 	var processID ProcessID
 	if logSpec != nil && logSpec.ProcessID != (ProcessID{}) {
 		processID = logSpec.ProcessID
@@ -173,18 +183,16 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		logWriter := timemachine.NewLogWriter(logSegment)
 		recordWriter = timemachine.NewLogRecordWriter(logWriter, logSpec.BatchSize, logSpec.Compression)
 
-		recorder = func(s wasi.System) wasi.System {
-			var b timemachine.RecordBuilder
-			return wasicall.NewRecorder(s, func(id wasicall.SyscallID, syscallBytes []byte) {
-				b.Reset(logSpec.StartTime)
-				b.SetTimestamp(time.Now())
-				b.SetFunctionID(int(id))
-				b.SetFunctionCall(syscallBytes)
-				if err := recordWriter.WriteRecord(&b); err != nil {
-					panic(err) // caught/handled by wazero
-				}
-			})
-		}
+		var b timemachine.RecordBuilder
+		system = wasicall.NewRecorder(system, func(id wasicall.SyscallID, syscallBytes []byte) {
+			b.Reset(logSpec.StartTime)
+			b.SetTimestamp(time.Now())
+			b.SetFunctionID(int(id))
+			b.SetFunctionCall(syscallBytes)
+			if err := recordWriter.WriteRecord(&b); err != nil {
+				panic(err) // caught/handled by wazero
+			}
+		})
 	} else {
 		processID = uuid.New()
 	}
@@ -192,8 +200,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := pm.serverFactory.NewServer(pm.ctx, processID, moduleSpec, logSpec)
-	timecraftSocket, timecraftSocketCleanup := makeSocketPath()
-	serverListener, err := net.Listen("unix", timecraftSocket)
+	serverListener, err := guest.Listen(pm.ctx, "tcp", sdk.TimecraftSocket)
 	if err != nil {
 		return ProcessID{}, err
 	}
@@ -203,35 +210,41 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		}
 	}()
 
-	workSocket, workSocketCleanup := makeSocketPath()
-
-	// Wrap the wasi.System to make the gRPC server accessible via a virtual
-	// socket, to trace system calls (if applicable), and to record system
-	// calls to the log. The order is important here!
-	var wrappers []func(wasi.System) wasi.System
-	wrappers = append(wrappers, func(system wasi.System) wasi.System {
-		return NewVirtualSocketsSystem(system, map[string]string{
-			sdk.TimecraftSocket: timecraftSocket,
-			sdk.WorkSocket:      workSocket,
-		})
-	})
 	if moduleSpec.Trace != nil {
-		wrappers = append(wrappers, func(system wasi.System) wasi.System {
-			return wasi.Trace(moduleSpec.Trace, system)
-		})
+		system = wasi.Trace(moduleSpec.Trace, system)
 	}
-	if recorder != nil {
-		wrappers = append(wrappers, recorder)
+
+	if moduleSpec.Stdin != nil {
+		stdin := guest.Stdin()
+		go func() { _, _ = io.Copy(stdin, moduleSpec.Stdin); stdin.Close() }()
 	}
-	ctx, system, err := wasiBuilder.WithWrappers(wrappers...).Instantiate(pm.ctx, pm.runtime)
+	if moduleSpec.Stdout == nil {
+		moduleSpec.Stdout = io.Discard
+	}
+	if moduleSpec.Stderr == nil {
+		moduleSpec.Stderr = io.Discard
+	}
+	stdout := guest.Stdout()
+	stderr := guest.Stderr()
+	go func() { _, _ = io.Copy(moduleSpec.Stdout, stdout); stdout.Close() }()
+	go func() { _, _ = io.Copy(moduleSpec.Stderr, stderr); stderr.Close() }()
+
+	hostModule := wasi_snapshot_preview1.NewHostModule(
+		wasi_snapshot_preview1.WasmEdgeV2,
+	)
+
+	moduleInstance := wazergo.MustInstantiate(pm.ctx, pm.runtime,
+		hostModule,
+		wasi_snapshot_preview1.WithWASI(system),
+	)
 	if err != nil {
 		return ProcessID{}, err
 	}
 
-	var cancel context.CancelCauseFunc
-	ctx, cancel = context.WithCancelCause(ctx)
+	ctx := wazergo.WithModuleInstance(pm.ctx, moduleInstance)
+	ctx, cancel := context.WithCancelCause(ctx)
 
-	httproxy.Start(ctx)
+	//httproxy.Start(ctx)
 
 	process := &ProcessInfo{
 		ID: processID,
@@ -246,16 +259,18 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 					maxDelay    = 5 * time.Second
 				)
 				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
-					var d net.Dialer
-					conn, err = d.DialContext(ctx, "unix", workSocket)
+					conn, err = guest.Dial(ctx, "tcp", sdk.WorkSocket)
 					if err == nil {
 						return false
 					}
-					var se syscall.Errno
-					if !errors.As(err, &se) {
+					switch {
+					case errors.Is(err, syscall.ECONNREFUSED):
+						return true
+					case errors.Is(err, syscall.ENOENT):
+						return true
+					default:
 						return false
 					}
-					return se == syscall.ECONNREFUSED || se == syscall.ENOENT
 				})
 				return
 			},
@@ -270,12 +285,10 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 
 	// Run the module in the background, and tidy up once complete.
 	pm.group.Go(func() (err error) {
-		defer timecraftSocketCleanup()
-		defer workSocketCleanup()
 		defer serverListener.Close()
 		defer server.Close()
 		defer system.Close(ctx)
-		defer wasmModule.Close(ctx)
+		defer moduleInstance.Close(ctx)
 		if logSpec != nil {
 			defer logSegment.Close()
 			defer recordWriter.Flush()

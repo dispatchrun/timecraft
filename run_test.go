@@ -36,10 +36,10 @@ var run = tests{
 }
 
 func testRun(t *testing.T, module string, args ...string) {
-	command := append([]string{"run", "--", module}, args...)
+	command := append([]string{"run", "--", module, "-test.v"}, args...)
 
 	stdout, stderr, exitCode := timecraft(t, command...)
-	if exitCode != 0 {
+	if true || exitCode != 0 {
 		fmt.Fprintf(os.Stdout, "STDOUT:\n%s", stdout)
 		fmt.Fprintf(os.Stderr, "STDERR:\n%s", stderr)
 	}

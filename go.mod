@@ -11,8 +11,8 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/klauspost/compress v1.16.6
 	github.com/planetscale/vtprotobuf v0.4.0
-	github.com/stealthrocket/net v0.1.7
-	github.com/stealthrocket/wasi-go v0.6.16
+	github.com/stealthrocket/net v0.1.8
+	github.com/stealthrocket/wasi-go v0.6.17
 	github.com/stealthrocket/wazergo v0.19.1
 	github.com/stealthrocket/wzprof v0.1.5
 	github.com/tetratelabs/wazero v1.2.1

@@ -195,6 +195,10 @@ func (p *pipe) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errn
 	return wasi.ESUCCESS
 }
 
+func (p *pipe) FDFileStatGet(ctx context.Context) (wasi.FileStat, wasi.Errno) {
+	return wasi.FileStat{FileType: wasi.CharacterDeviceType}, wasi.ESUCCESS
+}
+
 // input allows data to flow from the host to the guest.
 type input struct{ *pipe }
 
