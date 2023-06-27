@@ -270,8 +270,19 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	}
 
 	if moduleSpec.Stdin != nil {
+		// TODO: THIS GOROUTINE LEAKS!!!
+		//
+		// We need to figure out how to close moduleSpec.Stdin so this goroutine
+		// can abort and be part of the process manager error group.
+		//
+		// Technically, it's not a big deal because stdin is nil for all guest
+		// modules except the main one, and when the main module terminates we
+		// exit as well, but we should address at some point.
 		stdin := guest.Stdin()
-		go func() { _, _ = io.Copy(stdin, moduleSpec.Stdin); stdin.Close() }()
+		go func() {
+			defer stdin.Close()
+			_, _ = io.Copy(stdin, moduleSpec.Stdin)
+		}()
 	}
 	if moduleSpec.Stdout == nil {
 		moduleSpec.Stdout = io.Discard
@@ -279,10 +290,11 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	if moduleSpec.Stderr == nil {
 		moduleSpec.Stderr = io.Discard
 	}
+
 	stdout := guest.Stdout()
 	stderr := guest.Stderr()
-	go func() { _, _ = io.Copy(moduleSpec.Stdout, stdout); stdout.Close() }()
-	go func() { _, _ = io.Copy(moduleSpec.Stderr, stderr); stderr.Close() }()
+	pm.group.Go(func() error { return copyAndClose(moduleSpec.Stdout, stdout) })
+	pm.group.Go(func() error { return copyAndClose(moduleSpec.Stderr, stderr) })
 
 	extensions := imports.DetectExtensions(wasmModule)
 	hostModule := wasi_snapshot_preview1.NewHostModule(extensions...)
@@ -333,27 +345,36 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	pm.mu.Unlock()
 
 	// Run the module in the background, and tidy up once complete.
-	pm.group.Go(func() (err error) {
-		defer serverListener.Close()
-		defer server.Close()
-		defer system.Close(ctx)
-		defer wasiModule.Close(ctx)
-		defer wasmModule.Close(ctx)
+	pm.group.Go(func() error {
+		err := runModule(ctx, pm.runtime, wasmModule)
+		cancel(err)
+
+		pm.mu.Lock()
+		delete(pm.processes, processID)
+		pm.mu.Unlock()
+
 		if logSpec != nil {
-			defer logSegment.Close()
-			defer recordWriter.Flush()
+			recordWriter.Flush()
+			logSegment.Close()
 		}
-		defer func() {
-			pm.mu.Lock()
-			delete(pm.processes, processID)
-			pm.mu.Unlock()
-		}()
-		defer func() { cancel(err) }()
-		err = runModule(ctx, pm.runtime, wasmModule)
-		return
+
+		wasmModule.Close(ctx)
+		wasiModule.Close(ctx)
+
+		system.Close(ctx)
+		server.Close()
+
+		serverListener.Close()
+		return err
 	})
 
 	return processID, nil
+}
+
+func copyAndClose(w io.Writer, r io.ReadCloser) error {
+	defer r.Close()
+	_, err := io.Copy(w, r)
+	return err
 }
 
 // Lookup looks up a process by ID.
