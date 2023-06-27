@@ -2038,9 +2038,9 @@ func decodeSocketAddress(buffer []byte) (_ SocketAddress, _ []byte, err error) {
 }
 
 const (
-	sockoptNil = 0x0
-	sockoptInt = 0x1
-	sockoptStr = 0x2
+	sockoptNil   = 0x0
+	sockoptInt   = 0x1
+	sockoptBytes = 0x2
 )
 
 func encodeSocketOptionValue(buffer []byte, value SocketOptionValue) []byte {
@@ -2050,9 +2050,9 @@ func encodeSocketOptionValue(buffer []byte, value SocketOptionValue) []byte {
 	case IntValue:
 		buffer = encodeInt(buffer, sockoptInt)
 		return encodeInt(buffer, int(v))
-	case StringValue:
-		buffer = encodeInt(buffer, sockoptStr)
-		return encodeString(buffer, string(v))
+	case BytesValue:
+		buffer = encodeInt(buffer, sockoptBytes)
+		return encodeBytes(buffer, v)
 	default:
 		panic("cannot encode unsupported socket option value type")
 	}
@@ -2069,9 +2069,9 @@ func decodeSocketOptionValue(buffer []byte) (_ SocketOptionValue, _ []byte, err 
 	case sockoptInt:
 		v, buffer, err := decodeInt(buffer)
 		return IntValue(v), buffer, err
-	case sockoptStr:
-		v, buffer, err := decodeString(buffer)
-		return StringValue(v), buffer, err
+	case sockoptBytes:
+		v, buffer, err := decodeBytes(buffer)
+		return BytesValue(v), buffer, err
 	default:
 		return nil, buffer, fmt.Errorf("invalid or unsupported socket option value type: %v", typ)
 	}

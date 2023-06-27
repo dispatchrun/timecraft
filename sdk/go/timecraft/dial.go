@@ -13,14 +13,13 @@ import (
 
 //go:wasmimport wasi_snapshot_preview1 sock_setsockopt
 //go:noescape
-func sock_setsockopt(fd int32, level uint32, name uint32, value unsafe.Pointer, valueLen uint32) syscall.Errno
+func setsockopt(fd int32, level uint32, name uint32, value unsafe.Pointer, valueLen uint32) syscall.Errno
 
-// TLSDialContext connects to the given network address and performs a TLS
-// handshake with the host. The resulting connection transparently performs
-// encryption.
-func TLSDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+// DialTLS connects to the given network address and performs a TLS handshake
+// with the host. The resulting connection transparently performs encryption.
+func DialTLS(ctx context.Context, network, addr string) (net.Conn, error) {
 	switch network {
-	case "tcp", "tcp4", "tcp6":
+	case "tcp", "tcp4", "tcp6", "unix":
 	default:
 		return nil, net.UnknownNetworkError(network)
 	}
@@ -42,7 +41,7 @@ func TLSDialContext(ctx context.Context, network, addr string) (net.Conn, error)
 	}
 
 	rawConn.Control(func(fd uintptr) {
-		sock_setsockopt(int32(fd), 0x74696d65, 1, unsafe.Pointer(unsafe.SliceData(host)), uint32(len(hostname)))
+		setsockopt(int32(fd), 0x74696d65, 1, unsafe.Pointer(unsafe.SliceData(host)), uint32(len(hostname)))
 	})
 
 	return conn, nil

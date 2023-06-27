@@ -660,6 +660,10 @@ func (s *socket[T]) allocateBuffersIfNil() {
 		s.wev = &s.wbuf.wev
 	}
 }
+func (s *socket[T]) closeHTLS() {
+	close(s.htls)
+	s.htls = nil
+}
 
 func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wasi.Errno {
 	raddr, errno := s.net.connAddr(addr)
@@ -802,8 +806,7 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
 	}
 	if s.htls != nil {
-		close(s.htls)
-		s.htls = nil
+		s.closeHTLS()
 	}
 	if s.typ == stream && !s.flags.has(sockConn) {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTCONN
@@ -866,8 +869,7 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 		return ^wasi.Size(0), wasi.ENOTSUP
 	}
 	if s.htls != nil {
-		close(s.htls)
-		s.htls = nil
+		s.closeHTLS()
 	}
 	if s.typ == stream && !s.flags.has(sockConn) {
 		return ^wasi.Size(0), wasi.ENOTCONN
@@ -1034,13 +1036,11 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 }
 
 func (s *socket[T]) setTcpLevelOption(option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
-	fmt.Println("setTcpLevelOption", option, wasi.TcpNoDelay)
 	switch option {
 	case wasi.TcpNoDelay:
 		// TCP no-delay is enabled by default in Go.
 		return wasi.ESUCCESS
 	}
-	fmt.Println("NO OPT")
 	return wasi.ENOPROTOOPT
 }
 
@@ -1051,9 +1051,8 @@ func (s *socket[T]) setTimecraftLevelOption(option wasi.SocketOption, value wasi
 			// Can only enable hTLS before the first recv/send/poll.
 			return wasi.EINVAL
 		}
-		s.htls <- string(value.(wasi.StringValue))
-		close(s.htls)
-		s.htls = nil
+		s.htls <- string(value.(wasi.BytesValue))
+		s.closeHTLS()
 		return wasi.ESUCCESS
 	}
 	return wasi.ENOPROTOOPT
