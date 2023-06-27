@@ -691,6 +691,7 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	// the read and write pipes error.
 	errs := make(chan wasi.Errno, 3)
 	s.errs = errs
+	s.raddr = raddr
 
 	blocking := !s.flags.has(sockNonBlock)
 	if s.net.contains(raddr) {
@@ -701,8 +702,6 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 			errno := server.connect(s, peer, raddr, s.laddr)
 			if errno != wasi.ESUCCESS {
 				errs <- errno
-			} else {
-				s.raddr = raddr
 			}
 		}
 		s.wev.trigger()
