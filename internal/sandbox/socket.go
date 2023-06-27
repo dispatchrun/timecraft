@@ -709,7 +709,7 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	} else {
 		ctx, s.cancel = context.WithCancel(ctx)
 		go func() {
-			upstream, errno := s.net.dial(ctx, s.proto, s.raddr)
+			upstream, errno := s.net.dial(ctx, s.proto, raddr)
 			if errno != wasi.ESUCCESS || blocking {
 				errs <- errno
 			}
@@ -721,6 +721,7 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 				return
 			}
 
+			s.raddr = raddr
 			downstream := newHostConn(s)
 			rbufsize := s.rbuf.size()
 			wbufsize := s.wbuf.size()
@@ -951,6 +952,8 @@ func (s *socket[T]) SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel
 	switch level {
 	case wasi.SocketLevel:
 		return s.setSocketLevelOption(option, value)
+	case wasi.TcpLevel:
+		return s.setTcpLevelOption(option, value)
 	default:
 		return wasi.EINVAL
 	}
@@ -981,6 +984,15 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 		return wasi.EINVAL
 	}
 	return wasi.ENOPROTOOPT
+}
+
+func (s *socket[T]) setTcpLevelOption(option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+	switch option {
+	case wasi.TcpNoDelay:
+		// ???
+		return wasi.ESUCCESS
+	}
+	return wasi.EINVAL
 }
 
 func setIntValueLimit(option *int32, value wasi.SocketOptionValue, minval, maxval int32) wasi.Errno {

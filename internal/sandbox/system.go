@@ -483,7 +483,8 @@ func (s *System) SockConnect(ctx context.Context, fd wasi.FD, peer wasi.SocketAd
 	if errno != wasi.ESUCCESS {
 		return nil, errno
 	}
-	switch errno := sock.SockConnect(ctx, peer); errno {
+	errno = sock.SockConnect(ctx, peer)
+	switch errno {
 	case wasi.ESUCCESS, wasi.EINPROGRESS:
 		addr, _ := sock.SockLocalAddress(ctx)
 		return addr, errno
