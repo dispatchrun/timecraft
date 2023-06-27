@@ -528,7 +528,7 @@ func (c *connTunnel) unref() {
 func (c *connTunnel) copy(dst, src net.Conn, buf []byte) {
 	defer c.unref()
 	defer closeWrite(dst) //nolint:errcheck
-	_, err := io.CopyBuffer(dst, io.TeeReader(src, os.Stderr), buf)
+	_, err := io.CopyBuffer(dst, src, buf)
 	if err != nil {
 		c.errs <- wasi.MakeErrno(err)
 	}
