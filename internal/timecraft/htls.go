@@ -11,6 +11,7 @@ import (
 	"github.com/stealthrocket/wasi-go"
 )
 
+// NewHTLSSystem creates a wasi.System that offloads TLS operations to the host.
 func NewHTLSSystem(system wasi.System) wasi.System {
 	return &htlsSystem{System: system}
 }
