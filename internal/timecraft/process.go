@@ -258,9 +258,6 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 				)
 				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
 					conn, err = guest.Dial(ctx, "tcp", sdk.WorkAddress)
-					if err == nil {
-						return false
-					}
 					switch {
 					case errors.Is(err, syscall.ECONNREFUSED):
 						return true
