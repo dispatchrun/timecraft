@@ -350,15 +350,15 @@ func (r *recorderSystem) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec
 	return n, oflags, addr, errno
 }
 
-func (r *recorderSystem) SockGetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (SocketOptionValue, Errno) {
-	value, errno := r.system.SockGetOpt(ctx, fd, level, option)
-	r.write(SockGetOpt, r.codec.EncodeSockGetOpt(r.buffer[:0], fd, level, option, value, errno))
+func (r *recorderSystem) SockGetOpt(ctx context.Context, fd FD, option SocketOption) (SocketOptionValue, Errno) {
+	value, errno := r.system.SockGetOpt(ctx, fd, option)
+	r.write(SockGetOpt, r.codec.EncodeSockGetOpt(r.buffer[:0], fd, option, value, errno))
 	return value, errno
 }
 
-func (r *recorderSystem) SockSetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue) Errno {
-	errno := r.system.SockSetOpt(ctx, fd, level, option, value)
-	r.write(SockSetOpt, r.codec.EncodeSockSetOpt(r.buffer[:0], fd, level, option, value, errno))
+func (r *recorderSystem) SockSetOpt(ctx context.Context, fd FD, option SocketOption, value SocketOptionValue) Errno {
+	errno := r.system.SockSetOpt(ctx, fd, option, value)
+	r.write(SockSetOpt, r.codec.EncodeSockSetOpt(r.buffer[:0], fd, option, value, errno))
 	return errno
 }
 

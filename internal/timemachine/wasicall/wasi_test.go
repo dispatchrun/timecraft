@@ -151,11 +151,11 @@ var syscalls = []Syscall{
 	&SockSendToSyscall{},
 	&SockRecvFromSyscall{FD: 1, IOVecs: []wasi.IOVec{[]byte("foo"), []byte("bar")}, IFlags: ^wasi.RIFlags(0), Addr: &wasi.Inet4Address{Addr: [4]byte{1, 2, 3, 4}, Port: 5}, OFlags: 8, Size: 6, Errno: 7},
 	&SockRecvFromSyscall{},
-	&SockGetOptSyscall{FD: 1, Level: wasi.SocketLevel, Option: wasi.Broadcast, Value: wasi.IntValue(1), Errno: 0},
-	&SockGetOptSyscall{FD: 1, Level: ^wasi.SocketOptionLevel(0), Option: ^wasi.SocketOption(0), Value: nil, Errno: 1},
+	&SockGetOptSyscall{FD: 1, Option: wasi.Broadcast, Value: wasi.IntValue(1), Errno: 0},
+	&SockGetOptSyscall{FD: 1, Option: ^wasi.SocketOption(0), Value: nil, Errno: 1},
 	&SockGetOptSyscall{},
-	&SockSetOptSyscall{FD: 1, Level: wasi.SocketLevel, Option: wasi.Broadcast, Value: wasi.IntValue(1), Errno: 0},
-	&SockSetOptSyscall{FD: 1, Level: ^wasi.SocketOptionLevel(0), Option: ^wasi.SocketOption(0), Value: nil, Errno: 1},
+	&SockSetOptSyscall{FD: 1, Option: wasi.Broadcast, Value: wasi.IntValue(1), Errno: 0},
+	&SockSetOptSyscall{FD: 1, Option: ^wasi.SocketOption(0), Value: nil, Errno: 1},
 	&SockSetOptSyscall{},
 	&SockLocalAddressSyscall{FD: 1, Addr: &wasi.Inet4Address{Addr: [4]byte{2, 3, 4, 5}, Port: 6}, Errno: 7},
 	&SockLocalAddressSyscall{},
@@ -432,11 +432,11 @@ func call(ctx context.Context, system wasi.System, syscall Syscall) Syscall {
 		return &r
 	case *SockGetOptSyscall:
 		r := *cast[*SockGetOptSyscall](syscall)
-		r.Value, r.Errno = system.SockGetOpt(ctx, s.FD, s.Level, s.Option)
+		r.Value, r.Errno = system.SockGetOpt(ctx, s.FD, s.Option)
 		return &r
 	case *SockSetOptSyscall:
 		r := *cast[*SockSetOptSyscall](syscall)
-		r.Errno = system.SockSetOpt(ctx, s.FD, s.Level, s.Option, s.Value)
+		r.Errno = system.SockSetOpt(ctx, s.FD, s.Option, s.Value)
 		return &r
 	case *SockLocalAddressSyscall:
 		r := *cast[*SockLocalAddressSyscall](syscall)
@@ -737,12 +737,12 @@ func (p *resultsSystem) SockRecvFrom(ctx context.Context, fd wasi.FD, iovecs []w
 	return s.Size, s.OFlags, s.Addr, s.Errno
 }
 
-func (p *resultsSystem) SockGetOpt(ctx context.Context, fd wasi.FD, level wasi.SocketOptionLevel, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
+func (p *resultsSystem) SockGetOpt(ctx context.Context, fd wasi.FD, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
 	s := cast[*SockGetOptSyscall](p.Syscall)
 	return s.Value, s.Errno
 }
 
-func (p *resultsSystem) SockSetOpt(ctx context.Context, fd wasi.FD, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+func (p *resultsSystem) SockSetOpt(ctx context.Context, fd wasi.FD, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
 	s := cast[*SockSetOptSyscall](p.Syscall)
 	return s.Errno
 }

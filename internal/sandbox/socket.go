@@ -18,6 +18,12 @@ func sumIOVecLen(iovs []wasi.IOVec) (n int) {
 	return n
 }
 
+const timecraftLevel wasi.SocketOptionLevel = 0x74696d65
+
+const (
+	htlsOption wasi.SocketOption = (wasi.SocketOption(timecraftLevel) << 32) | (iota + 1)
+)
+
 type sockflags uint32
 
 const (
@@ -943,11 +949,11 @@ func (s *socket[T]) SockRemoteAddress(ctx context.Context) (wasi.SocketAddress, 
 	return s.raddr.sockAddr(), wasi.ESUCCESS
 }
 
-func (s *socket[T]) SockGetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
+func (s *socket[T]) SockGetOpt(ctx context.Context, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	switch level {
+	switch option.Level() {
 	case wasi.SocketLevel:
 		return s.getSocketLevelOption(option)
 	default:
@@ -984,17 +990,17 @@ func (s *socket[T]) getSocketLevelOption(option wasi.SocketOption) (wasi.SocketO
 	return nil, wasi.ENOPROTOOPT
 }
 
-func (s *socket[T]) SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+func (s *socket[T]) SockSetOpt(ctx context.Context, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	switch level {
+	switch option.Level() {
 	case wasi.SocketLevel:
 		return s.setSocketLevelOption(option, value)
 	case wasi.TcpLevel:
 		return s.setTcpLevelOption(option, value)
-	case wasi.ReservedLevel:
-		return s.setReservedLevelOption(option, value)
+	case timecraftLevel:
+		return s.setTimecraftLevelOption(option, value)
 	default:
 		return wasi.EINVAL
 	}
@@ -1028,17 +1034,19 @@ func (s *socket[T]) setSocketLevelOption(option wasi.SocketOption, value wasi.So
 }
 
 func (s *socket[T]) setTcpLevelOption(option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+	fmt.Println("setTcpLevelOption", option, wasi.TcpNoDelay)
 	switch option {
 	case wasi.TcpNoDelay:
 		// TCP no-delay is enabled by default in Go.
 		return wasi.ESUCCESS
 	}
+	fmt.Println("NO OPT")
 	return wasi.ENOPROTOOPT
 }
 
-func (s *socket[T]) setReservedLevelOption(option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+func (s *socket[T]) setTimecraftLevelOption(option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
 	switch option {
-	case 0x9000 + 1:
+	case htlsOption:
 		if s.htls == nil {
 			// Can only enable hTLS before the first recv/send/poll.
 			return wasi.EINVAL

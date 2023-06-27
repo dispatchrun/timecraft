@@ -19,8 +19,8 @@ type File interface {
 	SockSend(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno)
 	SockSendTo(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno)
 	SockRecvFrom(ctx context.Context, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno)
-	SockGetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno)
-	SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno
+	SockGetOpt(ctx context.Context, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno)
+	SockSetOpt(ctx context.Context, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno
 	SockLocalAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno)
 	SockRemoteAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno)
 	SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.Errno
@@ -160,11 +160,11 @@ func (defaultFile) SockRecvFrom(ctx context.Context, iovecs []wasi.IOVec, flags 
 	return 0, 0, nil, wasi.ENOTSOCK
 }
 
-func (defaultFile) SockGetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
+func (defaultFile) SockGetOpt(ctx context.Context, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
 	return nil, wasi.ENOTSOCK
 }
 
-func (defaultFile) SockSetOpt(ctx context.Context, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+func (defaultFile) SockSetOpt(ctx context.Context, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
 	return wasi.ENOTSOCK
 }
 

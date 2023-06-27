@@ -517,20 +517,20 @@ func (s *System) SockRecvFrom(ctx context.Context, fd wasi.FD, iovecs []wasi.IOV
 	return sock.SockRecvFrom(ctx, iovecs, flags)
 }
 
-func (s *System) SockGetOpt(ctx context.Context, fd wasi.FD, level wasi.SocketOptionLevel, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
+func (s *System) SockGetOpt(ctx context.Context, fd wasi.FD, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
 	sock, _, errno := s.LookupSocketFD(fd, 0)
 	if errno != wasi.ESUCCESS {
 		return nil, errno
 	}
-	return sock.SockGetOpt(ctx, level, option)
+	return sock.SockGetOpt(ctx, option)
 }
 
-func (s *System) SockSetOpt(ctx context.Context, fd wasi.FD, level wasi.SocketOptionLevel, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+func (s *System) SockSetOpt(ctx context.Context, fd wasi.FD, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
 	sock, _, errno := s.LookupSocketFD(fd, 0)
 	if errno != wasi.ESUCCESS {
 		return errno
 	}
-	return sock.SockSetOpt(ctx, level, option, value)
+	return sock.SockSetOpt(ctx, option, value)
 }
 
 func (s *System) SockLocalAddress(ctx context.Context, fd wasi.FD) (wasi.SocketAddress, wasi.Errno) {
