@@ -1,9 +1,11 @@
 package timecraft
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -17,8 +19,10 @@ func NewClient() (*Client, error) {
 	grpcClient := serverv1connect.NewTimecraftServiceClient(
 		httpClient,
 		"http://timecraft/",
-		connect.WithAcceptCompression("gzip", nil, nil), // disable gzip for now
-		connect.WithProtoJSON(),                         // use JSON for now
+		// TODO: disable HTTP2, gRPC and gzip compression until we have
+		//  tracing support for these things
+		connect.WithAcceptCompression("gzip", nil, nil),
+		connect.WithProtoJSON(),
 		// connect.WithCodec(grpc.Codec{}),
 	)
 
@@ -28,10 +32,31 @@ func NewClient() (*Client, error) {
 }
 
 var httpClient = &http.Client{
-	Transport: &http.Transport{
-		DialContext: dialContext,
-		// TODO: timeouts/limits
+	Transport: &bufferingTransport{
+		&http.Transport{
+			DialContext: dialContext,
+			// TODO: timeouts/limits
+		},
 	},
+}
+
+// TODO: disable Transfer-Encoding:Chunked until we have tracing support
+type bufferingTransport struct {
+	transport http.RoundTripper
+}
+
+func (b bufferingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	request.Body.Close()
+
+	request.ContentLength = int64(len(body))
+	request.TransferEncoding = []string{"identity"}
+	request.Body = io.NopCloser(bytes.NewReader(body))
+
+	return b.transport.RoundTrip(request)
 }
 
 // Client is a timecraft client.
