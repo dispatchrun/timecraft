@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sync"
@@ -18,11 +19,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
+	"github.com/stealthrocket/timecraft/internal/ipam"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
-	"github.com/stealthrocket/timecraft/sdk"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
@@ -46,6 +47,9 @@ type ProcessManager struct {
 	group  *errgroup.Group
 	ctx    context.Context
 	cancel context.CancelCauseFunc
+
+	ipv4 ipam.IPv4Pool
+	ipv6 ipam.IPv6Pool
 }
 
 // ProcessID is a process identifier.
@@ -64,6 +68,11 @@ type ProcessInfo struct {
 	cancel context.CancelCauseFunc
 }
 
+const (
+	ipv4NetMask = 12
+	ipv6NetMask = 104
+)
+
 // NewProcessManager creates an ProcessManager.
 func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime, serverFactory *ServerFactory) *ProcessManager {
 	r := &ProcessManager{
@@ -74,6 +83,17 @@ func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runt
 	}
 	r.group, ctx = errgroup.WithContext(ctx)
 	r.ctx, r.cancel = context.WithCancelCause(ctx)
+
+	ipv4 := ipam.IPv4{172, 16, 0, 0}
+	ipv6 := ipam.IPv6{}
+
+	rand.Read(ipv6[:])
+	ipv6[13] = 0
+	ipv6[14] = 0
+	ipv6[15] = 0
+
+	r.ipv4.Reset(ipv4, ipv4NetMask)
+	r.ipv6.Reset(ipv6, ipv6NetMask)
 	return r
 }
 
@@ -100,6 +120,15 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		return ProcessID{}, err
 	}
 
+	ipv4, ok := pm.ipv4.Get()
+	if !ok {
+		return ProcessID{}, fmt.Errorf("exhausted IPv3 address pool: %s", &pm.ipv4)
+	}
+	ipv6, ok := pm.ipv6.Get()
+	if !ok {
+		return ProcessID{}, fmt.Errorf("exhausted IPv6 address pool: %s", &pm.ipv6)
+	}
+
 	dialer := &net.Dialer{}
 	listen := &net.ListenConfig{}
 
@@ -112,6 +141,8 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		sandbox.Listen(listen.Listen),
 		sandbox.ListenPacket(listen.ListenPacket),
 		sandbox.Resolver(net.DefaultResolver),
+		sandbox.IPv4Network(netip.PrefixFrom(netip.AddrFrom4(ipv4), ipv4NetMask)),
+		sandbox.IPv6Network(netip.PrefixFrom(netip.AddrFrom16(ipv6), ipv6NetMask)),
 	}
 
 	for _, dir := range moduleSpec.Dirs {
@@ -214,7 +245,8 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := pm.serverFactory.NewServer(pm.ctx, processID, moduleSpec, logSpec)
-	serverListener, err := guest.Listen(pm.ctx, "tcp", sdk.TimecraftAddress)
+	serverAddress := netip.AddrPortFrom(netip.AddrFrom4(ipv4), 3001)
+	serverListener, err := guest.Listen(pm.ctx, "tcp", serverAddress.String())
 	if err != nil {
 		return ProcessID{}, err
 	}
@@ -269,7 +301,8 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 					maxDelay    = 5 * time.Second
 				)
 				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
-					conn, err = guest.Dial(ctx, "tcp", sdk.WorkAddress)
+					address := netip.AddrPortFrom(netip.AddrFrom4(ipv4), 3000)
+					conn, err = guest.Dial(ctx, "tcp", address.String())
 					switch {
 					case errors.Is(err, syscall.ECONNREFUSED):
 						return true

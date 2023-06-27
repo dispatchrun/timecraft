@@ -782,7 +782,7 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 		// the next packet.
 		switch errno {
 		case wasi.ESUCCESS:
-			if size == 0 || !s.flags.has(sockConn) || addr == s.raddr {
+			if size == 0 || s.typ == stream || !s.flags.has(sockConn) || addr == s.raddr {
 				return size, roflags, addr, errno
 			}
 		case wasi.EAGAIN:
@@ -874,7 +874,7 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	}
 
 	for {
-		n, errno := s.sendmsg(sbuf, iovs, s.laddr)
+		n, errno := s.sendmsg(sbuf, iovs, s.bound)
 		// Messages that are too large to fit in the socket buffer are dropped
 		// since this may only happen on datagram sockets which are lossy links.
 		switch errno {

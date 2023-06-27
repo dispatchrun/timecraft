@@ -229,7 +229,7 @@ func connect[N network[T], T sockaddr](s *System, n N, addr netaddr[T]) (net.Con
 	}
 	var zero T
 	conn := sock.newSocket()
-	errno := sock.connect(nil, conn, zero, addr.sockaddr)
+	errno := sock.connect(nil, conn, zero, sock.bound)
 	if errno != wasi.ESUCCESS {
 		return nil, makeError(errno)
 	}
@@ -578,6 +578,10 @@ func (n *ipnet[T]) makeAddr(socketAddress wasi.SocketAddress, bind bool) (sockad
 }
 
 func (n *ipnet[T]) socket(addr netaddr[T]) *socket[T] {
+	addrPort := addr.sockaddr.addrPort()
+	if addrPort.Addr().IsUnspecified() {
+		addr.sockaddr = addr.sockaddr.withAddr(n.ipnet.Addr())
+	}
 	n.mutex.Lock()
 	sock := n.sockets[addr]
 	n.mutex.Unlock()

@@ -366,7 +366,7 @@ func (c *packetConn[T]) writeTo(b []byte, addr T) (int, error) {
 			return 0, c.newError("write", os.ErrDeadlineExceeded)
 		}
 
-		n, errno := sbuf.sendmsg([]wasi.IOVec{b}, c.socket.laddr)
+		n, errno := sbuf.sendmsg([]wasi.IOVec{b}, c.socket.bound)
 		if errno == wasi.ESUCCESS {
 			return int(n), nil
 		}
