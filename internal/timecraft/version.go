@@ -12,6 +12,11 @@ func Version() string {
 		default:
 			version = info.Main.Version
 		}
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				version += " " + setting.Value
+			}
+		}
 	}
 	return version
 }
