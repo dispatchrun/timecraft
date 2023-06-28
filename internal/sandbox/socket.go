@@ -327,7 +327,7 @@ type socket[T sockaddr] struct {
 	// hostname. If a recv, send, or poll operation is performed on the
 	// socket, connect moves on and htls cannot be established beyond that
 	// point.
-	htls chan string
+	htls chan<- string
 }
 
 const (
@@ -660,8 +660,10 @@ func (s *socket[T]) allocateBuffersIfNil() {
 	}
 }
 func (s *socket[T]) closeHTLS() {
-	close(s.htls)
-	s.htls = nil
+	if s.htls != nil {
+		close(s.htls)
+		s.htls = nil
+	}
 }
 
 func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wasi.Errno {
@@ -723,7 +725,8 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		close(errs)
 	} else {
 		ctx, s.cancel = context.WithCancel(ctx)
-		s.htls = make(chan string)
+		htls := make(chan string)
+		s.htls = htls
 		go func() {
 			upstream, errno := s.net.dial(ctx, s.proto, s.raddr)
 			if errno != wasi.ESUCCESS || blocking {
@@ -736,7 +739,7 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 			}
 
 			select {
-			case hostname, ok := <-s.htls:
+			case hostname, ok := <-htls:
 				if !ok {
 					// Operation performed before setsockopt
 					// was called to setup htls. Move on.
@@ -806,9 +809,6 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 	if s.flags.has(sockListen) {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTSUP
 	}
-	if s.htls != nil {
-		s.closeHTLS()
-	}
 	if s.typ == stream && !s.flags.has(sockConn) {
 		return ^wasi.Size(0), 0, addr, wasi.ENOTCONN
 	}
@@ -818,6 +818,7 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 	if errno := s.getErrno(); errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), 0, addr, errno
 	}
+	s.closeHTLS()
 	s.allocateBuffersIfNil()
 
 	for {
@@ -869,9 +870,6 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	if s.flags.has(sockListen) {
 		return ^wasi.Size(0), wasi.ENOTSUP
 	}
-	if s.htls != nil {
-		s.closeHTLS()
-	}
 	if s.typ == stream && !s.flags.has(sockConn) {
 		return ^wasi.Size(0), wasi.ENOTCONN
 	}
@@ -884,6 +882,7 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	if errno := s.bindToAny(ctx); errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), errno
 	}
+	s.closeHTLS()
 	s.allocateBuffersIfNil()
 
 	var sbuf *sockbuf[T]
