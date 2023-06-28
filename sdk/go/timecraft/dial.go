@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/stealthrocket/net/wasip1"
+	"github.com/stealthrocket/timecraft/internal/htls"
 )
 
 //go:wasmimport wasi_snapshot_preview1 sock_setsockopt
@@ -41,7 +42,7 @@ func DialTLS(ctx context.Context, network, addr string) (net.Conn, error) {
 	}
 
 	rawConn.Control(func(fd uintptr) {
-		setsockopt(int32(fd), 0x74696d65, 1, unsafe.Pointer(unsafe.SliceData(host)), uint32(len(hostname)))
+		setsockopt(int32(fd), htls.Level, htls.Option, unsafe.Pointer(unsafe.SliceData(host)), uint32(len(hostname)))
 	})
 
 	return conn, nil

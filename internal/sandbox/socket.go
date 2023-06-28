@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stealthrocket/timecraft/internal/htls"
 	"github.com/stealthrocket/wasi-go"
 )
 
@@ -18,10 +19,8 @@ func sumIOVecLen(iovs []wasi.IOVec) (n int) {
 	return n
 }
 
-const timecraftLevel wasi.SocketOptionLevel = 0x74696d65
-
 const (
-	htlsOption wasi.SocketOption = (wasi.SocketOption(timecraftLevel) << 32) | (iota + 1)
+	htlsOption wasi.SocketOption = (wasi.SocketOption(htls.Level) << 32) | (htls.Option)
 )
 
 type sockflags uint32
@@ -1001,8 +1000,8 @@ func (s *socket[T]) SockSetOpt(ctx context.Context, option wasi.SocketOption, va
 		return s.setSocketLevelOption(option, value)
 	case wasi.TcpLevel:
 		return s.setTcpLevelOption(option, value)
-	case timecraftLevel:
-		return s.setTimecraftLevelOption(option, value)
+	case htls.Level:
+		return s.setHtlsLevelOption(option, value)
 	default:
 		return wasi.EINVAL
 	}
@@ -1044,7 +1043,7 @@ func (s *socket[T]) setTcpLevelOption(option wasi.SocketOption, value wasi.Socke
 	return wasi.ENOPROTOOPT
 }
 
-func (s *socket[T]) setTimecraftLevelOption(option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
+func (s *socket[T]) setHtlsLevelOption(option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
 	switch option {
 	case htlsOption:
 		if s.htls == nil {

@@ -10,7 +10,7 @@ import (
 
 func main() {
 	client := &http.Client{Transport: &http.Transport{
-		DialTLSContext: timecraft.TLSDialContext,
+		DialTLSContext: timecraft.DialTLS,
 	}}
 
 	for i := 0; i < 10; i++ {
