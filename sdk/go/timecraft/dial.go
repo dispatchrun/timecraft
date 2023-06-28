@@ -41,9 +41,18 @@ func DialTLS(ctx context.Context, network, addr string) (net.Conn, error) {
 		return nil, err
 	}
 
-	rawConn.Control(func(fd uintptr) {
-		setsockopt(int32(fd), htls.Level, htls.Option, unsafe.Pointer(unsafe.SliceData(host)), uint32(len(hostname)))
+	var errno syscall.Errno
+	err = rawConn.Control(func(fd uintptr) {
+		errno = setsockopt(int32(fd), htls.Level, htls.Option, unsafe.Pointer(unsafe.SliceData(host)), uint32(len(hostname)))
 	})
+	if errno != 0 {
+		err = errno
+	}
+
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
 
 	return conn, nil
 }
