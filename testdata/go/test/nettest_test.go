@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net"
 	"testing"
 
@@ -9,68 +10,151 @@ import (
 )
 
 func TestConn(t *testing.T) {
-	// TODO: for now only the TCP tests pass due to limitations in Go 1.21, see:
-	// https://github.com/golang/go/blob/39effbc105f5c54117a6011af3c48e3c8f14eca9/src/net/file_wasip1.go#L33-L55
-	//
-	// Once https://go-review.googlesource.com/c/go/+/500578 is merged, we will
-	// be able to test udp and unix networks as well.
 	tests := []struct {
-		scenario string
-		function func(*testing.T)
+		network string
+		address string
 	}{
 		{
-			scenario: "tcp",
-			function: func(t *testing.T) { testConn(t, "tcp", ":0") },
+			network: "tcp",
+			address: ":0",
 		},
 		{
-			scenario: "tcp4",
-			function: func(t *testing.T) { testConn(t, "tcp4", ":0") },
+			network: "tcp4",
+			address: ":0",
 		},
 		{
-			scenario: "tcp6",
-			function: func(t *testing.T) { testConn(t, "tcp6", ":0") },
+			network: "tcp6",
+			address: "[::]:0",
 		},
 	}
 
 	for _, test := range tests {
-		t.Run(test.scenario, test.function)
+		t.Run(test.network, func(t *testing.T) {
+			nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
+				network := test.network
+				address := test.address
+
+				l, err := wasip1.Listen(network, address)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				defer l.Close()
+
+				conns := make(chan net.Conn, 1)
+				errch := make(chan error, 1)
+				go func() {
+					c, err := l.Accept()
+					if err != nil {
+						errch <- err
+					} else {
+						conns <- c
+					}
+				}()
+
+				dialer := &wasip1.Dialer{}
+				dialer.Deadline, _ = t.Deadline()
+
+				addr := l.Addr()
+				c1, err = dialer.Dial(addr.Network(), addr.String())
+				if err != nil {
+					return nil, nil, nil, err
+				}
+
+				select {
+				case c2 := <-conns:
+					return c1, c2, func() { c1.Close(); c2.Close() }, nil
+				case err := <-errch:
+					c1.Close()
+					return nil, nil, nil, err
+				}
+			})
+		})
 	}
 }
 
-func testConn(t *testing.T, network, address string) {
-	nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
-		l, err := wasip1.Listen(network, address)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		defer l.Close()
+func TestPacketConn(t *testing.T) {
+	// Note: this is not as thorough of a test as TestConn because UDP is lossy
+	// and building a net.Conn on top of a net.PacketConn causes tests to fail
+	// due to packet losses.
+	tests := []struct {
+		network string
+		address string
+	}{
+		{
+			network: "udp",
+			address: ":0",
+		},
+		{
+			network: "udp4",
+			address: ":0",
+		},
+		{
+			network: "udp6",
+			address: "[::]:0",
+		},
+	}
 
-		conns := make(chan net.Conn, 1)
-		errch := make(chan error, 1)
-		go func() {
-			c, err := l.Accept()
+	for _, test := range tests {
+		t.Run(test.network, func(t *testing.T) {
+			network := test.network
+			address := test.address
+
+			c1, err := wasip1.ListenPacket(network, address)
 			if err != nil {
-				errch <- err
-			} else {
-				conns <- c
+				t.Fatal(err)
 			}
-		}()
+			defer c1.Close()
+			addr := c1.LocalAddr()
 
-		dialer := &wasip1.Dialer{}
-		dialer.Deadline, _ = t.Deadline()
+			c, err := wasip1.Dial(addr.Network(), addr.String())
+			if err != nil {
+				fmt.Println(err)
+				t.Fatal(err)
+			}
+			c2 := c.(net.PacketConn)
+			defer c2.Close()
 
-		address := l.Addr()
-		c1, err = dialer.Dial(address.Network(), address.String())
-		if err != nil {
-			return nil, nil, nil, err
+			rb2 := make([]byte, 128)
+			wb := []byte("PACKETCONN TEST")
+
+			if n, err := c1.WriteTo(wb, c2.LocalAddr()); err != nil {
+				t.Fatal(err)
+			} else if n != len(wb) {
+				t.Fatalf("write with wrong number of bytes: want=%d got=%d", len(wb), n)
+			}
+
+			if n, addr, err := c2.ReadFrom(rb2); err != nil {
+				t.Fatal(err)
+			} else if n != len(wb) {
+				t.Fatalf("read with wrong number of bytes: want=%d got=%d", len(wb), n)
+			} else if !addrPortEqual(addr, c1.LocalAddr()) {
+				t.Fatalf("read from wrong address: want=%s got=%s", c1.LocalAddr(), addr)
+			}
+
+			if n, err := c.Write(wb); err != nil {
+				t.Fatal(err)
+			} else if n != len(wb) {
+				t.Fatalf("write with wrong number of bytes: want=%d got=%d", len(wb), n)
+			}
+
+			rb1 := make([]byte, 128)
+			if n, addr, err := c1.ReadFrom(rb1); err != nil {
+				t.Fatal(err)
+			} else if n != len(wb) {
+				t.Fatalf("read with wrong number of bytes: want=%d got=%d", len(wb), n)
+			} else if !addrPortEqual(addr, c2.LocalAddr()) {
+				t.Fatalf("read from wrong address: want=%s got=%s", c2.LocalAddr(), addr)
+			}
+		})
+	}
+}
+
+func addrPortEqual(addr1, addr2 net.Addr) bool {
+	switch a1 := addr1.(type) {
+	case *net.UDPAddr:
+		if a2, ok := addr2.(*net.UDPAddr); ok {
+			return a1.Port == a2.Port
 		}
-
-		select {
-		case c2 := <-conns:
-			return c1, c2, func() { c1.Close(); c2.Close() }, nil
-		case err := <-errch:
-			c1.Close()
-			return nil, nil, nil, err
-		}
-	})
+	}
+	return false
 }

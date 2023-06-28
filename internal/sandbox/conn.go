@@ -591,6 +591,7 @@ func (s *socket[T]) startPacketTunnel(ctx context.Context, conn net.PacketConn) 
 
 	errs := make(chan wasi.Errno, 2)
 	s.errs = errs
+	s.allocateBuffersIfNil()
 
 	rbufsize := s.rbuf.size()
 	wbufsize := s.wbuf.size()
@@ -622,6 +623,7 @@ func (p *packetConnTunnel[T]) readFromPacketConn(buf []byte) {
 	for {
 		size, addr, err := p.conn.ReadFrom(buf)
 		if err != nil {
+			p.errs <- wasi.MakeErrno(err)
 			return
 		}
 		// TODO:
@@ -650,6 +652,11 @@ func (p *packetConnTunnel[T]) writeToPacketConn(buf []byte) {
 			if size == 0 {
 				return
 			}
+			_, err := p.conn.WriteTo(buf[:size], addr.netAddr(p.sock.proto))
+			if err != nil {
+				p.errs <- wasi.MakeErrno(err)
+				return
+			}
 		case wasi.EAGAIN:
 			var ready bool
 			p.sock.wev.synchronize(func() { ready = p.sock.wev.poll(sig) })
@@ -659,10 +666,7 @@ func (p *packetConnTunnel[T]) writeToPacketConn(buf []byte) {
 		default:
 			// TODO:
 			// - log details about the reason why we abort
-			return
-		}
-		_, err := p.conn.WriteTo(buf[:size], addr.netAddr(p.sock.proto))
-		if err != nil {
+			p.errs <- errno
 			return
 		}
 	}
