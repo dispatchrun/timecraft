@@ -740,18 +740,18 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 				if !ok {
 					// Operation performed before setsockopt
 					// was called to setup htls. Move on.
+					break
+				}
+				// upgrade tls
+				tlsconn := tls.Client(upstream, &tls.Config{
+					ServerName: hostname,
+				})
+				err := tlsconn.HandshakeContext(ctx)
+				if err != nil {
+					errno = wasi.MakeErrno(err)
+					errs <- errno
 				} else {
-					// upgrade tls
-					tlsconn := tls.Client(upstream, &tls.Config{
-						ServerName: hostname,
-					})
-					err := tlsconn.HandshakeContext(ctx)
-					if err != nil {
-						errno = wasi.MakeErrno(err)
-						errs <- errno
-					} else {
-						upstream = tlsconn
-					}
+					upstream = tlsconn
 				}
 			case <-ctx.Done():
 				// Socket was closed
