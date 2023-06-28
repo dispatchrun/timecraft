@@ -118,14 +118,13 @@ class Client:
     Client to interface with the Timecraft server.
     """
 
-    _root = "http://0.0.0.0:3001/timecraft.server.v0.TimecraftService/"
+    _root = "http://0.0.0.0:3001/timecraft.server.v1.TimecraftService/"
 
     def __init__(self):
         self.session = requests.Session()
 
     def _rpc(self, endpoint, payload):
         r = self.session.post(self._root + endpoint, json=payload)
-        out = r.json()
 
         try:
             r.raise_for_status()
@@ -133,11 +132,12 @@ class Client:
             print("Request payload:")
             pprint(payload)
             print("Response object:")
-            pprint(out)
+            pprint(r.text)
             raise
 
-        return out
+        return r.json()
 
+    @property
     def logger(self):
         global ClientLogger
 

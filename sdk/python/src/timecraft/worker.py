@@ -7,8 +7,7 @@ def start_worker(handler):
     runtime. The provided handler should be a subclass of
     http.server.BaseHTTPRequestHandler."""
     client = Client()
-    logger = client.logger()
-    logger.info("starting worker")
+    client.logger.info("starting worker")
 
     server = HTTPServer(("0.0.0.0", 3000), handler)
     server.serve_forever()
