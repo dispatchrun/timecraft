@@ -725,7 +725,7 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		ctx, s.cancel = context.WithCancel(ctx)
 		s.htls = make(chan string)
 		go func() {
-			upstream, errno := s.net.dial(ctx, s.proto, raddr)
+			upstream, errno := s.net.dial(ctx, s.proto, s.raddr)
 			if errno != wasi.ESUCCESS || blocking {
 				errs <- errno
 			}
@@ -764,7 +764,6 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 				return
 			}
 
-			s.raddr = raddr
 			downstream := newHostConn(s)
 			rbufsize := s.rbuf.size()
 			wbufsize := s.wbuf.size()
