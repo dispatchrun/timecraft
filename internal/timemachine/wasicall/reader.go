@@ -385,17 +385,17 @@ func (r *Decoder) Decode(record timemachine.Record) (time.Time, Syscall, error) 
 		r.iovecs = iovecs
 		syscall = &SockRecvFromSyscall{fd, iovecs, iflags, size, oflags, addr, errno}
 	case SockGetOpt:
-		fd, level, option, value, errno, err := r.codec.DecodeSockGetOpt(record.FunctionCall)
+		fd, option, value, errno, err := r.codec.DecodeSockGetOpt(record.FunctionCall)
 		if err != nil {
 			return time.Time{}, nil, &DecodeError{record, err}
 		}
-		syscall = &SockGetOptSyscall{fd, level, option, value, errno}
+		syscall = &SockGetOptSyscall{fd, option, value, errno}
 	case SockSetOpt:
-		fd, level, option, value, errno, err := r.codec.DecodeSockSetOpt(record.FunctionCall)
+		fd, option, value, errno, err := r.codec.DecodeSockSetOpt(record.FunctionCall)
 		if err != nil {
 			return time.Time{}, nil, &DecodeError{record, err}
 		}
-		syscall = &SockSetOptSyscall{fd, level, option, value, errno}
+		syscall = &SockSetOptSyscall{fd, option, value, errno}
 	case SockLocalAddress:
 		fd, addr, errno, err := r.codec.DecodeSockLocalAddress(record.FunctionCall)
 		if err != nil {

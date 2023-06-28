@@ -710,28 +710,26 @@ func (s *SockRecvFromSyscall) private()       {}
 
 type SockGetOptSyscall struct {
 	FD     FD
-	Level  SocketOptionLevel
 	Option SocketOption
 	Value  SocketOptionValue
 	Errno  Errno
 }
 
 func (s *SockGetOptSyscall) ID() SyscallID  { return SockGetOpt }
-func (s *SockGetOptSyscall) Params() []any  { return []any{s.FD, s.Level, s.Option} }
+func (s *SockGetOptSyscall) Params() []any  { return []any{s.FD, s.Option} }
 func (s *SockGetOptSyscall) Results() []any { return []any{s.Value, s.Errno} }
 func (s *SockGetOptSyscall) Error() Errno   { return s.Errno }
 func (s *SockGetOptSyscall) private()       {}
 
 type SockSetOptSyscall struct {
 	FD     FD
-	Level  SocketOptionLevel
 	Option SocketOption
 	Value  SocketOptionValue
 	Errno  Errno
 }
 
 func (s *SockSetOptSyscall) ID() SyscallID  { return SockSetOpt }
-func (s *SockSetOptSyscall) Params() []any  { return []any{s.FD, s.Level, s.Option, s.Value} }
+func (s *SockSetOptSyscall) Params() []any  { return []any{s.FD, s.Option, s.Value} }
 func (s *SockSetOptSyscall) Results() []any { return []any{s.Errno} }
 func (s *SockSetOptSyscall) Error() Errno   { return s.Errno }
 func (s *SockSetOptSyscall) private()       {}

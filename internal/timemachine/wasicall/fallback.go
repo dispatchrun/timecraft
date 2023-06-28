@@ -435,18 +435,18 @@ func (f *fallbackSystem) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec
 	return size, oflags, addr, errno
 }
 
-func (f *fallbackSystem) SockGetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (value SocketOptionValue, errno Errno) {
-	value, errno = f.primary.SockGetOpt(ctx, fd, level, option)
+func (f *fallbackSystem) SockGetOpt(ctx context.Context, fd FD, option SocketOption) (value SocketOptionValue, errno Errno) {
+	value, errno = f.primary.SockGetOpt(ctx, fd, option)
 	if errno == ENOSYS {
-		return f.secondary.SockGetOpt(ctx, fd, level, option)
+		return f.secondary.SockGetOpt(ctx, fd, option)
 	}
 	return value, errno
 }
 
-func (f *fallbackSystem) SockSetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue) (errno Errno) {
-	errno = f.primary.SockSetOpt(ctx, fd, level, option, value)
+func (f *fallbackSystem) SockSetOpt(ctx context.Context, fd FD, option SocketOption, value SocketOptionValue) (errno Errno) {
+	errno = f.primary.SockSetOpt(ctx, fd, option, value)
 	if errno == ENOSYS {
-		return f.secondary.SockSetOpt(ctx, fd, level, option, value)
+		return f.secondary.SockSetOpt(ctx, fd, option, value)
 	}
 	return errno
 }

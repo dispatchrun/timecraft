@@ -221,11 +221,11 @@ func (e errnoSystem) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec, fl
 	return 0, 0, nil, Errno(e)
 }
 
-func (e errnoSystem) SockGetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (SocketOptionValue, Errno) {
+func (e errnoSystem) SockGetOpt(ctx context.Context, fd FD, option SocketOption) (SocketOptionValue, Errno) {
 	return nil, Errno(e)
 }
 
-func (e errnoSystem) SockSetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue) Errno {
+func (e errnoSystem) SockSetOpt(ctx context.Context, fd FD, option SocketOption, value SocketOptionValue) Errno {
 	return Errno(e)
 }
 

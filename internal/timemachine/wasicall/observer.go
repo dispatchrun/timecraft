@@ -605,24 +605,24 @@ func (o *observerSystem) SockRecvFrom(ctx context.Context, fd FD, iovecs []IOVec
 	return
 }
 
-func (o *observerSystem) SockGetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption) (value SocketOptionValue, errno Errno) {
+func (o *observerSystem) SockGetOpt(ctx context.Context, fd FD, option SocketOption) (value SocketOptionValue, errno Errno) {
 	if o.before != nil {
-		o.before(ctx, &SockGetOptSyscall{fd, level, option, value, errno})
+		o.before(ctx, &SockGetOptSyscall{fd, option, value, errno})
 	}
-	value, errno = o.system.SockGetOpt(ctx, fd, level, option)
+	value, errno = o.system.SockGetOpt(ctx, fd, option)
 	if o.after != nil {
-		o.after(ctx, &SockGetOptSyscall{fd, level, option, value, errno})
+		o.after(ctx, &SockGetOptSyscall{fd, option, value, errno})
 	}
 	return
 }
 
-func (o *observerSystem) SockSetOpt(ctx context.Context, fd FD, level SocketOptionLevel, option SocketOption, value SocketOptionValue) (errno Errno) {
+func (o *observerSystem) SockSetOpt(ctx context.Context, fd FD, option SocketOption, value SocketOptionValue) (errno Errno) {
 	if o.before != nil {
-		o.before(ctx, &SockSetOptSyscall{fd, level, option, value, errno})
+		o.before(ctx, &SockSetOptSyscall{fd, option, value, errno})
 	}
-	errno = o.system.SockSetOpt(ctx, fd, level, option, value)
+	errno = o.system.SockSetOpt(ctx, fd, option, value)
 	if o.after != nil {
-		o.after(ctx, &SockSetOptSyscall{fd, level, option, value, errno})
+		o.after(ctx, &SockSetOptSyscall{fd, option, value, errno})
 	}
 	return
 }
