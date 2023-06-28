@@ -211,6 +211,10 @@ func (s *Server) DiscardTasks(ctx context.Context, req *connect.Request[v1.Disca
 	return connect.NewResponse(&v1.DiscardTasksResponse{}), nil
 }
 
+func (s *Server) ProcessID(context.Context, *connect.Request[v1.ProcessIDRequest]) (*connect.Response[v1.ProcessIDResponse], error) {
+	return connect.NewResponse(&v1.ProcessIDResponse{ProcessId: s.processID.String()}), nil
+}
+
 func (s *Server) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
 	return connect.NewResponse(&v1.VersionResponse{Version: Version()}), nil
 }

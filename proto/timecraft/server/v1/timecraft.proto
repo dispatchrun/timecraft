@@ -83,6 +83,12 @@ message DiscardTasksRequest {
 
 message DiscardTasksResponse {}
 
+message ProcessIDRequest {}
+
+message ProcessIDResponse {
+  string process_id = 1;
+}
+
 message VersionRequest {}
 
 message VersionResponse {
@@ -94,5 +100,6 @@ service TimecraftService {
   rpc LookupTasks(LookupTasksRequest) returns (LookupTasksResponse) {}
   rpc PollTasks(PollTasksRequest) returns (PollTasksResponse) {}
   rpc DiscardTasks(DiscardTasksRequest) returns (DiscardTasksResponse) {}
+  rpc ProcessID(ProcessIDRequest) returns (ProcessIDResponse) {}
   rpc Version(VersionRequest) returns (VersionResponse) {}
 }
