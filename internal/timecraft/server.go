@@ -112,7 +112,7 @@ func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 		input = httpRequest
 	}
 
-	taskID, err := s.tasks.Submit(moduleSpec, logSpec, input)
+	taskID, err := s.tasks.Submit(moduleSpec, logSpec, input, s.processID)
 	if err != nil {
 		return TaskID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to submit task: %w", err))
 	}
