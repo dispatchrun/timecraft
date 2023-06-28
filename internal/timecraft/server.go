@@ -112,7 +112,7 @@ func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 		input = httpRequest
 	}
 
-	taskID, err := s.tasks.Submit(moduleSpec, logSpec, input)
+	taskID, err := s.tasks.Submit(moduleSpec, logSpec, input, s.processID)
 	if err != nil {
 		return TaskID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to submit task: %w", err))
 	}
@@ -209,6 +209,10 @@ func (s *Server) DiscardTasks(ctx context.Context, req *connect.Request[v1.Disca
 		_ = s.tasks.Discard(taskID)
 	}
 	return connect.NewResponse(&v1.DiscardTasksResponse{}), nil
+}
+
+func (s *Server) ProcessID(context.Context, *connect.Request[v1.ProcessIDRequest]) (*connect.Response[v1.ProcessIDResponse], error) {
+	return connect.NewResponse(&v1.ProcessIDResponse{ProcessId: s.processID.String()}), nil
 }
 
 func (s *Server) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {

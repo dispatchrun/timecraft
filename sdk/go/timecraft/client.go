@@ -204,6 +204,16 @@ func (c *Client) makeTaskResponse(res *v1.TaskResponse) (TaskResponse, error) {
 	return taskResponse, nil
 }
 
+// ProcessID fetches the ID of the process.
+func (c *Client) ProcessID(ctx context.Context) (ProcessID, error) {
+	req := connect.NewRequest(&v1.ProcessIDRequest{})
+	res, err := c.grpcClient.ProcessID(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return ProcessID(res.Msg.ProcessId), nil
+}
+
 // Version fetches the timecraft version.
 func (c *Client) Version(ctx context.Context) (string, error) {
 	req := connect.NewRequest(&v1.VersionRequest{})

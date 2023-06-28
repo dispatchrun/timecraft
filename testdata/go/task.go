@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/stealthrocket/timecraft/sdk/go/timecraft"
 )
@@ -33,6 +34,16 @@ func supervisor(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to timecraft: %w", err)
 	}
+
+	version, err := client.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve version: %w", err)
+	}
+	processID, err := client.ProcessID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve process ID: %w", err)
+	}
+	fmt.Printf("executing as process %s in timecraft %s\n", processID, version)
 
 	// Spawn the same WASM module, but with the "worker" arg.
 	workerModule := timecraft.ModuleSpec{Args: []string{"worker"}}
@@ -96,7 +107,9 @@ func supervisor(ctx context.Context) error {
 			panic("unexpected response code")
 		} else if string(req.Body) != string(res.Body) {
 			panic("unexpected response body")
-		} else if res.Headers.Get("X-Timecraft") != "1" {
+		} else if res.Headers.Get("X-Timecraft-Task") != string(task.ID) {
+			panic("unexpected response headers")
+		} else if res.Headers.Get("X-Timecraft-Creator") != string(processID) {
 			panic("unexpected response headers")
 		}
 	}
@@ -127,7 +140,13 @@ func worker() error {
 			return
 		}
 
-		w.Header().Add("X-Timecraft", "1")
+		headers := w.Header()
+		for name, values := range r.Header {
+			if strings.HasPrefix(name, "X-Timecraft") {
+				headers[name] = values
+			}
+		}
+
 		w.WriteHeader(http.StatusOK)
 		w.Write(body)
 	}))
