@@ -35,7 +35,7 @@ testdata.go.src = \
 testdata.go.wasm = $(testdata.go.src:.go=.wasm)
 
 testdata.py.src = \
-	$(wildcard testdata/python/*.py)
+	$(wildcard testdata/python/*_test.py)
 
 format.src.fbs = \
 	$(wildcard format/*/*.fbs)

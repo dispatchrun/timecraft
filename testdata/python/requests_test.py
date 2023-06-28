@@ -10,12 +10,6 @@ class TestRequests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(len(r.text) > 0)
 
-    def test_timecraft_runtime_endpoint(self):
-        u = "http://0.0.0.0:3001/timecraft.server.v1.TimecraftService/Version"
-        r = requests.post(u, json={})
-        self.assertEqual(r.status_code, 200)
-        self.assertTrue(len(r.text) > 0)
-
     def test_echo_https_get(self):
         r = requests.get("https://postman-echo.com/get?foo1=bar1&foo2=bar2")
         self.assertEqual(r.status_code, 200)

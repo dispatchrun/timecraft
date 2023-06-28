@@ -73,7 +73,7 @@ class HTTPRequest(TaskInput):
 
     def serialize(self):
         headers = []
-        for k, v in self.headers:
+        for k, v in self.headers.items():
             headers.append({
                 "name": k,
                 "value": v,
