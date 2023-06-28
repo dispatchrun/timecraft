@@ -1,4 +1,5 @@
 import base64
+import logging
 from typing import Optional
 from pprint import pprint
 from enum import Enum
@@ -99,6 +100,9 @@ class HTTPResponse(TaskOutput):
         return cls(**data)
 
 
+ClientLogger = None
+
+
 class Client:
     """
     Client to interface with the Timecraft server.
@@ -123,6 +127,25 @@ class Client:
             raise
 
         return out
+
+    def logger(self):
+        global ClientLogger
+
+        if ClientLogger is None:
+            formatter = logging.Formatter(fmt=f"%(asctime)s - {self.process_id()} - %(message)s")
+            formatter.default_time_format = "%Y/%m/%d %H:%M:%S"
+            formatter.default_msec_format = ""
+
+            handler = logging.StreamHandler()
+            handler.setLevel(logging.DEBUG)
+            handler.setFormatter(formatter)
+
+            ClientLogger = logging.getLogger("timecraft.client")
+            ClientLogger.setLevel(logging.DEBUG)
+            ClientLogger.addHandler(handler)
+            ClientLogger.propagate = False
+
+        return ClientLogger
 
     def process_id(self):
         return ProcessID(self._rpc("ProcessID", {})["processId"])
