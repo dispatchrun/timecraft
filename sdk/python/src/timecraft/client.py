@@ -1,4 +1,5 @@
 import base64
+import logging
 from typing import Optional
 from pprint import pprint
 from enum import Enum
@@ -6,12 +7,14 @@ import dataclasses
 from dataclasses import dataclass
 import requests
 
+
 def remap(d, before, after, f=None):
     if before in d:
         d[after] = d.pop(before)
         if f:
-            d[after]=f(d[after])
+            d[after] = f(d[after])
     return d
+
 
 class TaskState(Enum):
     UNSPECIFIED = "TASK_STATE_UNSPECIFIED"
@@ -23,30 +26,34 @@ class TaskState(Enum):
 
 
 ProcessID = str
-TypeID = str
 Header = dict[str, str]
 TaskID = str
+
 
 @dataclass
 class ModuleSpec:
     path: str
     args: list[str]
 
+
 @dataclass
 class TaskInput:
-    def serialize(self) -> dict[str,any]:
+    def serialize(self) -> dict[str, any]:
         raise NotImplementedError
+
 
 @dataclass
 class TaskOutput:
     @classmethod
-    def deserialize(cls, data: dict[str,any]):
+    def deserialize(cls, data: dict[str, any]):
         raise NotImplementedError
+
 
 @dataclass
 class TaskRequest:
     module: ModuleSpec
     input: TaskInput
+
 
 @dataclass
 class TaskResponse:
@@ -55,6 +62,7 @@ class TaskResponse:
     error: Optional[str] = None
     output: Optional[TaskOutput] = None
     process_id: Optional[ProcessID] = None
+
 
 @dataclass
 class HTTPRequest(TaskInput):
@@ -77,14 +85,17 @@ class HTTPRequest(TaskInput):
             "body": self.body,
         }
         if self.body is not None:
-            remap(http_request, "body", "body", lambda body: base64.b64encode(body).decode("utf-8"))
+            remap(http_request, "body", "body",
+                  lambda body: base64.b64encode(body).decode("utf-8"))
         return {
             "httpRequest": http_request
         }
 
+
 def zipheader(lst):
     return dict((x["name"], x["value"]) for x in lst)
-    
+
+
 @dataclass
 class HTTPResponse(TaskOutput):
     status_code: int
@@ -99,19 +110,21 @@ class HTTPResponse(TaskOutput):
         return cls(**data)
 
 
+ClientLogger = None
+
+
 class Client:
     """
     Client to interface with the Timecraft server.
     """
 
-    _root = "http://0.0.0.0:3001"
-    
+    _root = "http://0.0.0.0:3001/timecraft.server.v1.TimecraftService/"
+
     def __init__(self):
         self.session = requests.Session()
 
     def _rpc(self, endpoint, payload):
-        r = self.session.post(self._root+"/timecraft.server.v1.TimecraftService/" + endpoint, json=payload)
-        out = r.json()
+        r = self.session.post(self._root + endpoint, json=payload)
 
         try:
             r.raise_for_status()
@@ -119,10 +132,31 @@ class Client:
             print("Request payload:")
             pprint(payload)
             print("Response object:")
-            pprint(out)
+            pprint(r.text)
             raise
 
-        return out
+        return r.json()
+
+    @property
+    def logger(self):
+        global ClientLogger
+
+        if ClientLogger is None:
+            fmt = f"%(asctime)s - {self.process_id()} - %(message)s"
+            formatter = logging.Formatter(fmt=fmt)
+            formatter.default_time_format = "%Y/%m/%d %H:%M:%S"
+            formatter.default_msec_format = ""
+
+            handler = logging.StreamHandler()
+            handler.setLevel(logging.DEBUG)
+            handler.setFormatter(formatter)
+
+            ClientLogger = logging.getLogger("timecraft.client")
+            ClientLogger.setLevel(logging.DEBUG)
+            ClientLogger.addHandler(handler)
+            ClientLogger.propagate = False
+
+        return ClientLogger
 
     def process_id(self):
         return ProcessID(self._rpc("ProcessID", {})["processId"])
@@ -139,7 +173,7 @@ class Client:
             }
             task_request.update(t.input.serialize())
             requests.append(task_request)
-        
+
         submit_task_request = {
             "requests": requests
         }
