@@ -1,4 +1,4 @@
-.PHONY: clean flatbuffers generate test testdata docker-build docker-buildx
+.PHONY: clean flatbuffers generate test testdata docker-build docker-buildx python/python.wasm
 .PRECIOUS: %.wasm
 
 GO ?= go
@@ -91,3 +91,7 @@ docker-build:
 
 docker-buildx:
 	docker buildx build --push --platform=linux/amd64,linux/arm64 -f Dockerfile -t $(container.image):$(container.version) .
+
+
+python/python.wasm:
+	$(MAKE) -C python python.wasm
