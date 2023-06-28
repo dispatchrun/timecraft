@@ -7,12 +7,14 @@ import dataclasses
 from dataclasses import dataclass
 import requests
 
+
 def remap(d, before, after, f=None):
     if before in d:
         d[after] = d.pop(before)
         if f:
-            d[after]=f(d[after])
+            d[after] = f(d[after])
     return d
+
 
 class TaskState(Enum):
     UNSPECIFIED = "TASK_STATE_UNSPECIFIED"
@@ -24,30 +26,34 @@ class TaskState(Enum):
 
 
 ProcessID = str
-TypeID = str
 Header = dict[str, str]
 TaskID = str
+
 
 @dataclass
 class ModuleSpec:
     path: str
     args: list[str]
 
+
 @dataclass
 class TaskInput:
-    def serialize(self) -> dict[str,any]:
+    def serialize(self) -> dict[str, any]:
         raise NotImplementedError
+
 
 @dataclass
 class TaskOutput:
     @classmethod
-    def deserialize(cls, data: dict[str,any]):
+    def deserialize(cls, data: dict[str, any]):
         raise NotImplementedError
+
 
 @dataclass
 class TaskRequest:
     module: ModuleSpec
     input: TaskInput
+
 
 @dataclass
 class TaskResponse:
@@ -56,6 +62,7 @@ class TaskResponse:
     error: Optional[str] = None
     output: Optional[TaskOutput] = None
     process_id: Optional[ProcessID] = None
+
 
 @dataclass
 class HTTPRequest(TaskInput):
@@ -78,14 +85,17 @@ class HTTPRequest(TaskInput):
             "body": self.body,
         }
         if self.body is not None:
-            remap(http_request, "body", "body", lambda body: base64.b64encode(body).decode("utf-8"))
+            remap(http_request, "body", "body",
+                  lambda body: base64.b64encode(body).decode("utf-8"))
         return {
             "httpRequest": http_request
         }
 
+
 def zipheader(lst):
     return dict((x["name"], x["value"]) for x in lst)
-    
+
+
 @dataclass
 class HTTPResponse(TaskOutput):
     status_code: int
@@ -108,13 +118,13 @@ class Client:
     Client to interface with the Timecraft server.
     """
 
-    _root = "http://0.0.0.0:3001"
-    
+    _root = "http://0.0.0.0:3001/timecraft.server.v0.TimecraftService/"
+
     def __init__(self):
         self.session = requests.Session()
 
     def _rpc(self, endpoint, payload):
-        r = self.session.post(self._root+"/timecraft.server.v1.TimecraftService/" + endpoint, json=payload)
+        r = self.session.post(self._root + endpoint, json=payload)
         out = r.json()
 
         try:
@@ -132,7 +142,8 @@ class Client:
         global ClientLogger
 
         if ClientLogger is None:
-            formatter = logging.Formatter(fmt=f"%(asctime)s - {self.process_id()} - %(message)s")
+            fmt = f"%(asctime)s - {self.process_id()} - %(message)s"
+            formatter = logging.Formatter(fmt=fmt)
             formatter.default_time_format = "%Y/%m/%d %H:%M:%S"
             formatter.default_msec_format = ""
 
@@ -162,7 +173,7 @@ class Client:
             }
             task_request.update(t.input.serialize())
             requests.append(task_request)
-        
+
         submit_task_request = {
             "requests": requests
         }
