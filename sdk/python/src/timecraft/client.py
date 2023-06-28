@@ -104,7 +104,7 @@ class Client:
     Client to interface with the Timecraft server.
     """
 
-    _root = "http//0.0.0.0:3001"
+    _root = "http://0.0.0.0:3001"
     
     def __init__(self):
         self.session = requests.Session()
