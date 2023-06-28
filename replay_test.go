@@ -55,12 +55,13 @@ var replay = tests{
 	},
 
 	"guest can submit tasks and wait for their completion": func(t *testing.T) {
-		stdout, processID, exitCode := timecraft(t, "run", "--", "./testdata/go/task.wasm")
+		stdout, stderr, exitCode := timecraft(t, "run", "--", "./testdata/go/task.wasm")
 		assert.Equal(t, exitCode, 0)
 
-		replay, stderr, exitCode := timecraft(t, "replay", strings.TrimSpace(processID))
+		processID, _, _ := strings.Cut(stderr, "\n")
+
+		replay, _, exitCode := timecraft(t, "replay", strings.TrimSpace(processID))
 		assert.Equal(t, exitCode, 0)
 		assert.Equal(t, replay, stdout)
-		assert.Equal(t, stderr, "")
 	},
 }

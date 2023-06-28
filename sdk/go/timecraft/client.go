@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/bufbuild/connect-go"
+	"github.com/google/uuid"
 	v1 "github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1"
 	"github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1/serverv1connect"
 )
@@ -62,6 +65,7 @@ func (b bufferingTransport) RoundTrip(request *http.Request) (*http.Response, er
 // Client is a timecraft client.
 type Client struct {
 	grpcClient serverv1connect.TimecraftServiceClient
+	logger     *log.Logger
 }
 
 // SubmitTasks submits tasks to the timecraft runtime.
@@ -222,4 +226,16 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return res.Msg.Version, nil
+}
+
+// Logger returns a logger that includes the process ID in log output.
+func (c *Client) Logger() *log.Logger {
+	processID, err := c.ProcessID(context.Background())
+	if err != nil {
+		processID = ProcessID(uuid.UUID{}.String())
+	}
+	if c.logger == nil {
+		c.logger = log.New(os.Stderr, fmt.Sprintf("- %s - ", processID), log.LstdFlags|log.Lmsgprefix)
+	}
+	return c.logger
 }
