@@ -1,0 +1,12 @@
+ARG TIMECRAFT_VERSION
+
+FROM --platform="${TARGETPLATFORM:-linux/amd64}" ghcr.io/stealthrocket/timecraft:${TIMECRAFT_VERSION}
+
+ARG TARGETPLATFORM
+
+ENV PYTHONPATH=/python/usr/local/lib/python311.zip
+ENV PYTHONHOME=/python/usr/local/lib/python311.zip
+
+COPY python /python
+
+ENTRYPOINT ["timecraft", "run", "/python/python.wasm"]
