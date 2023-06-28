@@ -5,6 +5,7 @@ package timecraft
 import (
 	"context"
 	"net"
+	"os"
 	"syscall"
 	"unsafe"
 
@@ -38,7 +39,13 @@ func DialTLS(ctx context.Context, network, addr string) (net.Conn, error) {
 	rawConn, err := syscallConn.SyscallConn()
 	if err != nil {
 		conn.Close()
-		return nil, err
+		return nil, &net.OpError{
+			Op:     "dial",
+			Net:    network,
+			Source: conn.LocalAddr(),
+			Addr:   conn.RemoteAddr(),
+			Err:    err,
+		}
 	}
 
 	var errno syscall.Errno
@@ -46,7 +53,7 @@ func DialTLS(ctx context.Context, network, addr string) (net.Conn, error) {
 		errno = setsockopt(int32(fd), htls.Level, htls.Option, unsafe.Pointer(unsafe.SliceData(host)), uint32(len(hostname)))
 	})
 	if errno != 0 {
-		err = errno
+		err = os.NewSyscallError("setsockopt", errno)
 	}
 
 	if err != nil {
