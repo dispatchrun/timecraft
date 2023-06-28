@@ -45,6 +45,9 @@ const (
 	// TimecraftServiceDiscardTasksProcedure is the fully-qualified name of the TimecraftService's
 	// DiscardTasks RPC.
 	TimecraftServiceDiscardTasksProcedure = "/timecraft.server.v1.TimecraftService/DiscardTasks"
+	// TimecraftServiceProcessIDProcedure is the fully-qualified name of the TimecraftService's
+	// ProcessID RPC.
+	TimecraftServiceProcessIDProcedure = "/timecraft.server.v1.TimecraftService/ProcessID"
 	// TimecraftServiceVersionProcedure is the fully-qualified name of the TimecraftService's Version
 	// RPC.
 	TimecraftServiceVersionProcedure = "/timecraft.server.v1.TimecraftService/Version"
@@ -56,6 +59,7 @@ type TimecraftServiceClient interface {
 	LookupTasks(context.Context, *connect_go.Request[v1.LookupTasksRequest]) (*connect_go.Response[v1.LookupTasksResponse], error)
 	PollTasks(context.Context, *connect_go.Request[v1.PollTasksRequest]) (*connect_go.Response[v1.PollTasksResponse], error)
 	DiscardTasks(context.Context, *connect_go.Request[v1.DiscardTasksRequest]) (*connect_go.Response[v1.DiscardTasksResponse], error)
+	ProcessID(context.Context, *connect_go.Request[v1.ProcessIDRequest]) (*connect_go.Response[v1.ProcessIDResponse], error)
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
 }
 
@@ -89,6 +93,11 @@ func NewTimecraftServiceClient(httpClient connect_go.HTTPClient, baseURL string,
 			baseURL+TimecraftServiceDiscardTasksProcedure,
 			opts...,
 		),
+		processID: connect_go.NewClient[v1.ProcessIDRequest, v1.ProcessIDResponse](
+			httpClient,
+			baseURL+TimecraftServiceProcessIDProcedure,
+			opts...,
+		),
 		version: connect_go.NewClient[v1.VersionRequest, v1.VersionResponse](
 			httpClient,
 			baseURL+TimecraftServiceVersionProcedure,
@@ -103,6 +112,7 @@ type timecraftServiceClient struct {
 	lookupTasks  *connect_go.Client[v1.LookupTasksRequest, v1.LookupTasksResponse]
 	pollTasks    *connect_go.Client[v1.PollTasksRequest, v1.PollTasksResponse]
 	discardTasks *connect_go.Client[v1.DiscardTasksRequest, v1.DiscardTasksResponse]
+	processID    *connect_go.Client[v1.ProcessIDRequest, v1.ProcessIDResponse]
 	version      *connect_go.Client[v1.VersionRequest, v1.VersionResponse]
 }
 
@@ -126,6 +136,11 @@ func (c *timecraftServiceClient) DiscardTasks(ctx context.Context, req *connect_
 	return c.discardTasks.CallUnary(ctx, req)
 }
 
+// ProcessID calls timecraft.server.v1.TimecraftService.ProcessID.
+func (c *timecraftServiceClient) ProcessID(ctx context.Context, req *connect_go.Request[v1.ProcessIDRequest]) (*connect_go.Response[v1.ProcessIDResponse], error) {
+	return c.processID.CallUnary(ctx, req)
+}
+
 // Version calls timecraft.server.v1.TimecraftService.Version.
 func (c *timecraftServiceClient) Version(ctx context.Context, req *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error) {
 	return c.version.CallUnary(ctx, req)
@@ -137,6 +152,7 @@ type TimecraftServiceHandler interface {
 	LookupTasks(context.Context, *connect_go.Request[v1.LookupTasksRequest]) (*connect_go.Response[v1.LookupTasksResponse], error)
 	PollTasks(context.Context, *connect_go.Request[v1.PollTasksRequest]) (*connect_go.Response[v1.PollTasksResponse], error)
 	DiscardTasks(context.Context, *connect_go.Request[v1.DiscardTasksRequest]) (*connect_go.Response[v1.DiscardTasksResponse], error)
+	ProcessID(context.Context, *connect_go.Request[v1.ProcessIDRequest]) (*connect_go.Response[v1.ProcessIDResponse], error)
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
 }
 
@@ -167,6 +183,11 @@ func NewTimecraftServiceHandler(svc TimecraftServiceHandler, opts ...connect_go.
 		svc.DiscardTasks,
 		opts...,
 	))
+	mux.Handle(TimecraftServiceProcessIDProcedure, connect_go.NewUnaryHandler(
+		TimecraftServiceProcessIDProcedure,
+		svc.ProcessID,
+		opts...,
+	))
 	mux.Handle(TimecraftServiceVersionProcedure, connect_go.NewUnaryHandler(
 		TimecraftServiceVersionProcedure,
 		svc.Version,
@@ -192,6 +213,10 @@ func (UnimplementedTimecraftServiceHandler) PollTasks(context.Context, *connect_
 
 func (UnimplementedTimecraftServiceHandler) DiscardTasks(context.Context, *connect_go.Request[v1.DiscardTasksRequest]) (*connect_go.Response[v1.DiscardTasksResponse], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.DiscardTasks is not implemented"))
+}
+
+func (UnimplementedTimecraftServiceHandler) ProcessID(context.Context, *connect_go.Request[v1.ProcessIDRequest]) (*connect_go.Response[v1.ProcessIDResponse], error) {
+	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.ProcessID is not implemented"))
 }
 
 func (UnimplementedTimecraftServiceHandler) Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error) {

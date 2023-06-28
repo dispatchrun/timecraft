@@ -125,6 +125,9 @@ class Client:
 
         return out
 
+    def process_id(self):
+        return ProcessID(self._rpc("ProcessID", {})["processId"])
+
     def version(self):
         return self._rpc("Version", {})["version"]
 

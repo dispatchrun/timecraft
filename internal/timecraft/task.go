@@ -83,6 +83,7 @@ const (
 // TaskInfo is information about a task.
 type TaskInfo struct {
 	id          TaskID
+	creator     ProcessID
 	createdAt   time.Time
 	state       TaskState
 	processID   ProcessID
@@ -115,12 +116,13 @@ type TaskOutput interface {
 // notification once the task is complete (succeeds, or fails permanently).
 //
 // Once a task is complete, it must be discarded via Discard.
-func (s *TaskScheduler) Submit(moduleSpec ModuleSpec, logSpec *LogSpec, input TaskInput, completions chan<- TaskID) (TaskID, error) {
+func (s *TaskScheduler) Submit(moduleSpec ModuleSpec, logSpec *LogSpec, input TaskInput, processID ProcessID, completions chan<- TaskID) (TaskID, error) {
 	s.once.Do(s.init)
 
 	task := &TaskInfo{
 		id:          uuid.New(),
 		createdAt:   time.Now(),
+		creator:     processID,
 		state:       Queued,
 		moduleSpec:  moduleSpec,
 		logSpec:     logSpec,
@@ -257,14 +259,18 @@ func (s *TaskScheduler) executeHTTPTask(process *ProcessInfo, task *TaskInfo, re
 	}
 
 	request.Headers.Set("User-Agent", "timecraft "+Version())
-	request.Headers.Set("Transfer-Encoding", "identity")
+
+	request.Headers.Set("X-Timecraft-Task", task.id.String())
+	request.Headers.Set("X-Timecraft-Creator", task.creator.String())
 
 	req := (&http.Request{
-		Method:        request.Method,
-		URL:           &url.URL{Scheme: "http", Host: "timecraft", Path: request.Path},
-		Header:        request.Headers,
-		Body:          io.NopCloser(bytes.NewReader(request.Body)),
-		ContentLength: int64(len(request.Body)),
+		Method: request.Method,
+		URL:    &url.URL{Scheme: "http", Host: "timecraft", Path: request.Path},
+		Header: request.Headers,
+		Body:   io.NopCloser(bytes.NewReader(request.Body)),
+		// TODO: disable Transfer-Encoding:chunked temporarily, until we have tracing support
+		ContentLength:    int64(len(request.Body)),
+		TransferEncoding: []string{"identity"},
 	}).WithContext(task.ctx)
 
 	res, err := client.Do(req)
@@ -347,8 +353,8 @@ func NewTaskGroup(s *TaskScheduler) *TaskGroup {
 // Submit submits a task for execution.
 //
 // See TaskScheduler.Submit for more information.
-func (g *TaskGroup) Submit(moduleSpec ModuleSpec, logSpec *LogSpec, input TaskInput) (TaskID, error) {
-	taskID, err := g.scheduler.Submit(moduleSpec, logSpec, input, g.completions)
+func (g *TaskGroup) Submit(moduleSpec ModuleSpec, logSpec *LogSpec, input TaskInput, processID ProcessID) (TaskID, error) {
+	taskID, err := g.scheduler.Submit(moduleSpec, logSpec, input, processID, g.completions)
 	if err != nil {
 		return TaskID{}, err
 	}
