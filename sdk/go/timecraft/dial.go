@@ -5,13 +5,21 @@ package timecraft
 import (
 	"context"
 	"net"
+	"net/http"
 	"os"
 	"syscall"
 	"unsafe"
 
+	_ "github.com/stealthrocket/net/http"
 	"github.com/stealthrocket/net/wasip1"
 	"github.com/stealthrocket/timecraft/internal/htls"
 )
+
+func init() {
+	if t, ok := http.DefaultTransport.(*http.Transport); ok {
+		t.DialTLSContext = DialTLS
+	}
+}
 
 //go:wasmimport wasi_snapshot_preview1 sock_setsockopt
 //go:noescape
