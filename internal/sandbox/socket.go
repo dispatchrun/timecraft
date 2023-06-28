@@ -745,24 +745,21 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 					// was called to setup htls. Move on.
 					break
 				}
-				// upgrade tls
+
 				tlsconn := tls.Client(upstream, &tls.Config{
 					ServerName: hostname,
 				})
+
 				err := tlsconn.HandshakeContext(ctx)
 				if err != nil {
-					errno = wasi.MakeErrno(err)
-					errs <- errno
-				} else {
-					upstream = tlsconn
+					errs <- wasi.MakeErrno(err)
+					close(errs)
+					return
 				}
+
+				upstream = tlsconn
 			case <-ctx.Done():
-				// Socket was closed
-			}
-
-			s.wev.trigger()
-
-			if errno != wasi.ESUCCESS {
+				s.wev.trigger()
 				close(errs)
 				return
 			}
