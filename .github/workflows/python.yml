@@ -1,0 +1,57 @@
+name: Python
+
+on: [push]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Build docker image
+        working-directory: python
+        run: |
+          docker build -t builder .
+      - name: Compile
+        working-directory: python
+        run: |
+          docker run -v `pwd`:/src -w /src -e NO_OPT=true -e DEBUG=true builder ./build.sh
+      - name: Archive build output
+        uses: actions/upload-artifact@v3
+        working-directory: python
+        with:
+          name: python-wasm-stdlib
+          path: |
+            python/python.wasm
+            python/usr/local/lib/python311.zip
+      - name: Inspect results
+        working-directory: python
+        run: |
+          pwd
+          ls python
+
+  docker-build:
+    runs-on: ubuntu-latest
+    env:
+      PAT_PACKAGES: ${{ secrets.PAT_PACKAGES }}
+    needs: build_and_test
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    - name: Download build output
+      uses: actions/download-artifact@v3
+      working-directory: python
+      with:
+        name: python-wasm-stdlib
+        path: python
+    - run: echo $PAT_PACKAGES | docker login ghcr.io -u USERNAME --password-stdin
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
+    - name: Set up Docker Buildx
+      id: buildx
+      uses: docker/setup-buildx-action@v1
+    - name: Build and push
+      working-directory: python
+      run: |
+        echo "should be 'make docker-buildx'"
+
