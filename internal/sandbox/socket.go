@@ -1050,7 +1050,7 @@ func (s *socket[T]) setHtlsLevelOption(option wasi.SocketOption, value wasi.Sock
 	case htlsOption:
 		if s.htls == nil {
 			// Can only enable hTLS before the first recv/send/poll.
-			return wasi.EINVAL
+			return wasi.EISCONN
 		}
 		s.htls <- string(value.(wasi.BytesValue))
 		s.closeHTLS()
