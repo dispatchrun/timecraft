@@ -58,11 +58,13 @@ timecraft.sdk.src.py = \
 timecraft.sdk.venv.py = \
 	$(VIRTUALENV)/lib/python$(PYTHONMAJOR).$(PYTHONMINOR)/site-packages/timecraft
 
-timecraft: go.mod $(timecraft.src.go)
-	$(GO) build -o timecraft
+timecraft = ./timecraft
+
+$(timecraft): go.mod $(timecraft.src.go)
+	$(GO) build -o $@
 
 clean:
-	rm -f timecraft $(format.src.go) $(testdata.go.wasm)
+	rm -f $(timecraft) $(format.src.go) $(testdata.go.wasm)
 
 lint:
 	golangci-lint run ./...
@@ -98,9 +100,9 @@ wasi-testsuite: timecraft testdata/wasi-testsuite
 		-r testdata/adapter.py
 	@rm -rf testdata/wasi-testsuite/tests/rust/testsuite/fs-tests.dir/*.cleanup
 
-py_test: $(timecraft.sdk.venv.py) $(testdata.py.src)
+py_test: $(timecraft) $(timecraft.sdk.venv.py) $(testdata.py.src)
 	@if [ -f "$(PYTHONWASM)" ] && [ -f "$(PYTHONZIP)" ]; then \
-		timecraft run --env PYTHONPATH=$(PYTHONPATH) --env PYTHONHOME=$(PYTHONHOME) -- $(PYTHONWASM) -m unittest $(testdata.py.src); \
+		$(timecraft) run --env PYTHONPATH=$(PYTHONPATH) --env PYTHONHOME=$(PYTHONHOME) -- $(PYTHONWASM) -m unittest $(testdata.py.src); \
 	else \
 		echo "skipping Python tests (could not find $(PYTHONWASM) and $(PYTHONZIP))"; \
 	fi
