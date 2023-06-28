@@ -16,7 +16,7 @@ func TestConn(t *testing.T) {
 	}{
 		{
 			network: "tcp",
-			address: "127.0.0.1:0",
+			address: ":0",
 		},
 		{
 			network: "tcp4",
@@ -82,7 +82,7 @@ func TestPacketConn(t *testing.T) {
 	}{
 		{
 			network: "udp",
-			address: "127.0.0.1:0",
+			address: ":0",
 		},
 		{
 			network: "udp4",
