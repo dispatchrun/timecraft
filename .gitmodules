@@ -2,3 +2,6 @@
 	path = testdata/wasi-testsuite
 	url = https://github.com/WebAssembly/wasi-testsuite
 	branch = prod/testsuite-base
+[submodule "python/cpython"]
+	path = python/cpython
+	url = https://github.com/stealthrocket/cpython.git
