@@ -45,8 +45,19 @@ jobs:
           version: v1.52.2
           args: --timeout 5m
 
+  python-lint:
+    runs-on: ubuntu-latest
+    name: Python Lint
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: flake8 Lint
+        uses: py-actions/flake8@v2
+
   test:
-    name: Go Test
+    name: Test
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3

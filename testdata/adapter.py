@@ -32,13 +32,17 @@ with tempfile.TemporaryDirectory() as tmpdir:
     with open(config_file, "w") as f:
         f.write(f"registry:\n  location: {registry_dir}")
 
-    r = subprocess.run([TIMECRAFT, "run", "--restrict", "--config", config_file] + ENV_ARGS + DIR_ARGS + [TEST_FILE] + PROG_ARGS, capture_output=True, text=True)
+    r = subprocess.run([TIMECRAFT, "run",
+                        "--restrict", "--config", config_file] +
+                       ENV_ARGS + DIR_ARGS + [TEST_FILE] + PROG_ARGS,
+                       capture_output=True, text=True)
     status = r.returncode
 
     process_id = r.stderr.strip()
 
-    r = subprocess.run([TIMECRAFT, "replay", "--config", config_file, process_id])
+    r = subprocess.run([TIMECRAFT, "replay",
+                        "--config", config_file, process_id])
     if r.returncode != status:
-       raise RuntimeError(f"timecraft replay exited with unexpected code {r.returncode}")
+        raise RuntimeError(f"ueexpected replay exit code {r.returncode}")
 
 sys.exit(status)
