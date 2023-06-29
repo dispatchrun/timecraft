@@ -103,9 +103,9 @@ wasi-testsuite: timecraft testdata/wasi-testsuite
 	@rm -rf testdata/wasi-testsuite/tests/rust/testsuite/fs-tests.dir/*.cleanup
 
 py_test: $(timecraft) $(timecraft.sdk.venv.py) $(testdata.py.src) $(PYTHONWASM) $(PYTHONZIP)
+	@echo "PYTHONPATH: $(PYTHONPATH)"
+	find $(PYTHONHOME)
 	@if [ -f "$(PYTHONWASM)" ] && [ -f "$(PYTHONZIP)" ]; then \
-		echo "PYTHONPATH: $(PYTHONPATH)" \
-		find $(PYTHONHOME) \
 		$(timecraft) run --env PYTHONPATH=$(PYTHONPATH) --env PYTHONHOME=$(PYTHONHOME) -- $(PYTHONWASM) -m unittest $(testdata.py.src); \
 	else \
 		echo "skipping Python tests (could not find $(PYTHONWASM) and $(PYTHONZIP))"; \
