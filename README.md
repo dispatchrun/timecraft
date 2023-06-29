@@ -8,8 +8,8 @@ _The WebAssembly Time Machine_
 sandboxing, task orchestration, and time travel capabilities.
 
 The development of distributed systems comes with many challenges, and
-satisfying the instrumentation, scale, or security requirements add up to
-the difficulty. By combining a sandbox, a task orchestrator and a time machine
+satisfying the instrumentation, scale, or security requirements adds up to
+the difficulty. By combining a sandbox, a task orchestrator, and a time machine
 in a software runtime, Timecraft intends to bring the tools and structure to
 help developers on their journey to construct, test, and operate such systems.
 
