@@ -110,6 +110,7 @@ py_test: $(timecraft) $(timecraft.sdk.venv.py) $(testdata.py.src) $(PYTHONWASM) 
 	fi
 
 $(PYTHONZIP_BUILD) $(PYTHONWASM_BUILD):
+#TODO: attempt to download the pre-built python.wasm and python311.zip
 	$(MAKE) -C python build-docker
 
 $(timecraft.sdk.venv.py): $(VIRTUALENV)/bin/activate $(timecraft.sdk.src.py)
