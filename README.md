@@ -7,6 +7,12 @@ _The WebAssembly Time Machine_
 **Timecraft** is a software runtime that executes WebAssembly modules with
 sandboxing, task orchestration, and time travel capabilities.
 
+The development of distributed systems comes with many challenges, and
+satisfying the instrumentation, scale, or security requirements add up to
+the difficulty. By combining a sandbox, a task orchestrator and a time machine
+in a software runtime, **Timecraft** intends to bring the tools and structure to
+help developers on their journey to construct, test, and operate such systems.
+
 [configuring]: https://github.com/stealthrocket/timecraft/wiki/Configuring-Timecraft
 [installing]:  https://github.com/stealthrocket/timecraft/wiki/Installing-Timecraft
 [preparing]:   https://github.com/stealthrocket/timecraft/wiki#preparing-your-application
@@ -87,6 +93,24 @@ Hello, World!
 To dive in, the `help` subcommand is a useful entrypoint to get an up to date
 list of the supported capabilities, or take a look at the [Wiki][wiki] for a
 walk through the documentation!
+
+### Stability guarantees and future development
+
+We are actively working on improving **Timecraft** and iterating closely with
+our design partners to prioritize the development, which may from time to time
+require the introduction of backward-incompatible changes to the APIs, data
+formats, and configuration. As we mature the technology, we will progressively
+advance towards offering more stability guarantees. The release of a v1.0 will
+be the indicator that we are promising to support all the public facing
+interfaces. To help us on this journey, do not heistate to reach out and
+submit feedback, ideas, or code contributions!
+
+### Contributing
+
+Pull requests are welcome! Anything that is not a simple fix would probably
+benefit from being discussed in an issue first.
+
+Remember to be respectful and open minded!
 
 ## Time Machines
 
