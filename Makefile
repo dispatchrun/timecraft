@@ -6,7 +6,7 @@ SHELL := /bin/bash
 GO ?= go
 
 PYTHONWASM_BUILD = python/cpython/python.wasm
-PYTHONZIP_BUILD = python/cpython/python311.zip
+PYTHONZIP_BUILD = python/cpython/usr/local/lib/python311.zip
 PYTHON       ?= python3
 PYTHONMAJOR  ?= 3
 PYTHONMINOR  ?= 11
