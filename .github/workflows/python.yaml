@@ -18,12 +18,11 @@ jobs:
           docker run -v `pwd`:/src -w /src -e NO_OPT=true -e DEBUG=true builder ./build.sh
       - name: Archive build output
         uses: actions/upload-artifact@v3
-        working-directory: python
         with:
           name: python-wasm-stdlib
           path: |
-            python/python.wasm
-            python/usr/local/lib/python311.zip
+            cpython/python/python.wasm
+            cpython/python/usr/local/lib/python311.zip
       - run: |
           pwd
           ls python
