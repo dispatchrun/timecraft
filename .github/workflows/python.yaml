@@ -50,5 +50,6 @@ jobs:
       uses: docker/setup-buildx-action@v1
     - name: Build and push
       working-directory: python
-      run: echo "noop: make docker-buildx"
+      run: |
+        echo "noop: make docker-buildx"
 
