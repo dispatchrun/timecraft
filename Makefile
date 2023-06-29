@@ -3,7 +3,7 @@
 
 SHELL := /bin/bash
 
-GO ?= go
+GO ?= gotip
 
 PYTHON       ?= python3
 PYTHONMAJOR  ?= 3

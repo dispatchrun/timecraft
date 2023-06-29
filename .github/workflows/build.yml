@@ -75,4 +75,4 @@ jobs:
 
     - run: git config --global url.https://$GH_ACCESS_TOKEN@github.com.insteadOf https://github.com
     - run: make testdata GO=$HOME/gotip/bin/go
-    - run: make test
+    - run: make test GO=$HOME/gotip/bin/go
