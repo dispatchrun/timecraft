@@ -82,11 +82,16 @@ func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 	moduleSpec := s.moduleSpec // inherit from the parent
 	moduleSpec.Dials = nil     // not supported
 	moduleSpec.Listens = nil   // not supported
+	moduleSpec.Stdin = nil     // task handlers receive no data on stdin
 	moduleSpec.Args = req.Module.Args
 	moduleSpec.Env = append(moduleSpec.Env[:len(moduleSpec.Env):len(moduleSpec.Env)], req.Module.Env...)
 	if path := req.Module.Path; path != "" {
 		moduleSpec.Path = path
 	}
+	// The task processes can only bind on their virtual network, we don't
+	// create bridges to the host network for them. Only timecraft can open
+	// connections and send requests to those processes.
+	moduleSpec.HostNetworkBinding = false
 
 	var logSpec *LogSpec
 	if s.logSpec != nil {

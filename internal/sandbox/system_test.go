@@ -206,8 +206,12 @@ func TestPollDeadline(t *testing.T) {
 }
 
 func TestSystemListenPortZero(t *testing.T) {
+	listen := sandbox.Listen(func(ctx context.Context, network, address string) (net.Listener, error) {
+		return net.Listen(network, address)
+	})
+
 	ctx := context.Background()
-	sys := sandbox.New()
+	sys := sandbox.New(listen)
 
 	lstn, err := sys.Listen(ctx, "tcp", "127.0.0.1:0")
 	assert.OK(t, err)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
@@ -606,6 +607,21 @@ func (s *socket[T]) SockBind(ctx context.Context, bind wasi.SocketAddress) wasi.
 	if s.flags.has(sockClosed) || s.laddr != zero {
 		return wasi.EINVAL
 	}
+
+	if s.typ == datagram && !s.net.contains(addr) {
+		conn, errno := s.net.listenPacket(ctx, s.proto, s.laddr)
+		switch errno {
+		case wasi.ESUCCESS:
+			s.startPacketTunnel(ctx, conn)
+		case wasi.ENOTSUP:
+			// This error indicates that the network does not let the socket
+			// bind externally, but it might still be valid to bind it on the
+			// local network if it is a wildcard address.
+		default:
+			return errno
+		}
+	}
+
 	return s.bind(ctx, func() wasi.Errno { return s.net.bind(addr, s) })
 }
 
@@ -626,27 +642,7 @@ func (s *socket[T]) bind(ctx context.Context, bind func() wasi.Errno) wasi.Errno
 	if s.flags.has(sockConn) {
 		return wasi.ESUCCESS
 	}
-	if s.typ == datagram {
-		switch errno := s.openPacketTunnel(ctx); errno {
-		case wasi.ESUCCESS:
-		case wasi.ENOTSUP:
-		default:
-			return errno
-		}
-	}
 	return bind()
-}
-
-func (s *socket[T]) openPacketTunnel(ctx context.Context) wasi.Errno {
-	if s.errs != nil {
-		return wasi.ESUCCESS
-	}
-	conn, errno := s.net.listenPacket(ctx, s.proto, s.laddr)
-	if errno != wasi.ESUCCESS {
-		return errno
-	}
-	s.startPacketTunnel(ctx, conn)
-	return wasi.ESUCCESS
 }
 
 func (s *socket[T]) allocateBuffersIfNil() {
@@ -696,9 +692,23 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 
 	s.allocateBuffersIfNil()
 	s.flags = s.flags.with(sockConn)
+	s.raddr = raddr
 
 	if s.typ == datagram {
-		s.raddr = raddr
+		if !s.net.contains(raddr) {
+			// Datagram connections don't actually perform a handshake, they
+			// simply establish the address of the network peer for the socket,
+			// which is why we can perform it synchronously rather than having
+			// to spawn a goroutine like we do brlow for stream connections.
+			c, errno := s.net.dial(ctx, s.proto, raddr)
+			if errno != wasi.ESUCCESS {
+				return errno
+			}
+			// The panic if the type conversion fails is the desired behavior
+			// here, the dial function should return a type which implements
+			// net.PacketConn when dialing for a datagram protocol such as udp.
+			s.startPacketTunnel(ctx, c.(net.PacketConn))
+		}
 		s.wev.trigger()
 		return wasi.ESUCCESS
 	}
@@ -708,7 +718,6 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 	// the read and write pipes error.
 	errs := make(chan wasi.Errno, 3)
 	s.errs = errs
-	s.raddr = raddr
 
 	blocking := !s.flags.has(sockNonBlock)
 	if s.net.contains(raddr) {

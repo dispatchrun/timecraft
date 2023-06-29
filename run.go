@@ -113,6 +113,10 @@ func run(ctx context.Context, args []string) error {
 		Stdin:   os.Stdin,
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
+		// Allow the main module to open listening sockets on the host network
+		// so server applications can receive connections as if they were
+		// running outside of timecraft.
+		HostNetworkBinding: true,
 	}
 	if trace {
 		moduleSpec.Trace = os.Stderr

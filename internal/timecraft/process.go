@@ -147,11 +147,16 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		sandbox.Time(time.Now),
 		sandbox.Rand(rand.Reader),
 		sandbox.Dial(dialer.DialContext),
-		sandbox.Listen(listen.Listen),
-		sandbox.ListenPacket(listen.ListenPacket),
 		sandbox.Resolver(net.DefaultResolver),
 		sandbox.IPv4Network(netip.PrefixFrom(netip.AddrFrom4(ipv4), ipv4NetMask)),
 		sandbox.IPv6Network(netip.PrefixFrom(netip.AddrFrom16(ipv6), ipv6NetMask)),
+	}
+
+	if moduleSpec.HostNetworkBinding {
+		options = append(options,
+			sandbox.Listen(listen.Listen),
+			sandbox.ListenPacket(listen.ListenPacket),
+		)
 	}
 
 	for _, dir := range moduleSpec.Dirs {
