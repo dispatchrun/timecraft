@@ -4,6 +4,9 @@
 
 _The WebAssembly Time Machine_
 
+**Timecraft** is a software runtime that executes WebAssembly modules with
+sandboxing, task orchestration, and time travel capabilities.
+
 [configuring]: https://github.com/stealthrocket/timecraft/wiki/Configuring-Timecraft
 [installing]:  https://github.com/stealthrocket/timecraft/wiki/Installing-Timecraft
 [preparing]:   https://github.com/stealthrocket/timecraft/wiki#preparing-your-application
@@ -22,13 +25,12 @@ method of Go applications:
 $ go install github.com/stealthrocket/timecraft
 ```
 For a more detailed section on other ways to install and configure **Timecraft**,
-see [Installing Timecraft][installing] and [Configuring Timecraft][configuring].
+see [Installing][installing] and [Configuring][configuring].
 
 **Timecraft** can execute applications compiled to WebAssembly. This repository
-has examples for applications written in Go and Python.
-
-At this time, the Go programs need the new `GOOS=wasip1` port of Go, which is
-simpler to install using `gotip`:
+has examples for applications written in Go and Python. At this time, the Go
+programs need the new `GOOS=wasip1` port of Go, which is simpler to install
+using `gotip`:
 ```
 $ go install golang.org/dl/gotip@latest
 $ gotip download
