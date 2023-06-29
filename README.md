@@ -28,7 +28,7 @@ runtime.
 The simplest path to installing the runtime is to use the standard installation
 method of Go applications:
 ```
-$ go install github.com/stealthrocket/timecraft
+go install github.com/stealthrocket/timecraft
 ```
 For a more detailed section on other ways to install and configure Timecraft,
 see [Installing][installing] and [Configuring][configuring].
@@ -38,8 +38,8 @@ has examples for applications written in Go and Python. At this time, the Go
 programs need the new `GOOS=wasip1` port of Go, which is simpler to install
 using `gotip`:
 ```
-$ go install golang.org/dl/gotip@latest
-$ gotip download
+go install golang.org/dl/gotip@latest
+gotip download
 ```
 WebAssembly is an emerging technology which still has limitations when compared
 to native programs. For a more detailed section on building applications to
@@ -47,8 +47,7 @@ WebAssembly, see [Preparing Your Application][preparing].
 
 To try some of the examples, first compile them with this command:
 ```
-$ make testdata
-...
+make testdata
 ```
 
 The compilation created programs with the `.wasm` extension since they are
