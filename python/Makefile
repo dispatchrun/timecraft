@@ -1,4 +1,4 @@
-.PHONY: docker-build docker-buildx build-docker build-script
+.PHONY: docker-build docker-buildx build-docker build-script clean
 
 TIMECRAFT_VERSION ?= "main-1687814584-4c9ed9ce"
 
@@ -32,3 +32,6 @@ build-docker:
 
 build-script:
 	./build.sh
+
+clean:
+	rm -f cpython/python.wasm cpython/usr/local/lib/python311.zip
