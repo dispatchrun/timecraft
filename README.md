@@ -65,7 +65,7 @@ context such as the HTTP requests and responses that were exchanged by the
 application, for example:
 
 ```
-$ timecraft trace req -v ffe47142-c3ad-4f61-a5e9-739ebf456332
+$ timecraft trace request -v ffe47142-c3ad-4f61-a5e9-739ebf456332
 2023/06/28 23:29:05.043455 HTTP 172.16.0.0:49152 > 44.206.52.165:443
 > GET / HTTP/1.1
 > Host: eo3qh2ncelpc9q0.m.pipedream.net
