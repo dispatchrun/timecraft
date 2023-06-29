@@ -6,11 +6,12 @@ import (
 	"net/http"
 
 	"github.com/stealthrocket/net/wasip1"
-	"github.com/stealthrocket/timecraft/sdk"
 )
 
-// StartWorker starts a timecraft worker.
-func StartWorker(handler http.Handler) error {
+// ListenAndServe is like the http.ListenAndServe function from the standard
+// net/http package. It starts a timecraft worker accepting http requests on
+// the given address.
+func ListenAndServe(addr string, handler http.Handler) error {
 	client, err := NewClient()
 	if err != nil {
 		return err
@@ -18,7 +19,7 @@ func StartWorker(handler http.Handler) error {
 	logger := client.Logger()
 	logger.Printf("starting worker")
 
-	l, err := wasip1.Listen("tcp", sdk.WorkAddress)
+	l, err := wasip1.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}

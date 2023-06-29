@@ -71,6 +71,7 @@ type HTTPRequest struct {
 	Path    string
 	Headers http.Header
 	Body    []byte
+	Port    int
 }
 
 func (*HTTPRequest) taskInput() {}

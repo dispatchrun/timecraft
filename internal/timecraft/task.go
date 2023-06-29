@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -259,13 +261,16 @@ func (s *TaskScheduler) executeHTTPTask(process *ProcessInfo, task *TaskInfo, re
 	}
 
 	request.Headers.Set("User-Agent", "timecraft "+Version())
-
 	request.Headers.Set("X-Timecraft-Task", task.id.String())
 	request.Headers.Set("X-Timecraft-Creator", task.creator.String())
 
 	req := (&http.Request{
 		Method: request.Method,
-		URL:    &url.URL{Scheme: "http", Host: "timecraft", Path: request.Path},
+		URL: &url.URL{
+			Scheme: "http",
+			Host:   net.JoinHostPort("timecraft", strconv.Itoa(request.Port)),
+			Path:   request.Path,
+		},
 		Header: request.Headers,
 		Body:   io.NopCloser(bytes.NewReader(request.Body)),
 		// TODO: disable Transfer-Encoding:chunked temporarily, until we have tracing support

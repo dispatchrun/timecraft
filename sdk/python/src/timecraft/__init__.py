@@ -4,7 +4,7 @@ from .client import TaskState, TaskID
 from .client import HTTPRequest, HTTPResponse, Header
 from .client import ProcessID, ModuleSpec
 
-from .worker import start_worker
+from .server import serve_forever
 
 
 __all__ = ['Client',
@@ -12,4 +12,4 @@ __all__ = ['Client',
            'TaskState', 'TaskID',
            'HTTPRequest', 'HTTPResponse', 'Header',
            'ProcessID', 'ModuleSpec',
-           'start_worker']
+           'serve_forever']

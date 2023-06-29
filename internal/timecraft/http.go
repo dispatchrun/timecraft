@@ -12,6 +12,7 @@ type HTTPRequest struct {
 	Path    string // TODO: other parts of the URL, e.g. query
 	Headers http.Header
 	Body    []byte
+	Port    int
 }
 
 func (*HTTPRequest) taskInput() {}

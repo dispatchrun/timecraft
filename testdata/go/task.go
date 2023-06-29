@@ -58,6 +58,7 @@ func supervisor(ctx context.Context) error {
 					"X-Foo": []string{"bar"},
 				},
 				Body: []byte("foo"),
+				Port: 3000,
 			},
 		},
 		{
@@ -69,6 +70,7 @@ func supervisor(ctx context.Context) error {
 					"X-Foo": []string{"bar"},
 				},
 				Body: []byte("bar"),
+				Port: 3000,
 			},
 		},
 	}
@@ -118,36 +120,38 @@ func supervisor(ctx context.Context) error {
 }
 
 func worker() error {
-	return timecraft.StartWorker(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
+	return timecraft.ListenAndServe(":3000",
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer r.Body.Close()
 
-		if r.Method != "POST" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		if r.Header.Get("X-Foo") != "bar" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if string(body) != r.URL.Path[1:] {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		headers := w.Header()
-		for name, values := range r.Header {
-			if strings.HasPrefix(name, "X-Timecraft") {
-				headers[name] = values
+			if r.Method != "POST" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
 			}
-		}
+			if r.Header.Get("X-Foo") != "bar" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 
-		w.WriteHeader(http.StatusOK)
-		w.Write(body)
-	}))
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if string(body) != r.URL.Path[1:] {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			headers := w.Header()
+			for name, values := range r.Header {
+				if strings.HasPrefix(name, "X-Timecraft") {
+					headers[name] = values
+				}
+			}
+
+			w.WriteHeader(http.StatusOK)
+			w.Write(body)
+		}),
+	)
 }

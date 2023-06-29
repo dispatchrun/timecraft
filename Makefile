@@ -50,7 +50,7 @@ timecraft.src.go = \
 	$(wildcard */*/*/*.go)
 
 timecraft.sdk.src.go = \
-	$(wildcard sdk/*.go sdk/go/timecraft/*.go)
+	$(wildcard sdk/go/timecraft/*.go)
 
 timecraft.sdk.src.py = \
 	$(wildcard sdk/python/src/timecraft/*.py)

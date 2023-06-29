@@ -30,6 +30,7 @@ message HTTPRequest {
   string path = 2;
   repeated Header headers = 3;
   bytes body = 4;
+  int32 port = 5;
 }
 
 message HTTPResponse {
