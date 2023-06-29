@@ -1,3 +1,11 @@
+
+/* Wasmedge v2 implementation as a static library.
+ *
+ * Base on the work of:
+ * vmware-labs see LICENSE-vmware
+ * hangedfish see LICENSE-hangedfish
+ */
+
 #include <byteswap.h>
 #include <errno.h>
 #include <memory.h>
