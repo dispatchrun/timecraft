@@ -81,9 +81,9 @@ generate: flatbuffers
 flatbuffers: go.mod $(format.src.go)
 	$(GO) build ./format/...
 
-test: go_test py_test wasi-testsuite
+test: go-test python-test  wasi-testsuite
 
-go_test: testdata
+go-test: testdata
 	$(GO) test ./...
 
 testdata: $(testdata.go.wasm)
@@ -103,7 +103,7 @@ wasi-testsuite: timecraft testdata/wasi-testsuite
 		-r testdata/adapter.py
 	@rm -rf testdata/wasi-testsuite/tests/rust/testsuite/fs-tests.dir/*.cleanup
 
-py_test: $(timecraft) $(timecraft.sdk.venv.py) $(testdata.py.src) $(PYTHONWASM) $(PYTHONZIP)
+python-test: $(timecraft) $(timecraft.sdk.venv.py) $(testdata.py.src) $(PYTHONWASM) $(PYTHONZIP)
 	@if [ -f "$(PYTHONWASM)" ] && [ -f "$(PYTHONZIP)" ]; then \
 		$(timecraft) run --env PYTHONPATH=$(PYTHONPATH) --env PYTHONHOME=$(PYTHONHOME) -- $(PYTHONWASM) -m unittest $(testdata.py.src); \
 	else \
