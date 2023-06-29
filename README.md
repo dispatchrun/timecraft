@@ -104,7 +104,7 @@ model that brings scalability. Instead of systems having to implement their
 instrumentation, the separation of concerns offered by the low-level recording
 capability provides a much more powerful model where extracting context from
 the record does not require modification of the application code, and can
-happen afte the fact on records of past executions.
+happen after the fact on records of past executions.
 
 Because the capture happens on the critical path of the guest application, it
 must be fast. The write path of the time machine must be optimized to have the
