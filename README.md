@@ -10,7 +10,7 @@ sandboxing, task orchestration, and time travel capabilities.
 The development of distributed systems comes with many challenges, and
 satisfying the instrumentation, scale, or security requirements add up to
 the difficulty. By combining a sandbox, a task orchestrator and a time machine
-in a software runtime, **Timecraft** intends to bring the tools and structure to
+in a software runtime, Timecraft intends to bring the tools and structure to
 help developers on their journey to construct, test, and operate such systems.
 
 [configuring]: https://github.com/stealthrocket/timecraft/wiki/Configuring-Timecraft
@@ -22,7 +22,7 @@ help developers on their journey to construct, test, and operate such systems.
 
 ## Getting Started
 
-**Timecraft** is developed in Go on top of the [Wazero][wazero] WebAssembly
+Timecraft is developed in Go on top of the [Wazero][wazero] WebAssembly
 runtime.
 
 The simplest path to installing the runtime is to use the standard installation
@@ -30,10 +30,10 @@ method of Go applications:
 ```
 $ go install github.com/stealthrocket/timecraft
 ```
-For a more detailed section on other ways to install and configure **Timecraft**,
+For a more detailed section on other ways to install and configure Timecraft,
 see [Installing][installing] and [Configuring][configuring].
 
-**Timecraft** can execute applications compiled to WebAssembly. This repository
+Timecraft can execute applications compiled to WebAssembly. This repository
 has examples for applications written in Go and Python. At this time, the Go
 programs need the new `GOOS=wasip1` port of Go, which is simpler to install
 using `gotip`:
@@ -60,7 +60,7 @@ ffe47142-c3ad-4f61-a5e9-739ebf456332
 Hello, World!
 ```
 
-There are few things to see here: the first line printed by **Timecraft** is the
+There are few things to see here: the first line printed by Timecraft is the
 unique identifier generated to represent this particular program execution and
 its recording in the local Timecraft registry. The second line saying "Hello,
 World!" is simply the response from this API endpoint that we sent the request
@@ -96,7 +96,7 @@ walk through the documentation!
 
 ### Stability guarantees and future development
 
-We are actively working on improving **Timecraft** and iterating closely with
+We are actively working on improving Timecraft and iterating closely with
 our design partners to prioritize the development, which may from time to time
 require the introduction of backward-incompatible changes to the APIs, data
 formats, and configuration. As we mature the technology, we will progressively
@@ -114,7 +114,7 @@ Remember to be respectful and open minded!
 
 ## Time Machines
 
-The Time Machine is a core primitive of **Timecraft** that brings a new step
+The Time Machine is a core primitive of Timecraft that brings a new step
 function in scaling the development and operation of distributed systems.
 Because the recording happens at the bottom-most level of interaction between
 the host runtime and the guest applications, it scales with the addition of new
@@ -150,7 +150,7 @@ One of the main challenges of those Time Machines is facilitating access to the
 scale of records that it produces. Even with effective compression to minimize
 the storage footprint, they can geneate very large volumes of information.
 Developing solutions to efficiently access the gold mine of data captured in the
-logs is one of the responsibilities that **Timecraft** can fulfill on behalf of
+logs is one of the responsibilities that Timecraft can fulfill on behalf of
 the applications it runs.
 
 ## Task Orchestration
@@ -207,6 +207,6 @@ customized to their needs and those that are collapsing under the weight of
 their attempt at incorporating all possible use cases in their core product.
 
 By combining a _time machine_ and a _task orchestrator_ with the sandboxing
-compabilities of WebAssembly, **Timecraft** offers a novel take on the way
+compabilities of WebAssembly, Timecraft offers a novel take on the way
 distributed systems can be built to address the ever more complex demand that
 businesses have for software.
