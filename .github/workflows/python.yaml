@@ -23,11 +23,8 @@ jobs:
         with:
           name: python-wasm-stdlib
           path: |
-            cpython/python/python.wasm
-            cpython/python/usr/local/lib/python311.zip
-      - run: |
-          pwd
-          ls python
+            python/cpython/python.wasm
+            python/cpython/usr/local/lib/python311.zip
 
   docker-build:
     runs-on: ubuntu-latest
