@@ -14,8 +14,7 @@ _The WebAssembly Time Machine_
 ## Getting Started
 
 **Timecraft** is developed in Go on top of the [Wazero][wazero] WebAssembly
-runtime. It supports WASI snapshot preview 1 and socket extensions compatible
-with [WasmEdge][wasmedge].
+runtime.
 
 The simplest path to installing the runtime is to use the standard installation
 method of Go applications:
