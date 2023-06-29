@@ -589,18 +589,22 @@ func (n *ipnet[T]) socket(addr netaddr[T]) *socket[T] {
 }
 
 func (n *ipnet[T]) bind(addr T, sock *socket[T]) wasi.Errno {
+	addrPort := addr.addrPort()
 	laddr := netaddr[T]{sock.proto, addr}
 	bound := netaddr[T]{sock.proto, addr}
 	// IP networks have a specific address that can be used by the sockets,
 	// they cannot bind to arbitrary endpoints.
-	switch ipaddr := bound.sockaddr.addrPort().Addr(); {
+	//
+	// We make one special cases when the address is unspecified (e.g. 0.0.0.0),
+	// then we replace it with the address of the network.
+	switch ipaddr := addrPort.Addr(); {
 	case ipaddr.IsUnspecified():
 		bound.sockaddr = bound.sockaddr.withAddr(n.ipnet.Addr())
+		addrPort = bound.sockaddr.addrPort()
 	case ipaddr != n.ipnet.Addr():
 		return wasi.EADDRNOTAVAIL
 	}
 
-	addrPort := bound.sockaddr.addrPort()
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
 

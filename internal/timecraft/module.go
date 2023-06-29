@@ -42,6 +42,10 @@ type ModuleSpec struct {
 	// Trace is an optional writer that receives a trace of system calls
 	// made by the module.
 	Trace io.Writer
+
+	// Allow the module to bind to the host network when opening listening
+	// sockets.
+	HostNetworkBinding bool
 }
 
 // Key is a string that uniquely identifies the ModuleSpec.
