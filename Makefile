@@ -1,7 +1,19 @@
 .PHONY: clean flatbuffers generate test testdata docker-build docker-buildx
 .PRECIOUS: %.wasm
 
+SHELL := /bin/bash
+
 GO ?= go
+
+PYTHON       ?= python3
+PYTHONMAJOR  ?= 3
+PYTHONMINOR  ?= 11
+PYTHONPREFIX ?= testdata/python
+PYTHONWASM   ?= $(PYTHONPREFIX)/python.wasm
+PYTHONZIP    ?= $(PYTHONPREFIX)/python$(PYTHONMAJOR)$(PYTHONMINOR).zip
+VIRTUALENV   ?= $(PYTHONPREFIX)/env
+PYTHONHOME   ?= $(VIRTUALENV)
+PYTHONPATH   ?= $(PYTHONZIP):$(PYTHONHOME)
 
 ifeq ($(GITHUB_BRANCH_NAME),)
 	branch := $(shell git rev-parse --abbrev-ref HEAD)-
@@ -22,6 +34,9 @@ testdata.go.src = \
 	$(wildcard testdata/go/test/*.go)
 testdata.go.wasm = $(testdata.go.src:.go=.wasm)
 
+testdata.py.src = \
+	$(wildcard testdata/python/*_test.py)
+
 format.src.fbs = \
 	$(wildcard format/*/*.fbs)
 format.src.go = \
@@ -37,11 +52,19 @@ timecraft.src.go = \
 timecraft.sdk.src.go = \
 	$(wildcard sdk/*.go sdk/go/timecraft/*.go)
 
-timecraft: go.mod $(timecraft.src.go)
-	$(GO) build -o timecraft
+timecraft.sdk.src.py = \
+	$(wildcard sdk/python/src/timecraft/*.py)
+
+timecraft.sdk.venv.py = \
+	$(VIRTUALENV)/lib/python$(PYTHONMAJOR).$(PYTHONMINOR)/site-packages/timecraft
+
+timecraft = ./timecraft
+
+$(timecraft): go.mod $(timecraft.src.go)
+	$(GO) build -o $@
 
 clean:
-	rm -f timecraft $(format.src.go) $(testdata.go.wasm)
+	rm -f $(timecraft) $(format.src.go) $(testdata.go.wasm)
 
 lint:
 	golangci-lint run ./...
@@ -56,7 +79,9 @@ generate: flatbuffers
 flatbuffers: go.mod $(format.src.go)
 	$(GO) build ./format/...
 
-test: testdata wasi-testsuite
+test: go_test py_test wasi-testsuite
+
+go_test: testdata
 	$(GO) test ./...
 
 testdata: $(testdata.go.wasm)
@@ -74,6 +99,19 @@ wasi-testsuite: timecraft testdata/wasi-testsuite
 		   testdata/wasi-testsuite/tests/rust/testsuite \
 		-r testdata/adapter.py
 	@rm -rf testdata/wasi-testsuite/tests/rust/testsuite/fs-tests.dir/*.cleanup
+
+py_test: $(timecraft) $(timecraft.sdk.venv.py) $(testdata.py.src)
+	@if [ -f "$(PYTHONWASM)" ] && [ -f "$(PYTHONZIP)" ]; then \
+		$(timecraft) run --env PYTHONPATH=$(PYTHONPATH) --env PYTHONHOME=$(PYTHONHOME) -- $(PYTHONWASM) -m unittest $(testdata.py.src); \
+	else \
+		echo "skipping Python tests (could not find $(PYTHONWASM) and $(PYTHONZIP))"; \
+	fi
+
+$(timecraft.sdk.venv.py): $(VIRTUALENV)/bin/activate $(timecraft.sdk.src.py)
+	source $(VIRTUALENV)/bin/activate; pip install sdk/python
+
+$(VIRTUALENV)/bin/activate:
+	$(PYTHON) -m venv $(VIRTUALENV)
 
 testdata/wasi-testsuite: testdata/wasi-testsuite/.git
 

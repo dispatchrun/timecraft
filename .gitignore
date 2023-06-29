@@ -18,3 +18,10 @@
 
 # Emacs
 *~
+
+# Python
+__pycache__
+*.pyc
+/testdata/python/python.wasm
+/testdata/python/python311.zip
+/testdata/python/env
