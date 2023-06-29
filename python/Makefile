@@ -18,6 +18,8 @@ endif
 container.version ?= $(if $(RELEASE_TAG),$(RELEASE_TAG),$(shell git describe --tags || echo '$(subst /,-,$(branch))$(commit_timestamp)$(commit)'))
 container.image ?= ghcr.io/stealthrocket/timecraft-python
 
+python.commit.long = $(git log --format=format:%H -n1 -- .)
+
 docker-build: 
 	docker build -f Dockerfile.timecraft -t $(container.image):$(container.version) .
 
@@ -36,7 +38,7 @@ build-script:
 	./build.sh
 
 download:
-	./download.sh "$(commit.long)"
+	./download.sh "$(python.commit.long)"
 
 clean:
 	rm -f cpython/python.wasm cpython/usr/local/lib/python311.zip
