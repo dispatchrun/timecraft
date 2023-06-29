@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/stealthrocket/timecraft/internal/htls"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/tetratelabs/wazero/sys"
 )
@@ -154,6 +155,7 @@ var syscalls = []Syscall{
 	&SockGetOptSyscall{FD: 1, Option: wasi.Broadcast, Value: wasi.IntValue(1), Errno: 0},
 	&SockGetOptSyscall{FD: 1, Option: ^wasi.SocketOption(0), Value: nil, Errno: 1},
 	&SockGetOptSyscall{},
+	&SockSetOptSyscall{FD: 1, Option: wasi.MakeSocketOption(htls.Level, htls.Option), Value: wasi.BytesValue("foo"), Errno: 0},
 	&SockSetOptSyscall{FD: 1, Option: wasi.Broadcast, Value: wasi.IntValue(1), Errno: 0},
 	&SockSetOptSyscall{FD: 1, Option: ^wasi.SocketOption(0), Value: nil, Errno: 1},
 	&SockSetOptSyscall{},

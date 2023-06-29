@@ -1572,6 +1572,9 @@ func equalSocketOptionValue(a, b SocketOptionValue) bool {
 	case IntValue:
 		bv, ok := b.(IntValue)
 		return ok && av == bv
+	case BytesValue:
+		bv, ok := b.(BytesValue)
+		return ok && bytes.Equal(av, bv)
 	default:
 		return false
 	}
