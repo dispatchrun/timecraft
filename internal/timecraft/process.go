@@ -69,6 +69,8 @@ type ProcessInfo struct {
 }
 
 const (
+	timecraftServicePort = 7463
+
 	ipv4NetAddrNumBits = 32
 	ipv6NetAddrNumBits = 128
 
@@ -259,7 +261,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := pm.serverFactory.NewServer(pm.ctx, processID, moduleSpec, logSpec)
-	serverAddress := netip.AddrPortFrom(netip.AddrFrom4(ipv4), 3001)
+	serverAddress := netip.AddrPortFrom(netip.AddrFrom4(ipv4), timecraftServicePort)
 	serverListener, err := guest.Listen(pm.ctx, "tcp", serverAddress.String())
 	if err != nil {
 		return ProcessID{}, err
