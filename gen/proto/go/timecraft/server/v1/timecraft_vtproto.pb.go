@@ -264,6 +264,11 @@ func (m *HTTPRequest) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= len(m.unknownFields)
 		copy(dAtA[i:], m.unknownFields)
 	}
+	if m.Port != 0 {
+		i = encodeVarint(dAtA, i, uint64(m.Port))
+		i--
+		dAtA[i] = 0x28
+	}
 	if len(m.Body) > 0 {
 		i -= len(m.Body)
 		copy(dAtA[i:], m.Body)
@@ -1016,6 +1021,9 @@ func (m *HTTPRequest) SizeVT() (n int) {
 	l = len(m.Body)
 	if l > 0 {
 		n += 1 + l + sov(uint64(l))
+	}
+	if m.Port != 0 {
+		n += 1 + sov(uint64(m.Port))
 	}
 	n += len(m.unknownFields)
 	return n
@@ -1881,6 +1889,25 @@ func (m *HTTPRequest) UnmarshalVT(dAtA []byte) error {
 				m.Body = []byte{}
 			}
 			iNdEx = postIndex
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Port", wireType)
+			}
+			m.Port = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Port |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skip(dAtA[iNdEx:])

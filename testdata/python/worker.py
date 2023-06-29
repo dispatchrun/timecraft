@@ -44,4 +44,4 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    timecraft.start_worker(Handler)
+    timecraft.serve_forever(("0.0.0.0", 3000), Handler)

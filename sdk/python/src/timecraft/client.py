@@ -68,6 +68,7 @@ class TaskResponse:
 class HTTPRequest(TaskInput):
     method: str
     path: str
+    port: int
     headers: Header
     body: bytes
 
@@ -81,6 +82,7 @@ class HTTPRequest(TaskInput):
         http_request = {
             "method": self.method,
             "path": self.path,
+            "port": self.port,
             "headers": headers,
             "body": self.body,
         }

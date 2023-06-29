@@ -110,6 +110,7 @@ func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 			Path:    in.HttpRequest.Path,
 			Body:    in.HttpRequest.Body,
 			Headers: make(http.Header, len(in.HttpRequest.Headers)),
+			Port:    int(in.HttpRequest.Port),
 		}
 		for _, h := range in.HttpRequest.Headers {
 			httpRequest.Headers[h.Name] = append(httpRequest.Headers[h.Name], h.Value)

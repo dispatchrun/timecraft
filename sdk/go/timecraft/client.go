@@ -17,6 +17,11 @@ import (
 	"github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1/serverv1connect"
 )
 
+// TimecraftAddress is the socket that timecraft guests connect to in order to
+// interact with the timecraft runtime on the host. Note that this is a
+// virtual socket.
+const TimecraftAddress = "0.0.0.0:7463"
+
 // NewClient creates a timecraft client.
 func NewClient() (*Client, error) {
 	grpcClient := serverv1connect.NewTimecraftServiceClient(
@@ -176,6 +181,7 @@ func (c *Client) makeTaskRequest(req *TaskRequest) (*v1.TaskRequest, error) {
 			Method:  in.Method,
 			Path:    in.Path,
 			Body:    in.Body,
+			Port:    int32(in.Port),
 			Headers: headers,
 		}}
 	default:
