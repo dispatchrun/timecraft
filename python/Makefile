@@ -1,4 +1,4 @@
-.PHONY: docker-build docker-buildx build-docker build-script clean
+.PHONY: docker-build docker-buildx build-docker build-script clean download
 
 TIMECRAFT_VERSION ?= "main-1687814584-4c9ed9ce"
 
@@ -10,8 +10,10 @@ endif
 commit_timestamp := $(shell git show --no-patch --format=%ct)-
 ifeq ($(GITHUB_SHA),)
 	commit := $(shell git rev-parse --short=8 HEAD)
+	commit.long := $(shell git rev-parse HEAD)
 else
 	commit := $(shell echo $(GITHUB_SHA) | cut -c1-8)
+	commit.long := $(GITHUB_SHA)
 endif
 container.version ?= $(if $(RELEASE_TAG),$(RELEASE_TAG),$(shell git describe --tags || echo '$(subst /,-,$(branch))$(commit_timestamp)$(commit)'))
 container.image ?= ghcr.io/stealthrocket/timecraft-python
@@ -32,6 +34,9 @@ build-docker:
 
 build-script:
 	./build.sh
+
+download:
+	./download.sh "$(commit.long)"
 
 clean:
 	rm -f cpython/python.wasm cpython/usr/local/lib/python311.zip
