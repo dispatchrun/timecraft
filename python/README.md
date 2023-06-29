@@ -80,8 +80,7 @@ If you don't want to install everything locally, you can build a docker image
 that contains those dependencies:
 
 ```
-docker build -t builder .
-docker run -v `pwd`:/src -w /src builder ./build.sh
+make build-docker
 ```
 
 ### Configuration

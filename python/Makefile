@@ -1,4 +1,4 @@
-.PHONY: docker-build docker-buildx
+.PHONY: docker-build docker-buildx build-docker build-script
 
 TIMECRAFT_VERSION ?= "main-1687814584-4c9ed9ce"
 
@@ -25,3 +25,10 @@ docker-buildx:
 		--build-arg TIMECRAFT_VERSION=$(TIMECRAFT_VERSION) \
 		-f Dockerfile.timecraft \
 		-t $(container.image):$(container.version) .
+
+build-docker:
+	docker build -t timecraft-python-builder .
+	docker run -v `pwd`:/src -w /src timecraft-python-builder ./build.sh
+
+build-script:
+	./build.sh

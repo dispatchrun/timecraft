@@ -5,12 +5,14 @@ SHELL := /bin/bash
 
 GO ?= go
 
+PYTHONWASM_BUILD = python/cpython/python.wasm
+PYTHONZIP_BUILD = python/cpython/python311.zip
 PYTHON       ?= python3
 PYTHONMAJOR  ?= 3
 PYTHONMINOR  ?= 11
 PYTHONPREFIX ?= testdata/python
-PYTHONWASM   ?= $(PYTHONPREFIX)/python.wasm
-PYTHONZIP    ?= $(PYTHONPREFIX)/python$(PYTHONMAJOR)$(PYTHONMINOR).zip
+PYTHONWASM   ?= $(PYTHONWASM_BUILD)
+PYTHONZIP    ?= $(PYTHONZIP_BUILD)
 VIRTUALENV   ?= $(PYTHONPREFIX)/env
 PYTHONHOME   ?= $(VIRTUALENV)
 PYTHONPATH   ?= $(PYTHONZIP):$(PYTHONHOME)
@@ -100,12 +102,15 @@ wasi-testsuite: timecraft testdata/wasi-testsuite
 		-r testdata/adapter.py
 	@rm -rf testdata/wasi-testsuite/tests/rust/testsuite/fs-tests.dir/*.cleanup
 
-py_test: $(timecraft) $(timecraft.sdk.venv.py) $(testdata.py.src)
+py_test: $(timecraft) $(timecraft.sdk.venv.py) $(testdata.py.src) $(PYTHONWASM) $(PYTHONZIP)
 	@if [ -f "$(PYTHONWASM)" ] && [ -f "$(PYTHONZIP)" ]; then \
 		$(timecraft) run --env PYTHONPATH=$(PYTHONPATH) --env PYTHONHOME=$(PYTHONHOME) -- $(PYTHONWASM) -m unittest $(testdata.py.src); \
 	else \
 		echo "skipping Python tests (could not find $(PYTHONWASM) and $(PYTHONZIP))"; \
 	fi
+
+$(PYTHONZIP_BUILD) $(PYTHONWASM_BUILD):
+	$(MAKE) -C python build-docker
 
 $(timecraft.sdk.venv.py): $(VIRTUALENV)/bin/activate $(timecraft.sdk.src.py)
 	source $(VIRTUALENV)/bin/activate; pip install sdk/python
