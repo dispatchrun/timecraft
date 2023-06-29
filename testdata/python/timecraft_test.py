@@ -26,10 +26,12 @@ class TestTimecraft(unittest.TestCase):
         requests = [
             timecraft.HTTPRequest(method="POST",
                                   path="/foo",
+                                  port=3000,
                                   body=b"foo",
                                   headers={"X-Foo": "bar"}),
             timecraft.HTTPRequest(method="POST",
                                   path="/bar",
+                                  port=3000,
                                   body=b"bar",
                                   headers={"X-Foo": "bar"}),
         ]
