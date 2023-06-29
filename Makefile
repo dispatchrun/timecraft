@@ -95,6 +95,7 @@ testdata: $(testdata.go.wasm)
 	GOARCH=wasm GOOS=wasip1 $(GO) build -o $@ $<
 
 wasi-testsuite: timecraft testdata/wasi-testsuite
+	python3 -m pip install -r testdata/wasi-testsuite/test-runner/requirements.txt
 	python3 testdata/wasi-testsuite/test-runner/wasi_test_runner.py \
 		-t testdata/wasi-testsuite/tests/assemblyscript/testsuite \
 		   testdata/wasi-testsuite/tests/c/testsuite \
