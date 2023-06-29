@@ -48,7 +48,6 @@ WebAssembly, see [Preparing Your Application][preparing].
 To try some of the examples, first compile them with this command:
 ```
 make testdata
-...
 ```
 
 The compilation created programs with the `.wasm` extension since they are
