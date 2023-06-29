@@ -8,6 +8,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          submodules: true
       - name: Build docker image
         working-directory: python
         run: |
@@ -16,17 +18,17 @@ jobs:
         working-directory: python
         run: |
           docker run -v `pwd`:/src -w /src -e NO_OPT=true -e DEBUG=true builder ./build.sh
+      - name: Check for output
+        run: |
+          find . -name python.wasm
+          find . -name python311.zip
       - name: Archive build output
         uses: actions/upload-artifact@v3
-        working-directory: python
         with:
           name: python-wasm-stdlib
           path: |
-            python/python.wasm
-            python/usr/local/lib/python311.zip
-      - run: |
-          pwd
-          ls python
+            python/cpython/python.wasm
+            python/cpython/usr/local/lib/python311.zip
 
   docker-build:
     runs-on: ubuntu-latest
@@ -36,12 +38,14 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
+      with:
+        submodules: true
+        fetch-depth: 0
     - name: Download build output
       uses: actions/download-artifact@v3
-      working-directory: python
       with:
         name: python-wasm-stdlib
-        path: python
+        path: python/cpython
     - run: echo $PAT_PACKAGES | docker login ghcr.io -u USERNAME --password-stdin
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v1
@@ -50,5 +54,6 @@ jobs:
       uses: docker/setup-buildx-action@v1
     - name: Build and push
       working-directory: python
-      run: echo "noop: make docker-buildx"
+      run: |
+        echo "noop: make docker-buildx"
 

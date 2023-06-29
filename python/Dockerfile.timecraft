@@ -7,6 +7,6 @@ ARG TARGETPLATFORM
 ENV PYTHONPATH=/python/usr/local/lib/python311.zip
 ENV PYTHONHOME=/python/usr/local/lib/python311.zip
 
-COPY python /python
+COPY cpython /python
 
 ENTRYPOINT ["timecraft", "run", "/python/python.wasm"]

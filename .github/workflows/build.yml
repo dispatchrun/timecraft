@@ -61,10 +61,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: true
+        fetch-depth: 0
     - uses: actions/setup-go@v4
       with:
         go-version-file: go.mod
         check-latest: true
+
+    - uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
 
     - name: Install Go tip
       run: |

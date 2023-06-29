@@ -5,12 +5,14 @@ SHELL := /bin/bash
 
 GO ?= gotip
 
+PYTHONWASM_BUILD = python/cpython/python.wasm
+PYTHONZIP_BUILD = python/cpython/usr/local/lib/python311.zip
 PYTHON       ?= python3
 PYTHONMAJOR  ?= 3
 PYTHONMINOR  ?= 11
 PYTHONPREFIX ?= testdata/python
-PYTHONWASM   ?= $(PYTHONPREFIX)/python.wasm
-PYTHONZIP    ?= $(PYTHONPREFIX)/python$(PYTHONMAJOR)$(PYTHONMINOR).zip
+PYTHONWASM   ?= $(PYTHONWASM_BUILD)
+PYTHONZIP    ?= $(PYTHONZIP_BUILD)
 VIRTUALENV   ?= $(PYTHONPREFIX)/env
 PYTHONHOME   ?= $(VIRTUALENV)
 PYTHONPATH   ?= $(PYTHONZIP):$(PYTHONHOME)
@@ -79,9 +81,9 @@ generate: flatbuffers
 flatbuffers: go.mod $(format.src.go)
 	$(GO) build ./format/...
 
-test: go_test py_test wasi-testsuite
+test: go-test python-test  wasi-testsuite
 
-go_test: testdata
+go-test: testdata
 	$(GO) test ./...
 
 testdata: $(testdata.go.wasm)
@@ -93,6 +95,7 @@ testdata: $(testdata.go.wasm)
 	GOARCH=wasm GOOS=wasip1 $(GO) build -o $@ $<
 
 wasi-testsuite: timecraft testdata/wasi-testsuite
+	python3 -m pip install -r testdata/wasi-testsuite/test-runner/requirements.txt
 	python3 testdata/wasi-testsuite/test-runner/wasi_test_runner.py \
 		-t testdata/wasi-testsuite/tests/assemblyscript/testsuite \
 		   testdata/wasi-testsuite/tests/c/testsuite \
@@ -100,12 +103,15 @@ wasi-testsuite: timecraft testdata/wasi-testsuite
 		-r testdata/adapter.py
 	@rm -rf testdata/wasi-testsuite/tests/rust/testsuite/fs-tests.dir/*.cleanup
 
-py_test: $(timecraft) $(timecraft.sdk.venv.py) $(testdata.py.src)
+python-test: $(timecraft) $(timecraft.sdk.venv.py) $(testdata.py.src) $(PYTHONWASM) $(PYTHONZIP)
 	@if [ -f "$(PYTHONWASM)" ] && [ -f "$(PYTHONZIP)" ]; then \
 		$(timecraft) run --env PYTHONPATH=$(PYTHONPATH) --env PYTHONHOME=$(PYTHONHOME) -- $(PYTHONWASM) -m unittest $(testdata.py.src); \
 	else \
 		echo "skipping Python tests (could not find $(PYTHONWASM) and $(PYTHONZIP))"; \
 	fi
+
+$(PYTHONZIP_BUILD) $(PYTHONWASM_BUILD):
+	$(MAKE) -C python download || $(MAKE) -C python build-docker
 
 $(timecraft.sdk.venv.py): $(VIRTUALENV)/bin/activate $(timecraft.sdk.src.py)
 	source $(VIRTUALENV)/bin/activate; pip install sdk/python

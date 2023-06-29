@@ -62,7 +62,7 @@ export LIBUUID_INCLUDE="${LIBUUID}/include"
 
 # build python against wasi-libc
 echo "=== building python 3.11.3"
-PYSOURCE="`pwd`/python"
+PYSOURCE="`pwd`/cpython"
 pushd "${PYSOURCE}"
 
 export CFLAGS_CONFIG="${CFLAGS_CONFIG} -Wno-int-conversion"
