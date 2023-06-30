@@ -1,6 +1,9 @@
 name: Python
 
-on: [push]
+on:
+  push:
+    paths:
+      - 'python/*'
 
 permissions:
   id-token: write # This is required for requesting the JWT
