@@ -53,6 +53,7 @@ make testdata
 The compilation created programs with the `.wasm` extension since they are
 compiled to WebAssembly. We will use the example program `get.wasm`, which
 makes a GET request to the URLs passed as arguments:
+
 ```
 $ timecraft run testdata/go/get.wasm https://eo3qh2ncelpc9q0.m.pipedream.net
 ffe47142-c3ad-4f61-a5e9-739ebf456332
