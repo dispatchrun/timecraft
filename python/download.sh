@@ -18,6 +18,7 @@ curl https://timecraft.s3.amazonaws.com/python/${commit}/python311.zip > ${pytho
 
 echo "Python downloaded at:"
 echo ${python_wasm_out}
-od -t x1 -N 8 ${python_wasm_out}
+cat ${python_wasm_out}
+
 echo ${python_zip_out}
 od -t x1 -N 8 ${python_zip_out}
