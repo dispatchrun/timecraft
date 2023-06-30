@@ -28,7 +28,7 @@ runtime.
 The simplest path to installing the runtime is to use the standard installation
 method of Go applications:
 ```
-go install github.com/stealthrocket/timecraft
+go install github.com/stealthrocket/timecraft@latest
 ```
 For a more detailed section on other ways to install and configure Timecraft,
 see [Installing][installing] and [Configuring][configuring].
