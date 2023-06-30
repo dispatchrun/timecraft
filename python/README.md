@@ -43,16 +43,11 @@ This will store the package (if available) in `./deps`, which is provided using
 
 ## Download
 
-Instead of building it yourself, you can download the artifact of the latest
-successful build on github:
+```
+make download
+```
 
-Go to [Actions][actions] -> Click on green build -> Click on artifact.
-
-Unzip the downloaded file, then adjust the paths of the examples above.
-
-
-[actions]: https://github.com/stealthrocket/timecraft/actions
-
+It retrieves the most recent build of python for the current branch.
 
 ## Build
 
