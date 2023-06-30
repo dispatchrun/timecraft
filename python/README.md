@@ -47,7 +47,8 @@ This will store the package (if available) in `./deps`, which is provided using
 make download
 ```
 
-It retrieves the most recent build of python for the current branch.
+It retrieves the most recent build of python for the current branch. To enable
+debug logs, read the following "Build" section.
 
 ## Build
 
