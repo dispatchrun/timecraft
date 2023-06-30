@@ -9,9 +9,15 @@ fi
 
 commit=$1
 
+python_wasm_out="cpython/python.wasm"
+python_zip_out="cpython/usr/local/lib/python311.zip"
+
 mkdir -p cpython/usr/local/lib/
-curl https://timecraft.s3.amazonaws.com/python/${commit}/python.wasm > cpython/python.wasm
-curl https://timecraft.s3.amazonaws.com/python/${commit}/python311.zip > cpython/usr/local/lib/python311.zip
+curl https://timecraft.s3.amazonaws.com/python/${commit}/python.wasm > ${python_wasm_out}
+curl https://timecraft.s3.amazonaws.com/python/${commit}/python311.zip > ${python_zip_out}
 
 echo "Python downloaded at:"
-find . -name 'python.wasm' -o -name 'python311.zip'
+echo ${python_wasm_out}
+od -t x1 -N 8 ${python_wasm_out}
+echo ${python_zip_out}
+od -t x1 -N 8 ${python_zip_out}
