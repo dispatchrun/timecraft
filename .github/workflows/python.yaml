@@ -1,6 +1,13 @@
 name: Python
 
-on: [push]
+on:
+  push:
+    paths:
+      - 'python/*'
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: read  # This is required for actions/checkout
 
 jobs:
   build_and_test:
@@ -29,6 +36,15 @@ jobs:
           path: |
             python/cpython/python.wasm
             python/cpython/usr/local/lib/python311.zip
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Copy build output to public S3
+        run: |
+          aws s3 cp python/cpython/python.wasm                 s3://timecraft/python/$GITHUB_SHA/python.wasm
+          aws s3 cp python/cpython/usr/local/lib/python311.zip s3://timecraft/python/$GITHUB_SHA/python311.zip
 
   docker-build:
     runs-on: ubuntu-latest

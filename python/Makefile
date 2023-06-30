@@ -18,7 +18,7 @@ endif
 container.version ?= $(if $(RELEASE_TAG),$(RELEASE_TAG),$(shell git describe --tags || echo '$(subst /,-,$(branch))$(commit_timestamp)$(commit)'))
 container.image ?= ghcr.io/stealthrocket/timecraft-python
 
-python.commit.long = $(git log --format=format:%H -n1 -- .)
+python.commit.long = $(shell git log --format=format:%H -n1 -- .)
 
 docker-build: 
 	docker build -f Dockerfile.timecraft -t $(container.image):$(container.version) .
