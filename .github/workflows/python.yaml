@@ -24,7 +24,7 @@ jobs:
       - name: Compile
         working-directory: python
         run: |
-          docker run -v `pwd`:/src -w /src -e NO_OPT=true -e DEBUG=true builder ./build.sh
+          docker run -v `pwd`:/src -w /src -e NO_OPT=true builder ./build.sh
       - name: Check for output
         run: |
           find . -name python.wasm
