@@ -9,6 +9,7 @@ fi
 
 commit=$1
 
+mkdir -p cpython/usr/local/lib/
 curl https://timecraft.s3.amazonaws.com/python/${commit}/python.wasm > cpython/python.wasm
 curl https://timecraft.s3.amazonaws.com/python/${commit}/python311.zip > cpython/usr/local/lib/python311.zip
 
