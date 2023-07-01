@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"net"
 	"sync"
 	"time"
 
@@ -704,10 +703,7 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 			if errno != wasi.ESUCCESS {
 				return errno
 			}
-			// The panic if the type conversion fails is the desired behavior
-			// here, the dial function should return a type which implements
-			// net.PacketConn when dialing for a datagram protocol such as udp.
-			s.startPacketTunnel(ctx, c.(net.PacketConn))
+			s.startPacketTunnelTo(ctx, c)
 		}
 		s.wev.trigger()
 		return wasi.ESUCCESS
@@ -852,6 +848,9 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 }
 
 func (s *socket[T]) SockSend(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
+	if s.flags.has(sockClosed) {
+		return ^wasi.Size(0), wasi.ECONNRESET
+	}
 	if !s.flags.has(sockConn) {
 		return ^wasi.Size(0), wasi.ENOTCONN
 	}
@@ -863,6 +862,12 @@ func (s *socket[T]) SockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	if errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), errno
 	}
+	if s.flags.has(sockClosed) {
+		return ^wasi.Size(0), wasi.ECONNRESET
+	}
+	if s.flags.has(sockConn) {
+		return 0, wasi.EISCONN
+	}
 	return s.sockSendTo(ctx, iovs, flags, dstAddr)
 }
 
@@ -870,17 +875,11 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if s.flags.has(sockClosed) {
-		return ^wasi.Size(0), wasi.ECONNRESET
-	}
 	if s.flags.has(sockListen) {
 		return ^wasi.Size(0), wasi.ENOTSUP
 	}
 	if s.typ == stream && !s.flags.has(sockConn) {
 		return ^wasi.Size(0), wasi.ENOTCONN
-	}
-	if s.flags.has(sockConn) && addr != s.raddr {
-		return ^wasi.Size(0), wasi.EISCONN
 	}
 	if errno := s.getErrno(); errno != wasi.ESUCCESS {
 		return ^wasi.Size(0), errno

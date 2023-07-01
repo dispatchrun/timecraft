@@ -579,10 +579,10 @@ func closeOnCancel(ctx context.Context, conn io.Closer) {
 	conn.Close() //nolint:errcheck
 }
 
-type packetConnTunnel[T sockaddr] struct {
+type packetTunnel[T sockaddr] struct {
 	refc int32
 	sock *socket[T]
-	conn net.PacketConn
+	conn io.Closer
 	errs chan<- wasi.Errno
 }
 
@@ -597,31 +597,78 @@ func (s *socket[T]) startPacketTunnel(ctx context.Context, conn net.PacketConn) 
 	wbufsize := s.wbuf.size()
 
 	buffer := make([]byte, rbufsize+wbufsize)
-	tunnel := &packetConnTunnel[T]{
+	tunnel := &packetTunnel[T]{
 		refc: 2,
 		sock: s,
 		conn: conn,
 		errs: errs,
 	}
 
-	go tunnel.readFromPacketConn(buffer[:rbufsize])
-	go tunnel.writeToPacketConn(buffer[rbufsize:])
+	go tunnel.readFromPacketConn(conn, buffer[:rbufsize])
+	go tunnel.writeToPacketConn(conn, buffer[rbufsize:])
 	go closeOnCancel(ctx, conn)
 }
 
-func (p *packetConnTunnel[T]) unref() {
+func (s *socket[T]) startPacketTunnelTo(ctx context.Context, conn net.Conn) {
+	ctx, s.cancel = context.WithCancel(ctx)
+
+	errs := make(chan wasi.Errno, 2)
+	s.errs = errs
+	s.allocateBuffersIfNil()
+
+	rbufsize := s.rbuf.size()
+	wbufsize := s.wbuf.size()
+
+	buffer := make([]byte, rbufsize+wbufsize)
+	tunnel := &packetTunnel[T]{
+		refc: 2,
+		sock: s,
+		conn: conn,
+		errs: errs,
+	}
+
+	go tunnel.readFromConn(conn, buffer[:rbufsize])
+	go tunnel.writeToConn(conn, buffer[rbufsize:])
+	go closeOnCancel(ctx, conn)
+}
+
+func (p *packetTunnel[T]) unref() {
 	if atomic.AddInt32(&p.refc, -1) == 0 {
 		p.conn.Close()
 		close(p.errs)
 	}
 }
 
-func (p *packetConnTunnel[T]) readFromPacketConn(buf []byte) {
+func (p *packetTunnel[T]) readFromPacketConn(conn net.PacketConn, buf []byte) {
+	network := p.sock.net
+	p.readFrom(buf, func(b []byte) (int, T, error) {
+		var zero T
+		n, addr, err := conn.ReadFrom(b)
+		if err != nil {
+			return n, zero, err
+		}
+		peer, errno := network.sockAddr(addr)
+		if errno != wasi.ESUCCESS {
+			return n, zero, errno
+		}
+		return n, peer, nil
+	})
+}
+
+func (p *packetTunnel[T]) readFromConn(conn net.Conn, buf []byte) {
+	addr := p.sock.raddr
+	p.readFrom(buf, func(b []byte) (int, T, error) {
+		n, err := conn.Read(b)
+		return n, addr, err
+	})
+}
+
+func (p *packetTunnel[T]) readFrom(buf []byte, read func([]byte) (int, T, error)) {
 	defer p.unref()
 	defer p.sock.rbuf.close()
 
 	for {
-		size, addr, err := p.conn.ReadFrom(buf)
+		size, addr, err := read(buf)
 		if err != nil {
 			p.errs <- wasi.MakeErrno(err)
 			return
@@ -629,22 +676,27 @@ func (p *packetConnTunnel[T]) readFromPacketConn(buf []byte) {
 		// TODO:
 		// - capture metric about packets that were dropped
 		// - log details about the reason why a packet was dropped
-		peer, errno := p.sock.net.sockAddr(addr)
-		if errno != wasi.ESUCCESS {
-			continue
-		}
-		_, errno = p.sock.rbuf.sendmsg([]wasi.IOVec{buf[:size]}, peer)
+		_, errno := p.sock.rbuf.sendmsg([]wasi.IOVec{buf[:size]}, addr)
 		if errno != wasi.ESUCCESS {
 			continue
 		}
 	}
 }
 
-func (p *packetConnTunnel[T]) writeToPacketConn(buf []byte) {
+func (p *packetTunnel[T]) writeToPacketConn(conn net.PacketConn, buf []byte) {
+	proto := p.sock.proto
+	p.writeTo(buf, func(b []byte, a T) (int, error) { return conn.WriteTo(b, a.netAddr(proto)) })
+}
+
+func (p *packetTunnel[T]) writeToConn(conn net.Conn, buf []byte) {
+	p.writeTo(buf, func(b []byte, _ T) (int, error) { return conn.Write(b) })
+}
+
+func (p *packetTunnel[T]) writeTo(buf []byte, write func([]byte, T) (int, error)) {
 	defer p.unref()
 	defer p.sock.wbuf.close()
 
-	sig := make(chan struct{}, 1)
+	signal := make(chan struct{}, 1)
 	for {
 		size, _, addr, errno := p.sock.wbuf.recvmsg([]wasi.IOVec{buf}, 0)
 		switch errno {
@@ -652,16 +704,16 @@ func (p *packetConnTunnel[T]) writeToPacketConn(buf []byte) {
 			if size == 0 {
 				return
 			}
-			_, err := p.conn.WriteTo(buf[:size], addr.netAddr(p.sock.proto))
+			_, err := write(buf[:size], addr)
 			if err != nil {
 				p.errs <- wasi.MakeErrno(err)
 				return
 			}
 		case wasi.EAGAIN:
 			var ready bool
-			p.sock.wev.synchronize(func() { ready = p.sock.wev.poll(sig) })
+			p.sock.wev.synchronize(func() { ready = p.sock.wev.poll(signal) })
 			if !ready {
-				<-sig
+				<-signal
 			}
 		default:
 			// TODO:
