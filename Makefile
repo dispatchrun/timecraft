@@ -94,9 +94,9 @@ testdata: $(testdata.go.wasm)
 %.wasm: %.go go.mod $(timecraft.sdk.src.go)
 	GOARCH=wasm GOOS=wasip1 $(GO) build -o $@ $<
 
-wasi-testsuite: timecraft testdata/wasi-testsuite
-	python3 -m pip install -r testdata/wasi-testsuite/test-runner/requirements.txt
-	python3 testdata/wasi-testsuite/test-runner/wasi_test_runner.py \
+wasi-testsuite: timecraft testdata/wasi-testsuite $(VIRTUALENV)/bin/activate
+	source $(VIRTUALENV)/bin/activate; pip install -r testdata/wasi-testsuite/test-runner/requirements.txt
+	source $(VIRTUALENV)/bin/activate; python3 testdata/wasi-testsuite/test-runner/wasi_test_runner.py \
 		-t testdata/wasi-testsuite/tests/assemblyscript/testsuite \
 		   testdata/wasi-testsuite/tests/c/testsuite \
 		   testdata/wasi-testsuite/tests/rust/testsuite \
