@@ -17,7 +17,6 @@ jobs:
       BUILDPLATFORM: "linux/amd64,linux/arm64"
     name: Container Build
     runs-on: ubuntu-latest
-    needs: test
     steps:
     - uses: actions/checkout@v3
     - uses: actions/setup-go@v4
