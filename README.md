@@ -13,9 +13,9 @@ difficulty. By combining a sandbox, a task orchestrator, and a time machine
 in a software runtime, Timecraft intends to bring the tools and structure to
 help developers on their journey to construct, test, and operate such systems.
 
-[configuring]: https://github.com/stealthrocket/timecraft/wiki/Configuring-Timecraft
-[installing]:  https://github.com/stealthrocket/timecraft/wiki/Installing-Timecraft
-[preparing]:   https://github.com/stealthrocket/timecraft/wiki#preparing-your-application
+[configuring]: https://docs.timecraft.dev/getting-started/configuration
+[installing]:  https://docs.timecraft.dev/getting-started/installation
+[preparing]:   https://docs.timecraft.dev/category/preparing-your-application
 [wasmedge]:    https://github.com/WasmEdge/WasmEdge
 [wazero]:      https://github.com/tetratelabs/wazero
 [wiki]:        https://github.com/stealthrocket/timecraft/wiki
