@@ -14,9 +14,10 @@ class TestStdlib(unittest.TestCase):
         buf = bytearray(1024)
         view = memoryview(buf)
 
+        req = b"GET / HTTP/1.1\r\nHost: example.com:443\r\n\r\n"
         with socket.create_connection((hostname, 443)) as sock:
             with context.wrap_socket(sock, server_hostname=hostname) as ssock:
-                ssock.sendall(b"GET / HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+                ssock.sendall(req)
                 nbytes = ssock.recv_into(view, 1024)
                 self.assertTrue(nbytes > 0)
         prefix = b"HTTP/1.1 200 OK"
@@ -29,32 +30,32 @@ class TestStdlib(unittest.TestCase):
         buf = bytearray(1024)
         view = memoryview(buf)
 
-        # Can't use with socket.create_connection because it raises when connect
-        # returns EINPROGRESS.
+        # Can't use with socket.create_connection because it raises when
+        # connect returns EINPROGRESS.
         sock = socket.socket()
         sock.setblocking(False)
-        fd = sock.fileno()
         try:
             sock.connect((hostname, 443))
         except BlockingIOError:
             pass
 
+        req = b"GET / HTTP/1.1\r\nHost: example.com:443\r\n\r\n"
         try:
             with context.wrap_socket(sock, server_hostname=hostname) as ssock:
                 poller = select.poll()
-                poller.register(ssock, select.POLLOUT|select.POLLIN)
+                poller.register(ssock, select.POLLOUT | select.POLLIN)
                 running = True
                 while running:
                     evts = poller.poll(5000)
                     for s, e in evts:
-                        if e & select.POLLOUT and ssock.fileno()==s:
-                            ssock.sendall(b"GET / HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+                        if e & select.POLLOUT and ssock.fileno() == s:
+                            ssock.sendall(req)
                             running = False
                 running = True
                 while running:
                     evts = poller.poll(5000)
                     for s, e in evts:
-                        if e & select.POLLIN and ssock.fileno()==s:
+                        if e & select.POLLIN and ssock.fileno() == s:
                             nbytes = ssock.recv_into(view, 1024)
                             self.assertTrue(nbytes > 0)
                             running = False
