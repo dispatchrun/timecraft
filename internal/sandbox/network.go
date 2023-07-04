@@ -265,7 +265,7 @@ func listen[N network[T], T sockaddr](s *System, n N, addr netaddr[T]) (net.List
 
 func listenPacket[N network[T], T sockaddr](s *System, n N, addr netaddr[T]) (net.PacketConn, error) {
 	socket := newSocket[T](n, datagram, addr.protocol, s.lock, s.poll)
-	socket.allocateBuffersIfNil()
+	socket.resizeBuffersIfNeeded()
 
 	if errno := n.bind(addr.sockaddr, socket); errno != wasi.ESUCCESS {
 		netAddr := addr.netAddr()

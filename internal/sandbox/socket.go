@@ -99,6 +99,17 @@ func (sb *sockbuf[T]) size() int {
 	return size
 }
 
+func (sb *sockbuf[T]) resize(size int) {
+	sb.lock()
+	defer sb.unlock()
+
+	if size > sb.buf.cap() || sb.buf.len() == 0 {
+		buf := makeRingBuffer[byte](size)
+		buf.write(sb.buf.values())
+		sb.buf = buf
+	}
+}
+
 func (sb *sockbuf[T]) recv(iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, T, wasi.Errno) {
 	sb.lock()
 	defer sb.unlock()
@@ -354,6 +365,7 @@ func newSocket[T sockaddr](net network[T], typ socktype, proto protocol, lock *s
 	if typ == datagram {
 		sock.sendmsg = (*sockbuf[T]).sendmsg
 		sock.recvmsg = (*sockbuf[T]).recvmsg
+		sock.resizeBuffersIfNeeded()
 	} else {
 		sock.sendmsg = (*sockbuf[T]).send
 		sock.recvmsg = (*sockbuf[T]).recv
@@ -436,7 +448,7 @@ func (s *socket[T]) connect(peer, sock *socket[T], laddr, raddr T) wasi.Errno {
 		if errno := sock.net.link(sock); errno != wasi.ESUCCESS {
 			return errno
 		}
-		sock.allocateBuffersIfNil()
+		sock.resizeBuffersIfNeeded()
 		return wasi.ESUCCESS
 	}
 
@@ -644,16 +656,21 @@ func (s *socket[T]) bind(ctx context.Context, bind func() wasi.Errno) wasi.Errno
 	return bind()
 }
 
-func (s *socket[T]) allocateBuffersIfNil() {
+func (s *socket[T]) resizeBuffersIfNeeded() {
 	if s.rbuf == nil {
 		s.rbuf = newSocketBuffer[T](s.rev.lock, int(s.rbufsize))
 		s.rev = &s.rbuf.rev
+	} else {
+		s.rbuf.resize(int(s.rbufsize))
 	}
 	if s.wbuf == nil {
 		s.wbuf = newSocketBuffer[T](s.wev.lock, int(s.wbufsize))
 		s.wev = &s.wbuf.wev
+	} else {
+		s.wbuf.resize(int(s.wbufsize))
 	}
 }
+
 func (s *socket[T]) closeHTLS() {
 	if s.htls != nil {
 		close(s.htls)
@@ -689,7 +706,7 @@ func (s *socket[T]) SockConnect(ctx context.Context, addr wasi.SocketAddress) wa
 		return errno
 	}
 
-	s.allocateBuffersIfNil()
+	s.resizeBuffersIfNeeded()
 	s.flags = s.flags.with(sockConn)
 	s.raddr = raddr
 
@@ -821,7 +838,7 @@ func (s *socket[T]) sockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags w
 		return ^wasi.Size(0), 0, addr, errno
 	}
 	s.closeHTLS()
-	s.allocateBuffersIfNil()
+	s.resizeBuffersIfNeeded()
 
 	for {
 		size, roflags, addr, errno := s.recvmsg(s.rbuf, iovs, flags)
@@ -888,7 +905,7 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 		return ^wasi.Size(0), errno
 	}
 	s.closeHTLS()
-	s.allocateBuffersIfNil()
+	s.resizeBuffersIfNeeded()
 
 	var sbuf *sockbuf[T]
 	var sev *event
@@ -919,7 +936,7 @@ func (s *socket[T]) sockSendTo(ctx context.Context, iovs []wasi.IOVec, flags was
 		defer s.mutex.Lock()
 
 		sock.synchronize(func() {
-			sock.allocateBuffersIfNil()
+			sock.resizeBuffersIfNeeded()
 			sbuf = sock.rbuf
 			sev = &sock.rbuf.wev
 			smu = &sock.mutex

@@ -355,7 +355,7 @@ func (c *packetConn[T]) writeTo(b []byte, addr T) (int, error) {
 			return len(b), nil
 		}
 		sock.synchronize(func() {
-			sock.allocateBuffersIfNil()
+			sock.resizeBuffersIfNeeded()
 			sbuf = sock.rbuf
 			sev = &sock.rbuf.wev
 		})
@@ -591,7 +591,7 @@ func (s *socket[T]) startPacketTunnel(ctx context.Context, conn net.PacketConn) 
 
 	errs := make(chan wasi.Errno, 2)
 	s.errs = errs
-	s.allocateBuffersIfNil()
+	s.resizeBuffersIfNeeded()
 
 	rbufsize := s.rbuf.size()
 	wbufsize := s.wbuf.size()
@@ -614,7 +614,7 @@ func (s *socket[T]) startPacketTunnelTo(ctx context.Context, conn net.Conn) {
 
 	errs := make(chan wasi.Errno, 2)
 	s.errs = errs
-	s.allocateBuffersIfNil()
+	s.resizeBuffersIfNeeded()
 
 	rbufsize := s.rbuf.size()
 	wbufsize := s.wbuf.size()
