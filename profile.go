@@ -141,7 +141,18 @@ func profile(ctx context.Context, args []string) error {
 		),
 	)
 
-	if err := replay.ReplayRecords(ctx, moduleCode, records); err != nil {
+	compiledModule, err := runtime.CompileModule(ctx, moduleCode)
+	if err != nil {
+		return err
+	}
+	defer compiledModule.Close(ctx)
+
+	err = p.Prepare(compiledModule)
+	if err != nil {
+		return err
+	}
+
+	if err := replay.ReplayRecordsModule(ctx, compiledModule, records); err != nil {
 		return err
 	}
 
