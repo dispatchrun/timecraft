@@ -106,14 +106,9 @@ func (r *Replay) RecordReader(ctx context.Context) (records stream.ReadCloser[ti
 	return &recordReadCloser{recordReader, logReader, logSegment}, manifest.StartTime, nil
 }
 
-// ReplayRecords replays process execution using the specified records.
-func (r *Replay) ReplayRecords(ctx context.Context, moduleCode []byte, records stream.Reader[timemachine.Record]) error {
-	compiledModule, err := r.runtime.CompileModule(ctx, moduleCode)
-	if err != nil {
-		return err
-	}
-	defer compiledModule.Close(ctx)
-
+// ReplayRecordsModule replays process execution using the specified records on
+// a pre-compiled module.
+func (r *Replay) ReplayRecordsModule(ctx context.Context, compiledModule wazero.CompiledModule, records stream.Reader[timemachine.Record]) error {
 	replay := wasicall.NewReplay(records)
 	defer replay.Close(ctx)
 
@@ -134,6 +129,16 @@ func (r *Replay) ReplayRecords(ctx context.Context, moduleCode []byte, records s
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
 	return runModule(ctx, r.runtime, compiledModule)
+}
+
+// ReplayRecords replays process execution using the specified records.
+func (r *Replay) ReplayRecords(ctx context.Context, moduleCode []byte, records stream.Reader[timemachine.Record]) error {
+	compiledModule, err := r.runtime.CompileModule(ctx, moduleCode)
+	if err != nil {
+		return err
+	}
+	defer compiledModule.Close(ctx)
+	return r.ReplayRecordsModule(ctx, compiledModule, records)
 }
 
 type recordReadCloser struct {
