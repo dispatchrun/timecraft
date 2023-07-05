@@ -774,11 +774,16 @@ func (s *System) pollOneOffScatter(subscriptions []wasi.Subscription, events []w
 				numEvents++
 				continue
 			}
+			duration := time.Duration(clock.Timeout)
+			if clock.Precision > 0 {
+				duration += time.Duration(clock.Precision)
+				duration -= 1
+			}
 			if (clock.Flags & wasi.Abstime) != 0 {
-				deadline := epoch.Add(time.Duration(clock.Timeout + clock.Precision))
+				deadline := epoch.Add(duration)
 				setTimeout(i, deadline.Sub(now))
 			} else {
-				setTimeout(i, time.Duration(clock.Timeout+clock.Precision))
+				setTimeout(i, duration)
 			}
 
 		case wasi.FDReadEvent, wasi.FDWriteEvent:

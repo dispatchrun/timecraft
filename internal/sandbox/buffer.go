@@ -69,8 +69,12 @@ func (rb *ringbuf[T]) append(values ...T) {
 
 func (rb *ringbuf[T]) pack() {
 	if rb.off > 0 {
-		n := copy(rb.buf, rb.buf[rb.off:rb.end])
+		n := copy(rb.buf, rb.values())
 		rb.end = int32(n)
 		rb.off = 0
 	}
+}
+
+func (rb *ringbuf[T]) values() []T {
+	return rb.buf[rb.off:rb.end]
 }
