@@ -2,23 +2,28 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stealthrocket/timecraft/internal/chaos"
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/stealthrocket/wasi-go"
 )
 
 const runUsage = `
 Usage:	timecraft run [options] [--] <module> [args...]
 
 Options:
+   -C, --chaotic ratio            Enable artificial fault injection when running the module (raio is a decimal value between 0 and 1)
    -c, --config path              Path to the timecraft configuration file (overrides TIMECRAFTCONFIG)
    -D, --dial addr                Expose a socket connected to the specified address
        --dir dir                  Expose a directory to the guest module
@@ -39,6 +44,7 @@ func run(ctx context.Context, args []string) error {
 		listens     stringList
 		dials       stringList
 		dirs        stringList
+		chaotic     = human.Ratio(0)
 		batchSize   = human.Count(4096)
 		compression = compression("zstd")
 		sockets     = sockets("auto")
@@ -53,6 +59,7 @@ func run(ctx context.Context, args []string) error {
 	customVar(flagSet, &dials, "D", "dial")
 	customVar(flagSet, &dirs, "dir")
 	customVar(flagSet, &sockets, "S", "sockets")
+	customVar(flagSet, &chaotic, "C", "chaotic")
 	boolVar(flagSet, &trace, "T", "trace")
 	boolVar(flagSet, &flyBlind, "fly-blind")
 	boolVar(flagSet, &restrict, "restrict")
@@ -97,7 +104,23 @@ func run(ctx context.Context, args []string) error {
 
 	serverFactory := &timecraft.ServerFactory{Scheduler: scheduler}
 
-	processManager := timecraft.NewProcessManager(ctx, registry, runtime, serverFactory)
+	var adapter func(timecraft.ProcessID, wasi.System) wasi.System
+	if chaotic > 0 {
+		adapter = func(process timecraft.ProcessID, system wasi.System) wasi.System {
+			seed := int64(binary.LittleEndian.Uint64(process[8:]))
+			prng := rand.NewSource(seed)
+			chance := float64(chaotic) / 2
+			system = chaos.New(prng, system,
+				chaos.Chance(chance, chaos.Error(system)),
+				chaos.Chance(chance, chaos.Chunk(system)),
+			)
+			system = chaos.LowEntropy(system)
+			system = chaos.ClockDrift(system)
+			return system
+		}
+	}
+
+	processManager := timecraft.NewProcessManager(ctx, registry, runtime, serverFactory, adapter)
 	defer processManager.Close()
 
 	scheduler.ProcessManager = processManager
