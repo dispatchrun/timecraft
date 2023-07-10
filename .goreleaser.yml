@@ -1,0 +1,21 @@
+project_name: timecraft
+dist: ./goreleaser/dist
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: .
+    binary: timecraft
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+release:
+  github:
+    owner: stealthrocket
+    name: timecraft
+  draft: true
+  prerelease: auto
+  mode: replace
+changelog:
+  use: github-native
