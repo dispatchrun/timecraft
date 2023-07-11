@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'python/*'
+      - '.github/workflows/python.yaml'
 
 permissions:
   id-token: write # This is required for requesting the JWT
