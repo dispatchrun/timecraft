@@ -43,6 +43,8 @@ jobs:
           aws-region: us-east-1
       - name: Copy build output to public S3
         run: |
+          aws s3 cp python/cpython/python.wasm                 s3://timecraft/python/nightly/python.wasm
+          aws s3 cp python/cpython/usr/local/lib/python311.zip s3://timecraft/python/nightly/python311.zip
           aws s3 cp python/cpython/python.wasm                 s3://timecraft/python/$GITHUB_SHA/python.wasm
           aws s3 cp python/cpython/usr/local/lib/python311.zip s3://timecraft/python/$GITHUB_SHA/python311.zip
 
