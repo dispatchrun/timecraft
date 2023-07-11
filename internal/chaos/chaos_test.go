@@ -35,7 +35,8 @@ func TestRandomSystemSelection(t *testing.T) {
 		assert.Equal(t, errno, wasi.ESUCCESS)
 	}
 
-	assert.FloatEqual(t, float64(s1.yield)/N, 0.7, 0.01)
-	assert.FloatEqual(t, float64(s2.yield)/N, 0.1, 0.01)
-	assert.FloatEqual(t, float64(s3.yield)/N, 0.2, 0.01)
+	const epsilon = 0.01
+	assert.FloatEqual(t, float64(s1.yield)/N, 0.7, epsilon)
+	assert.FloatEqual(t, float64(s2.yield)/N, 0.1, epsilon)
+	assert.FloatEqual(t, float64(s3.yield)/N, 0.2, epsilon)
 }
