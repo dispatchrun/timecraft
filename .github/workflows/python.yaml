@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'python/*'
+      - '.github/workflows/python.yaml'
 
 permissions:
   id-token: write # This is required for requesting the JWT
@@ -51,6 +52,40 @@ jobs:
           aws s3 cp python/cpython/python.wasm                 s3://timecraft/python/main/python.wasm
           aws s3 cp python/cpython/usr/local/lib/python311.zip s3://timecraft/python/main/python311.zip
 
+  build_vanilla:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+      - name: Build docker image
+        working-directory: python
+        run: |
+          docker build -t builder .
+      - name: Compile
+        working-directory: python
+        run: |
+          docker run -v `pwd`:/src -w /src -e NO_OPT=true -e NO_WASMEDGE=true builder ./build.sh
+      - name: Check for output
+        run: |
+          find . -name python.wasm
+          find . -name python311.zip
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Copy build output to public S3
+        run: |
+          aws s3 cp python/cpython/python.wasm                 s3://timecraft/python-vanilla/$GITHUB_SHA/python.wasm
+          aws s3 cp python/cpython/usr/local/lib/python311.zip s3://timecraft/python-vanilla/$GITHUB_SHA/python311.zip
+      - name: Copy build output to public S3 main
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          aws s3 cp python/cpython/python.wasm                 s3://timecraft/python-vanilla/main/python.wasm
+          aws s3 cp python/cpython/usr/local/lib/python311.zip s3://timecraft/python-vanilla/main/python311.zip
+
   docker-build:
     runs-on: ubuntu-latest
     env:
@@ -77,4 +112,3 @@ jobs:
       working-directory: python
       run: |
         echo "noop: make docker-buildx"
-
