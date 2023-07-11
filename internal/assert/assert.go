@@ -2,6 +2,7 @@ package assert
 
 import (
 	"errors"
+	"math"
 	"os/exec"
 	"reflect"
 	"strings"
@@ -45,6 +46,13 @@ func NotEqual[T comparable](t testing.TB, got, want T) {
 	if got == want {
 		t.Helper()
 		t.Fatalf("%T value must not be equal\nwant != %+v\ngot   = %+v", want, want, got)
+	}
+}
+
+func FloatEqual[T ~float32 | ~float64](t testing.TB, got, want, epsilon T) {
+	if math.Abs(float64(got-want)) > float64(epsilon) {
+		t.Helper()
+		t.Fatalf("%T value must be equal\nwant    = %+v\ngot     = %+v\nepsilon = %v\n", want, want, got, epsilon)
 	}
 }
 
