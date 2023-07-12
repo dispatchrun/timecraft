@@ -248,7 +248,7 @@ type throttleFile struct {
 }
 
 func (f *throttleFile) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
-	return true
+	return f.base.FDPoll(ev, ch)
 }
 
 func (f *throttleFile) FDClose(ctx context.Context) wasi.Errno {
