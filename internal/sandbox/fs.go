@@ -465,8 +465,23 @@ func (f *throttleFile) PathUnlinkFile(ctx context.Context, path string) wasi.Err
 	return errno
 }
 
+// canThrottle returns true if the given errno code indicates that throttling
+// can be applied to the operation that it was returned from.
+//
+// Throttling is always applied after performing the operation because we cannot
+// know in advance whether the arguments passed to the method are valid; we have
+// to first make the call and determine after the fact if the error returned by
+// the method indicates that the operation was aborted due to having invalid
+// arguments, or it was attempted and we need to take the I/O operation cost
+// into account.
+//
+// The list of errors here may not be exhaustive; future maintainers may choose
+// to add more. Keep in mind that we are better off apply throttling in excess
+// than missing conditions where it should be applied because malcious guests
+// could take advantage of error conditions that caused I/O utilization but were
+// not accounted for.
 func canThrottle(errno wasi.Errno) bool {
-	return errno != wasi.EBADF && errno != wasi.EINVAL
+	return errno != wasi.EBADF && errno != wasi.EINVAL && errno != wasi.ENOTCAPABLE
 }
 
 func sizeToInt64(size wasi.Size) int64 {
