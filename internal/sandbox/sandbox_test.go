@@ -33,6 +33,8 @@ func TestSandboxSystem(t *testing.T) {
 			sandbox.Environ(config.Environ...),
 			sandbox.Rand(config.Rand),
 			sandbox.Time(config.Now),
+			sandbox.MaxOpenFiles(config.MaxOpenFiles),
+			sandbox.MaxOpenDirs(config.MaxOpenDirs),
 		}
 
 		if config.RootFS != "" {

@@ -128,15 +128,35 @@ func Resolver(rslv ServiceResolver) Option {
 	return func(s *System) { s.rslv = rslv }
 }
 
+// MaxOpenFiles configures the maximum number of files that can be opened by
+// the guest module.
+//
+// Note that the limit applies only to files open via PathOpen or sockets
+// created by SockOpen or SockAccept, it does not apply to preopens installed
+// directly by the host.
+//
+// Default to no limits (zero).
+func MaxOpenFiles(n int) Option {
+	return func(s *System) { s.files.MaxOpenFiles = n }
+}
+
+// MaxOpenDirs configures the maximum number of directories that can be opened
+// by the guest module.
+//
+// Default to no limits (zero).
+func MaxOpenDirs(n int) Option {
+	return func(s *System) { s.files.MaxOpenDirs = n }
+}
+
 // System is an implementation of the wasi.System interface which sandboxes all
 // interactions of the guest module with the world.
 type System struct {
-	args  []string
-	env   []string
-	epoch time.Time
-	time  func() time.Time
-	rand  io.Reader
-	wasi.FileTable[File]
+	args   []string
+	env    []string
+	epoch  time.Time
+	time   func() time.Time
+	rand   io.Reader
+	files  wasi.FileTable[File]
 	poll   chan struct{}
 	lock   *sync.Mutex
 	stdin  *pipe
@@ -154,6 +174,10 @@ type mountPoint struct {
 	path string
 	fsys FS
 }
+
+const (
+	none = ^wasi.FD(0)
+)
 
 // New creates a new System instance, applying the list of options passed as
 // arguments.
@@ -175,7 +199,7 @@ func New(opts ...Option) *System {
 		stdout: newPipe(lock),
 		stderr: newPipe(lock),
 		poll:   make(chan struct{}, 1),
-		root:   ^wasi.FD(0),
+		root:   none,
 		rslv:   defaultResolver{},
 
 		ipv4: ipnet[ipv4]{
@@ -203,15 +227,15 @@ func New(opts ...Option) *System {
 		opt(s)
 	}
 
-	s.Preopen(input{s.stdin}, "/dev/stdin", wasi.FDStat{
+	s.files.Preopen(input{s.stdin}, "/dev/stdin", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDWriteRight,
 	})
-	s.Preopen(output{s.stdout}, "/dev/stdout", wasi.FDStat{
+	s.files.Preopen(output{s.stdout}, "/dev/stdout", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDReadRight,
 	})
-	s.Preopen(output{s.stderr}, "/dev/stderr", wasi.FDStat{
+	s.files.Preopen(output{s.stderr}, "/dev/stderr", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDReadRight,
 	})
@@ -228,12 +252,12 @@ func New(opts ...Option) *System {
 		if errno != wasi.ESUCCESS {
 			panic(&fs.PathError{Op: "open", Path: mount.path, Err: errno.Syscall()})
 		}
-		fd := s.Preopen(f, mount.path, wasi.FDStat{
+		fd := s.files.Preopen(f, mount.path, wasi.FDStat{
 			FileType:         wasi.DirectoryType,
 			RightsBase:       wasi.DirectoryRights,
 			RightsInheriting: wasi.DirectoryRights | wasi.FileRights,
 		})
-		if s.root == ^wasi.FD(0) {
+		if s.root == none {
 			// TODO: this is a bit of a hack intended to pass the fstest test
 			// suite, ideally we should have a mechanism to create a unified
 			// view of all mount points when converting to a fs.FS.
@@ -247,6 +271,10 @@ func New(opts ...Option) *System {
 	return s
 }
 
+func (s *System) PreopenFD(fd wasi.FD) { s.files.PreopenFD(fd) }
+
+func (s *System) Close(ctx context.Context) error { return s.files.Close(ctx) }
+
 // Stdin returns a writer to the standard input of the guest module.
 func (s *System) Stdin() io.WriteCloser { return inputWriteCloser{s.stdin} }
 
@@ -258,7 +286,7 @@ func (s *System) Stderr() io.ReadCloser { return outputReadCloser{s.stderr} }
 
 // FS returns a fs.FS exposing the file system mounted to the guest module.
 func (s *System) FS() fs.FS {
-	if s.root == ^wasi.FD(0) {
+	if s.root == none {
 		return nil
 	}
 	// TODO: if we have a use case for it, we might want to pass the context
@@ -330,41 +358,173 @@ func (s *System) RandomGet(ctx context.Context, b []byte) wasi.Errno {
 	if s.rand == nil {
 		return wasi.ENOSYS
 	}
-	if _, err := io.ReadFull(s.rand, b); err != nil {
+	_, err := io.ReadFull(s.rand, b)
+	if err != nil {
 		return wasi.EIO
 	}
 	return wasi.ESUCCESS
 }
 
+func (s *System) FDAdvise(ctx context.Context, fd wasi.FD, offset, length wasi.FileSize, advice wasi.Advice) wasi.Errno {
+	return s.files.FDAdvise(ctx, fd, offset, length, advice)
+}
+
+func (s *System) FDAllocate(ctx context.Context, fd wasi.FD, offset, length wasi.FileSize) wasi.Errno {
+	return s.files.FDAllocate(ctx, fd, offset, length)
+}
+
+func (s *System) FDClose(ctx context.Context, fd wasi.FD) wasi.Errno {
+	return s.files.FDClose(ctx, fd)
+}
+
+func (s *System) FDDataSync(ctx context.Context, fd wasi.FD) wasi.Errno {
+	return s.files.FDDataSync(ctx, fd)
+}
+
+func (s *System) FDStatGet(ctx context.Context, fd wasi.FD) (wasi.FDStat, wasi.Errno) {
+	return s.files.FDStatGet(ctx, fd)
+}
+
+func (s *System) FDStatSetFlags(ctx context.Context, fd wasi.FD, flags wasi.FDFlags) wasi.Errno {
+	return s.files.FDStatSetFlags(ctx, fd, flags)
+}
+
+func (s *System) FDStatSetRights(ctx context.Context, fd wasi.FD, rightsBase, rightsInheriting wasi.Rights) wasi.Errno {
+	return s.files.FDStatSetRights(ctx, fd, rightsBase, rightsInheriting)
+}
+
+func (s *System) FDFileStatGet(ctx context.Context, fd wasi.FD) (wasi.FileStat, wasi.Errno) {
+	return s.files.FDFileStatGet(ctx, fd)
+}
+
+func (s *System) FDFileStatSetSize(ctx context.Context, fd wasi.FD, size wasi.FileSize) wasi.Errno {
+	return s.files.FDFileStatSetSize(ctx, fd, size)
+}
+
+func (s *System) FDFileStatSetTimes(ctx context.Context, fd wasi.FD, accessTime, modifyTime wasi.Timestamp, flags wasi.FSTFlags) wasi.Errno {
+	return s.files.FDFileStatSetTimes(ctx, fd, accessTime, modifyTime, flags)
+}
+
+func (s *System) FDPread(ctx context.Context, fd wasi.FD, iovs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
+	return s.files.FDPread(ctx, fd, iovs, offset)
+}
+
+func (s *System) FDPreStatGet(ctx context.Context, fd wasi.FD) (wasi.PreStat, wasi.Errno) {
+	return s.files.FDPreStatGet(ctx, fd)
+}
+
+func (s *System) FDPreStatDirName(ctx context.Context, fd wasi.FD) (string, wasi.Errno) {
+	return s.files.FDPreStatDirName(ctx, fd)
+}
+
+func (s *System) FDPwrite(ctx context.Context, fd wasi.FD, iovs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
+	return s.files.FDPwrite(ctx, fd, iovs, offset)
+}
+
+func (s *System) FDRead(ctx context.Context, fd wasi.FD, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
+	return s.files.FDRead(ctx, fd, iovs)
+}
+
+func (s *System) FDReadDir(ctx context.Context, fd wasi.FD, entries []wasi.DirEntry, cookie wasi.DirCookie, bufferSizeBytes int) (int, wasi.Errno) {
+	return s.files.FDReadDir(ctx, fd, entries, cookie, bufferSizeBytes)
+}
+
+func (s *System) FDRenumber(ctx context.Context, from, to wasi.FD) wasi.Errno {
+	return s.files.FDRenumber(ctx, from, to)
+}
+
+func (s *System) FDSeek(ctx context.Context, fd wasi.FD, offset wasi.FileDelta, whence wasi.Whence) (wasi.FileSize, wasi.Errno) {
+	return s.files.FDSeek(ctx, fd, offset, whence)
+}
+
+func (s *System) FDSync(ctx context.Context, fd wasi.FD) wasi.Errno {
+	return s.files.FDSync(ctx, fd)
+}
+
+func (s *System) FDTell(ctx context.Context, fd wasi.FD) (wasi.FileSize, wasi.Errno) {
+	return s.files.FDTell(ctx, fd)
+}
+
+func (s *System) FDWrite(ctx context.Context, fd wasi.FD, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
+	return s.files.FDWrite(ctx, fd, iovs)
+}
+
+func (s *System) PathCreateDirectory(ctx context.Context, fd wasi.FD, path string) wasi.Errno {
+	return s.files.PathCreateDirectory(ctx, fd, path)
+}
+
+func (s *System) PathFileStatGet(ctx context.Context, fd wasi.FD, lookupFlags wasi.LookupFlags, path string) (wasi.FileStat, wasi.Errno) {
+	return s.files.PathFileStatGet(ctx, fd, lookupFlags, path)
+}
+
+func (s *System) PathFileStatSetTimes(ctx context.Context, fd wasi.FD, lookupFlags wasi.LookupFlags, path string, accessTime, modifyTime wasi.Timestamp, flags wasi.FSTFlags) wasi.Errno {
+	return s.files.PathFileStatSetTimes(ctx, fd, lookupFlags, path, accessTime, modifyTime, flags)
+}
+
+func (s *System) PathLink(ctx context.Context, oldFD wasi.FD, oldFlags wasi.LookupFlags, oldPath string, newFD wasi.FD, newPath string) wasi.Errno {
+	return s.files.PathLink(ctx, oldFD, oldFlags, oldPath, newFD, newPath)
+}
+
+func (s *System) PathOpen(ctx context.Context, fd wasi.FD, dirFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (wasi.FD, wasi.Errno) {
+	return s.files.PathOpen(ctx, fd, dirFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
+}
+
+func (s *System) PathReadLink(ctx context.Context, fd wasi.FD, path string, buffer []byte) (int, wasi.Errno) {
+	return s.files.PathReadLink(ctx, fd, path, buffer)
+}
+
+func (s *System) PathRemoveDirectory(ctx context.Context, fd wasi.FD, path string) wasi.Errno {
+	return s.files.PathRemoveDirectory(ctx, fd, path)
+}
+
+func (s *System) PathRename(ctx context.Context, fd wasi.FD, oldPath string, newFD wasi.FD, newPath string) wasi.Errno {
+	return s.files.PathRename(ctx, fd, oldPath, newFD, newPath)
+}
+
+func (s *System) PathSymlink(ctx context.Context, oldPath string, fd wasi.FD, newPath string) wasi.Errno {
+	return s.files.PathSymlink(ctx, oldPath, fd, newPath)
+}
+
+func (s *System) PathUnlinkFile(ctx context.Context, fd wasi.FD, path string) wasi.Errno {
+	return s.files.PathUnlinkFile(ctx, fd, path)
+}
+
 func (s *System) SockAccept(ctx context.Context, fd wasi.FD, flags wasi.FDFlags) (wasi.FD, wasi.SocketAddress, wasi.SocketAddress, wasi.Errno) {
-	sock, stat, errno := s.LookupSocketFD(fd, wasi.SockAcceptRight)
+	sock, stat, errno := s.files.LookupSocketFD(fd, wasi.SockAcceptRight)
 	if errno != wasi.ESUCCESS {
-		return ^wasi.FD(0), nil, nil, errno
+		return none, nil, nil, errno
 	}
 	conn, errno := sock.SockAccept(ctx, flags)
 	if errno != wasi.ESUCCESS {
-		return ^wasi.FD(0), nil, nil, errno
+		return none, nil, nil, errno
+	}
+	defer func() {
+		if conn != nil {
+			conn.FDClose(ctx)
+		}
+	}()
+	if s.files.MaxOpenFiles > 0 && s.files.NumOpenFiles() >= s.files.MaxOpenFiles {
+		return none, nil, nil, wasi.ENFILE
 	}
 	addr, errno := conn.SockLocalAddress(ctx)
 	if errno != wasi.ESUCCESS {
-		_ = conn.FDClose(ctx)
-		return ^wasi.FD(0), nil, nil, wasi.ECONNREFUSED
+		return none, nil, nil, wasi.ECONNREFUSED
 	}
 	peer, errno := conn.SockRemoteAddress(ctx)
 	if errno != wasi.ESUCCESS {
-		_ = conn.FDClose(ctx)
-		return ^wasi.FD(0), nil, nil, wasi.ECONNREFUSED
+		return none, nil, nil, wasi.ECONNREFUSED
 	}
-	newFD := s.Register(conn, wasi.FDStat{
+	newFD := s.files.Register(conn, wasi.FDStat{
 		Flags:      flags,
 		FileType:   stat.FileType,
 		RightsBase: stat.RightsInheriting,
 	})
+	conn = nil
 	return newFD, peer, addr, wasi.ESUCCESS
 }
 
 func (s *System) SockRecv(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
-	sock, _, errno := s.LookupSocketFD(fd, wasi.FDWriteRight)
+	sock, _, errno := s.files.LookupSocketFD(fd, wasi.FDWriteRight)
 	if errno != wasi.ESUCCESS {
 		return 0, 0, errno
 	}
@@ -372,7 +532,7 @@ func (s *System) SockRecv(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, 
 }
 
 func (s *System) SockSend(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
-	sock, _, errno := s.LookupSocketFD(fd, wasi.FDWriteRight)
+	sock, _, errno := s.files.LookupSocketFD(fd, wasi.FDWriteRight)
 	if errno != wasi.ESUCCESS {
 		return 0, errno
 	}
@@ -383,7 +543,7 @@ func (s *System) SockShutdown(ctx context.Context, fd wasi.FD, flags wasi.SDFlag
 	if (flags & ^(wasi.ShutdownRD | wasi.ShutdownWR)) != 0 {
 		return wasi.EINVAL
 	}
-	sock, _, errno := s.LookupSocketFD(fd, wasi.FDWriteRight)
+	sock, _, errno := s.files.LookupSocketFD(fd, wasi.FDWriteRight)
 	if errno != wasi.ESUCCESS {
 		return errno
 	}
@@ -391,8 +551,6 @@ func (s *System) SockShutdown(ctx context.Context, fd wasi.FD, flags wasi.SDFlag
 }
 
 func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.SocketType, proto wasi.Protocol, rightsBase, rightsInheriting wasi.Rights) (wasi.FD, wasi.Errno) {
-	const none = ^wasi.FD(0)
-
 	switch proto {
 	case wasi.IPProtocol:
 	case wasi.TCPProtocol:
@@ -439,6 +597,10 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 		}
 	}
 
+	if s.files.MaxOpenFiles > 0 && s.files.NumOpenFiles() >= s.files.MaxOpenFiles {
+		return none, wasi.ENFILE
+	}
+
 	var socket File
 	switch pf {
 	case wasi.InetFamily:
@@ -459,7 +621,7 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 		fileType = wasi.SocketDGramType
 	}
 
-	newFD := s.Register(socket, wasi.FDStat{
+	newFD := s.files.Register(socket, wasi.FDStat{
 		FileType:         fileType,
 		RightsBase:       rightsBase,
 		RightsInheriting: rightsInheriting,
@@ -468,7 +630,7 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 }
 
 func (s *System) SockBind(ctx context.Context, fd wasi.FD, addr wasi.SocketAddress) (wasi.SocketAddress, wasi.Errno) {
-	sock, _, errno := s.LookupSocketFD(fd, wasi.SockAcceptRight)
+	sock, _, errno := s.files.LookupSocketFD(fd, wasi.SockAcceptRight)
 	if errno != wasi.ESUCCESS {
 		return nil, errno
 	}
@@ -479,7 +641,7 @@ func (s *System) SockBind(ctx context.Context, fd wasi.FD, addr wasi.SocketAddre
 }
 
 func (s *System) SockConnect(ctx context.Context, fd wasi.FD, peer wasi.SocketAddress) (wasi.SocketAddress, wasi.Errno) {
-	sock, _, errno := s.LookupSocketFD(fd, 0)
+	sock, _, errno := s.files.LookupSocketFD(fd, 0)
 	if errno != wasi.ESUCCESS {
 		return nil, errno
 	}
@@ -494,7 +656,7 @@ func (s *System) SockConnect(ctx context.Context, fd wasi.FD, peer wasi.SocketAd
 }
 
 func (s *System) SockListen(ctx context.Context, fd wasi.FD, backlog int) wasi.Errno {
-	sock, _, errno := s.LookupSocketFD(fd, wasi.SockAcceptRight)
+	sock, _, errno := s.files.LookupSocketFD(fd, wasi.SockAcceptRight)
 	if errno != wasi.ESUCCESS {
 		return errno
 	}
@@ -502,7 +664,7 @@ func (s *System) SockListen(ctx context.Context, fd wasi.FD, backlog int) wasi.E
 }
 
 func (s *System) SockSendTo(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno) {
-	sock, _, errno := s.LookupSocketFD(fd, wasi.FDWriteRight)
+	sock, _, errno := s.files.LookupSocketFD(fd, wasi.FDWriteRight)
 	if errno != wasi.ESUCCESS {
 		return 0, errno
 	}
@@ -510,7 +672,7 @@ func (s *System) SockSendTo(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec
 }
 
 func (s *System) SockRecvFrom(ctx context.Context, fd wasi.FD, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno) {
-	sock, _, errno := s.LookupSocketFD(fd, wasi.FDReadRight)
+	sock, _, errno := s.files.LookupSocketFD(fd, wasi.FDReadRight)
 	if errno != wasi.ESUCCESS {
 		return 0, 0, nil, errno
 	}
@@ -518,7 +680,7 @@ func (s *System) SockRecvFrom(ctx context.Context, fd wasi.FD, iovecs []wasi.IOV
 }
 
 func (s *System) SockGetOpt(ctx context.Context, fd wasi.FD, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
-	sock, _, errno := s.LookupSocketFD(fd, 0)
+	sock, _, errno := s.files.LookupSocketFD(fd, 0)
 	if errno != wasi.ESUCCESS {
 		return nil, errno
 	}
@@ -526,7 +688,7 @@ func (s *System) SockGetOpt(ctx context.Context, fd wasi.FD, option wasi.SocketO
 }
 
 func (s *System) SockSetOpt(ctx context.Context, fd wasi.FD, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
-	sock, _, errno := s.LookupSocketFD(fd, 0)
+	sock, _, errno := s.files.LookupSocketFD(fd, 0)
 	if errno != wasi.ESUCCESS {
 		return errno
 	}
@@ -534,7 +696,7 @@ func (s *System) SockSetOpt(ctx context.Context, fd wasi.FD, option wasi.SocketO
 }
 
 func (s *System) SockLocalAddress(ctx context.Context, fd wasi.FD) (wasi.SocketAddress, wasi.Errno) {
-	sock, _, errno := s.LookupSocketFD(fd, 0)
+	sock, _, errno := s.files.LookupSocketFD(fd, 0)
 	if errno != wasi.ESUCCESS {
 		return nil, errno
 	}
@@ -542,7 +704,7 @@ func (s *System) SockLocalAddress(ctx context.Context, fd wasi.FD) (wasi.SocketA
 }
 
 func (s *System) SockRemoteAddress(ctx context.Context, fd wasi.FD) (wasi.SocketAddress, wasi.Errno) {
-	sock, _, errno := s.LookupSocketFD(fd, 0)
+	sock, _, errno := s.files.LookupSocketFD(fd, 0)
 	if errno != wasi.ESUCCESS {
 		return nil, errno
 	}
@@ -788,7 +950,7 @@ func (s *System) pollOneOffScatter(subscriptions []wasi.Subscription, events []w
 
 		case wasi.FDReadEvent, wasi.FDWriteEvent:
 			// TODO: check read/write rights
-			f, _, errno := s.LookupFD(sub.GetFDReadWrite().FD, 0)
+			f, _, errno := s.files.LookupFD(sub.GetFDReadWrite().FD, 0)
 			if errno != wasi.ESUCCESS {
 				events[i] = makePollError(sub, errno)
 				numEvents++
@@ -820,7 +982,7 @@ func (s *System) pollOneOffGather(subscriptions []wasi.Subscription, events []wa
 	for i, sub := range subscriptions {
 		switch sub.EventType {
 		case wasi.FDReadEvent, wasi.FDWriteEvent:
-			f, _, _ := s.LookupFD(sub.GetFDReadWrite().FD, 0)
+			f, _, _ := s.files.LookupFD(sub.GetFDReadWrite().FD, 0)
 			if f == nil {
 				continue
 			}

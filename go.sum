@@ -20,8 +20,8 @@ github.com/planetscale/vtprotobuf v0.4.0/go.mod h1:wm1N3qk9G/4+VM1WhpkLbvY/d8+0P
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stealthrocket/net v0.2.1 h1:PehPGAAjuV46zaeHGlNgakFV7QDGUAREMcEQsZQ8NLo=
 github.com/stealthrocket/net v0.2.1/go.mod h1:VvoFod9pYC9mo+bEg2NQB/D+KVOjxfhZjZ5zyvozq7M=
-github.com/stealthrocket/wasi-go v0.7.2 h1:7QIYqI5oLciiImKov3JhSbZjg5su7uKzxrCfzPxrNKg=
-github.com/stealthrocket/wasi-go v0.7.2/go.mod h1:PJ5oVs2E1ciOJnsTnav4nvTtEcJ4D1jUZAewS9pzuZg=
+github.com/stealthrocket/wasi-go v0.7.5 h1:UP5zVXI6ifbGIPEmbM9S28DUHL25jvrvawMRDoYXuVQ=
+github.com/stealthrocket/wasi-go v0.7.5/go.mod h1:PJ5oVs2E1ciOJnsTnav4nvTtEcJ4D1jUZAewS9pzuZg=
 github.com/stealthrocket/wazergo v0.19.1 h1:BPrITETPgSFwiytwmToO0MbUC/+RGC39JScz1JmmG6c=
 github.com/stealthrocket/wazergo v0.19.1/go.mod h1:riI0hxw4ndZA5e6z7PesHg2BtTftcZaMxRcoiGGipTs=
 github.com/stealthrocket/wzprof v0.1.5 h1:abEwQF9KtqV7UQ0hWk7431vul9/FxOg1eRCqwEKo9/4=
