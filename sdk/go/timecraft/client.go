@@ -224,6 +224,22 @@ func (c *Client) ProcessID(ctx context.Context) (ProcessID, error) {
 	return ProcessID(res.Msg.ProcessId), nil
 }
 
+// Spawn spawns a process.
+func (c *Client) Spawn(ctx context.Context, module ModuleSpec) (ProcessID, error) {
+	req := connect.NewRequest(&v1.SpawnRequest{
+		Module: &v1.ModuleSpec{
+			Path: module.Path,
+			Args: module.Args,
+			Env:  module.Env,
+		},
+	})
+	res, err := c.grpcClient.Spawn(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return ProcessID(res.Msg.ProcessId), nil
+}
+
 // Version fetches the timecraft version.
 func (c *Client) Version(ctx context.Context) (string, error) {
 	req := connect.NewRequest(&v1.VersionRequest{})

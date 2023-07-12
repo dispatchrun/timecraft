@@ -48,6 +48,8 @@ const (
 	// TimecraftServiceProcessIDProcedure is the fully-qualified name of the TimecraftService's
 	// ProcessID RPC.
 	TimecraftServiceProcessIDProcedure = "/timecraft.server.v1.TimecraftService/ProcessID"
+	// TimecraftServiceSpawnProcedure is the fully-qualified name of the TimecraftService's Spawn RPC.
+	TimecraftServiceSpawnProcedure = "/timecraft.server.v1.TimecraftService/Spawn"
 	// TimecraftServiceVersionProcedure is the fully-qualified name of the TimecraftService's Version
 	// RPC.
 	TimecraftServiceVersionProcedure = "/timecraft.server.v1.TimecraftService/Version"
@@ -55,11 +57,15 @@ const (
 
 // TimecraftServiceClient is a client for the timecraft.server.v1.TimecraftService service.
 type TimecraftServiceClient interface {
+	// Task scheduling.
 	SubmitTasks(context.Context, *connect_go.Request[v1.SubmitTasksRequest]) (*connect_go.Response[v1.SubmitTasksResponse], error)
 	LookupTasks(context.Context, *connect_go.Request[v1.LookupTasksRequest]) (*connect_go.Response[v1.LookupTasksResponse], error)
 	PollTasks(context.Context, *connect_go.Request[v1.PollTasksRequest]) (*connect_go.Response[v1.PollTasksResponse], error)
 	DiscardTasks(context.Context, *connect_go.Request[v1.DiscardTasksRequest]) (*connect_go.Response[v1.DiscardTasksResponse], error)
+	// Process management.
 	ProcessID(context.Context, *connect_go.Request[v1.ProcessIDRequest]) (*connect_go.Response[v1.ProcessIDResponse], error)
+	Spawn(context.Context, *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error)
+	// Misc endpoints.
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
 }
 
@@ -98,6 +104,11 @@ func NewTimecraftServiceClient(httpClient connect_go.HTTPClient, baseURL string,
 			baseURL+TimecraftServiceProcessIDProcedure,
 			opts...,
 		),
+		spawn: connect_go.NewClient[v1.SpawnRequest, v1.SpawnResponse](
+			httpClient,
+			baseURL+TimecraftServiceSpawnProcedure,
+			opts...,
+		),
 		version: connect_go.NewClient[v1.VersionRequest, v1.VersionResponse](
 			httpClient,
 			baseURL+TimecraftServiceVersionProcedure,
@@ -113,6 +124,7 @@ type timecraftServiceClient struct {
 	pollTasks    *connect_go.Client[v1.PollTasksRequest, v1.PollTasksResponse]
 	discardTasks *connect_go.Client[v1.DiscardTasksRequest, v1.DiscardTasksResponse]
 	processID    *connect_go.Client[v1.ProcessIDRequest, v1.ProcessIDResponse]
+	spawn        *connect_go.Client[v1.SpawnRequest, v1.SpawnResponse]
 	version      *connect_go.Client[v1.VersionRequest, v1.VersionResponse]
 }
 
@@ -141,6 +153,11 @@ func (c *timecraftServiceClient) ProcessID(ctx context.Context, req *connect_go.
 	return c.processID.CallUnary(ctx, req)
 }
 
+// Spawn calls timecraft.server.v1.TimecraftService.Spawn.
+func (c *timecraftServiceClient) Spawn(ctx context.Context, req *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error) {
+	return c.spawn.CallUnary(ctx, req)
+}
+
 // Version calls timecraft.server.v1.TimecraftService.Version.
 func (c *timecraftServiceClient) Version(ctx context.Context, req *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error) {
 	return c.version.CallUnary(ctx, req)
@@ -148,11 +165,15 @@ func (c *timecraftServiceClient) Version(ctx context.Context, req *connect_go.Re
 
 // TimecraftServiceHandler is an implementation of the timecraft.server.v1.TimecraftService service.
 type TimecraftServiceHandler interface {
+	// Task scheduling.
 	SubmitTasks(context.Context, *connect_go.Request[v1.SubmitTasksRequest]) (*connect_go.Response[v1.SubmitTasksResponse], error)
 	LookupTasks(context.Context, *connect_go.Request[v1.LookupTasksRequest]) (*connect_go.Response[v1.LookupTasksResponse], error)
 	PollTasks(context.Context, *connect_go.Request[v1.PollTasksRequest]) (*connect_go.Response[v1.PollTasksResponse], error)
 	DiscardTasks(context.Context, *connect_go.Request[v1.DiscardTasksRequest]) (*connect_go.Response[v1.DiscardTasksResponse], error)
+	// Process management.
 	ProcessID(context.Context, *connect_go.Request[v1.ProcessIDRequest]) (*connect_go.Response[v1.ProcessIDResponse], error)
+	Spawn(context.Context, *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error)
+	// Misc endpoints.
 	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
 }
 
@@ -188,6 +209,11 @@ func NewTimecraftServiceHandler(svc TimecraftServiceHandler, opts ...connect_go.
 		svc.ProcessID,
 		opts...,
 	))
+	mux.Handle(TimecraftServiceSpawnProcedure, connect_go.NewUnaryHandler(
+		TimecraftServiceSpawnProcedure,
+		svc.Spawn,
+		opts...,
+	))
 	mux.Handle(TimecraftServiceVersionProcedure, connect_go.NewUnaryHandler(
 		TimecraftServiceVersionProcedure,
 		svc.Version,
@@ -217,6 +243,10 @@ func (UnimplementedTimecraftServiceHandler) DiscardTasks(context.Context, *conne
 
 func (UnimplementedTimecraftServiceHandler) ProcessID(context.Context, *connect_go.Request[v1.ProcessIDRequest]) (*connect_go.Response[v1.ProcessIDResponse], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.ProcessID is not implemented"))
+}
+
+func (UnimplementedTimecraftServiceHandler) Spawn(context.Context, *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error) {
+	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Spawn is not implemented"))
 }
 
 func (UnimplementedTimecraftServiceHandler) Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error) {

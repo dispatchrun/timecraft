@@ -90,6 +90,14 @@ message ProcessIDResponse {
   string process_id = 1;
 }
 
+message SpawnRequest {
+  ModuleSpec module = 1;
+}
+
+message SpawnResponse {
+  string process_id = 2;
+}
+
 message VersionRequest {}
 
 message VersionResponse {
@@ -97,10 +105,16 @@ message VersionResponse {
 }
 
 service TimecraftService {
+  // Task scheduling.
   rpc SubmitTasks(SubmitTasksRequest) returns (SubmitTasksResponse) {}
   rpc LookupTasks(LookupTasksRequest) returns (LookupTasksResponse) {}
   rpc PollTasks(PollTasksRequest) returns (PollTasksResponse) {}
   rpc DiscardTasks(DiscardTasksRequest) returns (DiscardTasksResponse) {}
+
+  // Process management.
   rpc ProcessID(ProcessIDRequest) returns (ProcessIDResponse) {}
+  rpc Spawn(SpawnRequest) returns (SpawnResponse) {}
+
+  // Misc endpoints.
   rpc Version(VersionRequest) returns (VersionResponse) {}
 }

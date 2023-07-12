@@ -95,11 +95,14 @@ func run(ctx context.Context, args []string) error {
 	scheduler := &timecraft.TaskScheduler{}
 	defer scheduler.Close()
 
-	serverFactory := &timecraft.ServerFactory{Scheduler: scheduler}
+	serverFactory := &timecraft.ServerFactory{
+		Scheduler: scheduler,
+	}
 
 	processManager := timecraft.NewProcessManager(ctx, registry, runtime, serverFactory)
 	defer processManager.Close()
 
+	serverFactory.ProcessManager = processManager
 	scheduler.ProcessManager = processManager
 
 	moduleSpec := timecraft.ModuleSpec{
