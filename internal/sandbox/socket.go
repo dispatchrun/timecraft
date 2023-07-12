@@ -292,7 +292,7 @@ func (st socktype) fileType() wasi.FileType {
 }
 
 type socket[T sockaddr] struct {
-	defaultFile
+	unimplementedFileMethods
 	net   network[T]
 	typ   socktype
 	proto protocol
