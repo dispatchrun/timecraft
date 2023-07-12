@@ -26,91 +26,91 @@ type File interface {
 	SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.Errno
 }
 
-// unimplementedFileSystemMethods declares all the methods of the File interface
+// unimplementedFileMethods declares all the methods of the File interface
 // that are not supported by implementations which are not files or directories.
-type unimplementedFileSystemMethods struct{}
+type unimplementedFileMethods struct{}
 
-func (unimplementedFileSystemMethods) FDAdvise(ctx context.Context, offset, length wasi.FileSize, advice wasi.Advice) wasi.Errno {
+func (unimplementedFileMethods) FDAdvise(ctx context.Context, offset, length wasi.FileSize, advice wasi.Advice) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) FDAllocate(ctx context.Context, offset, length wasi.FileSize) wasi.Errno {
+func (unimplementedFileMethods) FDAllocate(ctx context.Context, offset, length wasi.FileSize) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) FDDataSync(ctx context.Context) wasi.Errno {
+func (unimplementedFileMethods) FDDataSync(ctx context.Context) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
+func (unimplementedFileMethods) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) FDFileStatSetSize(ctx context.Context, size wasi.FileSize) wasi.Errno {
+func (unimplementedFileMethods) FDFileStatSetSize(ctx context.Context, size wasi.FileSize) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) FDFileStatSetTimes(ctx context.Context, accessTime, modifyTime wasi.Timestamp, flags wasi.FSTFlags) wasi.Errno {
+func (unimplementedFileMethods) FDFileStatSetTimes(ctx context.Context, accessTime, modifyTime wasi.Timestamp, flags wasi.FSTFlags) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) FDPread(ctx context.Context, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
+func (unimplementedFileMethods) FDPread(ctx context.Context, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
 	return 0, wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) FDPwrite(ctx context.Context, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
+func (unimplementedFileMethods) FDPwrite(ctx context.Context, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
 	return 0, wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) FDOpenDir(ctx context.Context) (wasi.Dir, wasi.Errno) {
+func (unimplementedFileMethods) FDOpenDir(ctx context.Context) (wasi.Dir, wasi.Errno) {
 	return nil, wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) FDSync(ctx context.Context) wasi.Errno {
+func (unimplementedFileMethods) FDSync(ctx context.Context) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) FDSeek(ctx context.Context, delta wasi.FileDelta, whence wasi.Whence) (wasi.FileSize, wasi.Errno) {
+func (unimplementedFileMethods) FDSeek(ctx context.Context, delta wasi.FileDelta, whence wasi.Whence) (wasi.FileSize, wasi.Errno) {
 	return 0, wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) PathCreateDirectory(ctx context.Context, path string) wasi.Errno {
+func (unimplementedFileMethods) PathCreateDirectory(ctx context.Context, path string) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) PathFileStatGet(ctx context.Context, flags wasi.LookupFlags, path string) (wasi.FileStat, wasi.Errno) {
+func (unimplementedFileMethods) PathFileStatGet(ctx context.Context, flags wasi.LookupFlags, path string) (wasi.FileStat, wasi.Errno) {
 	return wasi.FileStat{}, wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) PathFileStatSetTimes(ctx context.Context, lookupFlags wasi.LookupFlags, path string, accessTime, modifyTime wasi.Timestamp, fstFlags wasi.FSTFlags) wasi.Errno {
+func (unimplementedFileMethods) PathFileStatSetTimes(ctx context.Context, lookupFlags wasi.LookupFlags, path string, accessTime, modifyTime wasi.Timestamp, fstFlags wasi.FSTFlags) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir File, newPath string) wasi.Errno {
+func (unimplementedFileMethods) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir File, newPath string) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
+func (unimplementedFileMethods) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
 	return nil, wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) PathReadLink(ctx context.Context, path string, buffer []byte) (int, wasi.Errno) {
+func (unimplementedFileMethods) PathReadLink(ctx context.Context, path string, buffer []byte) (int, wasi.Errno) {
 	return 0, wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) PathRemoveDirectory(ctx context.Context, path string) wasi.Errno {
+func (unimplementedFileMethods) PathRemoveDirectory(ctx context.Context, path string) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) PathRename(ctx context.Context, oldPath string, newDir File, newPath string) wasi.Errno {
+func (unimplementedFileMethods) PathRename(ctx context.Context, oldPath string, newDir File, newPath string) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) PathSymlink(ctx context.Context, oldPath string, newPath string) wasi.Errno {
+func (unimplementedFileMethods) PathSymlink(ctx context.Context, oldPath string, newPath string) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileSystemMethods) PathUnlinkFile(ctx context.Context, path string) wasi.Errno {
+func (unimplementedFileMethods) PathUnlinkFile(ctx context.Context, path string) wasi.Errno {
 	return wasi.EBADF
 }
 

@@ -164,7 +164,7 @@ func trigger(signal chan<- struct{}) {
 // pipe is a unidirectional channel allowing data to pass between the host and
 // a guest module.
 type pipe struct {
-	unimplementedFileSystemMethods
+	unimplementedFileMethods
 	unimplementedSocketMethods
 	flags wasi.FDFlags
 	mu    sync.Mutex
