@@ -54,6 +54,8 @@ ssize_t recv(int socket, void* restrict buffer, size_t length, int flags);
 ssize_t send(int socket, const void* buffer, size_t length, int flags);
 int shutdown(int socket, int how);
 
+int socketpair(int domain, int type, int protocol, int sv[2]);
+
 #ifdef __cplusplus
 }
 #endif

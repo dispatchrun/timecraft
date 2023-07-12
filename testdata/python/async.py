@@ -22,7 +22,7 @@ class EventLoopAsyncAwait:
     def sock_sendall(self, sock, data):
         yield 'wait_write', sock
         sock.sendall(data)
-    
+
     @types.coroutine
     def sock_accept(self, sock):
         yield 'wait_read', sock

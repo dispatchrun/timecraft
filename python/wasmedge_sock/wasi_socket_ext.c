@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
+#include <sys/socket.h>
 #include <sys/un.h>
 
 #include "include/netdb.h"
@@ -459,6 +460,69 @@ int bind(int fd, const struct sockaddr* addr, socklen_t len) {
   }
   return res;
 }
+
+int socketpair(int domain, int type, int protocol, int sv[2]) {
+  WSEDEBUG("WSME| socketpair() domain=%d type=%d _protocol=%d\n", domain, type,
+         _protocol);
+
+  printf("socket\n");
+  int32_t err;
+  int lsock = socket(domain, type, protocol);
+
+  we_address_buffer raw;
+  raw.family = utw_sock_domain(domain);
+  raw.unix_addr[0] = '@';
+  we_address addr = {.buf = &raw, .len = sizeof(raw)};
+  uint16_t port = 0;
+
+  printf("bind\n");
+  err = __import_wasip1_sock_bind(lsock, &addr, port);
+  if (err != 0) {
+    errno = err;
+    return -1;
+  }
+
+  printf("listen\n");
+  err = listen(lsock, 1);
+  if (err != 0) {
+      errno = err;
+      return -1;
+  }
+
+  uint32_t lport;
+  we_address_buffer lraw;
+  we_address laddr = {.buf = &lraw, .len = sizeof(lraw)};
+
+  printf("getlocaladdr\n");
+  err = __import_wasip1_sock_getlocaladdr(lsock, &laddr, &lport);
+  if (err != 0) {
+    errno = err;
+    return -1;
+  }
+
+  printf("socket\n");
+  int csock = socket(domain, type, protocol);
+
+  printf("connect\n");
+  err = __import_wasip1_sock_connect(csock, &laddr, lport);
+  if (err != 0) {
+    errno = err;
+    return -1;
+  }
+  
+  printf("accept\n");
+  uint32_t ssock = -1;
+  err = __import_wasip1_sock_accept(lsock, 0, &ssock);
+  if (err != 0) {
+    errno = err;
+    return -1;
+  }
+
+  sv[0] = ssock;
+  sv[1] = csock;
+  return 0;
+}
+
 
 int connect(int fd, const struct sockaddr* addr, socklen_t len) {
   WSEDEBUG("WSME| connect[%d]: calling connect on %d addr=%p len=%d\n",

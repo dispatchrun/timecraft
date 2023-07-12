@@ -1,6 +1,8 @@
 import os
 import time
 import unittest
+import socket
+import asyncio
 
 import requests
 import timecraft
@@ -84,3 +86,19 @@ class TestTimecraft(unittest.TestCase):
             self.assertEqual(res.status_code, 200)
         finally:
             self.client.kill(process_id)
+
+    def test_sockpair(self):
+        csock, ssock = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM, 0)
+
+        csock.sendall(b"42")
+        res = ssock.recv(1024)
+        print("Received data on ssock:", res)
+
+        csock.close()
+        ssock.close()
+
+    async def sleep(self):
+        await asyncio.sleep(1)
+
+    def test_asyncio(self):
+        asyncio.run(self.sleep())
