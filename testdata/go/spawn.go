@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"time"
@@ -15,6 +14,8 @@ import (
 	"github.com/stealthrocket/net/wasip1"
 	"github.com/stealthrocket/timecraft/sdk/go/timecraft"
 )
+
+const workerPort = 10948
 
 func main() {
 	var err error
@@ -49,13 +50,22 @@ func supervisor(ctx context.Context) error {
 	fmt.Printf("executing as process %s in timecraft %s\n", processID, version)
 
 	// Spawn the same WASM module, but with the "worker" arg.
-	workerModule := timecraft.ModuleSpec{Args: []string{"worker"}}
+	workerModule := timecraft.ModuleSpec{
+		Args:         []string{"worker"},
+		Capabilities: timecraft.HostNetworkingCapability,
+	}
 
-	workerID, workerAddr, err := client.Spawn(ctx, workerModule)
+	workerID, _, err := client.Spawn(ctx, workerModule)
 	if err != nil {
 		return fmt.Errorf("failed to spawn worker: %w", err)
 	}
 	defer client.Kill(ctx, workerID)
+
+	// FIXME: the retry loop doesn't currently work. The sandbox seems to say that
+	//  the connection succeeds, but then on fd_read it returns ECONNREFUSED??
+	time.Sleep(2 * time.Second)
+
+	workerAddr := fmt.Sprintf("127.0.0.1:%d", workerPort)
 
 	fmt.Printf("connecting to worker process %s on address %s\n", workerID, workerAddr)
 
@@ -77,7 +87,7 @@ func supervisor(ctx context.Context) error {
 		},
 	}
 
-	u, _ := url.Parse(fmt.Sprintf("http://%s/", netip.AddrPortFrom(workerAddr, 3000)))
+	u, _ := url.Parse(fmt.Sprintf("http://%s/", workerAddr))
 	req := &http.Request{
 		Method: "GET",
 		URL:    u,
@@ -89,19 +99,18 @@ func supervisor(ctx context.Context) error {
 	}
 
 	fmt.Printf("worker responded with %d\n", res.StatusCode)
-
+	if res.StatusCode != 200 {
+		return fmt.Errorf("unexpected worker status code: %d", res.StatusCode)
+	}
 	return nil
 }
 
 func worker() error {
-	defer fmt.Println("worker exiting")
-
-	addr := ":3000"
-	listener, err := wasip1.Listen("tcp", addr)
+	workerAddr := fmt.Sprintf(":%d", workerPort)
+	listener, err := wasip1.Listen("tcp", workerAddr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", addr, err)
+		return fmt.Errorf("failed to listen on %s: %w", workerAddr, err)
 	}
-	fmt.Println("worker listening on", addr)
 	return http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	}))

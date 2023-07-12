@@ -64,4 +64,15 @@ var replay = tests{
 		assert.Equal(t, exitCode, 0)
 		assert.Equal(t, replay, stdout)
 	},
+
+	"guests can spawn processes": func(t *testing.T) {
+		stdout, stderr, exitCode := timecraft(t, "run", "--", "./testdata/go/spawn.wasm")
+		assert.Equal(t, exitCode, 0)
+
+		processID, _, _ := strings.Cut(stderr, "\n")
+
+		replay, _, exitCode := timecraft(t, "replay", strings.TrimSpace(processID))
+		assert.Equal(t, exitCode, 0)
+		assert.Equal(t, replay, stdout)
+	},
 }
