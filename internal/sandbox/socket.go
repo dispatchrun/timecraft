@@ -1168,7 +1168,3 @@ func (s *socket[T]) getErrno() wasi.Errno {
 		return wasi.ESUCCESS
 	}
 }
-
-func (s *socket[T]) Unwrap() File {
-	return nil
-}

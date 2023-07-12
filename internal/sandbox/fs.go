@@ -135,9 +135,9 @@ func (f *dirFile) PathFileStatSetTimes(ctx context.Context, lookupFlags wasi.Loo
 }
 
 func (f *dirFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir File, newPath string) wasi.Errno {
-	d, ok := unwrap(newDir).(*dirFile)
+	d, ok := newDir.(*dirFile)
 	if !ok {
-		return wasi.ENOTDIR
+		return wasi.EXDEV
 	}
 	return f.fd.PathLink(ctx, flags, oldPath, d.fd, newPath)
 }
@@ -161,7 +161,7 @@ func (f *dirFile) PathRemoveDirectory(ctx context.Context, path string) wasi.Err
 func (f *dirFile) PathRename(ctx context.Context, oldPath string, newDir File, newPath string) wasi.Errno {
 	d, ok := newDir.(*dirFile)
 	if !ok {
-		return wasi.ENOTDIR
+		return wasi.EXDEV
 	}
 	return f.fd.PathRename(ctx, oldPath, d.fd, newPath)
 }
@@ -172,10 +172,6 @@ func (f *dirFile) PathSymlink(ctx context.Context, oldPath string, newPath strin
 
 func (f *dirFile) PathUnlinkFile(ctx context.Context, path string) wasi.Errno {
 	return f.fd.PathUnlinkFile(ctx, path)
-}
-
-func (f *dirFile) Unwrap() File {
-	return nil
 }
 
 // ThrottleFS wraps the file system passed as argument to apply the rate limits
@@ -403,7 +399,11 @@ func (f *throttleFile) PathFileStatSetTimes(ctx context.Context, lookupFlags was
 }
 
 func (f *throttleFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir File, newPath string) wasi.Errno {
-	errno := f.base.PathLink(ctx, flags, oldPath, newDir, newPath)
+	d, ok := newDir.(*throttleFile)
+	if !ok {
+		return wasi.EXDEV
+	}
+	errno := f.base.PathLink(ctx, flags, oldPath, d.base, newPath)
 	if canThrottle(errno) {
 		f.fsys.throttlePathWrite(ctx, oldPath, int64(len(newPath)))
 	}
@@ -438,7 +438,11 @@ func (f *throttleFile) PathRemoveDirectory(ctx context.Context, path string) was
 }
 
 func (f *throttleFile) PathRename(ctx context.Context, oldPath string, newDir File, newPath string) wasi.Errno {
-	errno := f.base.PathRename(ctx, oldPath, newDir, newPath)
+	d, ok := newDir.(*throttleFile)
+	if !ok {
+		return wasi.EXDEV
+	}
+	errno := f.base.PathRename(ctx, oldPath, d.base, newPath)
 	if canThrottle(errno) {
 		f.fsys.throttlePathWrite(ctx, oldPath, int64(len(newPath)))
 	}
@@ -459,10 +463,6 @@ func (f *throttleFile) PathUnlinkFile(ctx context.Context, path string) wasi.Err
 		f.fsys.throttlePathWrite(ctx, path, 1)
 	}
 	return errno
-}
-
-func (f *throttleFile) Unwrap() File {
-	return f.base.Unwrap()
 }
 
 func canThrottle(errno wasi.Errno) bool {

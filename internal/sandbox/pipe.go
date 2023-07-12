@@ -200,10 +200,6 @@ func (p *pipe) FDFileStatGet(ctx context.Context) (wasi.FileStat, wasi.Errno) {
 	return wasi.FileStat{FileType: wasi.CharacterDeviceType}, wasi.ESUCCESS
 }
 
-func (p *pipe) Unwrap() File {
-	return nil
-}
-
 // input allows data to flow from the host to the guest.
 type input struct{ *pipe }
 

@@ -10,7 +10,6 @@ import (
 // registered in a sandboxed System.
 type File interface {
 	wasi.File[File]
-	Unwrap() File
 	FDPoll(ev wasi.EventType, ch chan<- struct{}) bool
 	SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno)
 	SockBind(ctx context.Context, addr wasi.SocketAddress) wasi.Errno
@@ -25,16 +24,6 @@ type File interface {
 	SockLocalAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno)
 	SockRemoteAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno)
 	SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.Errno
-}
-
-func unwrap(f File) File {
-	for {
-		if u := f.Unwrap(); u != nil {
-			f = u
-		} else {
-			return f
-		}
-	}
 }
 
 // unimplementedFileSystemMethods declares all the methods of the File interface
