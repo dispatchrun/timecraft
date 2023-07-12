@@ -234,10 +234,9 @@ func (s *Server) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest
 	if path := req.Msg.Module.Path; path != "" {
 		moduleSpec.Path = path
 	}
-	// The task processes can only bind on their virtual network, we don't
-	// create bridges to the host network for them. Only timecraft can open
-	// connections and send requests to those processes.
-	moduleSpec.HostNetworkBinding = false
+	if (req.Msg.Module.Capabilities & int64(v1.ModuleCapabilities_MODULE_CAPABILITIES_HOST_NETWORKING)) != 0 {
+		moduleSpec.HostNetworkBinding = true
+	}
 
 	var logSpec *LogSpec
 	if s.logSpec != nil {

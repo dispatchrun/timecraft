@@ -90,7 +90,22 @@ func (*HTTPResponse) taskOutput() {}
 
 // ModuleSpec is a WebAssembly module specification.
 type ModuleSpec struct {
-	Path string
-	Args []string
-	Env  []string
+	Path         string
+	Args         []string
+	Env          []string
+	Capabilities ModuleCapabilities
+}
+
+// ModuleCapabilities describe module capabilities.
+type ModuleCapabilities int32
+
+const (
+	// HostNetworkingCapability is a flag which indicates that a module
+	// should be able to listen and dial on the host network.
+	HostNetworkingCapability ModuleCapabilities = 1 << iota
+)
+
+// Has is true if the capability flag is set.
+func (m ModuleCapabilities) Has(flag ModuleCapabilities) bool {
+	return (m & flag) == flag
 }
