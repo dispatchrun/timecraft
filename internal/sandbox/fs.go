@@ -178,12 +178,16 @@ func (f *dirFile) Unwrap() File {
 	return nil
 }
 
+// ThrottleFS wraps the file system passed as argument to apply the rate limits
+// r and w on read and write operations.
+//
+// The limits apply to all access to the underlying file system which may result
+// in I/O operations.
+//
+// Passing a nil rate limiter to r or w disables rate limiting on the
+// corresponding I/O operations.
 func ThrottleFS(f FS, r, w *rate.Limiter) FS {
-	return &throttleFS{
-		base: f,
-		rlim: r,
-		wlim: w,
-	}
+	return &throttleFS{base: f, rlim: r, wlim: w}
 }
 
 type throttleFS struct {
@@ -226,6 +230,9 @@ func alignIOPageSize(n int64) int64 {
 }
 
 func throttle(ctx context.Context, l *rate.Limiter, n int64) {
+	if l == nil {
+		return
+	}
 	for n > 0 {
 		waitN := n
 		if waitN > math.MaxInt32 {
