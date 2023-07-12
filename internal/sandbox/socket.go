@@ -292,7 +292,7 @@ func (st socktype) fileType() wasi.FileType {
 }
 
 type socket[T sockaddr] struct {
-	defaultFile
+	unimplementedFileSystemMethods
 	net   network[T]
 	typ   socktype
 	proto protocol
@@ -1167,4 +1167,8 @@ func (s *socket[T]) getErrno() wasi.Errno {
 	default:
 		return wasi.ESUCCESS
 	}
+}
+
+func (s *socket[T]) Unwrap() File {
+	return nil
 }

@@ -164,7 +164,8 @@ func trigger(signal chan<- struct{}) {
 // pipe is a unidirectional channel allowing data to pass between the host and
 // a guest module.
 type pipe struct {
-	defaultFile
+	unimplementedFileSystemMethods
+	unimplementedSocketMethods
 	flags wasi.FDFlags
 	mu    sync.Mutex
 	ch    channel
@@ -199,11 +200,19 @@ func (p *pipe) FDFileStatGet(ctx context.Context) (wasi.FileStat, wasi.Errno) {
 	return wasi.FileStat{FileType: wasi.CharacterDeviceType}, wasi.ESUCCESS
 }
 
+func (p *pipe) Unwrap() File {
+	return nil
+}
+
 // input allows data to flow from the host to the guest.
 type input struct{ *pipe }
 
 func (in input) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
 	return in.ch.read(ctx, iovs, in.flags, &in.ev, in.done)
+}
+
+func (in input) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
+	return ^wasi.Size(0), wasi.EBADF
 }
 
 func (in input) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
@@ -264,6 +273,10 @@ func (w inputWriteCloser) Write(b []byte) (int, error) {
 
 // output allows data to flow from the guest to the host.
 type output struct{ *pipe }
+
+func (out output) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
+	return ^wasi.Size(0), wasi.EBADF
+}
 
 func (out output) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
 	return out.ch.write(ctx, iovs, out.flags, &out.ev, out.done)
