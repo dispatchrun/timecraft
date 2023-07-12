@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/netip"
 	"os"
 	"time"
 
@@ -225,7 +226,7 @@ func (c *Client) ProcessID(ctx context.Context) (ProcessID, error) {
 }
 
 // Spawn spawns a process.
-func (c *Client) Spawn(ctx context.Context, module ModuleSpec) (ProcessID, error) {
+func (c *Client) Spawn(ctx context.Context, module ModuleSpec) (ProcessID, netip.Addr, error) {
 	req := connect.NewRequest(&v1.SpawnRequest{
 		Module: &v1.ModuleSpec{
 			Path: module.Path,
@@ -235,9 +236,10 @@ func (c *Client) Spawn(ctx context.Context, module ModuleSpec) (ProcessID, error
 	})
 	res, err := c.grpcClient.Spawn(ctx, req)
 	if err != nil {
-		return "", err
+		return "", netip.Addr{}, err
 	}
-	return ProcessID(res.Msg.ProcessId), nil
+	addr, _ := netip.ParseAddr(res.Msg.IpAddress)
+	return ProcessID(res.Msg.ProcessId), addr, nil
 }
 
 // Version fetches the timecraft version.

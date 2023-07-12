@@ -60,6 +60,9 @@ type ProcessInfo struct {
 	// ID is the ID of the process.
 	ID ProcessID
 
+	// Addr is a unique IP address for the process.
+	Addr netip.Addr
+
 	// Transport is an HTTP transport that can be used to send work to
 	// the process over the work socket.
 	Transport *http.Transport
@@ -316,8 +319,11 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	ctx := wazergo.WithModuleInstance(pm.ctx, wasiModule)
 	ctx, cancel := context.WithCancelCause(ctx)
 
+	ipv4Addr := netip.AddrFrom4(ipv4)
+
 	process := &ProcessInfo{
-		ID: processID,
+		ID:   processID,
+		Addr: ipv4Addr,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (conn net.Conn, err error) {
 				// The process isn't necessarily available to take on work immediately.
@@ -329,16 +335,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 					maxDelay    = 5 * time.Second
 				)
 				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
-					address := netip.AddrPortFrom(netip.AddrFrom4(ipv4), 3000)
+					address := netip.AddrPortFrom(ipv4Addr, 3000)
 					conn, err = guest.Dial(ctx, "tcp", address.String())
-					switch {
-					case errors.Is(err, syscall.ECONNREFUSED):
-						return true
-					case errors.Is(err, syscall.ENOENT):
-						return true
-					default:
-						return false
-					}
+					return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT)
 				})
 				return
 			},

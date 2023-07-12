@@ -252,7 +252,11 @@ func (s *Server) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to spawn process: %w", err))
 	}
-	return connect.NewResponse(&v1.SpawnResponse{ProcessId: processID.String()}), nil
+	processInfo, _ := s.processes.Lookup(processID)
+	return connect.NewResponse(&v1.SpawnResponse{
+		ProcessId: processID.String(),
+		IpAddress: processInfo.Addr.String(),
+	}), nil
 }
 
 func (s *Server) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {

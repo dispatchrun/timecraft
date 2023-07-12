@@ -95,7 +95,8 @@ message SpawnRequest {
 }
 
 message SpawnResponse {
-  string process_id = 2;
+  string process_id = 1;
+  string ip_address = 2;
 }
 
 message VersionRequest {}
