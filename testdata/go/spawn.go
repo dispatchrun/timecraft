@@ -27,7 +27,7 @@ func main() {
 		err = fmt.Errorf("usage: spawn.wasm [worker]")
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -57,16 +57,22 @@ func supervisor(ctx context.Context) error {
 	}
 	defer client.Kill(ctx, workerID)
 
-	fmt.Printf("spawned worker process %s with address %s\n", workerID, workerAddr)
-
-	// FIXME:
-	time.Sleep(2 * time.Second)
+	fmt.Printf("connecting to worker process %s on address %s\n", workerID, workerAddr)
 
 	httpClient := &http.Client{
 		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			DialContext: func(ctx context.Context, network, addr string) (conn net.Conn, err error) {
 				var d wasip1.Dialer
-				return d.DialContext(ctx, network, addr)
+				const delay = 300 * time.Millisecond
+				const attempts = 10 // try for 3 seconds
+				for i := 0; i < attempts; i++ {
+					conn, err = d.DialContext(ctx, network, addr)
+					if err == nil {
+						break
+					}
+					time.Sleep(delay)
+				}
+				return
 			},
 		},
 	}
