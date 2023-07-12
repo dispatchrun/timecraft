@@ -242,7 +242,16 @@ func (c *Client) Spawn(ctx context.Context, module ModuleSpec) (ProcessID, netip
 	return ProcessID(res.Msg.ProcessId), addr, nil
 }
 
-// Version fetches the timecraft version.
+// Kill kills a process.
+func (c *Client) Kill(ctx context.Context, processID ProcessID) error {
+	req := connect.NewRequest(&v1.KillRequest{
+		ProcessId: string(processID),
+	})
+	_, err := c.grpcClient.Kill(ctx, req)
+	return err
+}
+
+// Version fetches the Timecraft version.
 func (c *Client) Version(ctx context.Context) (string, error) {
 	req := connect.NewRequest(&v1.VersionRequest{})
 	res, err := c.grpcClient.Version(ctx, req)

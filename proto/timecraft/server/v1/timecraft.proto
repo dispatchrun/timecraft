@@ -99,6 +99,12 @@ message SpawnResponse {
   string ip_address = 2;
 }
 
+message KillRequest {
+  string process_id = 1;
+}
+
+message KillResponse {}
+
 message VersionRequest {}
 
 message VersionResponse {
@@ -115,6 +121,7 @@ service TimecraftService {
   // Process management.
   rpc ProcessID(ProcessIDRequest) returns (ProcessIDResponse) {}
   rpc Spawn(SpawnRequest) returns (SpawnResponse) {}
+  rpc Kill(KillRequest) returns (KillResponse) {}
 
   // Misc endpoints.
   rpc Version(VersionRequest) returns (VersionResponse) {}

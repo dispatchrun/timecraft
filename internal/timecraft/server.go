@@ -248,7 +248,7 @@ func (s *Server) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest
 		}
 	}
 
-	processID, err := s.processes.Start(moduleSpec, logSpec)
+	processID, err := s.processes.Start(moduleSpec, logSpec, &s.processID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to spawn process: %w", err))
 	}
@@ -257,6 +257,23 @@ func (s *Server) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest
 		ProcessId: processID.String(),
 		IpAddress: processInfo.Addr.String(),
 	}), nil
+}
+
+func (s *Server) Kill(ctx context.Context, req *connect.Request[v1.KillRequest]) (*connect.Response[v1.KillResponse], error) {
+	processID, err := uuid.Parse(req.Msg.ProcessId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid process ID %q: %w", req.Msg.ProcessId, err))
+	}
+	process, ok := s.processes.Lookup(processID)
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("process %q not found", req.Msg.ProcessId))
+	}
+	if process.ParentID == nil || *process.ParentID != s.processID {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("cannot kill process %q", req.Msg.ProcessId))
+	}
+	process.cancel(nil)
+	_ = s.processes.Wait(processID)
+	return connect.NewResponse(&v1.KillResponse{}), nil
 }
 
 func (s *Server) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {

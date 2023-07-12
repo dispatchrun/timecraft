@@ -147,7 +147,7 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintf(os.Stderr, "%s\n", logSpec.ProcessID)
 	}
 
-	processID, err := processManager.Start(moduleSpec, logSpec)
+	processID, err := processManager.Start(moduleSpec, logSpec, nil)
 	if err != nil {
 		return err
 	}

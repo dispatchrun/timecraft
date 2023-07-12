@@ -67,6 +67,9 @@ type ProcessInfo struct {
 	// the process over the work socket.
 	Transport *http.Transport
 
+	// ParentID is the ID of the process that spawned this one (if applicable).
+	ParentID *ProcessID
+
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 }
@@ -121,7 +124,7 @@ func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runt
 // initializing the WebAssembly module. If the WebAssembly module starts
 // successfully, any errors that occur during execution must be retrieved
 // via Wait or WaitAll.
-func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, error) {
+func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *ProcessID) (ProcessID, error) {
 	wasmPath := moduleSpec.Path
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
@@ -322,8 +325,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	ipv4Addr := netip.AddrFrom4(ipv4)
 
 	process := &ProcessInfo{
-		ID:   processID,
-		Addr: ipv4Addr,
+		ID:       processID,
+		ParentID: parentID,
+		Addr:     ipv4Addr,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (conn net.Conn, err error) {
 				// The process isn't necessarily available to take on work immediately.

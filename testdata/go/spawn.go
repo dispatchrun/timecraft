@@ -55,11 +55,12 @@ func supervisor(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to spawn worker: %w", err)
 	}
+	defer client.Kill(ctx, workerID)
 
 	fmt.Printf("spawned worker process %s with address %s\n", workerID, workerAddr)
 
 	// FIXME:
-	time.Sleep(5 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	httpClient := &http.Client{
 		Transport: &http.Transport{
@@ -87,6 +88,8 @@ func supervisor(ctx context.Context) error {
 }
 
 func worker() error {
+	defer fmt.Println("worker exiting")
+
 	addr := ":3000"
 	listener, err := wasip1.Listen("tcp", addr)
 	if err != nil {
