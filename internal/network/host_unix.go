@@ -1,8 +1,6 @@
 package network
 
 import (
-	"time"
-
 	"golang.org/x/sys/unix"
 )
 
@@ -40,7 +38,7 @@ func (s *hostSocket) Bind(addr Sockaddr) error {
 		return EBADF
 	}
 	defer s.fd.release(fd)
-	return ignoreEINTR(func() error { return unix.Bind(fd, addr) })
+	return bind(fd, addr)
 }
 
 func (s *hostSocket) Listen(backlog int) error {
@@ -49,7 +47,7 @@ func (s *hostSocket) Listen(backlog int) error {
 		return EBADF
 	}
 	defer s.fd.release(fd)
-	return ignoreEINTR(func() error { return unix.Listen(fd, backlog) })
+	return listen(fd, backlog)
 }
 
 func (s *hostSocket) Connect(addr Sockaddr) error {
@@ -58,7 +56,7 @@ func (s *hostSocket) Connect(addr Sockaddr) error {
 		return EBADF
 	}
 	defer s.fd.release(fd)
-	return ignoreEINTR(func() error { return unix.Connect(fd, addr) })
+	return connect(fd, addr)
 }
 
 func (s *hostSocket) Name() (Sockaddr, error) {
@@ -67,7 +65,7 @@ func (s *hostSocket) Name() (Sockaddr, error) {
 		return nil, EBADF
 	}
 	defer s.fd.release(fd)
-	return ignoreEINTR2(func() (Sockaddr, error) { return unix.Getsockname(fd) })
+	return getsockname(fd)
 }
 
 func (s *hostSocket) Peer() (Sockaddr, error) {
@@ -76,7 +74,7 @@ func (s *hostSocket) Peer() (Sockaddr, error) {
 		return nil, EBADF
 	}
 	defer s.fd.release(fd)
-	return ignoreEINTR2(func() (Sockaddr, error) { return unix.Getpeername(fd) })
+	return getpeername(fd)
 }
 
 func (s *hostSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, error) {
@@ -124,9 +122,7 @@ func (s *hostSocket) Shutdown(how int) error {
 		return EBADF
 	}
 	defer s.fd.release(fd)
-	return ignoreEINTR(func() error {
-		return unix.Shutdown(fd, how)
-	})
+	return shutdown(fd, how)
 }
 
 func (s *hostSocket) SetOptInt(level, name, value int) error {
@@ -135,7 +131,7 @@ func (s *hostSocket) SetOptInt(level, name, value int) error {
 		return EBADF
 	}
 	defer s.fd.release(fd)
-	return ignoreEINTR(func() error { return unix.SetsockoptInt(fd, level, name, value) })
+	return setsockoptInt(fd, level, name, value)
 }
 
 func (s *hostSocket) GetOptInt(level, name int) (int, error) {
@@ -144,57 +140,5 @@ func (s *hostSocket) GetOptInt(level, name int) (int, error) {
 		return -1, EBADF
 	}
 	defer s.fd.release(fd)
-	return ignoreEINTR2(func() (int, error) { return unix.GetsockoptInt(fd, level, name) })
-}
-
-// This function is used to automtically retry syscalls when they return EINTR
-// due to having handled a signal instead of executing. Despite defininig a
-// EINTR constant and having proc_raise to trigger signals from the guest, WASI
-// does not provide any mechanism for handling signals so masking those errors
-// seems like a safer approach to ensure that guest applications will work the
-// same regardless of the compiler being used.
-func ignoreEINTR(f func() error) error {
-	for {
-		if err := f(); err != EINTR {
-			return err
-		}
-	}
-}
-
-func ignoreEINTR2[F func() (R, error), R any](f F) (R, error) {
-	for {
-		v, err := f()
-		if err != EINTR {
-			return v, err
-		}
-	}
-}
-
-func ignoreEINTR3[F func() (R1, R2, error), R1, R2 any](f F) (R1, R2, error) {
-	for {
-		v1, v2, err := f()
-		if err != EINTR {
-			return v1, v2, err
-		}
-	}
-}
-
-func WaitReadyRead(socket Socket, timeout time.Duration) error {
-	return wait(socket, unix.POLLIN, timeout)
-}
-
-func WaitReadyWrite(socket Socket, timeout time.Duration) error {
-	return wait(socket, unix.POLLOUT, timeout)
-}
-
-func wait(socket Socket, events int16, timeout time.Duration) error {
-	tms := int(timeout / time.Millisecond)
-	pfd := []unix.PollFd{{
-		Fd:     int32(socket.Fd()),
-		Events: events,
-	}}
-	return ignoreEINTR(func() error {
-		_, err := unix.Poll(pfd, tms)
-		return err
-	})
+	return getsockoptInt(fd, level, name)
 }

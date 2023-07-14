@@ -8,24 +8,6 @@ func socketpair(family, socktype, protocol int) ([2]int, error) {
 	})
 }
 
-func (s *localSocket) SetOptInt(level, name, value int) error {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return EBADF
-	}
-	defer s.fd0.release(fd)
-
-	switch level {
-	case unix.SOL_SOCKET:
-		switch name {
-		case unix.SO_BINDTODEVICE:
-			return 0, ENOPROTOOPT
-		}
-	}
-
-	return ignoreEINTR(func() error { return unix.SetsockoptInt(fd, level, name, value) })
-}
-
 func (s *localSocket) GetOptInt(level, name int) (int, error) {
 	fd := s.fd0.acquire()
 	if fd < 0 {
@@ -43,5 +25,23 @@ func (s *localSocket) GetOptInt(level, name int) (int, error) {
 		}
 	}
 
-	return ignoreEINTR2(func() (int, error) { return unix.GetsockoptInt(fd, level, name) })
+	return getsockoptInt(fd, level, name)
+}
+
+func (s *localSocket) SetOptInt(level, name, value int) error {
+	fd := s.fd0.acquire()
+	if fd < 0 {
+		return EBADF
+	}
+	defer s.fd0.release(fd)
+
+	switch level {
+	case unix.SOL_SOCKET:
+		switch name {
+		case unix.SO_BINDTODEVICE:
+			return 0, ENOPROTOOPT
+		}
+	}
+
+	return setsockoptInt(fd, level, name, value)
 }

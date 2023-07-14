@@ -34,20 +34,20 @@ func closePair(fds *[2]int) {
 	fds[1] = -1
 }
 
-func (s *localSocket) SetOptInt(level, name, value int) error {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return EBADF
-	}
-	defer s.fd0.release(fd)
-	return ignoreEINTR(func() error { return unix.SetsockoptInt(fd, level, name, value) })
-}
-
 func (s *localSocket) GetOptInt(level, name int) (int, error) {
 	fd := s.fd0.acquire()
 	if fd < 0 {
 		return 0, EBADF
 	}
 	defer s.fd0.release(fd)
-	return ignoreEINTR2(func() (int, error) { return unix.GetsockoptInt(fd, level, name) })
+	return getsockoptInt(fd, level, name)
+}
+
+func (s *localSocket) SetOptInt(level, name, value int) error {
+	fd := s.fd0.acquire()
+	if fd < 0 {
+		return EBADF
+	}
+	defer s.fd0.release(fd)
+	return setsockoptInt(fd, level, name, value)
 }

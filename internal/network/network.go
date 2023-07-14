@@ -38,9 +38,9 @@ type Socket interface {
 
 	Shutdown(how int) error
 
-	SetOptInt(level, name, value int) error
-
 	GetOptInt(level, name int) (int, error)
+
+	SetOptInt(level, name, value int) error
 }
 
 type Socktype uint8
@@ -63,10 +63,34 @@ func (f Family) String() string {
 type Protocol uint16
 
 const (
-	UNSPEC Protocol = 0
-	TCP    Protocol = 6
-	UDP    Protocol = 17
+	NOPROTO Protocol = 0
+	TCP     Protocol = 6
+	UDP     Protocol = 17
 )
+
+func (p Protocol) String() string {
+	switch p {
+	case NOPROTO:
+		return "NOPROTO"
+	case TCP:
+		return "TCP"
+	case UDP:
+		return "UDP"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func (p Protocol) Network() string {
+	switch p {
+	case TCP:
+		return "tcp"
+	case UDP:
+		return "udp"
+	default:
+		return "ip"
+	}
+}
 
 type Namespace interface {
 	InterfaceByIndex(index int) (Interface, error)
@@ -105,6 +129,17 @@ func SockaddrFamily(sa Sockaddr) Family {
 	}
 }
 
+func SockaddrAddr(sa Sockaddr) netip.Addr {
+	switch a := sa.(type) {
+	case *SockaddrInet4:
+		return netip.AddrFrom4(a.Addr)
+	case *SockaddrInet6:
+		return netip.AddrFrom16(a.Addr)
+	default:
+		return netip.Addr{}
+	}
+}
+
 func SockaddrAddrPort(sa Sockaddr) netip.AddrPort {
 	switch a := sa.(type) {
 	case *SockaddrInet4:
@@ -114,14 +149,6 @@ func SockaddrAddrPort(sa Sockaddr) netip.AddrPort {
 	default:
 		return netip.AddrPort{}
 	}
-}
-
-func isUnspecifiedInet4(sa *SockaddrInet4) bool {
-	return sa.Addr == [4]byte{}
-}
-
-func isUnspecifiedInet6(sa *SockaddrInet6) bool {
-	return sa.Addr == [16]byte{}
 }
 
 func errInterfaceIndexNotFound(index int) error {

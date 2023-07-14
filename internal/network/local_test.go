@@ -47,6 +47,11 @@ func TestLocalNetwork(t *testing.T) {
 			scenario: "ipv6 sockets in different namespaces can connect to one another",
 			function: testLocalNetworkConnectNamespacesIPv6,
 		},
+
+		{
+			scenario: "local sockets can establish connections to foreign networks when a dial function is configured",
+			function: testLocalNetworkOutboundConnect,
+		},
 	}
 
 	ipv4, ipnet4, err := net.ParseCIDR("192.168.0.1/24")
@@ -198,6 +203,85 @@ func testLocalNetworkConnectNamespaces(t *testing.T, n *network.LocalNetwork, fa
 	name, err := client.Name()
 	assert.OK(t, err)
 	assert.Equal(t, network.SockaddrAddrPort(name), network.SockaddrAddrPort(addr))
+
+	wn, err := client.SendTo([][]byte{[]byte("Hello, World!")}, nil, 0)
+	assert.OK(t, err)
+	assert.Equal(t, wn, 13)
+
+	assert.OK(t, waitReadyRead(conn))
+	buf := make([]byte, 32)
+	rn, rflags, peer, err := conn.RecvFrom([][]byte{buf}, 0)
+	assert.OK(t, err)
+	assert.Equal(t, rn, 13)
+	assert.Equal(t, rflags, 0)
+	assert.Equal(t, string(buf[:13]), "Hello, World!")
+	assert.Equal(t, peer, nil)
+}
+
+func testLocalNetworkOutboundConnect(t *testing.T, n *network.LocalNetwork) {
+	ns1 := network.Host()
+
+	ifaces1, err := ns1.Interfaces()
+	assert.OK(t, err)
+	assert.NotEqual(t, len(ifaces1), 0)
+
+	var hostAddr *network.SockaddrInet4
+	for _, iface := range ifaces1 {
+		if hostAddr != nil {
+			break
+		}
+		if (iface.Flags() & net.FlagUp) == 0 {
+			continue
+		}
+		if (iface.Flags() & net.FlagLoopback) != 0 {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		assert.OK(t, err)
+
+		for _, addr := range addrs {
+			if a, ok := addr.(*net.IPNet); ok {
+				if ipv4 := a.IP.To4(); ipv4 != nil {
+					hostAddr = &network.SockaddrInet4{Addr: ([4]byte)(ipv4)}
+					break
+				}
+			}
+		}
+	}
+	assert.NotEqual(t, hostAddr, nil)
+
+	server, err := ns1.Socket(network.INET, network.STREAM, network.TCP)
+	assert.OK(t, err)
+	defer server.Close()
+
+	assert.OK(t, server.Bind(hostAddr))
+	assert.OK(t, server.Listen(1))
+	serverAddr, err := server.Name()
+	assert.OK(t, err)
+
+	var dialer net.Dialer
+	ns2, err := n.CreateNamespace(nil, network.DialFunc(dialer.DialContext))
+	assert.OK(t, err)
+
+	client, err := ns2.Socket(network.INET, network.STREAM, network.TCP)
+	assert.OK(t, err)
+	defer client.Close()
+
+	assert.Error(t, client.Connect(serverAddr), network.EINPROGRESS)
+	assert.OK(t, waitReadyRead(server))
+
+	conn, addr, err := server.Accept()
+	assert.OK(t, err)
+	defer conn.Close()
+	assert.NotEqual(t, addr, nil)
+
+	assert.OK(t, waitReadyWrite(client))
+	peer, err := client.Peer()
+	assert.OK(t, err)
+	assert.Equal(t,
+		network.SockaddrAddrPort(peer),
+		network.SockaddrAddrPort(serverAddr))
 
 	wn, err := client.SendTo([][]byte{[]byte("Hello, World!")}, nil, 0)
 	assert.OK(t, err)
