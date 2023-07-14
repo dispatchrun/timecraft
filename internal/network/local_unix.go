@@ -109,15 +109,38 @@ func (s *localSocket) Close() error {
 		}
 	}
 
+	// First close the socket pair; if there are background goroutines managing
+	// connections to external networks, this will interrupt the tunnels in
+	// charge of passing data back and forth between the local socket fds and
+	// the connections. Note that fd1 may have been detached if it was sent to
+	// another socket to establish a connection.
 	s.fd0.close()
 	s.fd1.close()
 
+	// When a listen function is configured on the parent namespace, the socket
+	// may have created a bridge to accept inbound connections from other
+	// networks so we have to close the net.Listener in order to interrupt the
+	// goroutine in charge of accepting connections.
 	if s.lstn != nil {
 		s.lstn.Close()
 	}
+
+	// When a dial function isconfigured on the parent namespace, the socket may
+	// be in the process of establishing an outbound connection; in that case,
+	// a context was created to control asynchronous cancellation of the dial
+	// and we must invoke the cancellation function to interrupt it.
 	if s.cancel != nil {
 		s.cancel()
 	}
+
+	// When either a listen or dial functions were set on the parent namespace
+	// and the socket has created bridges to external networks, an error channel
+	// was set to receive errors from the background goroutines managing those
+	// connections. Because we arleady interrupted asynchrononus operations, we
+	// have the guarantee that the channel will be closed when the goroutines
+	// exit, so the for loop will eventually stop. Flushing the error channel is
+	// necessary to ensure that none of the background goroutines remain blocked
+	// attempting to produce to the errors channel.
 	if s.errs != nil {
 		for range s.errs {
 		}
@@ -139,11 +162,11 @@ func (s *localSocket) Bind(addr Sockaddr) error {
 	switch bind := addr.(type) {
 	case *SockaddrInet4:
 		if s.family == INET {
-			return s.ns.bindInet4(s, bind)
+			return s.bindInet4(bind)
 		}
 	case *SockaddrInet6:
 		if s.family == INET6 {
-			return s.ns.bindInet6(s, bind)
+			return s.bindInet6(bind)
 		}
 	}
 	return EAFNOSUPPORT
@@ -152,10 +175,30 @@ func (s *localSocket) Bind(addr Sockaddr) error {
 func (s *localSocket) bindAny() error {
 	switch s.family {
 	case INET:
-		return s.ns.bindInet4(s, &sockaddrInet4Any)
+		return s.bindInet4(&sockaddrInet4Any)
 	default:
-		return s.ns.bindInet6(s, &sockaddrInet6Any)
+		return s.bindInet6(&sockaddrInet6Any)
 	}
+}
+
+func (s *localSocket) bindInet4(addr *SockaddrInet4) error {
+	if err := s.ns.bindInet4(s, addr); err != nil {
+		return err
+	}
+	if s.socktype == DGRAM && s.ns.listenPacket != nil {
+		return s.listenPacket()
+	}
+	return nil
+}
+
+func (s *localSocket) bindInet6(addr *SockaddrInet6) error {
+	if err := s.ns.bindInet6(s, addr); err != nil {
+		return err
+	}
+	if s.socktype == DGRAM && s.ns.listenPacket != nil {
+		return s.listenPacket()
+	}
+	return nil
 }
 
 func (s *localSocket) Listen(backlog int) error {
@@ -180,7 +223,7 @@ func (s *localSocket) Listen(backlog int) error {
 		}
 	}
 	if s.ns.listen != nil {
-		if err := s.bridge(); err != nil {
+		if err := s.listen(); err != nil {
 			return err
 		}
 	}
@@ -188,16 +231,59 @@ func (s *localSocket) Listen(backlog int) error {
 	return nil
 }
 
-func (s *localSocket) bridge() error {
-	var address string
+func (s *localSocket) listenAddress() string {
 	switch a := s.name.Load().(type) {
 	case *SockaddrInet4:
-		address = fmt.Sprintf(":%d", a.Port)
+		return fmt.Sprintf(":%d", a.Port)
 	case *SockaddrInet6:
-		address = fmt.Sprintf("[::]:%d", a.Port)
+		return fmt.Sprintf("[::]:%d", a.Port)
+	default:
+		return ""
 	}
+}
 
-	l, err := s.ns.listen(context.TODO(), "tcp", address)
+func (s *localSocket) listenPacket() error {
+	// TODO: figure out how to tunnel packet connections in a way that allows
+	// for both internal and external packets to transit.
+
+	// fd := s.fd1.acquire()
+	// if fd < 0 {
+	// 	return EBADF
+	// }
+	// defer s.fd1.release(fd)
+
+	// network := s.protocol.Network()
+	// address := s.listenAddress()
+
+	// upstream, err := s.ns.listenPacket(context.TODO(), network, address)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// f := os.NewFile(uintptr(fd), "")
+	// defer f.Close()
+	// s.fd1.acquire()
+	// s.fd1.close()
+
+	// downstream, err := net.FilePacketConn(f)
+	// if err != nil {
+	// 	upstream.Close()
+	// 	return err
+	// }
+
+	// go func() {
+	// 	defer downstream.Close()
+	// 	defer upstream.Close()
+
+	// }()
+	return nil
+}
+
+func (s *localSocket) listen() error {
+	network := s.protocol.Network()
+	address := s.listenAddress()
+
+	l, err := s.ns.listen(context.TODO(), network, address)
 	if err != nil {
 		return err
 	}
@@ -368,6 +454,9 @@ func (s *localSocket) dial(addr Sockaddr) error {
 	}
 	defer s.fd1.release(fd1)
 
+	// TODO:
+	// - remove the 2x factor that linux applies on socket buffers
+	// - do the two ends of a socket pair share the same buffer sizes?
 	rbufsize, err := getsockoptInt(fd1, unix.SOL_SOCKET, unix.SO_RCVBUF)
 	if err != nil {
 		return err
@@ -669,13 +758,19 @@ func encodeSockaddrAny(addr any) (buf [addrBufSize]byte) {
 	case *SockaddrInet6:
 		return encodeAddrPortInet6(a.Addr, a.Port)
 	case *net.TCPAddr:
-		if ipv4 := a.IP.To4(); ipv4 != nil {
-			return encodeAddrPortInet4(([4]byte)(ipv4), a.Port)
-		} else {
-			return encodeAddrPortInet6(([16]byte)(a.IP), a.Port)
-		}
+		return encodeAddrPortIP(a.IP, a.Port)
+	case *net.UDPAddr:
+		return encodeAddrPortIP(a.IP, a.Port)
 	default:
 		return
+	}
+}
+
+func encodeAddrPortIP(addr net.IP, port int) (buf [addrBufSize]byte) {
+	if ipv4 := addr.To4(); ipv4 != nil {
+		return encodeAddrPortInet4(([4]byte)(ipv4), port)
+	} else {
+		return encodeAddrPortInet6(([16]byte)(addr), port)
 	}
 }
 
