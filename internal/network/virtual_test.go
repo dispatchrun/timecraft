@@ -50,8 +50,11 @@ func TestVirtualNetwork(t *testing.T) {
 		},
 	}
 
-	_, ipnet4, _ := net.ParseCIDR("192.168.0.0/24")
-	_, ipnet6, _ := net.ParseCIDR("fe80::/64")
+	_, ipnet4, err := net.ParseCIDR("192.168.0.0/24")
+	assert.OK(t, err)
+
+	_, ipnet6, err := net.ParseCIDR("fe80::/64")
+	assert.OK(t, err)
 
 	for _, test := range tests {
 		t.Run(test.scenario, func(t *testing.T) {
@@ -124,52 +127,9 @@ func testVirtualNetworkConnectInterfaceIPv6(t *testing.T, n *network.VirtualNetw
 }
 
 func testVirtualNetworkConnect(t *testing.T, n *network.VirtualNetwork, bind network.Sockaddr) {
-	family := network.SockaddrFamily(bind)
-
 	ns, err := n.CreateNamespace()
 	assert.OK(t, err)
-
-	server, err := ns.Socket(family, network.STREAM, network.TCP)
-	assert.OK(t, err)
-	defer server.Close()
-
-	assert.OK(t, server.Bind(bind))
-	assert.OK(t, server.Listen(1))
-	serverAddr, err := server.Name()
-	assert.OK(t, err)
-
-	client, err := ns.Socket(family, network.STREAM, network.TCP)
-	assert.OK(t, err)
-	defer client.Close()
-
-	assert.Error(t, client.Connect(serverAddr), network.EINPROGRESS)
-	assert.OK(t, waitReadyRead(server))
-	conn, addr, err := server.Accept()
-	assert.OK(t, err)
-	defer conn.Close()
-
-	assert.OK(t, waitReadyWrite(client))
-	peer, err := client.Peer()
-	assert.OK(t, err)
-	assert.DeepEqual(t, peer, serverAddr)
-
-	name, err := client.Name()
-	assert.OK(t, err)
-	assert.DeepEqual(t, name, addr)
-
-	wn, err := client.SendTo([][]byte{[]byte("Hello, World!")}, nil, nil, 0)
-	assert.OK(t, err)
-	assert.Equal(t, wn, 13)
-
-	assert.OK(t, waitReadyRead(conn))
-	buf := make([]byte, 32)
-	rn, oobn, rflags, peer, err := conn.RecvFrom([][]byte{buf}, nil, 0)
-	assert.OK(t, err)
-	assert.Equal(t, rn, 13)
-	assert.Equal(t, oobn, 0)
-	assert.Equal(t, rflags, 0)
-	assert.Equal(t, string(buf[:13]), "Hello, World!")
-	assert.Equal(t, peer, addr)
+	testNamespaceConnect(t, ns, bind)
 }
 
 func testVirtualNetworkConnectNamespacesIPv4(t *testing.T, n *network.VirtualNetwork) {
@@ -214,16 +174,15 @@ func testVirtualNetworkConnectNamespaces(t *testing.T, n *network.VirtualNetwork
 	assert.OK(t, err)
 	assert.DeepEqual(t, name, addr)
 
-	wn, err := client.SendTo([][]byte{[]byte("Hello, World!")}, nil, nil, 0)
+	wn, err := client.SendTo([][]byte{[]byte("Hello, World!")}, nil, 0)
 	assert.OK(t, err)
 	assert.Equal(t, wn, 13)
 
 	assert.OK(t, waitReadyRead(conn))
 	buf := make([]byte, 32)
-	rn, oobn, rflags, peer, err := conn.RecvFrom([][]byte{buf}, nil, 0)
+	rn, rflags, peer, err := conn.RecvFrom([][]byte{buf}, 0)
 	assert.OK(t, err)
 	assert.Equal(t, rn, 13)
-	assert.Equal(t, oobn, 0)
 	assert.Equal(t, rflags, 0)
 	assert.Equal(t, string(buf[:13]), "Hello, World!")
 	assert.Equal(t, peer, addr)

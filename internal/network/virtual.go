@@ -2,7 +2,6 @@ package network
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -143,7 +142,7 @@ func (ns *VirtualNamespace) InterfaceByIndex(index int) (Interface, error) {
 	case ns.en0.index:
 		return &ns.en0, nil
 	default:
-		return nil, fmt.Errorf("virtual network interface index out of bounds: %d", index)
+		return nil, errInterfaceIndexNotFound(index)
 	}
 }
 
@@ -154,7 +153,7 @@ func (ns *VirtualNamespace) InterfaceByName(name string) (Interface, error) {
 	case ns.en0.name:
 		return &ns.en0, nil
 	default:
-		return nil, fmt.Errorf("virtual network interface not found: %s", name)
+		return nil, errInterfaceNameNotFound(name)
 	}
 }
 
@@ -445,9 +444,13 @@ func (t *virtualAddressTable) bind(socket *virtualSocket, ha, sa virtualAddress)
 	return int(sa.port), nil
 }
 
-func (t *virtualAddressTable) unlink(ha, sa virtualAddress) {
-	delete(t.host, ha)
-	delete(t.sock, sa)
+func (t *virtualAddressTable) unlink(socket *virtualSocket, ha, sa virtualAddress) {
+	if t.host[ha] == socket {
+		delete(t.host, ha)
+	}
+	if t.sock[sa] == socket {
+		delete(t.sock, sa)
+	}
 }
 
 type virtualInterface struct {
@@ -458,7 +461,7 @@ type virtualInterface struct {
 	haddr net.HardwareAddr
 	flags net.Flags
 
-	mutex sync.Mutex
+	mutex sync.RWMutex
 	inet4 virtualAddressTable
 	inet6 virtualAddressTable
 }
@@ -535,29 +538,29 @@ func (i *virtualInterface) bindInet6(socket *virtualSocket, host, addr *Sockaddr
 
 func (i *virtualInterface) lookupByHostInet4(socket *virtualSocket, host *SockaddrInet4) *virtualSocket {
 	va := virtualSockaddrInet4(socket.proto, host)
-	i.mutex.Lock()
-	defer i.mutex.Unlock()
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.inet4.host[va]
 }
 
 func (i *virtualInterface) lookupByHostInet6(socket *virtualSocket, host *SockaddrInet6) *virtualSocket {
 	va := virtualSockaddrInet6(socket.proto, host)
-	i.mutex.Lock()
-	defer i.mutex.Unlock()
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.inet6.host[va]
 }
 
 func (i *virtualInterface) lookupByAddrInet4(socket *virtualSocket, addr *SockaddrInet4) *virtualSocket {
 	va := virtualSockaddrInet4(socket.proto, addr)
-	i.mutex.Lock()
-	defer i.mutex.Unlock()
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.inet4.sock[va]
 }
 
 func (i *virtualInterface) lookupByAddrInet6(socket *virtualSocket, addr *SockaddrInet6) *virtualSocket {
 	va := virtualSockaddrInet6(socket.proto, addr)
-	i.mutex.Lock()
-	defer i.mutex.Unlock()
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 	return i.inet6.sock[va]
 }
 
@@ -568,7 +571,7 @@ func (i *virtualInterface) unlinkInet4(socket *virtualSocket, host, addr *Sockad
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 
-	i.inet4.unlink(hostAddr, sockAddr)
+	i.inet4.unlink(socket, hostAddr, sockAddr)
 	socket.host.Store(&sockaddrInet4Any)
 	socket.name.Store(&sockaddrInet4Any)
 	socket.bound = false
@@ -581,16 +584,11 @@ func (i *virtualInterface) unlinkInet6(socket *virtualSocket, host, addr *Sockad
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 
-	i.inet6.unlink(hostAddr, sockAddr)
+	i.inet6.unlink(socket, hostAddr, sockAddr)
 	socket.host.Store(&sockaddrInet6Any)
 	socket.name.Store(&sockaddrInet6Any)
 	socket.bound = false
 }
-
-var (
-	sockaddrInet4Any SockaddrInet4
-	sockaddrInet6Any SockaddrInet6
-)
 
 type virtualSocket struct {
 	ns    *VirtualNamespace
@@ -615,9 +613,6 @@ func (s *virtualSocket) Fd() int {
 }
 
 func (s *virtualSocket) Close() error {
-	if err := s.base.Close(); err != nil {
-		return err
-	}
 	if s.bound {
 		host := s.host.Load()
 		name := s.name.Load()
@@ -628,7 +623,7 @@ func (s *virtualSocket) Close() error {
 			s.ns.unlinkInet6(s, host.(*SockaddrInet6), a)
 		}
 	}
-	return nil
+	return s.base.Close()
 }
 
 func (s *virtualSocket) Bind(addr Sockaddr) error {
@@ -785,10 +780,10 @@ func (s *virtualSocket) Peer() (Sockaddr, error) {
 	return nil, ENOTCONN
 }
 
-func (s *virtualSocket) RecvFrom(iovs [][]byte, oob []byte, flags int) (int, int, int, Sockaddr, error) {
-	n, oobn, flags, addr, err := s.base.RecvFrom(iovs, oob, flags)
+func (s *virtualSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, error) {
+	n, flags, addr, err := s.base.RecvFrom(iovs, flags)
 	if err != nil {
-		return -1, -1, 0, nil, err
+		return -1, 0, nil, err
 	}
 	switch conn := s.peer.Load().(type) {
 	case *SockaddrInet4:
@@ -798,10 +793,10 @@ func (s *virtualSocket) RecvFrom(iovs [][]byte, oob []byte, flags int) (int, int
 	default:
 		addr, err = s.toVirtualAddr(addr)
 	}
-	return n, oobn, flags, addr, err
+	return n, flags, addr, err
 }
 
-func (s *virtualSocket) SendTo(iovs [][]byte, oob []byte, addr Sockaddr, flags int) (int, error) {
+func (s *virtualSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, error) {
 	if addr != nil {
 		a, err := s.toHostAddr(addr)
 		if err != nil {
@@ -809,7 +804,7 @@ func (s *virtualSocket) SendTo(iovs [][]byte, oob []byte, addr Sockaddr, flags i
 		}
 		addr = a
 	}
-	n, err := s.base.SendTo(iovs, oob, addr, flags)
+	n, err := s.base.SendTo(iovs, addr, flags)
 	if s.name.Load() == nil {
 		if err := s.bindAny(); err != nil {
 			return n, err
@@ -822,12 +817,12 @@ func (s *virtualSocket) Shutdown(how int) error {
 	return s.base.Shutdown(how)
 }
 
-func (s *virtualSocket) SetOption(level, name, value int) error {
-	return s.base.SetOption(level, name, value)
+func (s *virtualSocket) SetOptInt(level, name, value int) error {
+	return s.base.SetOptInt(level, name, value)
 }
 
-func (s *virtualSocket) GetOption(level, name int) (int, error) {
-	return s.base.GetOption(level, name)
+func (s *virtualSocket) GetOptInt(level, name int) (int, error) {
+	return s.base.GetOptInt(level, name)
 }
 
 func (s *virtualSocket) toHostAddr(addr Sockaddr) (Sockaddr, error) {

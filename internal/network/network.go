@@ -1,7 +1,13 @@
 package network
 
 import (
+	"errors"
+	"fmt"
 	"net"
+)
+
+var (
+	ErrInterfaceNotFound = errors.New("network interface not found")
 )
 
 type Socket interface {
@@ -25,15 +31,15 @@ type Socket interface {
 
 	Peer() (Sockaddr, error)
 
-	RecvFrom(iovs [][]byte, oob []byte, flags int) (n, oobn, rflags int, addr Sockaddr, err error)
+	RecvFrom(iovs [][]byte, flags int) (n, rflags int, addr Sockaddr, err error)
 
-	SendTo(iovs [][]byte, oob []byte, addr Sockaddr, flags int) (int, error)
+	SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, error)
 
 	Shutdown(how int) error
 
-	SetOption(level, name, value int) error
+	SetOptInt(level, name, value int) error
 
-	GetOption(level, name int) (int, error)
+	GetOptInt(level, name int) (int, error)
 }
 
 type Socktype uint8
@@ -85,17 +91,6 @@ func SockaddrFamily(sa Sockaddr) Family {
 	}
 }
 
-func isUnspecified(sa Sockaddr) bool {
-	switch a := sa.(type) {
-	case *SockaddrInet4:
-		return isUnspecifiedInet4(a)
-	case *SockaddrInet6:
-		return isUnspecifiedInet6(a)
-	default:
-		return true
-	}
-}
-
 func isUnspecifiedInet4(sa *SockaddrInet4) bool {
 	return sa.Addr == [4]byte{}
 }
@@ -103,3 +98,27 @@ func isUnspecifiedInet4(sa *SockaddrInet4) bool {
 func isUnspecifiedInet6(sa *SockaddrInet6) bool {
 	return sa.Addr == [16]byte{}
 }
+
+func isLoopbackInet4(sa *SockaddrInet4) bool {
+	return sa.Addr == [4]byte{127, 0, 0, 1}
+}
+
+func isLoopbackInet6(sa *SockaddrInet6) bool {
+	return sa.Addr == [16]byte{15: 1}
+}
+
+func errInterfaceIndexNotFound(index int) error {
+	return fmt.Errorf("index=%d: %w", index, ErrInterfaceNotFound)
+}
+
+func errInterfaceNameNotFound(name string) error {
+	return fmt.Errorf("name=%q: %w", name, ErrInterfaceNotFound)
+}
+
+var (
+	sockaddrInet4Any SockaddrInet4
+	sockaddrInet6Any SockaddrInet6
+
+	sockaddrInet4Loopback = SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}
+	sockaddrInet6Loopback = SockaddrInet6{Addr: [16]byte{15: 1}}
+)

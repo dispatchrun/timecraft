@@ -1,52 +1,21 @@
 package network
 
 import (
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/unix"
 )
 
 type hostSocket struct {
-	state    atomic.Uint64 // upper 32 bits: refCount, lower 32 bits: fd
+	fd       socketFD
 	family   Family
 	socktype Socktype
 }
 
 func newHostSocket(fd int, family Family, socktype Socktype) *hostSocket {
 	s := &hostSocket{family: family, socktype: socktype}
-	s.state.Store(uint64(fd))
+	s.fd.init(fd)
 	return s
-}
-
-func (s *hostSocket) acquire() int {
-	for {
-		oldState := s.state.Load()
-		refCount := (oldState >> 32) + 1
-		newState := (refCount << 32) | (oldState & 0xFFFFFFFF)
-
-		if int32(oldState) < 0 {
-			return -1
-		}
-		if s.state.CompareAndSwap(oldState, newState) {
-			return int(int32(oldState)) // int32->int for sign extension
-		}
-	}
-}
-
-func (s *hostSocket) release(fd int) {
-	for {
-		oldState := s.state.Load()
-		refCount := (oldState >> 32) - 1
-		newState := (oldState << 32) | (oldState & 0xFFFFFFFF)
-
-		if s.state.CompareAndSwap(oldState, newState) {
-			if int32(oldState) < 0 && refCount == 0 {
-				unix.Close(fd)
-			}
-			break
-		}
-	}
 }
 
 func (s *hostSocket) Family() Family {
@@ -58,102 +27,87 @@ func (s *hostSocket) Type() Socktype {
 }
 
 func (s *hostSocket) Fd() int {
-	return int(int32(s.state.Load()))
+	return s.fd.load()
 }
 
 func (s *hostSocket) Close() error {
-	for {
-		oldState := s.state.Load()
-		refCount := oldState >> 32
-		newState := oldState | 0xFFFFFFFF
-
-		if s.state.CompareAndSwap(oldState, newState) {
-			fd := int32(oldState)
-			if fd < 0 {
-				return EBADF
-			}
-			if refCount == 0 {
-				return unix.Close(int(fd))
-			}
-			return nil
-		}
-	}
+	return s.fd.close()
 }
 
 func (s *hostSocket) Bind(addr Sockaddr) error {
-	fd := s.acquire()
+	fd := s.fd.acquire()
 	if fd < 0 {
 		return EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	return ignoreEINTR(func() error { return unix.Bind(fd, addr) })
 }
 
 func (s *hostSocket) Listen(backlog int) error {
-	fd := s.acquire()
+	fd := s.fd.acquire()
 	if fd < 0 {
 		return EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	return ignoreEINTR(func() error { return unix.Listen(fd, backlog) })
 }
 
 func (s *hostSocket) Connect(addr Sockaddr) error {
-	fd := s.acquire()
+	fd := s.fd.acquire()
 	if fd < 0 {
 		return EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	return ignoreEINTR(func() error { return unix.Connect(fd, addr) })
 }
 
 func (s *hostSocket) Name() (Sockaddr, error) {
-	fd := s.acquire()
+	fd := s.fd.acquire()
 	if fd < 0 {
 		return nil, EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	return ignoreEINTR2(func() (Sockaddr, error) { return unix.Getsockname(fd) })
 }
 
 func (s *hostSocket) Peer() (Sockaddr, error) {
-	fd := s.acquire()
+	fd := s.fd.acquire()
 	if fd < 0 {
 		return nil, EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	return ignoreEINTR2(func() (Sockaddr, error) { return unix.Getpeername(fd) })
 }
 
-func (s *hostSocket) RecvFrom(iovs [][]byte, oob []byte, flags int) (int, int, int, Sockaddr, error) {
-	fd := s.acquire()
+func (s *hostSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, error) {
+	fd := s.fd.acquire()
 	if fd < 0 {
-		return -1, 0, 0, nil, EBADF
+		return -1, 0, nil, EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	// TODO: remove the heap allocation that happens for the socket address by
 	// implementing recvfrom(2) and using a cached socket address for connected
 	// sockets.
 	for {
-		n, oobn, rflags, addr, err := unix.RecvmsgBuffers(fd, iovs, oob, flags)
+		n, _, rflags, addr, err := unix.RecvmsgBuffers(fd, iovs, nil, flags)
 		if err == EINTR {
 			if n == 0 {
 				continue
 			}
 			err = nil
 		}
-		return n, oobn, rflags, addr, err
+		return n, rflags, addr, err
 	}
 }
 
-func (s *hostSocket) SendTo(iovs [][]byte, oob []byte, addr Sockaddr, flags int) (int, error) {
-	fd := s.acquire()
+func (s *hostSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, error) {
+	fd := s.fd.acquire()
 	if fd < 0 {
 		return -1, EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	for {
-		n, err := unix.SendmsgBuffers(fd, iovs, oob, addr, flags)
+		n, err := unix.SendmsgBuffers(fd, iovs, nil, addr, flags)
 		if err == EINTR {
 			if n == 0 {
 				continue
@@ -165,31 +119,31 @@ func (s *hostSocket) SendTo(iovs [][]byte, oob []byte, addr Sockaddr, flags int)
 }
 
 func (s *hostSocket) Shutdown(how int) error {
-	fd := s.acquire()
+	fd := s.fd.acquire()
 	if fd < 0 {
 		return EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	return ignoreEINTR(func() error {
 		return unix.Shutdown(fd, how)
 	})
 }
 
-func (s *hostSocket) SetOption(level, name, value int) error {
-	fd := s.acquire()
+func (s *hostSocket) SetOptInt(level, name, value int) error {
+	fd := s.fd.acquire()
 	if fd < 0 {
 		return EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	return ignoreEINTR(func() error { return unix.SetsockoptInt(fd, level, name, value) })
 }
 
-func (s *hostSocket) GetOption(level, name int) (int, error) {
-	fd := s.acquire()
+func (s *hostSocket) GetOptInt(level, name int) (int, error) {
+	fd := s.fd.acquire()
 	if fd < 0 {
 		return -1, EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	return ignoreEINTR2(func() (int, error) { return unix.GetsockoptInt(fd, level, name) })
 }
 

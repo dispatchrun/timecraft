@@ -23,11 +23,11 @@ func (hostNamespace) Socket(family Family, socktype Socktype, protocol Protocol)
 }
 
 func (s *hostSocket) Accept() (Socket, Sockaddr, error) {
-	fd := s.acquire()
+	fd := s.fd.acquire()
 	if fd < 0 {
 		return nil, nil, EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	syscall.ForkLock.RLock()
 	defer syscall.ForkLock.RUnlock()
 	conn, addr, err := ignoreEINTR3(func() (int, Sockaddr, error) {
@@ -41,18 +41,4 @@ func (s *hostSocket) Accept() (Socket, Sockaddr, error) {
 		return nil, nil, err
 	}
 	return newHostSocket(conn, s.family, s.socktype), addr, nil
-}
-
-func setCloseOnExecAndNonBlocking(fd int) error {
-	if _, err := ignoreEINTR2(func() (int, error) {
-		return unix.FcntlInt(uintptr(fd), unix.F_SETFD, unix.O_CLOEXEC)
-	}); err != nil {
-		return err
-	}
-	if err := ignoreEINTR(func() error {
-		return unix.SetNonblock(fd, true)
-	}); err != nil {
-		return err
-	}
-	return nil
 }
