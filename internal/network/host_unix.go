@@ -29,7 +29,8 @@ func (s *hostSocket) Fd() int {
 }
 
 func (s *hostSocket) Close() error {
-	return s.fd.close()
+	s.fd.close()
+	return nil
 }
 
 func (s *hostSocket) Bind(addr Sockaddr) error {

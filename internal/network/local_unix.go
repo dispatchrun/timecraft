@@ -6,18 +6,12 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"sync"
 	"sync/atomic"
 
 	"golang.org/x/sys/unix"
 )
 
-func (ns *LocalNamespace) Socket(family Family, socktype Socktype, protocol Protocol) (Socket, error) {
-	switch family {
-	case INET, INET6:
-	default:
-		return ns.host.Socket(family, socktype, protocol)
-	}
+func (ns *LocalNamespace) socket(family Family, socktype Socktype, protocol Protocol) (*localSocket, error) {
 	socket := &localSocket{
 		ns:       ns,
 		family:   family,
@@ -37,6 +31,7 @@ type localSocketState uint8
 
 const (
 	bound localSocketState = 1 << iota
+	accepted
 	connected
 	listening
 )
@@ -69,8 +64,27 @@ type localSocket struct {
 	iovs    [][]byte
 	addrBuf [addrBufSize]byte
 
+	lstn   net.Listener
 	errs   <-chan error
 	cancel context.CancelFunc
+}
+
+func (s *localSocket) String() string {
+	name := s.name.Load()
+	peer := s.peer.Load()
+	if name == nil {
+		return "?"
+	}
+	if peer == nil {
+		return SockaddrAddrPort(name.(Sockaddr)).String()
+	}
+	nameString := SockaddrAddrPort(name.(Sockaddr)).String()
+	peerString := SockaddrAddrPort(peer.(Sockaddr)).String()
+	if s.state.is(accepted) {
+		return peerString + "->" + nameString
+	} else {
+		return nameString + "->" + peerString
+	}
 }
 
 func (s *localSocket) Family() Family {
@@ -94,8 +108,20 @@ func (s *localSocket) Close() error {
 			s.ns.unlinkInet6(s, addr)
 		}
 	}
+
 	s.fd0.close()
 	s.fd1.close()
+
+	if s.lstn != nil {
+		s.lstn.Close()
+	}
+	if s.cancel != nil {
+		s.cancel()
+	}
+	if s.errs != nil {
+		for range s.errs {
+		}
+	}
 	return nil
 }
 
@@ -176,21 +202,77 @@ func (s *localSocket) bridge() error {
 		return err
 	}
 
+	errs := make(chan error, 1)
+	s.lstn = l
+	s.errs = errs
+
 	go func() {
+		defer close(errs)
 		for {
 			c, err := l.Accept()
 			if err != nil {
-				if !isTemporary(err) {
+				e, _ := err.(interface{ Temporary() bool })
+				if e == nil || !e.Temporary() {
+					errs <- err
 					return
 				}
-				continue
+			} else if s.serve(c) != nil {
+				c.Close()
+				select {
+				case errs <- ECONNABORTED:
+				default:
+				}
 			}
+		}
+	}()
+	return nil
+}
 
-			_ = c
-			// TOOD:
-			// - create local socket
-			// - send to parent server socket
-			// - start connection tunnel
+func (s *localSocket) serve(upstream net.Conn) error {
+	serverFd := s.fd1.acquire()
+	if serverFd < 0 {
+		return EBADF
+	}
+	defer s.fd1.release(serverFd)
+
+	rbufsize, err := getsockoptInt(serverFd, unix.SOL_SOCKET, unix.SO_RCVBUF)
+	if err != nil {
+		return err
+	}
+	wbufsize, err := getsockoptInt(serverFd, unix.SOL_SOCKET, unix.SO_SNDBUF)
+	if err != nil {
+		return err
+	}
+	socket, err := s.ns.socket(s.family, s.socktype, s.protocol)
+	if err != nil {
+		return err
+	}
+	defer socket.Close()
+
+	if err := socket.connect(serverFd, upstream.RemoteAddr()); err != nil {
+		return err
+	}
+
+	f := os.NewFile(uintptr(socket.fd0.acquire()), "")
+	defer f.Close()
+	socket.fd0.close() // detach from the socket, f owns the fd now
+
+	downstream, err := net.FileConn(f)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		defer upstream.Close()
+		defer downstream.Close()
+
+		if err := tunnel(downstream, upstream, rbufsize, wbufsize); err != nil {
+			// TODO: figure out if this error needs to be reported:
+			//
+			// When the downstream file is closed, the other end of the
+			// connection will observe that the socket was shutdown, we
+			// lose the information of why but we currently have no way
+			// of locating the peer socket on the other side.
 		}
 	}()
 	return nil
@@ -215,13 +297,13 @@ func (s *localSocket) Connect(addr Sockaddr) error {
 		}
 	}
 
-	var peer *localSocket
+	var server *localSocket
 	var err error
 	switch a := addr.(type) {
 	case *SockaddrInet4:
-		peer, err = s.ns.lookupInet4(s, a)
+		server, err = s.ns.lookupInet4(s, a)
 	case *SockaddrInet6:
-		peer, err = s.ns.lookupInet6(s, a)
+		server, err = s.ns.lookupInet6(s, a)
 	default:
 		return EAFNOSUPPORT
 	}
@@ -231,7 +313,7 @@ func (s *localSocket) Connect(addr Sockaddr) error {
 		}
 		return ECONNREFUSED
 	}
-	if peer.socktype != s.socktype {
+	if server.socktype != s.socktype {
 		return ECONNREFUSED
 	}
 
@@ -241,30 +323,37 @@ func (s *localSocket) Connect(addr Sockaddr) error {
 		return nil
 	}
 
-	peerFd := peer.fd1.acquire()
-	if peerFd < 0 {
+	serverFd := server.fd1.acquire()
+	if serverFd < 0 {
 		return ECONNREFUSED
 	}
-	defer peer.fd1.release(peerFd)
+	defer server.fd1.release(serverFd)
 
+	if err := s.connect(serverFd, s.name.Load()); err != nil {
+		return err
+	}
+
+	s.peer.Store(addr)
+	s.state.set(connected)
+	return EINPROGRESS
+}
+
+func (s *localSocket) connect(serverFd int, addr any) error {
 	fd1 := s.fd1.acquire()
 	if fd1 < 0 {
 		return EBADF
 	}
 	defer s.fd1.release(fd1)
 
-	addrBuf := encodeSockaddrAny(s.name.Load())
+	addrBuf := encodeSockaddrAny(addr)
 	// TODO: remove the heap allocation by implementing UnixRights to output to
 	// a stack buffer.
 	rights := unix.UnixRights(fd1)
-	if err := unix.Sendmsg(peerFd, addrBuf[:], rights, nil, 0); err != nil {
+	if err := unix.Sendmsg(serverFd, addrBuf[:], rights, nil, 0); err != nil {
 		return ECONNREFUSED
 	}
-
 	s.fd1.close()
-	s.peer.Store(addr)
-	s.state.set(connected)
-	return EINPROGRESS
+	return nil
 }
 
 func (s *localSocket) dial(addr Sockaddr) error {
@@ -302,7 +391,7 @@ func (s *localSocket) dial(addr Sockaddr) error {
 	dialAddress := SockaddrAddrPort(addr).String()
 	ctx, cancel := context.WithCancel(context.Background())
 
-	errs := make(chan error, 2)
+	errs := make(chan error, 1)
 	s.errs = errs
 	s.cancel = cancel
 
@@ -316,17 +405,10 @@ func (s *localSocket) dial(addr Sockaddr) error {
 			return
 		}
 		defer upstream.Close()
-		buffer := make([]byte, rbufsize+wbufsize)
 
-		wg := new(sync.WaitGroup)
-		wg.Add(2)
-		defer wg.Wait()
-
-		go tunnel(downstream, upstream, buffer[:rbufsize], errs, wg)
-		go tunnel(upstream, downstream, buffer[rbufsize:], errs, wg)
-
-		<-ctx.Done()
-		closeRead(upstream) //nolint:errcheck
+		if err := tunnel(downstream, upstream, rbufsize, wbufsize); err != nil {
+			errs <- err
+		}
 	}()
 
 	s.peer.Store(addr)
@@ -344,13 +426,16 @@ func (s *localSocket) Accept() (Socket, Sockaddr, error) {
 	if !s.state.is(listening) {
 		return nil, nil, EINVAL
 	}
+	if err := s.getError(); err != nil {
+		return nil, nil, err
+	}
 
 	socket := &localSocket{
 		ns:       s.ns,
 		family:   s.family,
 		socktype: s.socktype,
 		protocol: s.protocol,
-		state:    bound | connected,
+		state:    bound | accepted | connected,
 	}
 
 	var oobn int
@@ -580,25 +665,31 @@ func clearIOVecs(iovs [][]byte) {
 func encodeSockaddrAny(addr any) (buf [addrBufSize]byte) {
 	switch a := addr.(type) {
 	case *SockaddrInet4:
-		return encodeSockaddrInet4(a)
+		return encodeAddrPortInet4(a.Addr, a.Port)
 	case *SockaddrInet6:
-		return encodeSockaddrInet6(a)
+		return encodeAddrPortInet6(a.Addr, a.Port)
+	case *net.TCPAddr:
+		if ipv4 := a.IP.To4(); ipv4 != nil {
+			return encodeAddrPortInet4(([4]byte)(ipv4), a.Port)
+		} else {
+			return encodeAddrPortInet6(([16]byte)(a.IP), a.Port)
+		}
 	default:
 		return
 	}
 }
 
-func encodeSockaddrInet4(addr *SockaddrInet4) (buf [addrBufSize]byte) {
+func encodeAddrPortInet4(addr [4]byte, port int) (buf [addrBufSize]byte) {
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(INET))
-	binary.LittleEndian.PutUint16(buf[2:4], uint16(addr.Port))
-	*(*[4]byte)(buf[4:]) = addr.Addr
+	binary.LittleEndian.PutUint16(buf[2:4], uint16(port))
+	*(*[4]byte)(buf[4:]) = addr
 	return
 }
 
-func encodeSockaddrInet6(addr *SockaddrInet6) (buf [addrBufSize]byte) {
+func encodeAddrPortInet6(addr [16]byte, port int) (buf [addrBufSize]byte) {
 	binary.LittleEndian.PutUint16(buf[0:2], uint16(INET6))
-	binary.LittleEndian.PutUint16(buf[2:4], uint16(addr.Port))
-	*(*[16]byte)(buf[4:]) = addr.Addr
+	binary.LittleEndian.PutUint16(buf[2:4], uint16(port))
+	*(*[16]byte)(buf[4:]) = addr
 	return
 }
 

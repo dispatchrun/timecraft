@@ -1,7 +1,6 @@
 package network
 
 import (
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -11,6 +10,7 @@ const (
 	EADDRNOTAVAIL = unix.EADDRNOTAVAIL
 	EAFNOSUPPORT  = unix.EAFNOSUPPORT
 	EBADF         = unix.EBADF
+	ECONNABORTED  = unix.ECONNABORTED
 	ECONNREFUSED  = unix.ECONNREFUSED
 	ECONNRESET    = unix.ECONNRESET
 	EHOSTUNREACH  = unix.EHOSTUNREACH
@@ -132,65 +132,4 @@ func getsockoptInt(fd, level, name int) (int, error) {
 
 func setsockoptInt(fd, level, name, value int) error {
 	return ignoreEINTR(func() error { return unix.SetsockoptInt(fd, level, name, value) })
-}
-
-type socketFD struct {
-	state atomic.Uint64 // upper 32 bits: refCount, lower 32 bits: fd
-}
-
-func (s *socketFD) init(fd int) {
-	s.state.Store(uint64(fd))
-}
-
-func (s *socketFD) load() int {
-	return int(int32(s.state.Load()))
-}
-
-func (s *socketFD) acquire() int {
-	for {
-		oldState := s.state.Load()
-		refCount := (oldState >> 32) + 1
-		newState := (refCount << 32) | (oldState & 0xFFFFFFFF)
-
-		if int32(oldState) < 0 {
-			return -1
-		}
-		if s.state.CompareAndSwap(oldState, newState) {
-			return int(int32(oldState)) // int32->int for sign extension
-		}
-	}
-}
-
-func (s *socketFD) release(fd int) {
-	for {
-		oldState := s.state.Load()
-		refCount := (oldState >> 32) - 1
-		newState := (oldState << 32) | (oldState & 0xFFFFFFFF)
-
-		if s.state.CompareAndSwap(oldState, newState) {
-			if int32(oldState) < 0 && refCount == 0 {
-				unix.Close(fd)
-			}
-			break
-		}
-	}
-}
-
-func (s *socketFD) close() error {
-	for {
-		oldState := s.state.Load()
-		refCount := oldState >> 32
-		newState := oldState | 0xFFFFFFFF
-
-		if s.state.CompareAndSwap(oldState, newState) {
-			fd := int32(oldState)
-			if fd < 0 {
-				return EBADF
-			}
-			if refCount == 0 {
-				return unix.Close(int(fd))
-			}
-			return nil
-		}
-	}
 }

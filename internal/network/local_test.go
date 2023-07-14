@@ -1,7 +1,11 @@
 package network_test
 
 import (
+	"context"
+	"io"
 	"net"
+	"net/netip"
+	"strconv"
 	"testing"
 
 	"github.com/stealthrocket/timecraft/internal/assert"
@@ -51,6 +55,11 @@ func TestLocalNetwork(t *testing.T) {
 		{
 			scenario: "local sockets can establish connections to foreign networks when a dial function is configured",
 			function: testLocalNetworkOutboundConnect,
+		},
+
+		{
+			scenario: "local sockets can receive inbound connections from foreign network when a listen function is configured",
+			function: testLocalNetworkInboundAccept,
 		},
 	}
 
@@ -295,4 +304,66 @@ func testLocalNetworkOutboundConnect(t *testing.T, n *network.LocalNetwork) {
 	assert.Equal(t, rflags, 0)
 	assert.Equal(t, string(buf[:13]), "Hello, World!")
 	assert.Equal(t, peer, nil)
+}
+
+func testLocalNetworkInboundAccept(t *testing.T, n *network.LocalNetwork) {
+	ns, err := n.CreateNamespace(nil,
+		network.ListenFunc(func(ctx context.Context, network, address string) (net.Listener, error) {
+			_, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			return net.Listen(network, net.JoinHostPort("127.0.0.1", port))
+		}),
+	)
+	assert.OK(t, err)
+
+	sock, err := ns.Socket(network.INET, network.STREAM, network.TCP)
+	assert.OK(t, err)
+	defer sock.Close()
+
+	assert.OK(t, sock.Listen(0))
+	addr, err := sock.Name()
+	assert.OK(t, err)
+
+	addrPort := network.SockaddrAddrPort(addr)
+	connAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(addrPort.Port())))
+	conn, err := net.Dial("tcp", connAddr)
+	assert.OK(t, err)
+	defer conn.Close()
+
+	assert.OK(t, waitReadyRead(sock))
+	peer, peerAddr, err := sock.Accept()
+	assert.OK(t, err)
+
+	// verify that the address of the inbound connection matches the remote
+	// address of the peer socket
+	connLocalAddr := conn.LocalAddr().(*net.TCPAddr)
+	peerAddrPort := network.SockaddrAddrPort(peerAddr)
+	connAddrPort := netip.AddrPortFrom(netip.AddrFrom4(([4]byte)(connLocalAddr.IP)), uint16(connLocalAddr.Port))
+	assert.Equal(t, peerAddrPort, connAddrPort)
+
+	// verify that the inbound connection and the peer socket can exchange data
+	size, err := conn.Write([]byte("message"))
+	assert.OK(t, err)
+	assert.Equal(t, size, 7)
+
+	assert.OK(t, waitReadyRead(peer))
+	buf := make([]byte, 32)
+	size, _, _, err = peer.RecvFrom([][]byte{buf}, 0)
+	assert.OK(t, err)
+	assert.Equal(t, size, 7)
+	assert.Equal(t, string(buf[:7]), "message")
+
+	// exercise shutting down the write end of the inbound connection
+	conn.(*net.TCPConn).CloseWrite()
+	waitReadyRead(peer)
+	size, _, _, err = peer.RecvFrom([][]byte{buf}, 0)
+	assert.OK(t, err)
+	assert.Equal(t, size, 0)
+
+	// exercise shutting down the write end of the peer socket
+	assert.OK(t, peer.Shutdown(network.SHUTWR))
+	_, err = conn.Read(buf)
+	assert.Equal(t, err, io.EOF)
 }

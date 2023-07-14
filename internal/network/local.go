@@ -150,6 +150,19 @@ type LocalNamespace struct {
 	en0 localInterface
 }
 
+func (ns *LocalNamespace) Socket(family Family, socktype Socktype, protocol Protocol) (Socket, error) {
+	switch family {
+	case INET, INET6:
+	default:
+		return ns.host.Socket(family, socktype, protocol)
+	}
+	s, err := ns.socket(family, socktype, protocol)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
 func (ns *LocalNamespace) Detach() {
 	if n := ns.network.Swap(nil); n != nil {
 		n.mutex.Lock()
