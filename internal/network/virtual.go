@@ -785,12 +785,7 @@ func (s *virtualSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, 
 	if err != nil {
 		return -1, 0, nil, err
 	}
-	switch conn := s.peer.Load().(type) {
-	case *SockaddrInet4:
-		addr = conn
-	case *SockaddrInet6:
-		addr = conn
-	default:
+	if addr != nil {
 		addr, err = s.toVirtualAddr(addr)
 	}
 	return n, flags, addr, err

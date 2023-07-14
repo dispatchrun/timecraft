@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 )
 
 var (
@@ -45,6 +46,19 @@ type Socket interface {
 type Socktype uint8
 
 type Family uint8
+
+func (f Family) String() string {
+	switch f {
+	case UNIX:
+		return "UNIX"
+	case INET:
+		return "INET"
+	case INET6:
+		return "INET6"
+	default:
+		return "UNSPEC"
+	}
+}
 
 type Protocol uint16
 
@@ -88,6 +102,17 @@ func SockaddrFamily(sa Sockaddr) Family {
 		return INET6
 	default:
 		return UNIX
+	}
+}
+
+func SockaddrAddrPort(sa Sockaddr) netip.AddrPort {
+	switch a := sa.(type) {
+	case *SockaddrInet4:
+		return netip.AddrPortFrom(netip.AddrFrom4(a.Addr), uint16(a.Port))
+	case *SockaddrInet6:
+		return netip.AddrPortFrom(netip.AddrFrom16(a.Addr), uint16(a.Port))
+	default:
+		return netip.AddrPort{}
 	}
 }
 

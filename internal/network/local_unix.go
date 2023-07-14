@@ -368,14 +368,7 @@ func (s *localSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, er
 			addr = decodeSockaddr(s.addrBuf)
 			n -= addrBufSize
 		} else {
-			switch a := s.peer.Load().(type) {
-			case *SockaddrInet4:
-				addr = a
-			case *SockaddrInet6:
-				addr = a
-			default:
-				addr = nil
-			}
+			addr = nil
 		}
 		return n, rflags, addr, err
 	}

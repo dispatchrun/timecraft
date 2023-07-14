@@ -168,11 +168,11 @@ func testVirtualNetworkConnectNamespaces(t *testing.T, n *network.VirtualNetwork
 	assert.OK(t, waitReadyWrite(client))
 	peer, err := client.Peer()
 	assert.OK(t, err)
-	assert.DeepEqual(t, peer, serverAddr)
+	assert.Equal(t, network.SockaddrAddrPort(peer), network.SockaddrAddrPort(serverAddr))
 
 	name, err := client.Name()
 	assert.OK(t, err)
-	assert.DeepEqual(t, name, addr)
+	assert.Equal(t, network.SockaddrAddrPort(name), network.SockaddrAddrPort(addr))
 
 	wn, err := client.SendTo([][]byte{[]byte("Hello, World!")}, nil, 0)
 	assert.OK(t, err)
@@ -185,7 +185,7 @@ func testVirtualNetworkConnectNamespaces(t *testing.T, n *network.VirtualNetwork
 	assert.Equal(t, rn, 13)
 	assert.Equal(t, rflags, 0)
 	assert.Equal(t, string(buf[:13]), "Hello, World!")
-	assert.Equal(t, peer, addr)
+	assert.Equal(t, peer, nil)
 }
 
 func waitReadyRead(socket network.Socket) error {
