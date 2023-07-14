@@ -124,14 +124,6 @@ func isUnspecifiedInet6(sa *SockaddrInet6) bool {
 	return sa.Addr == [16]byte{}
 }
 
-func isLoopbackInet4(sa *SockaddrInet4) bool {
-	return sa.Addr == [4]byte{127, 0, 0, 1}
-}
-
-func isLoopbackInet6(sa *SockaddrInet6) bool {
-	return sa.Addr == [16]byte{15: 1}
-}
-
 func errInterfaceIndexNotFound(index int) error {
 	return fmt.Errorf("index=%d: %w", index, ErrInterfaceNotFound)
 }
@@ -143,7 +135,4 @@ func errInterfaceNameNotFound(name string) error {
 var (
 	sockaddrInet4Any SockaddrInet4
 	sockaddrInet6Any SockaddrInet6
-
-	sockaddrInet4Loopback = SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}
-	sockaddrInet6Loopback = SockaddrInet6{Addr: [16]byte{15: 1}}
 )

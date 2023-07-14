@@ -11,47 +11,69 @@ import (
 func TestLocalNetwork(t *testing.T) {
 	tests := []struct {
 		scenario string
-		function func(*testing.T, network.Namespace)
+		function func(*testing.T, *network.LocalNetwork)
 	}{
 		{
-			scenario: "a local network namespace has one interface",
-			function: testLocalNetworkInterface,
+			scenario: "a local network namespace has two interfaces",
+			function: testLocalNetworkInterfaces,
 		},
 
 		{
-			scenario: "ipv4 sockets can connect to one another on the loopback interface",
-			function: testNamespaceConnectLoopbackIPv4,
+			scenario: "ipv4 sockets can connect to one another on a loopback interface",
+			function: testLocalNetworkConnectLoopbackIPv4,
 		},
 
 		{
-			scenario: "ipv6 sockets can connect to one another on the loopback interface",
-			function: testNamespaceConnectLoopbackIPv6,
+			scenario: "ipv6 sockets can connect to one another on a loopback interface",
+			function: testLocalNetworkConnectLoopbackIPv6,
 		},
 
 		{
-			scenario: "ipv4 sockets can exchange datagrams on the loopback interface",
-			function: testNamespaceExchangeDatagramLoopbackIPv4,
+			scenario: "ipv4 sockets can connect to one another on a network interface",
+			function: testLocalNetworkConnectInterfaceIPv4,
 		},
 
 		{
-			scenario: "ipv6 sockets can exchange datagrams on the loopback interface",
-			function: testNamespaceExchangeDatagramLoopbackIPv6,
+			scenario: "ipv6 sockets can connect to one another on a network interface",
+			function: testLocalNetworkConnectInterfaceIPv6,
+		},
+
+		{
+			scenario: "ipv4 sockets in different namespaces can connect to one another",
+			function: testLocalNetworkConnectNamespacesIPv4,
+		},
+
+		{
+			scenario: "ipv6 sockets in different namespaces can connect to one another",
+			function: testLocalNetworkConnectNamespacesIPv6,
 		},
 	}
+
+	ipv4, ipnet4, err := net.ParseCIDR("192.168.0.1/24")
+	assert.OK(t, err)
+
+	ipv6, ipnet6, err := net.ParseCIDR("fe80::1/64")
+	assert.OK(t, err)
+
+	ipnet4.IP = ipv4
+	ipnet6.IP = ipv6
 
 	for _, test := range tests {
 		t.Run(test.scenario, func(t *testing.T) {
 			test.function(t,
-				network.NewLocalNamespace(nil),
+				network.NewLocalNetwork(ipnet4, ipnet6),
 			)
 		})
 	}
 }
 
-func testLocalNetworkInterface(t *testing.T, ns network.Namespace) {
+func testLocalNetworkInterfaces(t *testing.T, n *network.LocalNetwork) {
+	ns, err := n.CreateNamespace(nil)
+	assert.OK(t, err)
+
 	ifaces, err := ns.Interfaces()
 	assert.OK(t, err)
-	assert.Equal(t, len(ifaces), 1)
+	assert.Equal(t, len(ifaces), 2)
 
 	lo0 := ifaces[0]
 	assert.Equal(t, lo0.Index(), 0)
@@ -62,6 +84,131 @@ func testLocalNetworkInterface(t *testing.T, ns network.Namespace) {
 	lo0Addrs, err := lo0.Addrs()
 	assert.OK(t, err)
 	assert.Equal(t, len(lo0Addrs), 2)
-	assert.Equal(t, lo0Addrs[0].String(), "127.0.0.1")
-	assert.Equal(t, lo0Addrs[1].String(), "::1")
+	assert.Equal(t, lo0Addrs[0].String(), "127.0.0.1/8")
+	assert.Equal(t, lo0Addrs[1].String(), "::1/128")
+
+	en0 := ifaces[1]
+	assert.Equal(t, en0.Index(), 1)
+	assert.Equal(t, en0.MTU(), 1500)
+	assert.Equal(t, en0.Name(), "en0")
+	assert.Equal(t, en0.Flags(), net.FlagUp)
+
+	en0Addrs, err := en0.Addrs()
+	assert.OK(t, err)
+	assert.Equal(t, len(en0Addrs), 2)
+	assert.Equal(t, en0Addrs[0].String(), "192.168.0.1/24")
+	assert.Equal(t, en0Addrs[1].String(), "fe80::1/64")
+}
+
+func testLocalNetworkConnectLoopbackIPv4(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnect(t, n, &network.SockaddrInet4{
+		Addr: [4]byte{127, 0, 0, 1},
+		Port: 80,
+	})
+}
+
+func testLocalNetworkConnectLoopbackIPv6(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnect(t, n, &network.SockaddrInet6{
+		Addr: [16]byte{15: 1},
+		Port: 80,
+	})
+}
+
+func testLocalNetworkConnectInterfaceIPv4(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnect(t, n, &network.SockaddrInet4{
+		Addr: [4]byte{192, 168, 0, 1},
+		Port: 80,
+	})
+}
+
+func testLocalNetworkConnectInterfaceIPv6(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnect(t, n, &network.SockaddrInet6{
+		Addr: [16]byte{0: 0xfe, 1: 0x80, 15: 1},
+		Port: 80,
+	})
+}
+
+func testLocalNetworkConnect(t *testing.T, n *network.LocalNetwork, bind network.Sockaddr) {
+	ns, err := n.CreateNamespace(nil)
+	assert.OK(t, err)
+	testNamespaceConnect(t, ns, bind)
+}
+
+func testLocalNetworkConnectNamespacesIPv4(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnectNamespaces(t, n, network.INET)
+}
+
+func testLocalNetworkConnectNamespacesIPv6(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnectNamespaces(t, n, network.INET6)
+}
+
+func testLocalNetworkConnectNamespaces(t *testing.T, n *network.LocalNetwork, family network.Family) {
+	ns1, err := n.CreateNamespace(nil)
+	assert.OK(t, err)
+
+	ns2, err := n.CreateNamespace(nil)
+	assert.OK(t, err)
+
+	ifaces1, err := ns1.Interfaces()
+	assert.OK(t, err)
+	assert.Equal(t, len(ifaces1), 2)
+
+	addrs1, err := ifaces1[1].Addrs()
+	assert.OK(t, err)
+
+	server, err := ns1.Socket(family, network.STREAM, network.TCP)
+	assert.OK(t, err)
+	defer server.Close()
+
+	assert.OK(t, server.Listen(1))
+	serverAddr, err := server.Name()
+	assert.OK(t, err)
+
+	switch a := serverAddr.(type) {
+	case *network.SockaddrInet4:
+		for _, addr := range addrs1 {
+			if ipnet := addr.(*net.IPNet); ipnet.IP.To4() != nil {
+				copy(a.Addr[:], ipnet.IP.To4())
+			}
+		}
+	case *network.SockaddrInet6:
+		for _, addr := range addrs1 {
+			if ipnet := addr.(*net.IPNet); ipnet.IP.To4() == nil {
+				copy(a.Addr[:], ipnet.IP)
+			}
+		}
+	}
+
+	client, err := ns2.Socket(family, network.STREAM, network.TCP)
+	assert.OK(t, err)
+	defer client.Close()
+
+	assert.Error(t, client.Connect(serverAddr), network.EINPROGRESS)
+	assert.OK(t, waitReadyRead(server))
+
+	conn, addr, err := server.Accept()
+	assert.OK(t, err)
+	defer conn.Close()
+
+	assert.OK(t, waitReadyWrite(client))
+	peer, err := client.Peer()
+	assert.OK(t, err)
+	assert.Equal(t, network.SockaddrAddrPort(peer), network.SockaddrAddrPort(serverAddr))
+
+	name, err := client.Name()
+	assert.OK(t, err)
+	assert.Equal(t, network.SockaddrAddrPort(name), network.SockaddrAddrPort(addr))
+
+	wn, err := client.SendTo([][]byte{[]byte("Hello, World!")}, nil, 0)
+	assert.OK(t, err)
+	assert.Equal(t, wn, 13)
+
+	assert.OK(t, waitReadyRead(conn))
+	buf := make([]byte, 32)
+	rn, rflags, peer, err := conn.RecvFrom([][]byte{buf}, 0)
+	assert.OK(t, err)
+	assert.Equal(t, rn, 13)
+	assert.Equal(t, rflags, 0)
+	assert.Equal(t, string(buf[:13]), "Hello, World!")
+	assert.Equal(t, peer, nil)
 }

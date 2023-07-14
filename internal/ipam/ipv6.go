@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/bits"
+	"net"
 	"net/netip"
 )
 
@@ -95,6 +96,14 @@ func (p *IPv6Pool) Reset(ip IPv6, nbits int) {
 	p.bits.clear()
 }
 
+func (p *IPv6Pool) GetIP() net.IP {
+	ip, ok := p.Get()
+	if !ok {
+		return nil
+	}
+	return ip[:]
+}
+
 func (p *IPv6Pool) Get() (IPv6, bool) {
 	i := p.bits.findFirstZeroBit()
 	a := p.base.add(i)
@@ -106,6 +115,10 @@ func (p *IPv6Pool) Get() (IPv6, bool) {
 	p.bits.grow(i + 1)
 	p.bits.set(i)
 	return p.base.add(i), true
+}
+
+func (p *IPv6Pool) PutIP(ip net.IP) {
+	p.Put((IPv6)(ip))
 }
 
 func (p *IPv6Pool) Put(ip IPv6) {

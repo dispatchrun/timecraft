@@ -7,7 +7,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func (ns *localNamespace) Socket(family Family, socktype Socktype, protocol Protocol) (Socket, error) {
+func (ns *LocalNamespace) Socket(family Family, socktype Socktype, protocol Protocol) (Socket, error) {
 	switch family {
 	case INET, INET6:
 	default:
@@ -44,16 +44,12 @@ func (state *localSocketState) set(s localSocketState) {
 	*state |= s
 }
 
-func (state *localSocketState) unset(s localSocketState) {
-	*state &= ^s
-}
-
 const (
 	addrBufSize = 20
 )
 
 type localSocket struct {
-	ns       *localNamespace
+	ns       *LocalNamespace
 	fd0      socketFD
 	fd1      socketFD
 	family   Family
@@ -125,15 +121,6 @@ func (s *localSocket) bindAny() error {
 	}
 }
 
-func (s *localSocket) bindLoopback() error {
-	switch s.family {
-	case INET:
-		return s.ns.bindInet4(s, &sockaddrInet4Loopback)
-	default:
-		return s.ns.bindInet6(s, &sockaddrInet6Loopback)
-	}
-}
-
 func (s *localSocket) Listen(backlog int) error {
 	fd := s.fd0.acquire()
 	if fd < 0 {
@@ -174,7 +161,7 @@ func (s *localSocket) Connect(addr Sockaddr) error {
 		return EISCONN
 	}
 	if !s.state.is(bound) {
-		if err := s.bindLoopback(); err != nil {
+		if err := s.bindAny(); err != nil {
 			return err
 		}
 	}
@@ -340,7 +327,7 @@ func (s *localSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, er
 		return -1, 0, nil, EINVAL
 	}
 	if !s.state.is(bound) {
-		if err := s.bindLoopback(); err != nil {
+		if err := s.bindAny(); err != nil {
 			return -1, 0, nil, err
 		}
 	}
@@ -357,18 +344,17 @@ func (s *localSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, er
 	// implementing recvfrom(2) and using a cached socket address for connected
 	// sockets.
 	for {
-		n, _, rflags, addr, err := unix.RecvmsgBuffers(fd, iovs, nil, flags)
+		n, _, rflags, _, err := unix.RecvmsgBuffers(fd, iovs, nil, flags)
 		if err == EINTR {
 			if n == 0 {
 				continue
 			}
 			err = nil
 		}
+		var addr Sockaddr
 		if s.socktype == DGRAM {
 			addr = decodeSockaddr(s.addrBuf)
 			n -= addrBufSize
-		} else {
-			addr = nil
 		}
 		return n, rflags, addr, err
 	}
@@ -391,7 +377,7 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 		return -1, ENOTCONN
 	}
 	if !s.state.is(bound) {
-		if err := s.bindLoopback(); err != nil {
+		if err := s.bindAny(); err != nil {
 			return -1, err
 		}
 	}
@@ -488,15 +474,23 @@ func encodeSockaddrInet6(addr *SockaddrInet6) (buf [addrBufSize]byte) {
 func decodeSockaddr(buf [addrBufSize]byte) Sockaddr {
 	switch Family(binary.LittleEndian.Uint16(buf[0:2])) {
 	case INET:
-		return &SockaddrInet4{
-			Port: int(binary.LittleEndian.Uint16(buf[2:4])),
-			Addr: ([4]byte)(buf[4:]),
-		}
+		return decodeSockaddrInet4(buf)
 	default:
-		return &SockaddrInet6{
-			Port: int(binary.LittleEndian.Uint16(buf[2:4])),
-			Addr: ([16]byte)(buf[4:]),
-		}
+		return decodeSockaddrInet6(buf)
+	}
+}
+
+func decodeSockaddrInet4(buf [addrBufSize]byte) *SockaddrInet4 {
+	return &SockaddrInet4{
+		Port: int(binary.LittleEndian.Uint16(buf[2:4])),
+		Addr: ([4]byte)(buf[4:]),
+	}
+}
+
+func decodeSockaddrInet6(buf [addrBufSize]byte) *SockaddrInet6 {
+	return &SockaddrInet6{
+		Port: int(binary.LittleEndian.Uint16(buf[2:4])),
+		Addr: ([16]byte)(buf[4:]),
 	}
 }
 

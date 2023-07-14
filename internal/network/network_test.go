@@ -2,6 +2,7 @@ package network_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/network"
@@ -122,4 +123,12 @@ func testNamespaceExchangeDatagram(t *testing.T, ns network.Namespace, bind netw
 	assert.Equal(t, rflags, network.TRUNC)
 	assert.Equal(t, string(buf[:11]), "How are you")
 	assert.Equal(t, network.SockaddrAddrPort(addr), network.SockaddrAddrPort(addr2))
+}
+
+func waitReadyRead(socket network.Socket) error {
+	return network.WaitReadyRead(socket, time.Second)
+}
+
+func waitReadyWrite(socket network.Socket) error {
+	return network.WaitReadyWrite(socket, time.Second)
 }

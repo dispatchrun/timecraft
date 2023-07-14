@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/bits"
+	"net"
 	"net/netip"
 )
 
@@ -69,6 +70,14 @@ func (p *IPv4Pool) Reset(ip IPv4, nbits int) {
 	p.bits.clear()
 }
 
+func (p *IPv4Pool) GetIP() net.IP {
+	ip, ok := p.Get()
+	if !ok {
+		return nil
+	}
+	return ip[:]
+}
+
 func (p *IPv4Pool) Get() (IPv4, bool) {
 	i := p.bits.findFirstZeroBit()
 	a := p.base.add(i)
@@ -80,6 +89,10 @@ func (p *IPv4Pool) Get() (IPv4, bool) {
 	p.bits.grow(i + 1)
 	p.bits.set(i)
 	return p.base.add(i), true
+}
+
+func (p *IPv4Pool) PutIP(ip net.IP) {
+	p.Put((IPv4)(ip))
 }
 
 func (p *IPv4Pool) Put(ip IPv4) {

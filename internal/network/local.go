@@ -2,173 +2,278 @@ package network
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
+	"net/netip"
 	"sync"
+	"sync/atomic"
+
+	"github.com/stealthrocket/timecraft/internal/ipam"
 )
 
-var (
-	localAddrs = [2]net.Addr{
-		&net.IPAddr{IP: net.IP{127, 0, 0, 1}},
-		&net.IPAddr{IP: net.IP{15: 1}},
-	}
-)
+var ErrIPAM = errors.New("IP pool exhausted")
 
-type LocalOption func(*localNamespace)
+var localAddrs = [2]net.IPNet{
+	net.IPNet{
+		IP: net.IP{
+			127, 0, 0, 1,
+		},
+		Mask: net.IPMask{
+			255, 0, 0, 0,
+		},
+	},
+	net.IPNet{
+		IP: net.IP{
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+		},
+		Mask: net.IPMask{
+			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+		},
+	},
+}
+
+type LocalOption func(*LocalNamespace)
 
 func DialFunc(dial func(context.Context, string, string) (net.Conn, error)) LocalOption {
-	return func(ns *localNamespace) { ns.dial = dial }
+	return func(ns *LocalNamespace) { ns.dial = dial }
 }
 
 func ListenFunc(listen func(context.Context, string, string) (net.Listener, error)) LocalOption {
-	return func(ns *localNamespace) { ns.listen = listen }
+	return func(ns *LocalNamespace) { ns.listen = listen }
 }
 
 func ListenPacketFunc(listenPacket func(context.Context, string, string) (net.PacketConn, error)) LocalOption {
-	return func(ns *localNamespace) { ns.listenPacket = listenPacket }
+	return func(ns *LocalNamespace) { ns.listenPacket = listenPacket }
 }
 
-func NewLocalNamespace(host Namespace, opts ...LocalOption) Namespace {
-	ns := &localNamespace{host: host}
+type LocalNetwork struct {
+	addrs []net.IPNet
+	ipams []ipam.Pool
+
+	mutex  sync.RWMutex
+	routes map[netip.Addr]*localInterface
+}
+
+func NewLocalNetwork(addrs ...*net.IPNet) *LocalNetwork {
+	n := &LocalNetwork{
+		addrs:  make([]net.IPNet, len(addrs)),
+		ipams:  make([]ipam.Pool, len(addrs)),
+		routes: make(map[netip.Addr]*localInterface),
+	}
+	for i, addr := range addrs {
+		n.addrs[i] = *addr
+		n.ipams[i] = ipam.NewPool(&n.addrs[i])
+	}
+	return n
+}
+
+func (n *LocalNetwork) CreateNamespace(host Namespace, opts ...LocalOption) (*LocalNamespace, error) {
+	ns := &LocalNamespace{
+		host: host,
+		lo0: localInterface{
+			index: 0,
+			name:  "lo0",
+			flags: net.FlagUp | net.FlagLoopback,
+			addrs: localAddrs[:],
+		},
+		en0: localInterface{
+			index: 1,
+			name:  "en0",
+			flags: net.FlagUp,
+			addrs: make([]net.IPNet, 0, len(n.addrs)),
+		},
+	}
+
 	for _, opt := range opts {
 		opt(ns)
 	}
-	return ns
+
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+
+	for i, ipam := range n.ipams {
+		ip := ipam.GetIP()
+		if ip == nil {
+			n.detach(&ns.en0)
+			return nil, fmt.Errorf("%s: %w", ipam, ErrIPAM)
+		}
+		ns.en0.addrs = append(ns.en0.addrs, net.IPNet{
+			IP:   ip,
+			Mask: n.addrs[i].Mask,
+		})
+	}
+
+	ns.lo0.ports = make([]map[localPort]*localSocket, len(ns.lo0.addrs))
+	ns.en0.ports = make([]map[localPort]*localSocket, len(ns.en0.addrs))
+	n.attach(&ns.en0)
+	ns.network.Store(n)
+	return ns, nil
 }
 
-type localNamespace struct {
-	host         Namespace
+func (n *LocalNetwork) attach(iface *localInterface) {
+	for _, ipnet := range iface.addrs {
+		n.routes[addrFromIP(ipnet.IP)] = iface
+	}
+}
+
+func (n *LocalNetwork) detach(iface *localInterface) {
+	for i, ipnet := range iface.addrs {
+		delete(n.routes, addrFromIP(ipnet.IP))
+		n.ipams[i].PutIP(ipnet.IP)
+	}
+}
+
+func (n *LocalNetwork) lookup(ip net.IP) *localInterface {
+	return n.routes[addrFromIP(ip)]
+}
+
+func addrFromIP(ip net.IP) netip.Addr {
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return netip.AddrFrom4(([4]byte)(ipv4))
+	} else {
+		return netip.AddrFrom16(([16]byte)(ip))
+	}
+}
+
+type LocalNamespace struct {
+	network atomic.Pointer[LocalNetwork]
+	host    Namespace
+
 	dial         func(context.Context, string, string) (net.Conn, error)
 	listen       func(context.Context, string, string) (net.Listener, error)
 	listenPacket func(context.Context, string, string) (net.PacketConn, error)
-	lo0          localInterface
+
+	lo0 localInterface
+	en0 localInterface
 }
 
-func (ns *localNamespace) InterfaceByIndex(index int) (Interface, error) {
-	if index != 0 {
+func (ns *LocalNamespace) Detach() {
+	if n := ns.network.Swap(nil); n != nil {
+		n.mutex.Lock()
+		n.detach(&ns.en0)
+		n.mutex.Unlock()
+	}
+}
+
+func (ns *LocalNamespace) InterfaceByIndex(index int) (Interface, error) {
+	switch index {
+	case ns.lo0.index:
+		return &ns.lo0, nil
+	case ns.en0.index:
+		return &ns.en0, nil
+	default:
 		return nil, errInterfaceIndexNotFound(index)
 	}
-	return &ns.lo0, nil
 }
 
-func (ns *localNamespace) InterfaceByName(name string) (Interface, error) {
-	if name != "lo0" {
+func (ns *LocalNamespace) InterfaceByName(name string) (Interface, error) {
+	switch name {
+	case ns.lo0.name:
+		return &ns.lo0, nil
+	case ns.en0.name:
+		return &ns.en0, nil
+	default:
 		return nil, errInterfaceNameNotFound(name)
 	}
-	return &ns.lo0, nil
 }
 
-func (ns *localNamespace) Interfaces() ([]Interface, error) {
-	return []Interface{&ns.lo0}, nil
+func (ns *LocalNamespace) Interfaces() ([]Interface, error) {
+	return []Interface{&ns.lo0, &ns.en0}, nil
 }
 
-func (ns *localNamespace) bindInet4(sock *localSocket, addr *SockaddrInet4) error {
-	switch {
-	case isUnspecifiedInet4(addr), isLoopbackInet4(addr):
-		return ns.lo0.bindInet4(sock, addr)
-	default:
-		return EADDRNOTAVAIL
+func (ns *LocalNamespace) interfaces() []*localInterface {
+	return []*localInterface{&ns.lo0, &ns.en0}
+}
+
+func (ns *LocalNamespace) bindInet4(sock *localSocket, addr *SockaddrInet4) error {
+	return ns.bind(sock, addr.Addr[:], addr.Port)
+}
+
+func (ns *LocalNamespace) bindInet6(sock *localSocket, addr *SockaddrInet6) error {
+	return ns.bind(sock, addr.Addr[:], addr.Port)
+}
+
+func (ns *LocalNamespace) bind(sock *localSocket, addr net.IP, port int) error {
+	for _, iface := range ns.interfaces() {
+		if err := iface.bind(sock, addr, port); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (ns *localNamespace) bindInet6(sock *localSocket, addr *SockaddrInet6) error {
-	switch {
-	case isUnspecifiedInet6(addr), isLoopbackInet6(addr):
-		return ns.lo0.bindInet6(sock, addr)
-	default:
-		return EADDRNOTAVAIL
+func (ns *LocalNamespace) lookupInet4(sock *localSocket, addr *SockaddrInet4) (*localSocket, error) {
+	return ns.lookup(sock, addr.Addr[:], addr.Port)
+}
+
+func (ns *LocalNamespace) lookupInet6(sock *localSocket, addr *SockaddrInet6) (*localSocket, error) {
+	return ns.lookup(sock, addr.Addr[:], addr.Port)
+}
+
+func (ns *LocalNamespace) lookup(sock *localSocket, addr net.IP, port int) (*localSocket, error) {
+	for _, iface := range ns.interfaces() {
+		if peer := iface.lookup(sock, addr, port); peer != nil {
+			return peer, nil
+		}
 	}
-}
 
-func (ns *localNamespace) lookupInet4(sock *localSocket, addr *SockaddrInet4) (*localSocket, error) {
-	switch {
-	case isUnspecifiedInet4(addr), isLoopbackInet4(addr):
-		return ns.lo0.lookupInet4(sock, addr)
-	default:
+	if addr.IsUnspecified() {
+		return nil, EHOSTUNREACH
+	}
+
+	n := ns.network.Load()
+	if n == nil {
 		return nil, ENETUNREACH
 	}
+
+	n.mutex.RLock()
+	iface := n.lookup(addr)
+	n.mutex.RUnlock()
+
+	if iface != nil {
+		if peer := iface.lookup(sock, addr, port); peer != nil {
+			return peer, nil
+		}
+		return nil, EHOSTUNREACH
+	}
+	return nil, ENETUNREACH
 }
 
-func (ns *localNamespace) lookupInet6(sock *localSocket, addr *SockaddrInet6) (*localSocket, error) {
-	switch {
-	case isUnspecifiedInet6(addr), isLoopbackInet6(addr):
-		return ns.lo0.lookupInet6(sock, addr)
-	default:
-		return nil, ENETUNREACH
+func (ns *LocalNamespace) unlinkInet4(sock *localSocket, addr *SockaddrInet4) {
+	ns.unlink(sock, addr.Addr[:], addr.Port)
+}
+
+func (ns *LocalNamespace) unlinkInet6(sock *localSocket, addr *SockaddrInet6) {
+	ns.unlink(sock, addr.Addr[:], addr.Port)
+}
+
+func (ns *LocalNamespace) unlink(sock *localSocket, addr net.IP, port int) {
+	for _, iface := range ns.interfaces() {
+		iface.unlink(sock, addr, port)
 	}
 }
 
-func (ns *localNamespace) unlinkInet4(sock *localSocket, addr *SockaddrInet4) {
-	ns.lo0.unlinkInet4(sock, addr)
-}
-
-func (ns *localNamespace) unlinkInet6(sock *localSocket, addr *SockaddrInet6) {
-	ns.lo0.unlinkInet6(sock, addr)
-}
-
-type localAddress struct {
+type localPort struct {
 	proto Protocol
 	port  uint16
 }
 
-func localSockaddrInet4(proto Protocol, addr *SockaddrInet4) localAddress {
-	return localAddress{
-		proto: proto,
-		port:  uint16(addr.Port),
-	}
-}
-
-func localSockaddrInet6(proto Protocol, addr *SockaddrInet6) localAddress {
-	return localAddress{
-		proto: proto,
-		port:  uint16(addr.Port),
-	}
-}
-
-type localSocketTable struct {
-	sockets map[localAddress]*localSocket
-}
-
-func (t *localSocketTable) bind(sock *localSocket, addr localAddress) (int, error) {
-	if addr.port != 0 {
-		if _, exist := t.sockets[addr]; exist {
-			// TODO:
-			// - SO_REUSEADDR
-			// - SO_REUSEPORT
-			return -1, EADDRNOTAVAIL
-		}
-	} else {
-		var port int
-		for port = 49152; port <= 65535; port++ {
-			addr.port = uint16(port)
-			if _, exist := t.sockets[addr]; !exist {
-				break
-			}
-		}
-		if port == 65535 {
-			return -1, EADDRNOTAVAIL
-		}
-	}
-	if t.sockets == nil {
-		t.sockets = make(map[localAddress]*localSocket)
-	}
-	t.sockets[addr] = sock
-	return int(addr.port), nil
-}
-
-func (t *localSocketTable) unlink(sock *localSocket, addr localAddress) {
-	if t.sockets[addr] == sock {
-		delete(t.sockets, addr)
-	}
-}
-
 type localInterface struct {
+	index int
+	name  string
+	haddr net.HardwareAddr
+	flags net.Flags
+	addrs []net.IPNet
+
 	mutex sync.RWMutex
-	ipv4  localSocketTable
-	ipv6  localSocketTable
+	ports []map[localPort]*localSocket
 }
 
 func (i *localInterface) Index() int {
-	return 0
+	return i.index
 }
 
 func (i *localInterface) MTU() int {
@@ -176,105 +281,145 @@ func (i *localInterface) MTU() int {
 }
 
 func (i *localInterface) Name() string {
-	return "lo0"
+	return i.name
 }
 
 func (i *localInterface) HardwareAddr() net.HardwareAddr {
-	return net.HardwareAddr{}
+	return i.haddr
 }
 
 func (i *localInterface) Flags() net.Flags {
-	return net.FlagUp | net.FlagLoopback
+	return i.flags
 }
 
 func (i *localInterface) Addrs() ([]net.Addr, error) {
-	return localAddrs[:], nil
+	addrs := make([]net.Addr, len(i.addrs))
+	for j := range addrs {
+		addrs[j] = &i.addrs[j]
+	}
+	return addrs, nil
 }
 
 func (i *localInterface) MulticastAddrs() ([]net.Addr, error) {
 	return nil, nil
 }
 
-func (i *localInterface) bindInet4(sock *localSocket, addr *SockaddrInet4) error {
-	link := localSockaddrInet4(sock.protocol, addr)
-	name := &SockaddrInet4{Addr: addr.Addr}
+func (i *localInterface) bind(sock *localSocket, addr net.IP, port int) error {
+	link := localPort{sock.protocol, uint16(port)}
+	ipv4 := addr.To4()
+	name := (Sockaddr)(nil)
+
+	if ipv4 != nil {
+		name = &SockaddrInet4{Addr: ([4]byte)(ipv4), Port: port}
+	} else {
+		name = &SockaddrInet6{Addr: ([16]byte)(addr), Port: port}
+	}
 
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 
-	port, err := i.ipv4.bind(sock, link)
-	if err != nil {
-		return err
+	if link.port != 0 {
+		for j, a := range i.addrs {
+			if !socketAndInterfaceMatch(addr, a.IP) {
+				continue
+			}
+			if _, used := i.ports[j][link]; used {
+				// TODO:
+				// - SO_REUSEADDR
+				// - SO_REUSEPORT
+				return EADDRNOTAVAIL
+			}
+		}
+	} else {
+		var port int
+	searchFreePort:
+		for port = 49152; port <= 65535; port++ {
+			link.port = uint16(port)
+			for j, a := range i.addrs {
+				if !socketAndInterfaceMatch(addr, a.IP) {
+					continue
+				}
+				if _, used := i.ports[j][link]; used {
+					continue searchFreePort
+				}
+			}
+			break
+		}
+		if port == 65535 {
+			return EADDRNOTAVAIL
+		}
+		switch a := name.(type) {
+		case *SockaddrInet4:
+			a.Port = port
+		case *SockaddrInet6:
+			a.Port = port
+		}
 	}
 
-	name.Port = port
+	for j := range i.ports {
+		a := i.addrs[j]
+		p := i.ports[j]
+
+		if socketAndInterfaceMatch(addr, a.IP) {
+			if p == nil {
+				p = make(map[localPort]*localSocket)
+				i.ports[j] = p
+			}
+			p[link] = sock
+		}
+	}
+
 	sock.name.Store(name)
 	sock.state.set(bound)
 	return nil
 }
 
-func (i *localInterface) bindInet6(sock *localSocket, addr *SockaddrInet6) error {
-	link := localSockaddrInet6(sock.protocol, addr)
-	name := &SockaddrInet6{Addr: addr.Addr}
+func (i *localInterface) lookup(sock *localSocket, addr net.IP, port int) *localSocket {
+	i.mutex.RLock()
+	defer i.mutex.RUnlock()
 
-	i.mutex.Lock()
-	defer i.mutex.Unlock()
+	for j := range i.addrs {
+		a := i.addrs[j]
+		p := i.ports[j]
 
-	port, err := i.ipv6.bind(sock, link)
-	if err != nil {
-		return err
+		if socketAndInterfaceMatch(addr, a.IP) {
+			link := localPort{sock.protocol, uint16(port)}
+			peer := p[link]
+			if peer != nil {
+				return peer
+			}
+		}
 	}
 
-	name.Port = port
-	sock.name.Store(name)
-	sock.state.set(bound)
 	return nil
 }
 
-func (i *localInterface) lookupInet4(sock *localSocket, addr *SockaddrInet4) (*localSocket, error) {
-	link := localSockaddrInet4(sock.protocol, addr)
-
-	i.mutex.RLock()
-	defer i.mutex.RUnlock()
-
-	if peer := i.ipv4.sockets[link]; peer != nil {
-		return peer, nil
-	}
-	return nil, EHOSTUNREACH
-}
-
-func (i *localInterface) lookupInet6(sock *localSocket, addr *SockaddrInet6) (*localSocket, error) {
-	link := localSockaddrInet6(sock.protocol, addr)
-
-	i.mutex.RLock()
-	defer i.mutex.RUnlock()
-
-	if peer := i.ipv6.sockets[link]; peer != nil {
-		return peer, nil
-	}
-	return nil, EHOSTUNREACH
-}
-
-func (i *localInterface) unlinkInet4(sock *localSocket, addr *SockaddrInet4) {
-	link := localSockaddrInet4(sock.protocol, addr)
-
+func (i *localInterface) unlink(sock *localSocket, addr net.IP, port int) {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 
-	i.ipv4.unlink(sock, link)
+	for j := range i.addrs {
+		a := i.addrs[j]
+		p := i.ports[j]
 
-	sock.name.Store(&sockaddrInet4Any)
-	sock.state.unset(bound)
+		if socketAndInterfaceMatch(addr, a.IP) {
+			link := localPort{sock.protocol, uint16(port)}
+			peer := p[link]
+			if sock == peer {
+				delete(p, link)
+			}
+		}
+	}
 }
 
-func (i *localInterface) unlinkInet6(sock *localSocket, addr *SockaddrInet6) {
-	link := localSockaddrInet6(sock.protocol, addr)
+func socketAndInterfaceMatch(sock, iface net.IP) bool {
+	return (sock.IsUnspecified() && family(sock) == family(iface)) || sock.Equal(iface)
+}
 
-	i.mutex.Lock()
-	defer i.mutex.Unlock()
-
-	i.ipv6.unlink(sock, link)
-
-	sock.name.Store(&sockaddrInet6Any)
-	sock.state.unset(bound)
+func family(ip net.IP) Family {
+	if ip.To4() != nil {
+		return INET
+	} else {
+		return INET6
+	}
 }

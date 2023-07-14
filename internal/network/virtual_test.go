@@ -3,7 +3,6 @@ package network_test
 import (
 	"net"
 	"testing"
-	"time"
 
 	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/network"
@@ -186,12 +185,4 @@ func testVirtualNetworkConnectNamespaces(t *testing.T, n *network.VirtualNetwork
 	assert.Equal(t, rflags, 0)
 	assert.Equal(t, string(buf[:13]), "Hello, World!")
 	assert.Equal(t, peer, nil)
-}
-
-func waitReadyRead(socket network.Socket) error {
-	return network.WaitReadyRead(socket, time.Second)
-}
-
-func waitReadyWrite(socket network.Socket) error {
-	return network.WaitReadyWrite(socket, time.Second)
 }
