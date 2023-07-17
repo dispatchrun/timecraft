@@ -7,16 +7,16 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/google/flatbuffers v23.5.26+incompatible
 	github.com/google/go-cmp v0.5.9
-	github.com/google/pprof v0.0.0-20230602150820-91b7bce49751
+	github.com/google/pprof v0.0.0-20230705174524-200ffdc848b8
 	github.com/google/uuid v1.3.0
 	github.com/klauspost/compress v1.16.6
 	github.com/planetscale/vtprotobuf v0.4.0
 	github.com/stealthrocket/net v0.2.1
 	github.com/stealthrocket/wasi-go v0.7.5
 	github.com/stealthrocket/wazergo v0.19.1
-	github.com/stealthrocket/wzprof v0.1.5
-	github.com/tetratelabs/wazero v1.2.1
-	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df
+	github.com/stealthrocket/wzprof v0.2.0
+	github.com/tetratelabs/wazero v1.3.0
+	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 	golang.org/x/net v0.11.0
 	golang.org/x/sync v0.3.0
 	golang.org/x/sys v0.9.0
