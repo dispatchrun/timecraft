@@ -358,7 +358,7 @@ func (i *localInterface) bind(sock *localSocket, addr net.IP, port int) error {
 			}
 			break
 		}
-		if port == 65535 {
+		if port == 65536 {
 			return EADDRNOTAVAIL
 		}
 		switch a := name.(type) {
