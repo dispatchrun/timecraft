@@ -466,7 +466,11 @@ func (s *localSocket) Connect(addr Sockaddr) error {
 
 	s.peer.Store(addr)
 	s.state.set(connected)
-	return EINPROGRESS
+
+	if s.socktype != DGRAM {
+		return EINPROGRESS
+	}
+	return nil
 }
 
 func (s *localSocket) connect(serverFd int, addr any) error {

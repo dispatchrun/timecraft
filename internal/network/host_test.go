@@ -19,13 +19,23 @@ func TestHostNetwork(t *testing.T) {
 		},
 
 		{
-			scenario: "ipv4 sockets can connect to one another on the loopback interface",
-			function: testNamespaceConnectLoopbackIPv4,
+			scenario: "ipv4 stream sockets can connect to one another on the loopback interface",
+			function: testNamespaceConnectStreamLoopbackIPv4,
 		},
 
 		{
-			scenario: "ipv6 sockets can connect to one another on the loopback interface",
-			function: testNamespaceConnectLoopbackIPv6,
+			scenario: "ipv6 stream sockets can connect to one another on the loopback interface",
+			function: testNamespaceConnectStreamLoopbackIPv6,
+		},
+
+		{
+			scenario: "ipv4 datagram sockets can connect to one another on the loopback interface",
+			function: testNamespaceConnectDatagramLoopbackIPv4,
+		},
+
+		{
+			scenario: "ipv6 datagram sockets can connect to one another on the loopback interface",
+			function: testNamespaceConnectDatagramLoopbackIPv6,
 		},
 
 		{

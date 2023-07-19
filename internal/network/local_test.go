@@ -23,43 +23,73 @@ func TestLocalNetwork(t *testing.T) {
 		},
 
 		{
-			scenario: "ipv4 sockets can connect to one another on a loopback interface",
-			function: testLocalNetworkConnectLoopbackIPv4,
+			scenario: "ipv4 stream sockets can connect to one another on a loopback interface",
+			function: testLocalNetworkConnectStreamLoopbackIPv4,
 		},
 
 		{
-			scenario: "ipv6 sockets can connect to one another on a loopback interface",
-			function: testLocalNetworkConnectLoopbackIPv6,
+			scenario: "ipv6 stream sockets can connect to one another on a loopback interface",
+			function: testLocalNetworkConnectStreamLoopbackIPv6,
 		},
 
 		{
-			scenario: "ipv4 sockets can connect to one another on a network interface",
-			function: testLocalNetworkConnectInterfaceIPv4,
+			scenario: "ipv4 stream sockets can connect to one another on a network interface",
+			function: testLocalNetworkConnectStreamInterfaceIPv4,
 		},
 
 		{
-			scenario: "ipv6 sockets can connect to one another on a network interface",
-			function: testLocalNetworkConnectInterfaceIPv6,
+			scenario: "ipv6 stream sockets can connect to one another on a network interface",
+			function: testLocalNetworkConnectStreamInterfaceIPv6,
 		},
 
 		{
-			scenario: "ipv4 sockets in different namespaces can connect to one another",
-			function: testLocalNetworkConnectNamespacesIPv4,
+			scenario: "ipv4 stream sockets in different namespaces can connect to one another",
+			function: testLocalNetworkConnectStreamNamespacesIPv4,
 		},
 
 		{
-			scenario: "ipv6 sockets in different namespaces can connect to one another",
-			function: testLocalNetworkConnectNamespacesIPv6,
+			scenario: "ipv6 stream sockets in different namespaces can connect to one another",
+			function: testLocalNetworkConnectStreamNamespacesIPv6,
 		},
 
 		{
-			scenario: "local sockets can establish connections to foreign networks when a dial function is configured",
-			function: testLocalNetworkOutboundConnect,
+			scenario: "stream sockets can establish connections to foreign networks when a dial function is configured",
+			function: testLocalNetworkOutboundConnectStream,
 		},
 
 		{
-			scenario: "local sockets can receive inbound connections from foreign network when a listen function is configured",
+			scenario: "stream sockets can receive inbound connections from foreign network when a listen function is configured",
 			function: testLocalNetworkInboundAccept,
+		},
+
+		{
+			scenario: "ipv4 datagram sockets can connect to one another on the loopback interface",
+			function: testLocalNetworkConnectDatagramIPv4,
+		},
+
+		{
+			scenario: "ipv6 datagram sockets can connect to one another on the loopback interface",
+			function: testLocalNetworkConnectDatagramIPv6,
+		},
+
+		{
+			scenario: "ipv4 datagram sockets can exchange datagrams without being connected to one another",
+			function: testLocalNetworkExchangeDatagramIPv4,
+		},
+
+		{
+			scenario: "ipv6 datagram sockets can exchange datagrams without being connected to one another",
+			function: testLocalNetworkExchangeDatagramIPv6,
+		},
+
+		{
+			scenario: "datagram sockets can receive messages from foreign networks when a listen packet function is configured",
+			function: testLocalNetworkInboundDatagram,
+		},
+
+		{
+			scenario: "datagram sockets can send messages to foreign networks when a listen packet function is configured",
+			function: testLocalNetworkOutboundDatagram,
 		},
 	}
 
@@ -114,49 +144,49 @@ func testLocalNetworkInterfaces(t *testing.T, n *network.LocalNetwork) {
 	assert.Equal(t, en0Addrs[1].String(), "fe80::1/64")
 }
 
-func testLocalNetworkConnectLoopbackIPv4(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnect(t, n, &network.SockaddrInet4{
+func testLocalNetworkConnectStreamLoopbackIPv4(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnectStream(t, n, &network.SockaddrInet4{
 		Addr: [4]byte{127, 0, 0, 1},
 		Port: 80,
 	})
 }
 
-func testLocalNetworkConnectLoopbackIPv6(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnect(t, n, &network.SockaddrInet6{
+func testLocalNetworkConnectStreamLoopbackIPv6(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnectStream(t, n, &network.SockaddrInet6{
 		Addr: [16]byte{15: 1},
 		Port: 80,
 	})
 }
 
-func testLocalNetworkConnectInterfaceIPv4(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnect(t, n, &network.SockaddrInet4{
+func testLocalNetworkConnectStreamInterfaceIPv4(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnectStream(t, n, &network.SockaddrInet4{
 		Addr: [4]byte{192, 168, 0, 1},
 		Port: 80,
 	})
 }
 
-func testLocalNetworkConnectInterfaceIPv6(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnect(t, n, &network.SockaddrInet6{
+func testLocalNetworkConnectStreamInterfaceIPv6(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnectStream(t, n, &network.SockaddrInet6{
 		Addr: [16]byte{0: 0xfe, 1: 0x80, 15: 1},
 		Port: 80,
 	})
 }
 
-func testLocalNetworkConnect(t *testing.T, n *network.LocalNetwork, bind network.Sockaddr) {
+func testLocalNetworkConnectStream(t *testing.T, n *network.LocalNetwork, bind network.Sockaddr) {
 	ns, err := n.CreateNamespace(nil)
 	assert.OK(t, err)
-	testNamespaceConnect(t, ns, bind)
+	testNamespaceConnectStream(t, ns, bind)
 }
 
-func testLocalNetworkConnectNamespacesIPv4(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnectNamespaces(t, n, network.INET)
+func testLocalNetworkConnectStreamNamespacesIPv4(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnectStreamNamespaces(t, n, network.INET)
 }
 
-func testLocalNetworkConnectNamespacesIPv6(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnectNamespaces(t, n, network.INET6)
+func testLocalNetworkConnectStreamNamespacesIPv6(t *testing.T, n *network.LocalNetwork) {
+	testLocalNetworkConnectStreamNamespaces(t, n, network.INET6)
 }
 
-func testLocalNetworkConnectNamespaces(t *testing.T, n *network.LocalNetwork, family network.Family) {
+func testLocalNetworkConnectStreamNamespaces(t *testing.T, n *network.LocalNetwork, family network.Family) {
 	ns1, err := n.CreateNamespace(nil)
 	assert.OK(t, err)
 
@@ -227,7 +257,7 @@ func testLocalNetworkConnectNamespaces(t *testing.T, n *network.LocalNetwork, fa
 	assert.Equal(t, peer, nil)
 }
 
-func testLocalNetworkOutboundConnect(t *testing.T, n *network.LocalNetwork) {
+func testLocalNetworkOutboundConnectStream(t *testing.T, n *network.LocalNetwork) {
 	ns1 := network.Host()
 
 	ifaces1, err := ns1.Interfaces()
@@ -367,4 +397,120 @@ func testLocalNetworkInboundAccept(t *testing.T, n *network.LocalNetwork) {
 	assert.OK(t, peer.Shutdown(network.SHUTWR))
 	_, err = conn.Read(buf)
 	assert.Equal(t, err, io.EOF)
+}
+
+func testLocalNetworkConnectDatagramIPv4(t *testing.T, n *network.LocalNetwork) {
+	ns, err := n.CreateNamespace(nil)
+	assert.OK(t, err)
+	testNamespaceConnectDatagram(t, ns, &network.SockaddrInet4{
+		Addr: [4]byte{192, 168, 0, 1},
+	})
+}
+
+func testLocalNetworkConnectDatagramIPv6(t *testing.T, n *network.LocalNetwork) {
+	ns, err := n.CreateNamespace(nil)
+	assert.OK(t, err)
+	testNamespaceConnectDatagram(t, ns, &network.SockaddrInet6{
+		Addr: [16]byte{0: 0xfe, 1: 0x80, 15: 1},
+	})
+}
+
+func testLocalNetworkExchangeDatagramIPv4(t *testing.T, n *network.LocalNetwork) {
+	ns, err := n.CreateNamespace(nil)
+	assert.OK(t, err)
+	testNamespaceExchangeDatagram(t, ns, &network.SockaddrInet4{
+		Addr: [4]byte{192, 168, 0, 1},
+	})
+}
+
+func testLocalNetworkExchangeDatagramIPv6(t *testing.T, n *network.LocalNetwork) {
+	ns, err := n.CreateNamespace(nil)
+	assert.OK(t, err)
+	testNamespaceExchangeDatagram(t, ns, &network.SockaddrInet6{
+		Addr: [16]byte{0: 0xfe, 1: 0x80, 15: 1},
+	})
+}
+
+func testLocalNetworkInboundDatagram(t *testing.T, n *network.LocalNetwork) {
+	ns, err := n.CreateNamespace(nil,
+		network.ListenPacketFunc(func(ctx context.Context, network, address string) (net.PacketConn, error) {
+			_, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			return net.ListenPacket(network, net.JoinHostPort("127.0.0.1", port))
+		}),
+	)
+	assert.OK(t, err)
+
+	sock, err := ns.Socket(network.INET, network.DGRAM, network.UDP)
+	assert.OK(t, err)
+	defer sock.Close()
+
+	assert.OK(t, sock.Bind(&network.SockaddrInet4{}))
+	addr, err := sock.Name()
+	assert.OK(t, err)
+
+	addrPort := network.SockaddrAddrPort(addr)
+	connAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(addrPort.Port())))
+	conn, err := net.Dial("udp", connAddr)
+	assert.OK(t, err)
+	defer conn.Close()
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	size, err := conn.Write([]byte("message"))
+	assert.OK(t, err)
+	assert.Equal(t, size, 7)
+
+	assert.OK(t, waitReadyRead(sock))
+	buf := make([]byte, 32)
+	size, _, peer, err := sock.RecvFrom([][]byte{buf}, 0)
+	assert.OK(t, err)
+	assert.Equal(t, size, 7)
+	assert.Equal(t, string(buf[:7]), "message")
+	assert.Equal(t, network.SockaddrAddrPort(peer), localAddr.AddrPort())
+}
+
+func testLocalNetworkOutboundDatagram(t *testing.T, n *network.LocalNetwork) {
+	hostAddrs, err := findNonLoopbackIPv4HostAddress()
+	assert.OK(t, err)
+
+	ns, err := n.CreateNamespace(nil,
+		network.ListenPacketFunc(func(ctx context.Context, network, address string) (net.PacketConn, error) {
+			_, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			return net.ListenPacket(network, net.JoinHostPort("", port))
+		}),
+	)
+	assert.OK(t, err)
+
+	conn, err := net.ListenPacket("udp4", net.JoinHostPort(hostAddrs[0].String(), "0"))
+	assert.OK(t, err)
+	defer conn.Close()
+
+	sock, err := ns.Socket(network.INET, network.DGRAM, network.UDP)
+	assert.OK(t, err)
+	defer sock.Close()
+
+	connAddr := conn.LocalAddr().(*net.UDPAddr)
+	addrPort := connAddr.AddrPort()
+	sendAddr := &network.SockaddrInet4{
+		Addr: addrPort.Addr().As4(),
+		Port: int(addrPort.Port()),
+	}
+
+	size, err := sock.SendTo([][]byte{[]byte("message")}, sendAddr, 0)
+	assert.OK(t, err)
+	assert.Equal(t, size, 7)
+
+	addr, err := sock.Name()
+	assert.OK(t, err)
+
+	buf := make([]byte, 32)
+	size, peer, err := conn.ReadFrom(buf)
+	assert.OK(t, err)
+	assert.Equal(t, size, 7)
+	assert.Equal(t, peer.(*net.UDPAddr).AddrPort().Port(), network.SockaddrAddrPort(addr).Port())
 }
