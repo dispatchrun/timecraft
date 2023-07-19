@@ -5,8 +5,10 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"sync"
 	"sync/atomic"
 
 	"github.com/stealthrocket/timecraft/internal/htls"
@@ -35,6 +37,7 @@ const (
 	bound localSocketState = 1 << iota
 	accepted
 	connected
+	tunneled
 	listening
 )
 
@@ -66,6 +69,7 @@ type localSocket struct {
 	iovs    [][]byte
 	addrBuf [addrBufSize]byte
 
+	conn   net.PacketConn
 	lstn   net.Listener
 	htls   chan<- string
 	errs   <-chan error
@@ -119,6 +123,14 @@ func (s *localSocket) Close() error {
 	// another socket to establish a connection.
 	s.fd0.close()
 	s.fd1.close()
+
+	// When a packet listen function is configured on the parent namespace, the
+	// socket may have created a bridge to accept inbound datagrams from other
+	// networks so we have to close the net.PacketConn in order to interrupt the
+	// goroutine in charge of receiving packets.
+	if s.conn != nil {
+		s.conn.Close()
+	}
 
 	// When a listen function is configured on the parent namespace, the socket
 	// may have created a bridge to accept inbound connections from other
@@ -246,39 +258,74 @@ func (s *localSocket) listenAddress() string {
 }
 
 func (s *localSocket) listenPacket() error {
-	// TODO: figure out how to tunnel packet connections in a way that allows
-	// for both internal and external packets to transit.
+	sendSocketFd := s.fd1.acquire()
+	if sendSocketFd < 0 {
+		return EBADF
+	}
+	defer s.fd1.release(sendSocketFd)
 
-	// fd := s.fd1.acquire()
-	// if fd < 0 {
-	// 	return EBADF
-	// }
-	// defer s.fd1.release(fd)
+	rbufsize, err := getsockoptInt(sendSocketFd, unix.SOL_SOCKET, unix.SO_RCVBUF)
+	if err != nil {
+		return err
+	}
+	wbufsize, err := getsockoptInt(sendSocketFd, unix.SOL_SOCKET, unix.SO_RCVBUF)
+	if err != nil {
+		return err
+	}
 
-	// network := s.protocol.Network()
-	// address := s.listenAddress()
+	network := s.protocol.Network()
+	address := s.listenAddress()
 
-	// upstream, err := s.ns.listenPacket(context.TODO(), network, address)
-	// if err != nil {
-	// 	return err
-	// }
+	conn, err := s.ns.listenPacket(context.TODO(), network, address)
+	if err != nil {
+		return err
+	}
 
-	// f := os.NewFile(uintptr(fd), "")
-	// defer f.Close()
-	// s.fd1.acquire()
-	// s.fd1.close()
+	switch c := conn.(type) {
+	case *net.UDPConn:
+		_ = c.SetReadBuffer(rbufsize)
+		_ = c.SetWriteBuffer(wbufsize)
+	}
 
-	// downstream, err := net.FilePacketConn(f)
-	// if err != nil {
-	// 	upstream.Close()
-	// 	return err
-	// }
+	errs := make(chan error, 1)
+	s.errs = errs
+	s.conn = conn
 
-	// go func() {
-	// 	defer downstream.Close()
-	// 	defer upstream.Close()
+	buffer := make([]byte, rbufsize)
+	// Increase reference count for fd1 because the goroutine will now share
+	// ownership of the file descriptor.
+	s.fd1.acquire()
+	go func() {
+		defer close(errs)
+		defer conn.Close()
+		defer s.fd1.release(sendSocketFd)
 
-	// }()
+		var iovs [2][]byte
+		var addrBuf [addrBufSize]byte
+		// TODO: use optimizations like net.(*UDPConn).ReadMsgUDPAddrPort to
+		// remove the heap allocation of the net.Addr returned by ReadFrom.
+		for {
+			n, addr, err := conn.ReadFrom(buffer)
+			if err != nil {
+				if err != io.EOF {
+					errs <- err
+				}
+				return
+			}
+
+			addrBuf = encodeSockaddrAny(addr)
+			iovs[0] = addrBuf[:]
+			iovs[1] = buffer[:n]
+
+			_, err = ignoreEINTR2(func() (int, error) {
+				return unix.SendmsgBuffers(sendSocketFd, iovs[:], nil, nil, 0)
+			})
+			if err != nil {
+				errs <- err
+				return
+			}
+		}
+	}()
 	return nil
 }
 
@@ -405,20 +452,16 @@ func (s *localSocket) Connect(addr Sockaddr) error {
 		return ECONNREFUSED
 	}
 
-	if s.socktype == DGRAM {
-		s.peer.Store(addr)
-		s.state.set(connected)
-		return nil
-	}
+	if s.socktype != DGRAM {
+		serverFd := server.fd1.acquire()
+		if serverFd < 0 {
+			return ECONNREFUSED
+		}
+		defer server.fd1.release(serverFd)
 
-	serverFd := server.fd1.acquire()
-	if serverFd < 0 {
-		return ECONNREFUSED
-	}
-	defer server.fd1.release(serverFd)
-
-	if err := s.connect(serverFd, s.name.Load()); err != nil {
-		return err
+		if err := s.connect(serverFd, s.name.Load()); err != nil {
+			return err
+		}
 	}
 
 	s.peer.Store(addr)
@@ -445,6 +488,16 @@ func (s *localSocket) connect(serverFd int, addr any) error {
 }
 
 func (s *localSocket) dial(addr Sockaddr) error {
+	// When using datagram sockets with a packet listen function setup, the
+	// connection is emulated by simply setting the peer address since a packet
+	// tunnel has already been constructed, all we care about is making sure the
+	// socket only exchange datagrams with the address it is connected to.
+	if s.conn != nil {
+		s.peer.Store(addr)
+		s.state.set(connected)
+		return nil
+	}
+
 	dial := s.ns.dial
 	if dial == nil {
 		return ENETUNREACH
@@ -524,7 +577,7 @@ func (s *localSocket) dial(addr Sockaddr) error {
 	}()
 
 	s.peer.Store(addr)
-	s.state.set(connected)
+	s.state.set(connected | tunneled)
 	return EINPROGRESS
 }
 
@@ -649,7 +702,7 @@ func (s *localSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, er
 		}
 	}
 
-	if s.socktype == DGRAM {
+	if s.socktype == DGRAM && !s.state.is(tunneled) {
 		s.iovs = s.iovs[:0]
 		s.iovs = append(s.iovs, s.addrBuf[:])
 		s.iovs = append(s.iovs, iovs...)
@@ -668,11 +721,22 @@ func (s *localSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, er
 			}
 			err = nil
 		}
+
 		var addr Sockaddr
-		if s.socktype == DGRAM {
+		if s.socktype == DGRAM && !s.state.is(tunneled) {
 			addr = decodeSockaddr(s.addrBuf)
 			n -= addrBufSize
+			// Connected datagram sockets may receive data from addresses that
+			// they are not connected to, those datagrams should be dropped.
+			if s.state.is(connected) {
+				recvAddrPort := SockaddrAddrPort(addr)
+				peerAddrPort := SockaddrAddrPort(s.peer.Load().(Sockaddr))
+				if recvAddrPort != peerAddrPort {
+					continue
+				}
+			}
 		}
+
 		return n, rflags, addr, err
 	}
 }
@@ -703,10 +767,25 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 		}
 	}
 
+	if s.socktype == DGRAM && !s.state.is(tunneled) && addr == nil {
+		switch peer := s.peer.Load().(type) {
+		case *SockaddrInet4:
+			addr = peer
+		case *SockaddrInet6:
+			addr = peer
+		}
+	}
+
 	sendSocketFd := fd
+	// We only perform a lookup of the peer socket if an address is provided,
+	// which means that the socket is not connected to a particular destination
+	// (it must be a datagram socket). This may result in sending the datagram
+	// directly to the peer socket's file descriptor, or passing it to a packet
+	// connection if one was opened by the socket.
 	if addr != nil {
 		var peer *localSocket
 		var err error
+
 		switch a := addr.(type) {
 		case *SockaddrInet4:
 			peer, err = s.ns.lookupInet4(s, a)
@@ -715,20 +794,39 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 		default:
 			return -1, EAFNOSUPPORT
 		}
+
 		if err != nil {
+			// When the destination is not an address within the local network,
+			// but a packet listen function was setup then the socket has opened
+			// a packet connection that we use to send the datagram to a remote
+			// address. Note that we do expect that writing datagrams is not a
+			// blocking operation and the net.PacketConn may drop packets.
+			if err == ENETUNREACH && s.conn != nil {
+				return writeTo(s.conn, iovs, addr)
+			}
 			return -1, err
 		}
+
+		// If the application tried to send a datagram to a socket which is not
+		// a datagram socket, we drop the data here pretending that we were able
+		// to send it.
 		if peer.socktype != DGRAM {
 			return iovecLen(iovs), nil
 		}
 
+		// There are two reasons why the peer's second file descriptor may not
+		// be available here: the peer could have been closed concurrently, or
+		// it may have been connected to a specific address which indicates
+		// that it is not a listening socket.
 		peerFd := peer.fd1.acquire()
 		if peerFd < 0 {
 			return -1, EHOSTUNREACH
 		}
 		defer peer.fd1.release(peerFd)
 		sendSocketFd = peerFd
+	}
 
+	if s.socktype == DGRAM && !s.state.is(tunneled) {
 		s.addrBuf = encodeSockaddrAny(s.name.Load())
 		s.iovs = s.iovs[:0]
 		s.iovs = append(s.iovs, s.addrBuf[:])
@@ -745,7 +843,7 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 			}
 			err = nil
 		}
-		if n > 0 && s.socktype == DGRAM {
+		if n > 0 && addr != nil {
 			n -= addrBufSize
 		}
 		return n, err
@@ -921,4 +1019,59 @@ func iovecLen(iovs [][]byte) (n int) {
 		n += len(iov)
 	}
 	return n
+}
+
+func iovecBuf(iovs [][]byte) []byte {
+	buf := make([]byte, 0, iovecLen(iovs))
+	for _, iov := range iovs {
+		buf = append(buf, iov...)
+	}
+	return buf
+}
+
+func tunnel(downstream, upstream net.Conn, rbufsize, wbufsize int) error {
+	buffer := make([]byte, rbufsize+wbufsize) // TODO: pool this buffer?
+	errs := make(chan error, 2)
+	wg := new(sync.WaitGroup)
+	wg.Add(2)
+
+	go copyAndClose(downstream, upstream, buffer[:rbufsize], errs, wg)
+	go copyAndClose(upstream, downstream, buffer[rbufsize:], errs, wg)
+
+	wg.Wait()
+	close(errs)
+	return <-errs
+}
+
+func copyAndClose(w, r net.Conn, b []byte, errs chan<- error, wg *sync.WaitGroup) {
+	_, err := io.CopyBuffer(w, r, b)
+	if err != nil {
+		errs <- err
+	}
+	switch c := w.(type) {
+	case interface{ CloseWrite() error }:
+		c.CloseWrite() //nolint:errcheck
+	default:
+		c.Close()
+	}
+	wg.Done()
+}
+
+// writeTo writes a datagram represented by the given I/O vector to a destination
+// address on a packet connection.
+//
+// If the net.PacketConn is an instance of *net.UDPConn, the function uses
+// optimized methods to avoid heap allocations for the intermediary net.Addr
+// value that must be constructed.
+func writeTo(conn net.PacketConn, iovs [][]byte, addr Sockaddr) (int, error) {
+	buf := iovecBuf(iovs) // TODO: pool this buffer?
+	addrPort := SockaddrAddrPort(addr)
+	switch c := conn.(type) {
+	case *net.UDPConn:
+		return c.WriteToUDPAddrPort(buf, addrPort)
+	default:
+		addr := addrPort.Addr()
+		port := addrPort.Port()
+		return c.WriteTo(buf, &net.UDPAddr{IP: addr.AsSlice(), Port: int(port)})
+	}
 }
