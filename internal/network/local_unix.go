@@ -2,12 +2,14 @@ package network
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
 	"sync/atomic"
 
+	"github.com/stealthrocket/timecraft/internal/htls"
 	"golang.org/x/sys/unix"
 )
 
@@ -65,6 +67,7 @@ type localSocket struct {
 	addrBuf [addrBufSize]byte
 
 	lstn   net.Listener
+	htls   chan<- string
 	errs   <-chan error
 	cancel context.CancelFunc
 }
@@ -475,24 +478,45 @@ func (s *localSocket) dial(addr Sockaddr) error {
 		return err
 	}
 
-	dialNetwork := s.protocol.Network()
-	dialAddress := SockaddrAddrPort(addr).String()
 	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+
+	htls := make(chan string, 1)
+	s.htls = htls
 
 	errs := make(chan error, 1)
 	s.errs = errs
-	s.cancel = cancel
 
+	network := s.protocol.Network()
+	address := SockaddrAddrPort(addr).String()
 	go func() {
 		defer close(errs)
 		defer downstream.Close()
 
-		upstream, err := dial(ctx, dialNetwork, dialAddress)
+		upstream, err := dial(ctx, network, address)
 		if err != nil {
 			errs <- err
 			return
 		}
 		defer upstream.Close()
+
+		select {
+		case <-ctx.Done():
+			errs <- ctx.Err()
+			return
+		case serverName, ok := <-htls:
+			if !ok {
+				break
+			}
+			tlsConn := tls.Client(upstream, &tls.Config{
+				ServerName: serverName,
+			})
+			if err := tlsConn.HandshakeContext(ctx); err != nil {
+				errs <- err
+				return
+			}
+			upstream = tlsConn
+		}
 
 		if err := tunnel(downstream, upstream, rbufsize, wbufsize); err != nil {
 			errs <- err
@@ -611,6 +635,7 @@ func (s *localSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, er
 		return -1, 0, nil, EBADF
 	}
 	defer s.fd0.release(fd)
+	s.htlsClear()
 
 	if s.state.is(listening) {
 		return -1, 0, nil, EINVAL
@@ -658,6 +683,7 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 		return -1, EBADF
 	}
 	defer s.fd0.release(fd)
+	s.htlsClear()
 
 	if s.state.is(listening) {
 		return -1, EINVAL
@@ -732,7 +758,66 @@ func (s *localSocket) Shutdown(how int) error {
 		return EBADF
 	}
 	defer s.fd0.release(fd)
+	defer s.htlsClear()
 	return shutdown(fd, how)
+}
+
+func (s *localSocket) GetOptInt(level, name int) (int, error) {
+	fd := s.fd0.acquire()
+	if fd < 0 {
+		return -1, EBADF
+	}
+	defer s.fd0.release(fd)
+	return getsockoptInt(fd, level, name)
+}
+
+func (s *localSocket) GetOptString(level, name int) (string, error) {
+	fd := s.fd0.acquire()
+	if fd < 0 {
+		return "", EBADF
+	}
+	defer s.fd0.release(fd)
+
+	switch level {
+	case htls.Level:
+		switch name {
+		case htls.ServerName:
+			return "", EINVAL
+		default:
+			return "", ENOPROTOOPT
+		}
+	}
+
+	return getsockoptString(fd, level, name)
+}
+
+func (s *localSocket) SetOptInt(level, name, value int) error {
+	fd := s.fd0.acquire()
+	if fd < 0 {
+		return EBADF
+	}
+	defer s.fd0.release(fd)
+	return setsockoptInt(fd, level, name, value)
+}
+
+func (s *localSocket) SetOptString(level, name int, value string) error {
+	fd := s.fd0.acquire()
+	if fd < 0 {
+		return EBADF
+	}
+	defer s.fd0.release(fd)
+
+	switch level {
+	case htls.Level:
+		switch name {
+		case htls.ServerName:
+			return s.htlsSetServerName(value)
+		default:
+			return ENOPROTOOPT
+		}
+	}
+
+	return setsockoptString(fd, level, name, value)
 }
 
 func (s *localSocket) getError() error {
@@ -742,6 +827,27 @@ func (s *localSocket) getError() error {
 	default:
 		return nil
 	}
+}
+
+func (s *localSocket) htlsClear() {
+	if s.htls != nil {
+		close(s.htls)
+	}
+}
+
+func (s *localSocket) htlsSetServerName(hostname string) (err error) {
+	defer func() {
+		if recover() != nil {
+			if s.htls == nil {
+				err = EINVAL
+			} else {
+				err = EISCONN
+			}
+		}
+	}()
+	s.htls <- hostname
+	close(s.htls)
+	return nil
 }
 
 func clearIOVecs(iovs [][]byte) {

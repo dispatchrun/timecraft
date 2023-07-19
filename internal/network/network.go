@@ -40,7 +40,11 @@ type Socket interface {
 
 	GetOptInt(level, name int) (int, error)
 
+	GetOptString(level, name int) (string, error)
+
 	SetOptInt(level, name, value int) error
+
+	SetOptString(level, name int, value string) error
 }
 
 type Socktype uint8

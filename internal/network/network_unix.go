@@ -130,6 +130,14 @@ func getsockoptInt(fd, level, name int) (int, error) {
 	return ignoreEINTR2(func() (int, error) { return unix.GetsockoptInt(fd, level, name) })
 }
 
+func getsockoptString(fd, level, name int) (string, error) {
+	return ignoreEINTR2(func() (string, error) { return unix.GetsockoptString(fd, level, name) })
+}
+
 func setsockoptInt(fd, level, name, value int) error {
 	return ignoreEINTR(func() error { return unix.SetsockoptInt(fd, level, name, value) })
+}
+
+func setsockoptString(fd, level, name int, value string) error {
+	return ignoreEINTR(func() error { return unix.SetsockoptString(fd, level, name, value) })
 }

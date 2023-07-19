@@ -126,6 +126,24 @@ func (s *hostSocket) Shutdown(how int) error {
 	return shutdown(fd, how)
 }
 
+func (s *hostSocket) GetOptInt(level, name int) (int, error) {
+	fd := s.fd.acquire()
+	if fd < 0 {
+		return -1, EBADF
+	}
+	defer s.fd.release(fd)
+	return getsockoptInt(fd, level, name)
+}
+
+func (s *hostSocket) GetOptString(level, name int) (string, error) {
+	fd := s.fd.acquire()
+	if fd < 0 {
+		return "", EBADF
+	}
+	defer s.fd.release(fd)
+	return getsockoptString(fd, level, name)
+}
+
 func (s *hostSocket) SetOptInt(level, name, value int) error {
 	fd := s.fd.acquire()
 	if fd < 0 {
@@ -135,11 +153,11 @@ func (s *hostSocket) SetOptInt(level, name, value int) error {
 	return setsockoptInt(fd, level, name, value)
 }
 
-func (s *hostSocket) GetOptInt(level, name int) (int, error) {
+func (s *hostSocket) SetOptString(level, name int, value string) error {
 	fd := s.fd.acquire()
 	if fd < 0 {
-		return -1, EBADF
+		return EBADF
 	}
 	defer s.fd.release(fd)
-	return getsockoptInt(fd, level, name)
+	return setsockoptString(fd, level, name, value)
 }
