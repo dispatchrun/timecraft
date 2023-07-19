@@ -58,7 +58,7 @@ func DialTLS(ctx context.Context, network, addr string) (net.Conn, error) {
 
 	var errno syscall.Errno
 	err = rawConn.Control(func(fd uintptr) {
-		errno = setsockopt(int32(fd), htls.Level, htls.Option, unsafe.Pointer(unsafe.SliceData(host)), uint32(len(hostname)))
+		errno = setsockopt(int32(fd), htls.Level, htls.ServerName, unsafe.Pointer(unsafe.SliceData(host)), uint32(len(hostname)))
 	})
 	if errno != 0 {
 		err = os.NewSyscallError("setsockopt", errno)
