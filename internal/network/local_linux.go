@@ -39,7 +39,7 @@ func (s *localSocket) SetOptInt(level, name, value int) error {
 	case unix.SOL_SOCKET:
 		switch name {
 		case unix.SO_BINDTODEVICE:
-			return 0, ENOPROTOOPT
+			return ENOPROTOOPT
 		}
 	}
 

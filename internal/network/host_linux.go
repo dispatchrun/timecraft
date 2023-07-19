@@ -13,11 +13,11 @@ func (hostNamespace) Socket(family Family, socktype Socktype, protocol Protocol)
 }
 
 func (s *hostSocket) Accept() (Socket, Sockaddr, error) {
-	fd := s.acquire()
+	fd := s.fd.acquire()
 	if fd < 0 {
 		return nil, nil, EBADF
 	}
-	defer s.release(fd)
+	defer s.fd.release(fd)
 	conn, addr, err := ignoreEINTR3(func() (int, unix.Sockaddr, error) {
 		return unix.Accept4(fd, unix.SOCK_CLOEXEC|unix.SOCK_NONBLOCK)
 	})

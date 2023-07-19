@@ -527,7 +527,7 @@ func (s *localSocket) Accept() (Socket, Sockaddr, error) {
 	}
 
 	var oobn int
-	var oobBuf [16]byte
+	var oobBuf [24]byte
 	var addrBuf [addrBufSize]byte
 	for {
 		var err error
