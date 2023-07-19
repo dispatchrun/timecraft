@@ -356,8 +356,9 @@ func testLocalNetworkInboundAccept(t *testing.T, n *network.LocalNetwork) {
 	assert.Equal(t, string(buf[:7]), "message")
 
 	// exercise shutting down the write end of the inbound connection
-	conn.(*net.TCPConn).CloseWrite()
-	waitReadyRead(peer)
+	assert.OK(t, conn.(*net.TCPConn).CloseWrite())
+	assert.OK(t, waitReadyRead(peer))
+
 	size, _, _, err = peer.RecvFrom([][]byte{buf}, 0)
 	assert.OK(t, err)
 	assert.Equal(t, size, 0)

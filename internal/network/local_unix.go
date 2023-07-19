@@ -352,14 +352,13 @@ func (s *localSocket) serve(upstream net.Conn) error {
 		defer upstream.Close()
 		defer downstream.Close()
 
-		if err := tunnel(downstream, upstream, rbufsize, wbufsize); err != nil {
-			// TODO: figure out if this error needs to be reported:
-			//
-			// When the downstream file is closed, the other end of the
-			// connection will observe that the socket was shutdown, we
-			// lose the information of why but we currently have no way
-			// of locating the peer socket on the other side.
-		}
+		_ = tunnel(downstream, upstream, rbufsize, wbufsize)
+		// TODO: figure out if this error needs to be reported:
+		//
+		// When the downstream file is closed, the other end of the
+		// connection will observe that the socket was shutdown, we
+		// lose the information of why but we currently have no way
+		// of locating the peer socket on the other side.
 	}()
 	return nil
 }
