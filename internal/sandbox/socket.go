@@ -20,7 +20,7 @@ func sumIOVecLen(iovs []wasi.IOVec) (n int) {
 }
 
 const (
-	htlsOption wasi.SocketOption = (wasi.SocketOption(htls.Level) << 32) | (htls.Option)
+	htlsOption wasi.SocketOption = (wasi.SocketOption(htls.Level) << 32) | (htls.ServerName)
 )
 
 type sockflags uint32
