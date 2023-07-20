@@ -40,6 +40,7 @@ type ProcessManager struct {
 	registry      *timemachine.Registry
 	runtime       wazero.Runtime
 	serverFactory *ServerFactory
+	adapter       func(ProcessID, wasi.System) wasi.System
 
 	processes map[ProcessID]*ProcessInfo
 	mu        sync.Mutex
@@ -88,12 +89,13 @@ const (
 )
 
 // NewProcessManager creates an ProcessManager.
-func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime, serverFactory *ServerFactory) *ProcessManager {
+func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime, serverFactory *ServerFactory, adapter func(ProcessID, wasi.System) wasi.System) *ProcessManager {
 	r := &ProcessManager{
 		registry:      registry,
 		runtime:       runtime,
 		serverFactory: serverFactory,
 		processes:     map[ProcessID]*ProcessInfo{},
+		adapter:       adapter,
 	}
 	r.group, ctx = errgroup.WithContext(ctx)
 	r.ctx, r.cancel = context.WithCancelCause(ctx)
@@ -193,6 +195,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 		processID = logSpec.ProcessID
 	} else {
 		processID = uuid.New()
+	}
+	if pm.adapter != nil {
+		system = pm.adapter(processID, system)
 	}
 
 	if logSpec != nil {

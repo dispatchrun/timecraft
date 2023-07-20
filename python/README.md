@@ -97,6 +97,9 @@ export RL=/usr/lib/llvm-15/bin/llvm-ranlib
 If you want to iterate faster, disable the `wasm-opt` pass by providing any
 value to `NO_OPT` when building.
 
+Set the `NO_WASMEDGE` environment variable to build CPython without socket
+support.
+
 When making any change in configuration, it is possible you may have to run
 `make dist-clean` in `/python`.
 

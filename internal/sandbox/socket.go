@@ -20,7 +20,7 @@ func sumIOVecLen(iovs []wasi.IOVec) (n int) {
 }
 
 const (
-	htlsOption wasi.SocketOption = (wasi.SocketOption(htls.Level) << 32) | (htls.Option)
+	htlsOption wasi.SocketOption = (wasi.SocketOption(htls.Level) << 32) | (htls.ServerName)
 )
 
 type sockflags uint32
@@ -292,7 +292,7 @@ func (st socktype) fileType() wasi.FileType {
 }
 
 type socket[T sockaddr] struct {
-	defaultFile
+	unimplementedFileMethods
 	net   network[T]
 	typ   socktype
 	proto protocol

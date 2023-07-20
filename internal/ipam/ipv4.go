@@ -69,6 +69,11 @@ func (p *IPv4Pool) Reset(ip IPv4, nbits int) {
 	p.bits.clear()
 }
 
+func (p *IPv4Pool) GetAddr() (netip.Addr, bool) {
+	ip, ok := p.Get()
+	return netip.AddrFrom4(ip), ok
+}
+
 func (p *IPv4Pool) Get() (IPv4, bool) {
 	i := p.bits.findFirstZeroBit()
 	a := p.base.add(i)
@@ -80,6 +85,10 @@ func (p *IPv4Pool) Get() (IPv4, bool) {
 	p.bits.grow(i + 1)
 	p.bits.set(i)
 	return p.base.add(i), true
+}
+
+func (p *IPv4Pool) PutAddr(ip netip.Addr) {
+	p.Put(ip.As4())
 }
 
 func (p *IPv4Pool) Put(ip IPv4) {

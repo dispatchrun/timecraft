@@ -95,6 +95,11 @@ func (p *IPv6Pool) Reset(ip IPv6, nbits int) {
 	p.bits.clear()
 }
 
+func (p *IPv6Pool) GetAddr() (netip.Addr, bool) {
+	ip, ok := p.Get()
+	return netip.AddrFrom16(ip), ok
+}
+
 func (p *IPv6Pool) Get() (IPv6, bool) {
 	i := p.bits.findFirstZeroBit()
 	a := p.base.add(i)
@@ -106,6 +111,10 @@ func (p *IPv6Pool) Get() (IPv6, bool) {
 	p.bits.grow(i + 1)
 	p.bits.set(i)
 	return p.base.add(i), true
+}
+
+func (p *IPv6Pool) PutAddr(ip netip.Addr) {
+	p.Put(ip.As16())
 }
 
 func (p *IPv6Pool) Put(ip IPv6) {

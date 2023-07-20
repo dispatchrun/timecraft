@@ -23,15 +23,17 @@ if [ ! -z "${DEBUG}" ]; then
     WASMEDGE_DEBUG="-DWASMEDGE_SOCKET_DEBUG"
 fi
 
-WASMEDGE_LIB="`pwd`/wasmedge_sock/build"
-WASMEDGE_INCLUDE="`pwd`/wasmedge_sock/include"
-mkdir -p "${WASMEDGE_LIB}"
-pushd "${WASMEDGE_LIB}"
-rm -f *.a *.o
-${CC} -Wall -Werror -O0 -MD -MT -MF -c --target=wasm32-unknown-wasi --sysroot=${SYSROOT} -I`pwd`/../include ${WASMEDGE_DEBUG} ../wasi_socket_ext.c -fPIC -o libwasmedge.o
-${AR} qc libwasmedge_sock.a libwasmedge.o
-${RL} libwasmedge_sock.a
-popd
+if [ -z "${NO_WASMEDGE}" ]; then
+    WASMEDGE_LIB="`pwd`/wasmedge_sock/build"
+    WASMEDGE_INCLUDE="`pwd`/wasmedge_sock/include"
+    mkdir -p "${WASMEDGE_LIB}"
+    pushd "${WASMEDGE_LIB}"
+    rm -f *.a *.o
+    ${CC} -Wall -Werror -O0 -MD -MT -MF -c --target=wasm32-unknown-wasi --sysroot=${SYSROOT} -I`pwd`/../include ${WASMEDGE_DEBUG} ../wasi_socket_ext.c -fPIC -o libwasmedge.o
+    ${AR} qc libwasmedge_sock.a libwasmedge.o
+    ${RL} libwasmedge_sock.a
+    popd
+fi
 
 export MYBUILD="`pwd`/build"
 
@@ -75,8 +77,13 @@ export LDFLAGS="-L${LIBZ_LIB} ${LDFLAGS}"
 export CFLAGS="-I${LIBUUID_INCLUDE} ${CFLAGS}"
 export LDFLAGS="-L${LIBUUID_LIB} ${LDFLAGS}"
 
-export CFLAGS="-I${WASMEDGE_INCLUDE} --sysroot=${SYSROOT} ${CFLAGS}"
-export LDFLAGS="-lwasmedge_sock -L${WASMEDGE_LIB} ${LDFLAGS}"
+export CFLAGS="--sysroot=${SYSROOT} ${CFLAGS}"
+
+if [ -z "${NO_WASMEDGE}" ]; then
+    export CFLAGS="-I${WASMEDGE_INCLUDE} ${CFLAGS}"
+    export LDFLAGS="-lwasmedge_sock -L${WASMEDGE_LIB} ${LDFLAGS}"
+fi
+
 export PYTHON_WASM_CONFIGURE="--with-build-python=python3.11"
 
 if [ ! -z "${DEBUG}" ]; then
