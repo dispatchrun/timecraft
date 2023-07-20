@@ -93,14 +93,11 @@ func TestLocalNetwork(t *testing.T) {
 		},
 	}
 
-	ipv4, ipnet4, err := net.ParseCIDR("192.168.0.1/24")
+	ipnet4, err := netip.ParsePrefix("192.168.0.1/24")
 	assert.OK(t, err)
 
-	ipv6, ipnet6, err := net.ParseCIDR("fe80::1/64")
+	ipnet6, err := netip.ParsePrefix("fe80::1/64")
 	assert.OK(t, err)
-
-	ipnet4.IP = ipv4
-	ipnet6.IP = ipv6
 
 	for _, test := range tests {
 		t.Run(test.scenario, func(t *testing.T) {

@@ -9,30 +9,16 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"golang.org/x/exp/slices"
+
 	"github.com/stealthrocket/timecraft/internal/ipam"
 )
 
 var ErrIPAM = errors.New("IP pool exhausted")
 
-var localAddrs = [2]net.IPNet{
-	net.IPNet{
-		IP: net.IP{
-			127, 0, 0, 1,
-		},
-		Mask: net.IPMask{
-			255, 0, 0, 0,
-		},
-	},
-	net.IPNet{
-		IP: net.IP{
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
-		},
-		Mask: net.IPMask{
-			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-		},
-	},
+var localAddrs = [2]netip.Prefix{
+	netip.PrefixFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 8),
+	netip.PrefixFrom(netip.IPv6Loopback(), 128),
 }
 
 type LocalOption func(*LocalNamespace)
@@ -50,22 +36,21 @@ func ListenPacketFunc(listenPacket func(context.Context, string, string) (net.Pa
 }
 
 type LocalNetwork struct {
-	addrs []net.IPNet
+	addrs []netip.Prefix
 	ipams []ipam.Pool
 
 	mutex  sync.RWMutex
 	routes map[netip.Addr]*localInterface
 }
 
-func NewLocalNetwork(addrs ...*net.IPNet) *LocalNetwork {
+func NewLocalNetwork(addrs ...netip.Prefix) *LocalNetwork {
 	n := &LocalNetwork{
-		addrs:  make([]net.IPNet, len(addrs)),
+		addrs:  slices.Clone(addrs),
 		ipams:  make([]ipam.Pool, len(addrs)),
 		routes: make(map[netip.Addr]*localInterface),
 	}
 	for i, addr := range addrs {
-		n.addrs[i] = *addr
-		n.ipams[i] = ipam.NewPool(&n.addrs[i])
+		n.ipams[i] = ipam.NewPool(addr)
 	}
 	return n
 }
@@ -83,7 +68,7 @@ func (n *LocalNetwork) CreateNamespace(host Namespace, opts ...LocalOption) (*Lo
 			index: 1,
 			name:  "en0",
 			flags: net.FlagUp,
-			addrs: make([]net.IPNet, 0, len(n.addrs)),
+			addrs: make([]netip.Prefix, 0, len(n.addrs)),
 		},
 	}
 
@@ -95,15 +80,12 @@ func (n *LocalNetwork) CreateNamespace(host Namespace, opts ...LocalOption) (*Lo
 	defer n.mutex.Unlock()
 
 	for i, ipam := range n.ipams {
-		ip := ipam.GetIP()
-		if ip == nil {
+		ip, ok := ipam.GetAddr()
+		if !ok {
 			n.detach(&ns.en0)
 			return nil, fmt.Errorf("%s: %w", ipam, ErrIPAM)
 		}
-		ns.en0.addrs = append(ns.en0.addrs, net.IPNet{
-			IP:   ip,
-			Mask: n.addrs[i].Mask,
-		})
+		ns.en0.addrs = append(ns.en0.addrs, netip.PrefixFrom(ip, n.addrs[i].Bits()))
 	}
 
 	ns.lo0.ports = make([]map[localPort]*localSocket, len(ns.lo0.addrs))
@@ -114,28 +96,21 @@ func (n *LocalNetwork) CreateNamespace(host Namespace, opts ...LocalOption) (*Lo
 }
 
 func (n *LocalNetwork) attach(iface *localInterface) {
-	for _, ipnet := range iface.addrs {
-		n.routes[addrFromIP(ipnet.IP)] = iface
+	for _, prefix := range iface.addrs {
+		n.routes[prefix.Addr()] = iface
 	}
 }
 
 func (n *LocalNetwork) detach(iface *localInterface) {
-	for i, ipnet := range iface.addrs {
-		delete(n.routes, addrFromIP(ipnet.IP))
-		n.ipams[i].PutIP(ipnet.IP)
+	for i, prefix := range iface.addrs {
+		addr := prefix.Addr()
+		delete(n.routes, addr)
+		n.ipams[i].PutAddr(addr)
 	}
 }
 
-func (n *LocalNetwork) lookup(ip net.IP) *localInterface {
-	return n.routes[addrFromIP(ip)]
-}
-
-func addrFromIP(ip net.IP) netip.Addr {
-	if ipv4 := ip.To4(); ipv4 != nil {
-		return netip.AddrFrom4(([4]byte)(ipv4))
-	} else {
-		return netip.AddrFrom16(([16]byte)(ip))
-	}
+func (n *LocalNetwork) lookup(addr netip.Addr) *localInterface {
+	return n.routes[addr]
 }
 
 type LocalNamespace struct {
@@ -202,16 +177,16 @@ func (ns *LocalNamespace) interfaces() []*localInterface {
 }
 
 func (ns *LocalNamespace) bindInet4(sock *localSocket, addr *SockaddrInet4) error {
-	return ns.bind(sock, addr.Addr[:], addr.Port)
+	return ns.bind(sock, addrPortFromInet4(addr))
 }
 
 func (ns *LocalNamespace) bindInet6(sock *localSocket, addr *SockaddrInet6) error {
-	return ns.bind(sock, addr.Addr[:], addr.Port)
+	return ns.bind(sock, addrPortFromInet6(addr))
 }
 
-func (ns *LocalNamespace) bind(sock *localSocket, addr net.IP, port int) error {
+func (ns *LocalNamespace) bind(sock *localSocket, addrPort netip.AddrPort) error {
 	for _, iface := range ns.interfaces() {
-		if err := iface.bind(sock, addr, port); err != nil {
+		if err := iface.bind(sock, addrPort); err != nil {
 			return err
 		}
 	}
@@ -219,20 +194,21 @@ func (ns *LocalNamespace) bind(sock *localSocket, addr net.IP, port int) error {
 }
 
 func (ns *LocalNamespace) lookupInet4(sock *localSocket, addr *SockaddrInet4) (*localSocket, error) {
-	return ns.lookup(sock, addr.Addr[:], addr.Port)
+	return ns.lookup(sock, addrPortFromInet4(addr))
 }
 
 func (ns *LocalNamespace) lookupInet6(sock *localSocket, addr *SockaddrInet6) (*localSocket, error) {
-	return ns.lookup(sock, addr.Addr[:], addr.Port)
+	return ns.lookup(sock, addrPortFromInet6(addr))
 }
 
-func (ns *LocalNamespace) lookup(sock *localSocket, addr net.IP, port int) (*localSocket, error) {
+func (ns *LocalNamespace) lookup(sock *localSocket, addrPort netip.AddrPort) (*localSocket, error) {
 	for _, iface := range ns.interfaces() {
-		if peer := iface.lookup(sock, addr, port); peer != nil {
+		if peer := iface.lookup(sock, addrPort); peer != nil {
 			return peer, nil
 		}
 	}
 
+	addr := addrPort.Addr()
 	if addr.IsUnspecified() {
 		return nil, EHOSTUNREACH
 	}
@@ -247,7 +223,7 @@ func (ns *LocalNamespace) lookup(sock *localSocket, addr net.IP, port int) (*loc
 	n.mutex.RUnlock()
 
 	if iface != nil {
-		if peer := iface.lookup(sock, addr, port); peer != nil {
+		if peer := iface.lookup(sock, addrPort); peer != nil {
 			return peer, nil
 		}
 		return nil, EHOSTUNREACH
@@ -256,16 +232,16 @@ func (ns *LocalNamespace) lookup(sock *localSocket, addr net.IP, port int) (*loc
 }
 
 func (ns *LocalNamespace) unlinkInet4(sock *localSocket, addr *SockaddrInet4) {
-	ns.unlink(sock, addr.Addr[:], addr.Port)
+	ns.unlink(sock, addrPortFromInet4(addr))
 }
 
 func (ns *LocalNamespace) unlinkInet6(sock *localSocket, addr *SockaddrInet6) {
-	ns.unlink(sock, addr.Addr[:], addr.Port)
+	ns.unlink(sock, addrPortFromInet6(addr))
 }
 
-func (ns *LocalNamespace) unlink(sock *localSocket, addr net.IP, port int) {
+func (ns *LocalNamespace) unlink(sock *localSocket, addrPort netip.AddrPort) {
 	for _, iface := range ns.interfaces() {
-		iface.unlink(sock, addr, port)
+		iface.unlink(sock, addrPort)
 	}
 }
 
@@ -279,7 +255,7 @@ type localInterface struct {
 	name  string
 	haddr net.HardwareAddr
 	flags net.Flags
-	addrs []net.IPNet
+	addrs []netip.Prefix
 
 	mutex sync.RWMutex
 	ports []map[localPort]*localSocket
@@ -307,8 +283,14 @@ func (i *localInterface) Flags() net.Flags {
 
 func (i *localInterface) Addrs() ([]net.Addr, error) {
 	addrs := make([]net.Addr, len(i.addrs))
-	for j := range addrs {
-		addrs[j] = &i.addrs[j]
+	for j, prefix := range i.addrs {
+		addr := prefix.Addr()
+		ones := prefix.Bits()
+		bits := addr.BitLen()
+		addrs[j] = &net.IPNet{
+			IP:   addr.AsSlice(),
+			Mask: net.CIDRMask(ones, bits),
+		}
 	}
 	return addrs, nil
 }
@@ -317,23 +299,17 @@ func (i *localInterface) MulticastAddrs() ([]net.Addr, error) {
 	return nil, nil
 }
 
-func (i *localInterface) bind(sock *localSocket, addr net.IP, port int) error {
-	link := localPort{sock.protocol, uint16(port)}
-	ipv4 := addr.To4()
-	name := (Sockaddr)(nil)
-
-	if ipv4 != nil {
-		name = &SockaddrInet4{Addr: ([4]byte)(ipv4), Port: port}
-	} else {
-		name = &SockaddrInet6{Addr: ([16]byte)(addr), Port: port}
-	}
+func (i *localInterface) bind(sock *localSocket, addrPort netip.AddrPort) error {
+	link := localPort{sock.protocol, addrPort.Port()}
+	name := SockaddrFromAddrPort(addrPort)
+	addr := addrPort.Addr()
 
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 
 	if link.port != 0 {
 		for j, a := range i.addrs {
-			if !socketAndInterfaceMatch(addr, a.IP) {
+			if !socketAndInterfaceMatch(addr, a.Addr()) {
 				continue
 			}
 			if _, used := i.ports[j][link]; used {
@@ -349,7 +325,7 @@ func (i *localInterface) bind(sock *localSocket, addr net.IP, port int) error {
 		for port = 49152; port <= 65535; port++ {
 			link.port = uint16(port)
 			for j, a := range i.addrs {
-				if !socketAndInterfaceMatch(addr, a.IP) {
+				if !socketAndInterfaceMatch(addr, a.Addr()) {
 					continue
 				}
 				if _, used := i.ports[j][link]; used {
@@ -373,7 +349,7 @@ func (i *localInterface) bind(sock *localSocket, addr net.IP, port int) error {
 		a := i.addrs[j]
 		p := i.ports[j]
 
-		if socketAndInterfaceMatch(addr, a.IP) {
+		if socketAndInterfaceMatch(addr, a.Addr()) {
 			if p == nil {
 				p = make(map[localPort]*localSocket)
 				i.ports[j] = p
@@ -387,7 +363,9 @@ func (i *localInterface) bind(sock *localSocket, addr net.IP, port int) error {
 	return nil
 }
 
-func (i *localInterface) lookup(sock *localSocket, addr net.IP, port int) *localSocket {
+func (i *localInterface) lookup(sock *localSocket, addrPort netip.AddrPort) *localSocket {
+	addr := addrPort.Addr()
+
 	i.mutex.RLock()
 	defer i.mutex.RUnlock()
 
@@ -395,8 +373,8 @@ func (i *localInterface) lookup(sock *localSocket, addr net.IP, port int) *local
 		a := i.addrs[j]
 		p := i.ports[j]
 
-		if socketAndInterfaceMatch(addr, a.IP) {
-			link := localPort{sock.protocol, uint16(port)}
+		if socketAndInterfaceMatch(addr, a.Addr()) {
+			link := localPort{sock.protocol, addrPort.Port()}
 			peer := p[link]
 			if peer != nil {
 				return peer
@@ -407,7 +385,9 @@ func (i *localInterface) lookup(sock *localSocket, addr net.IP, port int) *local
 	return nil
 }
 
-func (i *localInterface) unlink(sock *localSocket, addr net.IP, port int) {
+func (i *localInterface) unlink(sock *localSocket, addrPort netip.AddrPort) {
+	addr := addrPort.Addr()
+
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 
@@ -415,8 +395,8 @@ func (i *localInterface) unlink(sock *localSocket, addr net.IP, port int) {
 		a := i.addrs[j]
 		p := i.ports[j]
 
-		if socketAndInterfaceMatch(addr, a.IP) {
-			link := localPort{sock.protocol, uint16(port)}
+		if socketAndInterfaceMatch(addr, a.Addr()) {
+			link := localPort{sock.protocol, addrPort.Port()}
 			peer := p[link]
 			if sock == peer {
 				delete(p, link)
@@ -425,12 +405,12 @@ func (i *localInterface) unlink(sock *localSocket, addr net.IP, port int) {
 	}
 }
 
-func socketAndInterfaceMatch(sock, iface net.IP) bool {
-	return (sock.IsUnspecified() && family(sock) == family(iface)) || sock.Equal(iface)
+func socketAndInterfaceMatch(sock, iface netip.Addr) bool {
+	return (sock.IsUnspecified() && family(sock) == family(iface)) || sock == iface
 }
 
-func family(ip net.IP) Family {
-	if ip.To4() != nil {
+func family(addr netip.Addr) Family {
+	if addr.Is4() {
 		return INET
 	} else {
 		return INET6

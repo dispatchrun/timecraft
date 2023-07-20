@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/bits"
-	"net"
 	"net/netip"
 )
 
@@ -70,12 +69,9 @@ func (p *IPv4Pool) Reset(ip IPv4, nbits int) {
 	p.bits.clear()
 }
 
-func (p *IPv4Pool) GetIP() net.IP {
+func (p *IPv4Pool) GetAddr() (netip.Addr, bool) {
 	ip, ok := p.Get()
-	if !ok {
-		return nil
-	}
-	return ip[:]
+	return netip.AddrFrom4(ip), ok
 }
 
 func (p *IPv4Pool) Get() (IPv4, bool) {
@@ -91,8 +87,8 @@ func (p *IPv4Pool) Get() (IPv4, bool) {
 	return p.base.add(i), true
 }
 
-func (p *IPv4Pool) PutIP(ip net.IP) {
-	p.Put((IPv4)(ip))
+func (p *IPv4Pool) PutAddr(ip netip.Addr) {
+	p.Put(ip.As4())
 }
 
 func (p *IPv4Pool) Put(ip IPv4) {

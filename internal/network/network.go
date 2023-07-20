@@ -147,11 +147,35 @@ func SockaddrAddr(sa Sockaddr) netip.Addr {
 func SockaddrAddrPort(sa Sockaddr) netip.AddrPort {
 	switch a := sa.(type) {
 	case *SockaddrInet4:
-		return netip.AddrPortFrom(netip.AddrFrom4(a.Addr), uint16(a.Port))
+		return addrPortFromInet4(a)
 	case *SockaddrInet6:
-		return netip.AddrPortFrom(netip.AddrFrom16(a.Addr), uint16(a.Port))
+		return addrPortFromInet6(a)
 	default:
 		return netip.AddrPort{}
+	}
+}
+
+func addrPortFromInet4(a *SockaddrInet4) netip.AddrPort {
+	return netip.AddrPortFrom(netip.AddrFrom4(a.Addr), uint16(a.Port))
+}
+
+func addrPortFromInet6(a *SockaddrInet6) netip.AddrPort {
+	return netip.AddrPortFrom(netip.AddrFrom16(a.Addr), uint16(a.Port))
+}
+
+func SockaddrFromAddrPort(addrPort netip.AddrPort) Sockaddr {
+	addr := addrPort.Addr()
+	port := addrPort.Port()
+	if addr.Is4() {
+		return &SockaddrInet4{
+			Addr: addr.As4(),
+			Port: int(port),
+		}
+	} else {
+		return &SockaddrInet6{
+			Addr: addr.As16(),
+			Port: int(port),
+		}
 	}
 }
 
