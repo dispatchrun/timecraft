@@ -3,13 +3,13 @@ package sandbox_test
 import (
 	"context"
 	"io"
-	"net"
 	"testing"
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"github.com/stealthrocket/wasi-go"
+	"github.com/stealthrocket/wasi-go/wasitest"
 )
 
 const (
@@ -90,10 +90,6 @@ func TestPollStdout(t *testing.T) {
 	errno := sys.FDStatSetFlags(ctx, 1, wasi.NonBlock)
 	assert.Equal(t, errno, wasi.ESUCCESS)
 
-	n, errno := sys.FDWrite(ctx, 1, []wasi.IOVec{[]byte("1")})
-	assert.Equal(t, n, ^wasi.Size(0))
-	assert.Equal(t, errno, wasi.EAGAIN)
-
 	ch := make(chan []byte)
 	go func() {
 		b, err := io.ReadAll(sys.Stdout())
@@ -114,7 +110,7 @@ func TestPollStdout(t *testing.T) {
 		EventType: wasi.FDWriteEvent,
 	}})
 
-	n, errno = sys.FDWrite(ctx, 1, []wasi.IOVec{[]byte("Hello, World!")})
+	n, errno := sys.FDWrite(ctx, 1, []wasi.IOVec{[]byte("Hello, World!")})
 	assert.Equal(t, errno, wasi.ESUCCESS)
 	assert.Equal(t, n, 13)
 	assert.Equal(t, sys.FDClose(ctx, 1), wasi.ESUCCESS)
@@ -155,8 +151,9 @@ func TestPollTimeout(t *testing.T) {
 
 			subs := []wasi.Subscription{
 				wasi.MakeSubscriptionClock(42, wasi.SubscriptionClock{
-					ID:      clock,
-					Timeout: 10 * millis,
+					ID:        clock,
+					Timeout:   10 * millis,
+					Precision: 10 * millis,
 				}),
 			}
 			evs := make([]wasi.Event, len(subs))
@@ -205,34 +202,42 @@ func TestPollDeadline(t *testing.T) {
 	}
 }
 
-func TestSystemListenPortZero(t *testing.T) {
-	listen := sandbox.Listen(func(ctx context.Context, network, address string) (net.Listener, error) {
-		return net.Listen(network, address)
+func TestSandboxWASI(t *testing.T) {
+	wasitest.TestSystem(t, func(config wasitest.TestConfig) (wasi.System, error) {
+		options := []sandbox.Option{
+			sandbox.Args(config.Args...),
+			sandbox.Environ(config.Environ...),
+			sandbox.Rand(config.Rand),
+			sandbox.Time(config.Now),
+			sandbox.MaxOpenFiles(config.MaxOpenFiles),
+			sandbox.MaxOpenDirs(config.MaxOpenDirs),
+			sandbox.Network(sandbox.Host()),
+		}
+
+		if config.RootFS != "" {
+			options = append(options, rootFS(config.RootFS))
+		}
+
+		sys := sandbox.New(options...)
+
+		stdin, stdout, stderr := sys.Stdin(), sys.Stdout(), sys.Stderr()
+		go copyAndClose(stdin, config.Stdin)
+		go copyAndClose(config.Stdout, stdout)
+		go copyAndClose(config.Stderr, stderr)
+
+		return sys, nil
+		//return wasi.Trace(os.Stderr, sys), nil
 	})
-
-	ctx := context.Background()
-	sys := sandbox.New(listen)
-
-	lstn, err := sys.Listen(ctx, "tcp", "127.0.0.1:0")
-	assert.OK(t, err)
-
-	addr, ok := lstn.Addr().(*net.TCPAddr)
-	assert.True(t, ok)
-	assert.True(t, addr.IP.Equal(net.IPv4(127, 0, 0, 1)))
-	assert.NotEqual(t, addr.Port, 0)
-	assert.OK(t, lstn.Close())
 }
 
-func TestSystemListenAnyAddress(t *testing.T) {
-	ctx := context.Background()
-	sys := sandbox.New()
-
-	lstn, err := sys.Listen(ctx, "tcp", ":4242")
-	assert.OK(t, err)
-
-	addr, ok := lstn.Addr().(*net.TCPAddr)
-	assert.True(t, ok)
-	assert.True(t, addr.IP.Equal(net.IPv4(0, 0, 0, 0)))
-	assert.Equal(t, addr.Port, 4242)
-	assert.OK(t, lstn.Close())
+func copyAndClose(w io.WriteCloser, r io.ReadCloser) {
+	if w != nil {
+		defer w.Close()
+	}
+	if r != nil {
+		defer r.Close()
+	}
+	if w != nil && r != nil {
+		_, _ = io.Copy(w, r)
+	}
 }

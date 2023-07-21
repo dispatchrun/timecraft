@@ -1,4 +1,4 @@
-package network
+package sandbox
 
 import "golang.org/x/sys/unix"
 
@@ -12,17 +12,8 @@ func (hostNamespace) Socket(family Family, socktype Socktype, protocol Protocol)
 	return newHostSocket(fd, family, socktype), nil
 }
 
-func (s *hostSocket) Accept() (Socket, Sockaddr, error) {
-	fd := s.fd.acquire()
-	if fd < 0 {
-		return nil, nil, EBADF
-	}
-	defer s.fd.release(fd)
-	conn, addr, err := ignoreEINTR3(func() (int, unix.Sockaddr, error) {
+func accept(fd int) (int, Sockaddr, error) {
+	return ignoreEINTR3(func() (int, Sockaddr, error) {
 		return unix.Accept4(fd, unix.SOCK_CLOEXEC|unix.SOCK_NONBLOCK)
 	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return newHostSocket(conn, s.family, s.socktype), addr, nil
 }

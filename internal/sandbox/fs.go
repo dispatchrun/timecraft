@@ -58,8 +58,8 @@ type dirFile struct {
 	fd wasisys.FD
 }
 
-func (f *dirFile) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
-	return true
+func (f *dirFile) Fd() uintptr {
+	return uintptr(f.fd)
 }
 
 func (f *dirFile) FDClose(ctx context.Context) wasi.Errno {
@@ -247,8 +247,8 @@ type throttleFile struct {
 	fsys *throttleFS
 }
 
-func (f *throttleFile) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
-	return f.base.FDPoll(ev, ch)
+func (f *throttleFile) Fd() uintptr {
+	return f.base.Fd()
 }
 
 func (f *throttleFile) FDClose(ctx context.Context) wasi.Errno {

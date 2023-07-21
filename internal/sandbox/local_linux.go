@@ -1,8 +1,6 @@
-package network
+package sandbox
 
-import (
-	"golang.org/x/sys/unix"
-)
+import "golang.org/x/sys/unix"
 
 func socketpair(family, socktype, protocol int) ([2]int, error) {
 	return ignoreEINTR2(func() ([2]int, error) {

@@ -1,4 +1,4 @@
-package network
+package sandbox
 
 import (
 	"syscall"
@@ -22,23 +22,18 @@ func (hostNamespace) Socket(family Family, socktype Socktype, protocol Protocol)
 	return newHostSocket(fd, family, socktype), nil
 }
 
-func (s *hostSocket) Accept() (Socket, Sockaddr, error) {
-	fd := s.fd.acquire()
-	if fd < 0 {
-		return nil, nil, EBADF
-	}
-	defer s.fd.release(fd)
+func accept(fd int) (int, Sockaddr, error) {
 	syscall.ForkLock.RLock()
 	defer syscall.ForkLock.RUnlock()
 	conn, addr, err := ignoreEINTR3(func() (int, Sockaddr, error) {
 		return unix.Accept(fd)
 	})
 	if err != nil {
-		return nil, nil, err
+		return -1, nil, err
 	}
 	if err := setCloseOnExecAndNonBlocking(conn); err != nil {
 		unix.Close(conn)
-		return nil, nil, err
+		return -1, nil, err
 	}
-	return newHostSocket(conn, s.family, s.socktype), addr, nil
+	return conn, addr, nil
 }
