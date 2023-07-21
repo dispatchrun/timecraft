@@ -13,6 +13,15 @@ func (hostNamespace) Socket(family Family, socktype Socktype, protocol Protocol)
 		return unix.Socket(int(family), int(socktype), int(protocol))
 	})
 	if err != nil {
+		// Darwin gives EPROTOTYPE when the socket type and protocol do
+		// not match, which differs from the Linux behavior which returns
+		// EPROTONOSUPPORT. Since there is no real use case for dealing
+		// with the error differently, and valid applications will not
+		// invoke SockOpen with invalid parameters, we align on the Linux
+		// behavior for simplicity.
+		if err == unix.EPROTOTYPE {
+			err = unix.EPROTONOSUPPORT
+		}
 		return nil, err
 	}
 	if err := setCloseOnExecAndNonBlocking(fd); err != nil {
