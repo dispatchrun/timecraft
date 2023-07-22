@@ -2,12 +2,11 @@ package sandbox
 
 import (
 	"context"
-	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/stealthrocket/timecraft/internal/htls"
 	"github.com/stealthrocket/wasi-go"
-	"golang.org/x/sys/unix"
 )
 
 type wasiSocket struct {
@@ -33,8 +32,7 @@ func (s *wasiSocket) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size,
 }
 
 func (s *wasiSocket) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
-	s.socket.SetNonblock(flags.Has(wasi.NonBlock))
-	return wasi.ESUCCESS
+	return wasi.MakeErrno(s.socket.SetNonBlock(flags.Has(wasi.NonBlock)))
 }
 
 func (s *wasiSocket) FDFileStatGet(ctx context.Context) (wasi.FileStat, wasi.Errno) {
@@ -65,7 +63,10 @@ func (s *wasiSocket) SockAccept(ctx context.Context, flags wasi.FDFlags) (File, 
 	if err != nil {
 		return nil, wasi.MakeErrno(err)
 	}
-	socket.SetNonblock(flags.Has(wasi.NonBlock))
+	if err := socket.SetNonBlock(flags.Has(wasi.NonBlock)); err != nil {
+		socket.Close()
+		return nil, wasi.MakeErrno(err)
+	}
 	return &wasiSocket{socket: socket}, wasi.ESUCCESS
 }
 
@@ -90,84 +91,82 @@ func (s *wasiSocket) SockSendTo(ctx context.Context, iovs []wasi.IOVec, _ wasi.S
 }
 
 func (s *wasiSocket) SockGetOpt(ctx context.Context, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
-	var netLevel int
-	switch option.Level() {
-	case wasi.SocketLevel:
-		netLevel = SOL_SOCKET
-	case wasi.TcpLevel:
-		netLevel = IPPROTO_TCP
-	default:
-		return nil, wasi.EINVAL
-	}
-
-	var netOption int
 	switch option {
 	case wasi.ReuseAddress:
-		netOption = SO_REUSEADDR
+		return nil, wasi.ENOTSUP
+
 	case wasi.QuerySocketType:
-		netOption = SO_TYPE
+		switch s.socket.Type() {
+		case STREAM:
+			return wasi.IntValue(wasi.StreamSocket), wasi.ESUCCESS
+		case DGRAM:
+			return wasi.IntValue(wasi.DatagramSocket), wasi.ESUCCESS
+		default:
+			return nil, wasi.ENOTSUP
+		}
+
 	case wasi.QuerySocketError:
-		netOption = SO_ERROR
+		return wasi.IntValue(wasi.MakeErrno(s.socket.Error())), wasi.ESUCCESS
+
 	case wasi.DontRoute:
-		netOption = SO_DONTROUTE
+		return nil, wasi.ENOTSUP
+
 	case wasi.Broadcast:
-		netOption = SO_BROADCAST
+		return nil, wasi.ENOTSUP
+
 	case wasi.SendBufferSize:
-		netOption = SO_SNDBUF
+		v, err := s.socket.SendBuffer()
+		return wasi.IntValue(v), wasi.MakeErrno(err)
+
 	case wasi.RecvBufferSize:
-		netOption = SO_RCVBUF
+		v, err := s.socket.RecvBuffer()
+		return wasi.IntValue(v), wasi.MakeErrno(err)
+
 	case wasi.KeepAlive:
-		netOption = SO_KEEPALIVE
+		return nil, wasi.ENOTSUP
+
 	case wasi.OOBInline:
-		netOption = SO_OOBINLINE
+		return nil, wasi.ENOTSUP
+
 	case wasi.RecvLowWatermark:
-		netOption = SO_RCVLOWAT
+		return nil, wasi.ENOTSUP
+
 	case wasi.QueryAcceptConnections:
-		netOption = SO_ACCEPTCONN
+		listen, err := s.socket.IsListening()
+		return boolToIntValue(listen), wasi.MakeErrno(err)
+
 	case wasi.TcpNoDelay:
-		netOption = TCP_NODELAY
+		nodelay, err := s.socket.TCPNoDelay()
+		return boolToIntValue(nodelay), wasi.MakeErrno(err)
+
 	case wasi.Linger:
-		return nil, wasi.ENOTSUP // TODO: implement SO_LINGER
+		return nil, wasi.ENOTSUP
+
 	case wasi.RecvTimeout:
-		netOption = SO_RCVTIMEO
+		t, err := s.socket.RecvTimeout()
+		return durationToTimeValue(t), wasi.MakeErrno(err)
+
 	case wasi.SendTimeout:
-		netOption = SO_SNDTIMEO
+		t, err := s.socket.SendTimeout()
+		return durationToTimeValue(t), wasi.MakeErrno(err)
+
 	case wasi.BindToDevice:
-		return nil, wasi.ENOTSUP // TODO: implement SO_BINDTODEVICE
+		return nil, wasi.ENOTSUP
+
 	default:
 		return nil, wasi.EINVAL
 	}
+}
 
-	switch option {
-	case wasi.RecvTimeout, wasi.SendTimeout:
-		t, err := s.socket.GetOptTimeval(netLevel, netOption)
-		if err != nil {
-			return nil, wasi.MakeErrno(err)
-		}
-		return wasi.TimeValue(t.Nano()), wasi.ESUCCESS
+func boolToIntValue(v bool) wasi.IntValue {
+	if v {
+		return 1
 	}
+	return 0
+}
 
-	value, err := s.socket.GetOptInt(netLevel, netOption)
-	if err != nil {
-		return nil, wasi.MakeErrno(err)
-	}
-
-	errno := wasi.ESUCCESS
-	switch option {
-	case wasi.QuerySocketType:
-		switch value {
-		case int(STREAM):
-			value = int(wasi.StreamSocket)
-		case int(DGRAM):
-			value = int(wasi.DatagramSocket)
-		default:
-			value = -1
-			errno = wasi.ENOTSUP
-		}
-	case wasi.QuerySocketError:
-		value = int(wasi.MakeErrno(syscall.Errno(value)))
-	}
-	return wasi.IntValue(value), errno
+func durationToTimeValue(v time.Duration) wasi.TimeValue {
+	return wasi.TimeValue(int64(v))
 }
 
 func (s *wasiSocket) SockSetOpt(ctx context.Context, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno {
@@ -175,81 +174,91 @@ func (s *wasiSocket) SockSetOpt(ctx context.Context, option wasi.SocketOption, v
 		htlsServerName = wasi.MakeSocketOption(htls.Level, htls.ServerName)
 	)
 
-	var netLevel int
-	switch level := option.Level(); level {
-	case wasi.SocketLevel:
-		netLevel = SOL_SOCKET
-	case wasi.TcpLevel:
-		netLevel = IPPROTO_TCP
-	default:
-		netLevel = int(level)
-	}
-
-	var netOption int
-	switch option {
-	case htlsServerName:
-		netOption = htls.ServerName
-	case wasi.ReuseAddress:
-		netOption = SO_REUSEADDR
-	case wasi.QuerySocketType:
-		netOption = SO_TYPE
-	case wasi.QuerySocketError:
-		netOption = SO_ERROR
-	case wasi.DontRoute:
-		netOption = SO_DONTROUTE
-	case wasi.Broadcast:
-		netOption = SO_BROADCAST
-	case wasi.SendBufferSize:
-		netOption = SO_SNDBUF
-	case wasi.RecvBufferSize:
-		netOption = SO_RCVBUF
-	case wasi.KeepAlive:
-		netOption = SO_KEEPALIVE
-	case wasi.OOBInline:
-		netOption = SO_OOBINLINE
-	case wasi.RecvLowWatermark:
-		netOption = SO_RCVLOWAT
-	case wasi.QueryAcceptConnections:
-		netOption = SO_ACCEPTCONN
-	case wasi.TcpNoDelay:
-		netOption = TCP_NODELAY
-	case wasi.Linger:
-		return wasi.ENOTSUP // TODO: implement SO_LINGER
-	case wasi.RecvTimeout:
-		netOption = SO_RCVTIMEO
-	case wasi.SendTimeout:
-		netOption = SO_SNDTIMEO
-	case wasi.BindToDevice:
-		return wasi.ENOTSUP // TODO: implement SO_BINDTODEVICE
-	default:
-		return wasi.EINVAL
-	}
-
-	var strval wasi.BytesValue
-	var intval wasi.IntValue
-	var timeval wasi.TimeValue
-	var ok bool
-
-	switch option {
-	case htlsServerName:
-		strval, ok = value.(wasi.BytesValue)
-	case wasi.RecvTimeout, wasi.SendTimeout:
-		timeval, ok = value.(wasi.TimeValue)
-	default:
-		intval, ok = value.(wasi.IntValue)
-	}
-	if !ok {
-		return wasi.EINVAL
-	}
-
 	var err error
 	switch option {
-	case wasi.RecvTimeout, wasi.SendTimeout:
-		err = s.socket.SetOptTimeval(netLevel, netOption, unix.NsecToTimeval(int64(timeval)))
 	case htlsServerName:
-		err = s.socket.SetOptString(netLevel, netOption, string(strval))
+		serverName, ok := value.(wasi.BytesValue)
+		if !ok {
+			err = EINVAL
+		} else {
+			err = s.socket.SetTLSServerName(string(serverName))
+		}
+
+	case wasi.ReuseAddress:
+		return wasi.ENOTSUP
+
+	case wasi.QuerySocketType:
+		return wasi.ENOTSUP
+
+	case wasi.QuerySocketError:
+		return wasi.ENOTSUP
+
+	case wasi.DontRoute:
+		return wasi.ENOTSUP
+
+	case wasi.Broadcast:
+		return wasi.ENOTSUP
+
+	case wasi.RecvBufferSize:
+		size, ok := value.(wasi.IntValue)
+		if !ok {
+			err = EINVAL
+		} else {
+			err = s.socket.SetRecvBuffer(int(size))
+		}
+
+	case wasi.SendBufferSize:
+		size, ok := value.(wasi.IntValue)
+		if !ok {
+			err = EINVAL
+		} else {
+			err = s.socket.SetSendBuffer(int(size))
+		}
+
+	case wasi.KeepAlive:
+		return wasi.ENOTSUP
+
+	case wasi.OOBInline:
+		return wasi.ENOTSUP
+
+	case wasi.RecvLowWatermark:
+		return wasi.ENOTSUP
+
+	case wasi.QueryAcceptConnections:
+		return wasi.ENOTSUP
+
+	case wasi.TcpNoDelay:
+		nodelay, ok := value.(wasi.IntValue)
+		if !ok {
+			err = EINVAL
+		} else {
+			err = s.socket.SetTCPNoDelay(nodelay != 0)
+		}
+
+	case wasi.Linger:
+		return wasi.ENOTSUP
+
+	case wasi.RecvTimeout:
+		timeout, ok := value.(wasi.TimeValue)
+		if !ok {
+			err = EINVAL
+		} else {
+			err = s.socket.SetRecvTimeout(time.Duration(timeout))
+		}
+
+	case wasi.SendTimeout:
+		timeout, ok := value.(wasi.TimeValue)
+		if !ok {
+			err = EINVAL
+		} else {
+			err = s.socket.SetSendTimeout(time.Duration(timeout))
+		}
+
+	case wasi.BindToDevice:
+		return wasi.ENOTSUP
+
 	default:
-		err = s.socket.SetOptInt(netLevel, netOption, int(intval))
+		return wasi.EINVAL
 	}
 	return wasi.MakeErrno(err)
 }

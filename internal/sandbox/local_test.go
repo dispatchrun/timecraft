@@ -200,7 +200,7 @@ func testLocalNetworkConnectStreamNamespaces(t *testing.T, n *sandbox.LocalNetwo
 	server, err := ns1.Socket(family, sandbox.STREAM, sandbox.TCP)
 	assert.OK(t, err)
 	defer server.Close()
-	server.SetNonblock(true)
+	server.SetNonBlock(true)
 
 	assert.OK(t, server.Listen(1))
 	serverAddr, err := server.Name()
@@ -224,7 +224,7 @@ func testLocalNetworkConnectStreamNamespaces(t *testing.T, n *sandbox.LocalNetwo
 	client, err := ns2.Socket(family, sandbox.STREAM, sandbox.TCP)
 	assert.OK(t, err)
 	defer client.Close()
-	client.SetNonblock(true)
+	client.SetNonBlock(true)
 
 	assert.Error(t, client.Connect(serverAddr), sandbox.EINPROGRESS)
 	assert.OK(t, waitReadyRead(server))
@@ -232,7 +232,7 @@ func testLocalNetworkConnectStreamNamespaces(t *testing.T, n *sandbox.LocalNetwo
 	conn, addr, err := server.Accept()
 	assert.OK(t, err)
 	defer conn.Close()
-	conn.SetNonblock(true)
+	conn.SetNonBlock(true)
 
 	assert.OK(t, waitReadyWrite(client))
 	peer, err := client.Peer()
@@ -293,7 +293,7 @@ func testLocalNetworkOutboundConnectStream(t *testing.T, n *sandbox.LocalNetwork
 	server, err := ns1.Socket(sandbox.INET, sandbox.STREAM, sandbox.TCP)
 	assert.OK(t, err)
 	defer server.Close()
-	server.SetNonblock(true)
+	server.SetNonBlock(true)
 
 	assert.OK(t, server.Bind(hostAddr))
 	assert.OK(t, server.Listen(1))
@@ -307,7 +307,7 @@ func testLocalNetworkOutboundConnectStream(t *testing.T, n *sandbox.LocalNetwork
 	client, err := ns2.Socket(sandbox.INET, sandbox.STREAM, sandbox.TCP)
 	assert.OK(t, err)
 	defer client.Close()
-	client.SetNonblock(true)
+	client.SetNonBlock(true)
 
 	assert.Error(t, client.Connect(serverAddr), sandbox.EINPROGRESS)
 	assert.OK(t, waitReadyRead(server))
@@ -315,7 +315,7 @@ func testLocalNetworkOutboundConnectStream(t *testing.T, n *sandbox.LocalNetwork
 	conn, addr, err := server.Accept()
 	assert.OK(t, err)
 	defer conn.Close()
-	conn.SetNonblock(true)
+	conn.SetNonBlock(true)
 	assert.NotEqual(t, addr, nil)
 
 	assert.OK(t, waitReadyWrite(client))

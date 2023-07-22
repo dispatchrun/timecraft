@@ -30,28 +30,6 @@ const (
 	SHUTWR = unix.SHUT_WR
 )
 
-const (
-	SOL_SOCKET  = unix.SOL_SOCKET
-	IPPROTO_TCP = unix.IPPROTO_TCP
-)
-
-const (
-	SO_REUSEADDR  = unix.SO_REUSEADDR
-	SO_TYPE       = unix.SO_TYPE
-	SO_ERROR      = unix.SO_ERROR
-	SO_DONTROUTE  = unix.SO_DONTROUTE
-	SO_BROADCAST  = unix.SO_BROADCAST
-	SO_SNDBUF     = unix.SO_SNDBUF
-	SO_RCVBUF     = unix.SO_RCVBUF
-	SO_KEEPALIVE  = unix.SO_KEEPALIVE
-	SO_OOBINLINE  = unix.SO_OOBINLINE
-	SO_RCVLOWAT   = unix.SO_RCVLOWAT
-	SO_ACCEPTCONN = unix.SO_ACCEPTCONN
-	SO_RCVTIMEO   = unix.SO_RCVTIMEO
-	SO_SNDTIMEO   = unix.SO_SNDTIMEO
-	TCP_NODELAY   = unix.TCP_NODELAY
-)
-
 type Sockaddr = unix.Sockaddr
 type SockaddrInet4 = unix.SockaddrInet4
 type SockaddrInet6 = unix.SockaddrInet6
@@ -136,9 +114,9 @@ func getsockoptTimeval(fd, level, name int) (Timeval, error) {
 
 func setsockoptInt(fd, level, name, value int) error {
 	switch level {
-	case SOL_SOCKET:
+	case unix.SOL_SOCKET:
 		switch name {
-		case SO_RCVBUF, SO_SNDBUF:
+		case unix.SO_RCVBUF, unix.SO_SNDBUF:
 			// Treat setting negative buffer sizes as a special, invalid case to
 			// ensure portability across operating systems.
 			if value < 0 {

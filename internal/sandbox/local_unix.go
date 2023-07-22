@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/stealthrocket/timecraft/internal/htls"
 	"golang.org/x/sys/unix"
 )
 
@@ -142,6 +141,11 @@ func (s *localSocket) Type() Socktype {
 
 func (s *localSocket) Fd() uintptr {
 	return uintptr(s.fd0.load())
+}
+
+func (s *localSocket) File() *os.File {
+	f, _ := s.socketFile0()
+	return f
 }
 
 func (s *localSocket) Close() error {
@@ -643,7 +647,7 @@ func (s *localSocket) Accept() (Socket, Sockaddr, error) {
 	if !s.state.is(listening) {
 		return nil, nil, EINVAL
 	}
-	if err := s.getError(); err != nil {
+	if err := s.Error(); err != nil {
 		return nil, nil, err
 	}
 
@@ -756,7 +760,7 @@ func (s *localSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, er
 	if s.state.is(listening) {
 		return -1, 0, nil, EINVAL
 	}
-	if err := s.getError(); err != nil {
+	if err := s.Error(); err != nil {
 		return -1, 0, nil, err
 	}
 	if !s.state.is(bound) {
@@ -840,7 +844,7 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 	if !s.state.is(connected) && addr == nil {
 		return -1, ENOTCONN
 	}
-	if err := s.getError(); err != nil {
+	if err := s.Error(); err != nil {
 		return -1, err
 	}
 	if !s.state.is(bound) {
@@ -956,119 +960,7 @@ func (s *localSocket) Shutdown(how int) error {
 	return shutdown(fd, how)
 }
 
-func (s *localSocket) GetOptInt(level, name int) (int, error) {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return -1, EBADF
-	}
-	defer s.fd0.release(fd)
-	return getsockoptInt(fd, level, name)
-}
-
-func (s *localSocket) GetOptString(level, name int) (string, error) {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return "", EBADF
-	}
-	defer s.fd0.release(fd)
-
-	switch level {
-	case htls.Level:
-		switch name {
-		case htls.ServerName:
-			return "", EINVAL
-		default:
-			return "", ENOPROTOOPT
-		}
-	}
-
-	return getsockoptString(fd, level, name)
-}
-
-func (s *localSocket) GetOptTimeval(level, name int) (Timeval, error) {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return Timeval{}, EBADF
-	}
-	defer s.fd0.release(fd)
-
-	switch level {
-	case SOL_SOCKET:
-		switch name {
-		case SO_RCVTIMEO:
-			return unix.NsecToTimeval(int64(s.rtimeout)), nil
-		case SO_SNDTIMEO:
-			return unix.NsecToTimeval(int64(s.wtimeout)), nil
-		}
-	}
-
-	return getsockoptTimeval(fd, level, name)
-}
-
-func (s *localSocket) SetOptInt(level, name, value int) error {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return EBADF
-	}
-	defer s.fd0.release(fd)
-	return setsockoptInt(fd, level, name, value)
-}
-
-func (s *localSocket) SetOptString(level, name int, value string) error {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return EBADF
-	}
-	defer s.fd0.release(fd)
-
-	switch level {
-	case htls.Level:
-		switch name {
-		case htls.ServerName:
-			return s.htlsSetServerName(value)
-		default:
-			return ENOPROTOOPT
-		}
-	}
-
-	return setsockoptString(fd, level, name, value)
-}
-
-func (s *localSocket) SetOptTimeval(level, name int, value Timeval) error {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return EBADF
-	}
-	defer s.fd0.release(fd)
-
-	switch level {
-	case SOL_SOCKET:
-		switch name {
-		case SO_RCVTIMEO:
-			s.rtimeout = time.Duration(value.Nano())
-			return nil
-		case SO_SNDTIMEO:
-			s.wtimeout = time.Duration(value.Nano())
-			return nil
-		}
-	}
-
-	return setsockoptTimeval(fd, level, name, value)
-}
-
-func (s *localSocket) SetNonblock(nonblock bool) {
-	if nonblock {
-		s.state.set(nonblocking)
-	} else {
-		s.state.unset(nonblocking)
-	}
-}
-
-func (s *localSocket) IsNonblock() bool {
-	return s.state.is(nonblocking)
-}
-
-func (s *localSocket) getError() error {
+func (s *localSocket) Error() error {
 	select {
 	case err := <-s.errs:
 		return err
@@ -1077,13 +969,66 @@ func (s *localSocket) getError() error {
 	}
 }
 
-func (s *localSocket) htlsClear() {
-	if s.htls != nil {
-		close(s.htls)
-	}
+func (s *localSocket) IsListening() (bool, error) {
+	return s.state.is(listening), nil
 }
 
-func (s *localSocket) htlsSetServerName(hostname string) (err error) {
+func (s *localSocket) IsNonBlock() (bool, error) {
+	return s.state.is(nonblocking), nil
+}
+
+func (s *localSocket) RecvBuffer() (int, error) {
+	return s.getOptInt(unix.SOL_SOCKET, unix.SO_RCVBUF)
+}
+
+func (s *localSocket) SendBuffer() (int, error) {
+	return s.getOptInt(unix.SOL_SOCKET, unix.SO_SNDBUF)
+}
+
+func (s *localSocket) TCPNoDelay() (bool, error) {
+	return false, EOPNOTSUPP
+}
+
+func (s *localSocket) RecvTimeout() (time.Duration, error) {
+	return s.rtimeout, nil
+}
+
+func (s *localSocket) SendTimeout() (time.Duration, error) {
+	return s.wtimeout, nil
+}
+
+func (s *localSocket) SetNonBlock(nonblock bool) error {
+	if nonblock {
+		s.state.set(nonblocking)
+	} else {
+		s.state.unset(nonblocking)
+	}
+	return nil
+}
+
+func (s *localSocket) SetRecvBuffer(size int) error {
+	return s.setOptInt(unix.SOL_SOCKET, unix.SO_RCVBUF, size)
+}
+
+func (s *localSocket) SetSendBuffer(size int) error {
+	return s.setOptInt(unix.SOL_SOCKET, unix.SO_SNDBUF, size)
+}
+
+func (s *localSocket) SetRecvTimeout(timeout time.Duration) error {
+	s.rtimeout = timeout
+	return nil
+}
+
+func (s *localSocket) SetSendTimeout(timeout time.Duration) error {
+	s.wtimeout = timeout
+	return nil
+}
+
+func (s *localSocket) SetTCPNoDelay(nodelay bool) error {
+	return EOPNOTSUPP
+}
+
+func (s *localSocket) SetTLSServerName(serverName string) (err error) {
 	defer func() {
 		if recover() != nil {
 			if s.htls == nil {
@@ -1093,13 +1038,37 @@ func (s *localSocket) htlsSetServerName(hostname string) (err error) {
 			}
 		}
 	}()
-	s.htls <- hostname
+	s.htls <- serverName
 	close(s.htls)
 	return nil
 }
 
+func (s *localSocket) getOptInt(level, name int) (int, error) {
+	fd := s.fd0.acquire()
+	if fd < 0 {
+		return -1, EBADF
+	}
+	defer s.fd0.release(fd)
+	return getsockoptInt(fd, level, name)
+}
+
+func (s *localSocket) setOptInt(level, name, value int) error {
+	fd := s.fd0.acquire()
+	if fd < 0 {
+		return EBADF
+	}
+	defer s.fd0.release(fd)
+	return setsockoptInt(fd, level, name, value)
+}
+
+func (s *localSocket) htlsClear() {
+	if s.htls != nil {
+		close(s.htls)
+	}
+}
+
 func (s *localSocket) syscallConn0() (syscall.RawConn, error) {
-	f, err := s.syscallFile0()
+	f, err := s.socketFile0()
 	if err != nil {
 		return nil, err
 	}
@@ -1110,7 +1079,7 @@ func (s *localSocket) syscallConn0() (syscall.RawConn, error) {
 }
 
 func (s *localSocket) syscallConn1() (syscall.RawConn, error) {
-	f, err := s.syscallFile1()
+	f, err := s.socketFile1()
 	if err != nil {
 		return nil, err
 	}
@@ -1120,30 +1089,42 @@ func (s *localSocket) syscallConn1() (syscall.RawConn, error) {
 	return f.SyscallConn()
 }
 
-func (s *localSocket) syscallFile0() (*os.File, error) {
+func (s *localSocket) socketFile0() (*os.File, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	if s.file0 != nil {
 		return s.file0, nil
 	}
-	f := s.fd0.file()
-	if f == nil {
+	fd := s.fd0.acquire()
+	if fd < 0 {
 		return nil, EBADF
 	}
+	defer s.fd0.release(fd)
+	fileFd, err := dup(fd)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(fileFd), "")
 	s.file0 = f
 	return f, nil
 }
 
-func (s *localSocket) syscallFile1() (*os.File, error) {
+func (s *localSocket) socketFile1() (*os.File, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	if s.file1 != nil {
 		return s.file1, nil
 	}
-	f := s.fd1.file()
-	if f == nil {
+	fd := s.fd1.acquire()
+	if fd < 0 {
 		return nil, EBADF
 	}
+	defer s.fd1.release(fd)
+	fileFd, err := dup(fd)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(fileFd), "")
 	s.file1 = f
 	return f, nil
 }

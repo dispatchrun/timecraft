@@ -14,6 +14,7 @@ type hostSocket struct {
 	family   Family
 	socktype Socktype
 	file     *os.File
+	listen   bool
 	nonblock bool
 	rtimeout time.Duration
 	wtimeout time.Duration
@@ -35,6 +36,24 @@ func (s *hostSocket) Type() Socktype {
 
 func (s *hostSocket) Fd() uintptr {
 	return uintptr(s.fd.load())
+}
+
+func (s *hostSocket) File() *os.File {
+	if s.file != nil {
+		return s.file
+	}
+	fd := s.fd.acquire()
+	if fd < 0 {
+		return nil
+	}
+	defer s.fd.release(fd)
+	fileFd, err := dup(fd)
+	if err != nil {
+		return nil
+	}
+	f := os.NewFile(uintptr(fileFd), "")
+	s.file = f
+	return f
 }
 
 func (s *hostSocket) Close() error {
@@ -60,7 +79,11 @@ func (s *hostSocket) Listen(backlog int) error {
 		return EBADF
 	}
 	defer s.fd.release(fd)
-	return listen(fd, backlog)
+	if err := listen(fd, backlog); err != nil {
+		return err
+	}
+	s.listen = true
+	return nil
 }
 
 func (s *hostSocket) Accept() (Socket, Sockaddr, error) {
@@ -129,7 +152,7 @@ func (s *hostSocket) Connect(addr Sockaddr) error {
 
 	rawConnErr := rawConn.Write(func(fd uintptr) bool {
 		var value int
-		value, err = getsockoptInt(int(fd), SOL_SOCKET, SO_ERROR)
+		value, err = getsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_ERROR)
 		if err != nil {
 			return true // done
 		}
@@ -239,7 +262,82 @@ func (s *hostSocket) Shutdown(how int) error {
 	return shutdown(fd, how)
 }
 
-func (s *hostSocket) GetOptInt(level, name int) (int, error) {
+func (s *hostSocket) Error() error {
+	v, err := s.getOptInt(unix.SOL_SOCKET, unix.SO_ERROR)
+	if err != nil {
+		return err
+	}
+	return unix.Errno(v)
+}
+
+func (s *hostSocket) IsListening() (bool, error) {
+	return s.listen, nil
+}
+
+func (s *hostSocket) IsNonBlock() (bool, error) {
+	return s.nonblock, nil
+}
+
+func (s *hostSocket) RecvBuffer() (int, error) {
+	return s.getOptInt(unix.SOL_SOCKET, unix.SO_RCVBUF)
+}
+
+func (s *hostSocket) SendBuffer() (int, error) {
+	return s.getOptInt(unix.SOL_SOCKET, unix.SO_SNDBUF)
+}
+
+func (s *hostSocket) RecvTimeout() (time.Duration, error) {
+	return s.rtimeout, nil
+}
+
+func (s *hostSocket) SendTimeout() (time.Duration, error) {
+	return s.wtimeout, nil
+}
+
+func (s *hostSocket) TCPNoDelay() (bool, error) {
+	return s.getOptBool(unix.IPPROTO_TCP, unix.TCP_NODELAY)
+}
+
+func (s *hostSocket) SetNonBlock(nonblock bool) error {
+	s.nonblock = nonblock
+	return nil
+}
+
+func (s *hostSocket) SetRecvBuffer(size int) error {
+	return s.setOptInt(unix.SOL_SOCKET, unix.SO_RCVBUF, size)
+}
+
+func (s *hostSocket) SetSendBuffer(size int) error {
+	return s.setOptInt(unix.SOL_SOCKET, unix.SO_SNDBUF, size)
+}
+
+func (s *hostSocket) SetRecvTimeout(timeout time.Duration) error {
+	s.rtimeout = timeout
+	return nil
+}
+
+func (s *hostSocket) SetSendTimeout(timeout time.Duration) error {
+	s.wtimeout = timeout
+	return nil
+}
+
+func (s *hostSocket) SetTCPNoDelay(nodelay bool) error {
+	return s.setOptBool(unix.IPPROTO_TCP, unix.TCP_NODELAY, nodelay)
+}
+
+func (s *hostSocket) SetTLSServerName(serverName string) error {
+	return EOPNOTSUPP
+}
+
+func (s *hostSocket) getOptBool(level, name int) (bool, error) {
+	v, err := s.getOptInt(level, name)
+	if err != nil {
+		return false, err
+	}
+	return v != 0, nil
+}
+
+func (s *hostSocket) getOptInt(level, name int) (int, error) {
 	fd := s.fd.acquire()
 	if fd < 0 {
 		return -1, EBADF
@@ -248,36 +346,15 @@ func (s *hostSocket) GetOptInt(level, name int) (int, error) {
 	return getsockoptInt(fd, level, name)
 }
 
-func (s *hostSocket) GetOptString(level, name int) (string, error) {
-	fd := s.fd.acquire()
-	if fd < 0 {
-		return "", EBADF
+func (s *hostSocket) setOptBool(level, name int, value bool) error {
+	intValue := 0
+	if value {
+		intValue = 1
 	}
-	defer s.fd.release(fd)
-	return getsockoptString(fd, level, name)
+	return s.setOptInt(level, name, intValue)
 }
 
-func (s *hostSocket) GetOptTimeval(level, name int) (Timeval, error) {
-	fd := s.fd.acquire()
-	if fd < 0 {
-		return Timeval{}, EBADF
-	}
-	defer s.fd.release(fd)
-
-	switch level {
-	case SOL_SOCKET:
-		switch name {
-		case SO_RCVTIMEO:
-			return unix.NsecToTimeval(int64(s.rtimeout)), nil
-		case SO_SNDTIMEO:
-			return unix.NsecToTimeval(int64(s.wtimeout)), nil
-		}
-	}
-
-	return getsockoptTimeval(fd, level, name)
-}
-
-func (s *hostSocket) SetOptInt(level, name, value int) error {
+func (s *hostSocket) setOptInt(level, name, value int) error {
 	fd := s.fd.acquire()
 	if fd < 0 {
 		return EBADF
@@ -286,64 +363,13 @@ func (s *hostSocket) SetOptInt(level, name, value int) error {
 	return setsockoptInt(fd, level, name, value)
 }
 
-func (s *hostSocket) SetOptString(level, name int, value string) error {
-	fd := s.fd.acquire()
-	if fd < 0 {
-		return EBADF
-	}
-	defer s.fd.release(fd)
-	return setsockoptString(fd, level, name, value)
-}
-
-func (s *hostSocket) SetOptTimeval(level, name int, value Timeval) error {
-	fd := s.fd.acquire()
-	if fd < 0 {
-		return EBADF
-	}
-	defer s.fd.release(fd)
-
-	switch level {
-	case SOL_SOCKET:
-		switch name {
-		case SO_RCVTIMEO:
-			s.rtimeout = time.Duration(value.Nano())
-			return nil
-		case SO_SNDTIMEO:
-			s.wtimeout = time.Duration(value.Nano())
-			return nil
-		}
-	}
-
-	return setsockoptTimeval(fd, level, name, value)
-}
-
-func (s *hostSocket) SetNonblock(nonblock bool) {
-	s.nonblock = nonblock
-}
-
-func (s *hostSocket) IsNonblock() bool {
-	return s.nonblock
-}
-
 func (s *hostSocket) syscallConn() (syscall.RawConn, error) {
-	f, err := s.syscallFile()
-	if err != nil {
-		return nil, err
+	f := s.File()
+	if f == nil {
+		return nil, EBADF
 	}
 	if err := setFileDeadline(f, s.rtimeout, s.wtimeout); err != nil {
 		return nil, err
 	}
 	return f.SyscallConn()
-}
-
-func (s *hostSocket) syscallFile() (*os.File, error) {
-	if s.file != nil {
-		return s.file, nil
-	}
-	f := s.fd.file()
-	if f == nil {
-		return nil, EBADF
-	}
-	s.file = f
-	return f, nil
 }

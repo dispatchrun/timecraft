@@ -10,8 +10,6 @@ import (
 )
 
 func TestConn(t *testing.T) {
-	t.Skip("TODO")
-
 	tests := []struct {
 		network string
 		address string
@@ -40,7 +38,7 @@ func TestConn(t *testing.T) {
 		t.Run(test.network, func(t *testing.T) {
 			nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
 				ctx := context.Background()
-				sys := sandbox.New(test.options...)
+				sys := sandbox.New(sandbox.Network(sandbox.Host()))
 
 				l, err := sys.Listen(ctx, test.network, test.address)
 				if err != nil {
@@ -107,8 +105,14 @@ func TestPacketConn(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.network, func(t *testing.T) {
 			nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
+				local := sandbox.NewLocalNetwork()
+				netns, err := local.CreateNamespace(sandbox.Host())
+				if err != nil {
+					return nil, nil, nil, err
+				}
+
 				ctx := context.Background()
-				sys := sandbox.New(test.options...)
+				sys := sandbox.New(sandbox.Network(netns))
 
 				l, err := sys.ListenPacket(ctx, test.network, test.address)
 				if err != nil {

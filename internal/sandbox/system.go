@@ -774,38 +774,85 @@ var (
 // needs to establish a connection to the guest, maybe indirectly such as using
 // a http.Transport and setting this method as the transport's dial function.
 func (s *System) Dial(ctx context.Context, network, address string) (net.Conn, error) {
+	c, err := s.dial(ctx, network, address)
+	if err != nil {
+		return nil, &net.OpError{
+			Op:  "dial",
+			Net: network,
+			Err: err,
+		}
+	}
+	return c, nil
+}
+
+func (s *System) dial(ctx context.Context, network, address string) (net.Conn, error) {
+	if s.netns == nil {
+		return nil, net.UnknownNetworkError(network)
+	}
+
 	switch network {
 	case "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6":
 		addrPort, err := netip.ParseAddrPort(address)
 		if err != nil {
-			return nil, newDialError(network, &net.ParseError{
+			return nil, &net.ParseError{
 				Type: "connect address",
 				Text: address,
-			})
+			}
 		}
 
 		addr := addrPort.Addr()
 		port := addrPort.Port()
 		if port == 0 {
-			return nil, newDialError(network, &net.AddrError{
+			return nil, &net.AddrError{
 				Err:  "missing port in connect address",
 				Addr: address,
-			})
-		}
-
-		if addr.Is4() {
-			if network == "tcp6" || network == "udp6" {
-				return nil, newDialError(network, net.InvalidAddrError(address))
-			}
-		} else {
-			if network == "tcp4" || network == "udp4" {
-				return nil, newDialError(network, net.InvalidAddrError(address))
 			}
 		}
 
-		return nil, newDialError(network, net.UnknownNetworkError(network))
+		socket, err := s.netns.Socket(socketFamily(network), socketType(network), socketProtocol(network))
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if socket != nil {
+				socket.Close()
+			}
+		}()
+
+		errch := make(chan error, 1)
+		go func() {
+			errch <- socket.Connect(socketAddress(network, addr, port))
+			close(errch)
+		}()
+
+		select {
+		case err = <-errch:
+		case <-ctx.Done():
+			err = context.Cause(ctx)
+		}
+		if err != nil {
+			socket.Close()
+			<-errch // wait for the goroutine to terminate
+			return nil, err
+		}
+
+		name, err := socket.Name()
+		if err != nil {
+			return nil, err
+		}
+		peer, err := socket.Peer()
+		if err != nil {
+			return nil, err
+		}
+		conn := &socketConn{
+			sock:  socket,
+			laddr: networkAddress(network, name),
+			raddr: networkAddress(network, peer),
+		}
+		socket = nil
+		return conn, nil
 	default:
-		return nil, newDialError(network, net.UnknownNetworkError(network))
+		return nil, net.UnknownNetworkError(network)
 	}
 }
 
@@ -817,6 +864,22 @@ func (s *System) Dial(ctx context.Context, network, address string) (net.Conn, e
 // means that the guest cannot shut it down, allowing the host ot have full
 // control over the lifecycle of the underlying socket.
 func (s *System) Listen(ctx context.Context, network, address string) (net.Listener, error) {
+	l, err := s.listen(ctx, network, address)
+	if err != nil {
+		return nil, &net.OpError{
+			Op:  "listen",
+			Net: network,
+			Err: err,
+		}
+	}
+	return l, nil
+}
+
+func (s *System) listen(ctx context.Context, network, address string) (net.Listener, error) {
+	if s.netns == nil {
+		return nil, net.UnknownNetworkError(network)
+	}
+
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		addr, port, err := parseListenAddrPort(network, address)
@@ -824,18 +887,36 @@ func (s *System) Listen(ctx context.Context, network, address string) (net.Liste
 			return nil, err
 		}
 
-		// if addr.Is4() {
-		// } else {
-		// }
+		socket, err := s.netns.Socket(socketFamily(network), socketType(network), socketProtocol(network))
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if socket != nil {
+				socket.Close()
+			}
+		}()
+		if err := socket.Bind(socketAddress(network, addr, port)); err != nil {
+			return nil, err
+		}
+		if err := socket.Listen(128); err != nil {
+			return nil, err
+		}
+		name, err := socket.Name()
+		if err != nil {
+			return nil, err
+		}
 
-		_ = addr
-		_ = port
-
-		return nil, newListenError(network, net.UnknownNetworkError(network))
+		listener := &socketListener{
+			sock: socket,
+			addr: networkAddress(network, name),
+		}
+		socket = nil
+		return listener, nil
 	case "unix":
-		return nil, newListenError(network, net.UnknownNetworkError(network))
+		return nil, net.UnknownNetworkError(network)
 	default:
-		return nil, newListenError(network, net.UnknownNetworkError(network))
+		return nil, net.UnknownNetworkError(network)
 	}
 }
 
@@ -843,6 +924,22 @@ func (s *System) Listen(ctx context.Context, network, address string) (net.Liste
 //
 // The supported networks are "udp", "udp4", and "udp6".
 func (s *System) ListenPacket(ctx context.Context, network, address string) (net.PacketConn, error) {
+	c, err := s.listenPacket(ctx, network, address)
+	if err != nil {
+		return nil, &net.OpError{
+			Op:  "listen",
+			Net: network,
+			Err: err,
+		}
+	}
+	return c, nil
+}
+
+func (s *System) listenPacket(ctx context.Context, network, address string) (net.PacketConn, error) {
+	if s.netns == nil {
+		return nil, net.UnknownNetworkError(network)
+	}
+
 	switch network {
 	case "udp", "udp4", "udp6":
 		addr, port, err := parseListenAddrPort(network, address)
@@ -850,34 +947,41 @@ func (s *System) ListenPacket(ctx context.Context, network, address string) (net
 			return nil, err
 		}
 
-		// if addr.Is4() {
-		// } else {
-		// }
+		socket, err := s.netns.Socket(socketFamily(network), socketType(network), socketProtocol(network))
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if socket != nil {
+				socket.Close()
+			}
+		}()
+		if err := socket.Bind(socketAddress(network, addr, port)); err != nil {
+			return nil, err
+		}
+		name, err := socket.Name()
+		if err != nil {
+			return nil, err
+		}
 
-		_ = addr
-		_ = port
-
-		return nil, newListenError(network, net.UnknownNetworkError(network))
+		conn := &socketConn{
+			sock:  socket,
+			laddr: networkAddress(network, name),
+		}
+		socket = nil
+		return conn, nil
 	default:
-		return nil, newListenError(network, net.UnknownNetworkError(network))
+		return nil, net.UnknownNetworkError(network)
 	}
-}
-
-func newDialError(network string, err error) error {
-	return &net.OpError{Op: "dial", Net: network, Err: err}
-}
-
-func newListenError(network string, err error) error {
-	return &net.OpError{Op: "listen", Net: network, Err: err}
 }
 
 func parseListenAddrPort(network, address string) (addr netip.Addr, port uint16, err error) {
 	h, p, err := net.SplitHostPort(address)
 	if err != nil {
-		return addr, port, newListenError(network, &net.ParseError{
+		return addr, port, &net.ParseError{
 			Type: "listen address",
 			Text: address,
-		})
+		}
 	}
 
 	// Allow omitting the address to let the system select the best match.
@@ -891,10 +995,10 @@ func parseListenAddrPort(network, address string) (addr netip.Addr, port uint16,
 
 	addrPort, err := netip.ParseAddrPort(net.JoinHostPort(h, p))
 	if err != nil {
-		return addr, port, newListenError(network, &net.ParseError{
+		return addr, port, &net.ParseError{
 			Type: "listen address",
 			Text: address,
-		})
+		}
 	}
 
 	addr = addrPort.Addr()
@@ -902,13 +1006,92 @@ func parseListenAddrPort(network, address string) (addr netip.Addr, port uint16,
 
 	if addr.Is4() {
 		if network == "tcp6" || network == "udp6" {
-			err = newListenError(network, net.InvalidAddrError(address))
+			err = net.InvalidAddrError(address)
 		}
 	} else {
 		if network == "tcp4" || network == "udp4" {
-			err = newListenError(network, net.InvalidAddrError(address))
+			err = net.InvalidAddrError(address)
 		}
 	}
 
 	return addr, port, err
+}
+
+func socketFamily(network string) Family {
+	switch network {
+	case "unix", "unixgram", "unixpacket":
+		return UNIX
+	case "tcp4", "udp4":
+		return INET
+	default:
+		return INET6
+	}
+}
+
+func socketType(network string) Socktype {
+	switch network {
+	case "unix", "tcp", "tcp4", "tcp6":
+		return STREAM
+	default:
+		return DGRAM
+	}
+}
+
+func socketProtocol(network string) Protocol {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		return TCP
+	case "udp", "udp4", "udp6":
+		return UDP
+	default:
+		return 0
+	}
+}
+
+func socketAddress(network string, addr netip.Addr, port uint16) Sockaddr {
+	switch socketFamily(network) {
+	case INET:
+		return &SockaddrInet4{
+			Addr: addr.As4(),
+			Port: int(port),
+		}
+	default:
+		return &SockaddrInet6{
+			Addr: addr.As16(),
+			Port: int(port),
+		}
+	}
+}
+
+func networkAddress(network string, sa Sockaddr) net.Addr {
+	var addrPort netip.AddrPort
+	switch a := sa.(type) {
+	case *SockaddrInet4:
+		addrPort = addrPortFromInet4(a)
+	case *SockaddrInet6:
+		addrPort = addrPortFromInet6(a)
+	case *SockaddrUnix:
+		return &net.UnixAddr{
+			Net:  network,
+			Name: a.Name,
+		}
+	default:
+		return nil
+	}
+	addr := addrPort.Addr()
+	port := addrPort.Port()
+	switch socketType(network) {
+	case STREAM:
+		return &net.TCPAddr{
+			Port: int(port),
+			IP:   addr.AsSlice(),
+			Zone: addr.Zone(),
+		}
+	default:
+		return &net.UDPAddr{
+			Port: int(port),
+			IP:   addr.AsSlice(),
+			Zone: addr.Zone(),
+		}
+	}
 }
