@@ -2,7 +2,9 @@ package sandbox_test
 
 import (
 	"context"
+	"fmt"
 	"net"
+	"path/filepath"
 	"testing"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
@@ -13,7 +15,6 @@ func TestConn(t *testing.T) {
 	tests := []struct {
 		network string
 		address string
-		options []sandbox.Option
 	}{
 		{
 			network: "tcp4",
@@ -25,22 +26,27 @@ func TestConn(t *testing.T) {
 			address: "[::]:0",
 		},
 
-		// {
-		// 	network: "unix",
-		// 	address: "unix.sock",
-		// 	options: []sandbox.Option{
-		// 		sandbox.Socket("unix.sock"),
-		// 	},
-		// },
+		{
+			network: "unix",
+			address: "unix.sock",
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.network, func(t *testing.T) {
 			nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
+				network := test.network
+				address := test.address
+
+				switch network {
+				case "unix":
+					address = filepath.Join(t.TempDir(), address)
+				}
+
 				ctx := context.Background()
 				sys := sandbox.New(sandbox.Network(sandbox.Host()))
 
-				l, err := sys.Listen(ctx, test.network, test.address)
+				l, err := sys.Listen(ctx, network, address)
 				if err != nil {
 					return nil, nil, nil, err
 				}
@@ -84,89 +90,96 @@ func TestConn(t *testing.T) {
 }
 
 func TestPacketConn(t *testing.T) {
-	t.Skip("TODO")
-
+	// Note: this is not as thorough of a test as TestConn because UDP is lossy
+	// and building a net.Conn on top of a net.PacketConn causes tests to fail
+	// due to packet losses.
 	tests := []struct {
 		network string
 		address string
-		options []sandbox.Option
 	}{
+		{
+			network: "udp",
+			address: ":0",
+		},
 		{
 			network: "udp4",
 			address: ":0",
 		},
-
 		{
 			network: "udp6",
-			address: "[::1]:0",
+			address: "[::]:0",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.network, func(t *testing.T) {
-			nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
-				local := sandbox.NewLocalNetwork()
-				netns, err := local.CreateNamespace(sandbox.Host())
-				if err != nil {
-					return nil, nil, nil, err
-				}
+			network := test.network
+			address := test.address
 
-				ctx := context.Background()
-				sys := sandbox.New(sandbox.Network(netns))
+			switch network {
+			case "unixgram":
+				address = filepath.Join(t.TempDir(), address)
+			}
 
-				l, err := sys.ListenPacket(ctx, test.network, test.address)
-				if err != nil {
-					return nil, nil, nil, err
-				}
+			ctx := context.Background()
+			sys := sandbox.New(sandbox.Network(sandbox.Host()))
 
-				addr := l.LocalAddr()
-				c, err := sys.Dial(ctx, addr.Network(), addr.String())
-				if err != nil {
-					l.Close()
-					return nil, nil, nil, err
-				}
+			c1, err := sys.ListenPacket(ctx, network, address)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c1.Close()
+			addr := c1.LocalAddr()
 
-				c1 = &connectedPacketConn{
-					PacketConn: l,
-					peer:       c.(net.PacketConn),
-					addr:       c.LocalAddr(),
-				}
+			c, err := sys.Dial(ctx, addr.Network(), addr.String())
+			if err != nil {
+				fmt.Println(err)
+				t.Fatal(err)
+			}
+			c2 := c.(net.PacketConn)
+			defer c2.Close()
 
-				c2 = &connectedPacketConn{
-					PacketConn: c.(net.PacketConn),
-					peer:       l,
-					addr:       c.RemoteAddr(),
-				}
+			rb2 := make([]byte, 128)
+			wb := []byte("PACKETCONN TEST")
 
-				stop = func() { c1.Close(); c2.Close(); sys.Close(ctx) }
-				return c1, c2, stop, nil
-			})
+			if n, err := c1.WriteTo(wb, c2.LocalAddr()); err != nil {
+				t.Fatal(err)
+			} else if n != len(wb) {
+				t.Fatalf("write with wrong number of bytes: want=%d got=%d", len(wb), n)
+			}
+
+			if n, addr, err := c2.ReadFrom(rb2); err != nil {
+				t.Fatal(err)
+			} else if n != len(wb) {
+				t.Fatalf("read with wrong number of bytes: want=%d got=%d", len(wb), n)
+			} else if !addrPortEqual(addr, c1.LocalAddr()) {
+				t.Fatalf("read from wrong address: want=%s got=%s", c1.LocalAddr(), addr)
+			}
+
+			if n, err := c.Write(wb); err != nil {
+				t.Fatal(err)
+			} else if n != len(wb) {
+				t.Fatalf("write with wrong number of bytes: want=%d got=%d", len(wb), n)
+			}
+
+			rb1 := make([]byte, 128)
+			if n, addr, err := c1.ReadFrom(rb1); err != nil {
+				t.Fatal(err)
+			} else if n != len(wb) {
+				t.Fatalf("read with wrong number of bytes: want=%d got=%d", len(wb), n)
+			} else if !addrPortEqual(addr, c2.LocalAddr()) {
+				t.Fatalf("read from wrong address: want=%s got=%s", c2.LocalAddr(), addr)
+			}
 		})
 	}
 }
 
-type connectedPacketConn struct {
-	net.PacketConn
-	peer net.PacketConn
-	addr net.Addr
-}
-
-func (c *connectedPacketConn) Close() error {
-	if cr, ok := c.peer.(interface{ CloseRead() error }); ok {
-		_ = cr.CloseRead()
+func addrPortEqual(addr1, addr2 net.Addr) bool {
+	switch a1 := addr1.(type) {
+	case *net.UDPAddr:
+		if a2, ok := addr2.(*net.UDPAddr); ok {
+			return a1.Port == a2.Port
+		}
 	}
-	return c.PacketConn.Close()
-}
-
-func (c *connectedPacketConn) Read(b []byte) (int, error) {
-	n, _, err := c.ReadFrom(b)
-	return n, err
-}
-
-func (c *connectedPacketConn) Write(b []byte) (int, error) {
-	return c.WriteTo(b, c.RemoteAddr())
-}
-
-func (c *connectedPacketConn) RemoteAddr() net.Addr {
-	return c.addr
+	return false
 }
