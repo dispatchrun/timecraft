@@ -271,7 +271,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := pm.serverFactory.NewServer(pm.ctx, processID, moduleSpec, logSpec)
-	serverListener, err := guest.Listen(pm.ctx, "tcp", "127.0.0.1:7463")
+	serverListener, err := guest.Listen(pm.ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", timecraftServicePort))
 	if err != nil {
 		return ProcessID{}, err
 	}

@@ -74,7 +74,7 @@ func testNamespaceConnectStream(t *testing.T, ns sandbox.Namespace, bind sandbox
 	server, err := ns.Socket(family, sandbox.STREAM, sandbox.TCP)
 	assert.OK(t, err)
 	defer server.Close()
-	server.SetNonBlock(true)
+	assert.OK(t, server.SetNonBlock(true))
 
 	assert.OK(t, server.Bind(bind))
 	assert.OK(t, server.Listen(1))
@@ -84,14 +84,14 @@ func testNamespaceConnectStream(t *testing.T, ns sandbox.Namespace, bind sandbox
 	client, err := ns.Socket(family, sandbox.STREAM, sandbox.TCP)
 	assert.OK(t, err)
 	defer client.Close()
-	client.SetNonBlock(true)
+	assert.OK(t, client.SetNonBlock(true))
 
 	assert.Error(t, client.Connect(serverAddr), sandbox.EINPROGRESS)
 	assert.OK(t, waitReadyRead(server))
 	conn, addr, err := server.Accept()
 	assert.OK(t, err)
 	defer conn.Close()
-	conn.SetNonBlock(true)
+	assert.OK(t, conn.SetNonBlock(true))
 
 	assert.OK(t, waitReadyWrite(client))
 	peer, err := client.Peer()

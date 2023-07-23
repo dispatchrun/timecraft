@@ -98,20 +98,6 @@ func getsockoptInt(fd, level, name int) (int, error) {
 	return ignoreEINTR2(func() (int, error) { return unix.GetsockoptInt(fd, level, name) })
 }
 
-func getsockoptString(fd, level, name int) (string, error) {
-	return ignoreEINTR2(func() (string, error) { return unix.GetsockoptString(fd, level, name) })
-}
-
-func getsockoptTimeval(fd, level, name int) (Timeval, error) {
-	return ignoreEINTR2(func() (Timeval, error) {
-		t, err := unix.GetsockoptTimeval(fd, level, name)
-		if err != nil {
-			return Timeval{}, err
-		}
-		return *t, nil
-	})
-}
-
 func setsockoptInt(fd, level, name, value int) error {
 	switch level {
 	case unix.SOL_SOCKET:
@@ -137,14 +123,6 @@ func setsockoptInt(fd, level, name, value int) error {
 		}
 	}
 	return ignoreEINTR(func() error { return unix.SetsockoptInt(fd, level, name, value) })
-}
-
-func setsockoptString(fd, level, name int, value string) error {
-	return ignoreEINTR(func() error { return unix.SetsockoptString(fd, level, name, value) })
-}
-
-func setsockoptTimeval(fd, level, name int, value Timeval) error {
-	return ignoreEINTR(func() error { return unix.SetsockoptTimeval(fd, level, name, &value) })
 }
 
 func recvfrom(fd int, iovs [][]byte, flags int) (n, rflags int, addr Sockaddr, err error) {

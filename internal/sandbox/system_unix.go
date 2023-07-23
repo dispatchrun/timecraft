@@ -133,7 +133,7 @@ func (s *System) PollOneOff(ctx context.Context, subscriptions []wasi.Subscripti
 			timeoutMillis = int(time.Until(deadline).Round(time.Millisecond).Milliseconds())
 		}
 
-		n, err := unix.Poll(s.pollfds, timeoutMillis)
+		_, err := unix.Poll(s.pollfds, timeoutMillis)
 		if err != nil && err != unix.EINTR {
 			return 0, wasi.MakeErrno(err)
 		}
@@ -194,7 +194,7 @@ func (s *System) PollOneOff(ctx context.Context, subscriptions []wasi.Subscripti
 		// The event type is finally restored to its correct value in the loop
 		// below when we pack all completed events at the front of the output
 		// buffer.
-		n = 0
+		n := 0
 
 		for _, e := range events {
 			if e.EventType != 0 {
