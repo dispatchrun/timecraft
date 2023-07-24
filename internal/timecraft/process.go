@@ -150,8 +150,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	if err != nil {
 		return ProcessID{}, err
 	}
+	success := false
 	defer func() {
-		if netns != nil {
+		if !success {
 			netns.Detach()
 		}
 	}()
@@ -384,7 +385,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		return err
 	})
 
-	netns = nil
+	success = true
 	return processID, nil
 }
 

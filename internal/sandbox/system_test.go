@@ -43,8 +43,14 @@ func TestConn(t *testing.T) {
 					address = filepath.Join(t.TempDir(), address)
 				}
 
+				localNet := sandbox.NewLocalNetwork()
+				localNs, err := localNet.CreateNamespace(sandbox.Host())
+				if err != nil {
+					t.Fatal(err)
+				}
+
 				ctx := context.Background()
-				sys := sandbox.New(sandbox.Network(sandbox.Host()))
+				sys := sandbox.New(sandbox.Network(localNs))
 
 				l, err := sys.Listen(ctx, network, address)
 				if err != nil {
@@ -120,6 +126,12 @@ func TestPacketConn(t *testing.T) {
 			case "unixgram":
 				address = filepath.Join(t.TempDir(), address)
 			}
+
+			// localNet := sandbox.NewLocalNetwork()
+			// localNs, err := localNet.CreateNamespace(sandbox.Host())
+			// if err != nil {
+			// 	t.Fatal(err)
+			// }
 
 			ctx := context.Background()
 			sys := sandbox.New(sandbox.Network(sandbox.Host()))
