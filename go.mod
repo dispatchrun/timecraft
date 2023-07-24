@@ -4,6 +4,7 @@ go 1.20
 
 require (
 	github.com/bufbuild/connect-go v1.8.0
+	github.com/containerd/go-runc v1.0.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/google/flatbuffers v23.5.26+incompatible
 	github.com/google/go-cmp v0.5.9
@@ -23,4 +24,15 @@ require (
 	golang.org/x/time v0.3.0
 	google.golang.org/protobuf v1.31.0
 	gopkg.in/yaml.v3 v3.0.1
+	gvisor.dev/gvisor v0.0.0-20230720202042-c2a0ef354117
 )
+
+require (
+	github.com/containerd/console v1.0.1 // indirect
+	github.com/containerd/containerd v1.4.13 // indirect
+	github.com/opencontainers/runtime-spec v1.1.0-rc.1 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/sirupsen/logrus v1.8.1 // indirect
+)
+
+replace gvisor.dev/gvisor => ../gvisor

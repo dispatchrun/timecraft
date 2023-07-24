@@ -126,6 +126,8 @@ func Root(ctx context.Context, args ...string) int {
 		err = profile(ctx, args)
 	case "run":
 		err = run(ctx, args)
+	case "runsc":
+		err = runsc(ctx, args)
 	case "replay":
 		err = replay(ctx, args)
 	case "trace":
