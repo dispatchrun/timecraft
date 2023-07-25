@@ -26,6 +26,7 @@ func TestTimecraft(t *testing.T) {
 	t.Run("run", run.run)
 	t.Run("unknown", unknown.run)
 	t.Run("version", version.run)
+	t.Run("pull", pull.run)
 }
 
 type configuration struct {

@@ -14,6 +14,8 @@ import (
 const (
 	defaultConfigPath   = "~/.timecraft/config.yaml"
 	defaultRegistryPath = "~/.timecraft/registry"
+	defaultImagesPath   = "~/.timecraft/images"
+	defaultSandboxPath  = "~/.timecraft/sandbox"
 )
 
 // Config is timecraft configuration.
@@ -28,6 +30,12 @@ type Config struct {
 
 // ConfigPath is the path to the timecraft configuration.
 var ConfigPath human.Path = defaultConfigPath
+
+// ImagesPath is the path where Timecraft stores the OCI images.
+var ImagesPath human.Path = defaultImagesPath
+
+// SandboxPath is the path where Timecraft stores the sandbox root filesystems.
+var SandboxPath human.Path = defaultSandboxPath
 
 // LoadConfig opens and reads the configuration file.
 func LoadConfig() (*Config, error) {

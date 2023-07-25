@@ -132,6 +132,8 @@ func Root(ctx context.Context, args ...string) int {
 		err = trace(ctx, args)
 	case "version":
 		err = version(ctx, args)
+	case "pull":
+		err = pull(ctx, args)
 	default:
 		err = unknown(ctx, cmd)
 	}
