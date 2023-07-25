@@ -185,19 +185,19 @@ func (s *wasiSocket) SockSetOpt(ctx context.Context, option wasi.SocketOption, v
 		}
 
 	case wasi.ReuseAddress:
-		return wasi.ENOTSUP
+		return wasi.ENOPROTOOPT
 
 	case wasi.QuerySocketType:
-		return wasi.ENOTSUP
+		return wasi.ENOPROTOOPT
 
 	case wasi.QuerySocketError:
-		return wasi.ENOTSUP
+		return wasi.ENOPROTOOPT
 
 	case wasi.DontRoute:
-		return wasi.ENOTSUP
+		return wasi.ENOPROTOOPT
 
 	case wasi.Broadcast:
-		return wasi.ENOTSUP
+		return wasi.ENOPROTOOPT
 
 	case wasi.RecvBufferSize:
 		size, ok := value.(wasi.IntValue)
@@ -216,16 +216,16 @@ func (s *wasiSocket) SockSetOpt(ctx context.Context, option wasi.SocketOption, v
 		}
 
 	case wasi.KeepAlive:
-		return wasi.ENOTSUP
+		return wasi.ENOPROTOOPT
 
 	case wasi.OOBInline:
-		return wasi.ENOTSUP
+		return wasi.ENOPROTOOPT
 
 	case wasi.RecvLowWatermark:
-		return wasi.ENOTSUP
+		return wasi.ENOPROTOOPT
 
 	case wasi.QueryAcceptConnections:
-		return wasi.ENOTSUP
+		return wasi.ENOPROTOOPT
 
 	case wasi.TcpNoDelay:
 		nodelay, ok := value.(wasi.IntValue)
@@ -236,7 +236,7 @@ func (s *wasiSocket) SockSetOpt(ctx context.Context, option wasi.SocketOption, v
 		}
 
 	case wasi.Linger:
-		return wasi.ENOTSUP
+		return wasi.ENOPROTOOPT
 
 	case wasi.RecvTimeout:
 		timeout, ok := value.(wasi.TimeValue)
@@ -255,7 +255,7 @@ func (s *wasiSocket) SockSetOpt(ctx context.Context, option wasi.SocketOption, v
 		}
 
 	case wasi.BindToDevice:
-		return wasi.ENOTSUP
+		return wasi.ENOPROTOOPT
 
 	default:
 		return wasi.EINVAL

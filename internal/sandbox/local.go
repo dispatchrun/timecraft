@@ -129,8 +129,31 @@ func (ns *LocalNamespace) Socket(family Family, socktype Socktype, protocol Prot
 	switch family {
 	case INET, INET6:
 	default:
-		return ns.host.Socket(family, socktype, protocol)
+		if ns.host != nil {
+			return ns.host.Socket(family, socktype, protocol)
+		} else {
+			return nil, EAFNOSUPPORT
+		}
 	}
+
+	// TODO: remove
+	//
+	// We make this special case because datagram sockets are used for DNS
+	// resolution, and resolvers read /etc/resolv.conf to determine the address
+	// of the DNS server to contact. The address is usually localhost, which
+	// breaks if there is no DNS server listening on localhost. Since the local
+	// network creates a virtual loopback, we would need to run a DNS server on
+	// this address to support name resolution. This also likely means that the
+	// sandbox must support mounting a file at /etc/resolv.conf to expose the
+	// server details to the resolver, otherwise the value exposed by the system
+	// could differ from the timecraft virtual network configuration.
+	switch socktype {
+	case DGRAM:
+		if ns.host != nil {
+			return ns.host.Socket(family, socktype, protocol)
+		}
+	}
+
 	s, err := ns.socket(family, socktype, protocol)
 	if err != nil {
 		return nil, err

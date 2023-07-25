@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -201,8 +202,9 @@ func NewSystem(opts ...Option) (*System, error) {
 func (s *System) Close(ctx context.Context) error {
 	s.close()
 	s.stdin.Close()
-	s.stdout.Close()
-	s.stderr.Close()
+	// TODO: should we close stdio files when the system is closed? One issue
+	// with doing so is it may prevent reading buffered data from stdout/stderr
+	// that could have been consumed from the io.Reader exposed by the system.
 	return s.files.Close(ctx)
 }
 
@@ -804,24 +806,9 @@ func (s *System) dial(ctx context.Context, network, address string) (net.Conn, e
 			socket.Close()
 		}
 	}()
-
-	errch := make(chan error, 1)
-	go func() {
-		errch <- socket.Connect(addr)
-		close(errch)
-	}()
-
-	select {
-	case err = <-errch:
-	case <-ctx.Done():
-		err = context.Cause(ctx)
-	}
-	if err != nil {
-		socket.Close()
-		<-errch // wait for the goroutine to terminate
+	if err := socket.Connect(addr); err != nil {
 		return nil, err
 	}
-
 	name, err := socket.Name()
 	if err != nil {
 		return nil, err
@@ -836,6 +823,7 @@ func (s *System) dial(ctx context.Context, network, address string) (net.Conn, e
 		raddr: networkAddress(network, peer),
 	}
 	socket = nil
+	fmt.Println("DIAL", conn.laddr, "=>", conn.raddr)
 	return conn, nil
 }
 

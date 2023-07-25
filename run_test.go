@@ -36,7 +36,7 @@ var run = tests{
 }
 
 func testRun(t *testing.T, module string, args ...string) {
-	command := append([]string{"run", "--", module, "-test.v"}, args...)
+	command := append([]string{"run", "--trace", "--", module, "-test.v"}, args...)
 
 	stdout, stderr, exitCode := timecraft(t, command...)
 	if exitCode != 0 {

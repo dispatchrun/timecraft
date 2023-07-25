@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -106,17 +107,6 @@ func (p Protocol) String() string {
 	}
 }
 
-func (p Protocol) Network() string {
-	switch p {
-	case TCP:
-		return "tcp"
-	case UDP:
-		return "udp"
-	default:
-		return "ip"
-	}
-}
-
 // socketFD is used to manage the lifecycle of socket file descriptors;
 // it allows multiple goroutines to share ownership of the socket while
 // coordinating to close the file descriptor via an atomic reference count.
@@ -209,12 +199,23 @@ type socketConn struct {
 }
 
 func (c *socketConn) Close() error {
+	fmt.Println("CLOSE", c.laddr, "=>", c.raddr)
 	return c.netError("close", c.sock.Close())
 }
 
 func (c *socketConn) Read(b []byte) (int, error) {
-	n, err := c.sock.File().Read(b)
-	return n, c.netError("read", err)
+	n, _, _, err := c.sock.RecvFrom([][]byte{b}, 0)
+	fmt.Println("READ", c.laddr, "=>", c.raddr, n, err)
+	if err != nil {
+		return 0, c.netError("read", err)
+	}
+	if n == 0 {
+		return 0, io.EOF
+	}
+	return n, nil
+
+	//n, err := c.sock.File().Read(b)
+	//return n, c.netError("read", err)
 }
 
 func (c *socketConn) ReadFrom(b []byte) (int, net.Addr, error) {
@@ -236,6 +237,7 @@ func (c *socketConn) ReadFrom(b []byte) (int, net.Addr, error) {
 
 func (c *socketConn) Write(b []byte) (int, error) {
 	n, err := c.sock.File().Write(b)
+	fmt.Println("WRITE", c.laddr, "=>", c.raddr, n, err)
 	return n, c.netError("write", err)
 }
 
@@ -276,7 +278,7 @@ func (c *socketConn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *socketConn) netError(op string, err error) error {
-	return netError(op, c.LocalAddr(), err)
+	return netError(op, c.LocalAddr(), c.RemoteAddr(), err)
 }
 
 type socketListener struct {
@@ -311,10 +313,10 @@ func (l *socketListener) Accept() (net.Conn, error) {
 }
 
 func (l *socketListener) netError(op string, err error) error {
-	return netError(op, l.Addr(), err)
+	return netError(op, l.Addr(), nil, err)
 }
 
-func netError(op string, addr net.Addr, err error) error {
+func netError(op string, laddr, raddr net.Addr, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -322,8 +324,10 @@ func netError(op string, addr net.Addr, err error) error {
 		return err
 	}
 	return &net.OpError{
-		Op:  op,
-		Net: addr.Network(),
-		Err: err,
+		Op:     op,
+		Net:    laddr.Network(),
+		Source: laddr,
+		Addr:   raddr,
+		Err:    err,
 	}
 }

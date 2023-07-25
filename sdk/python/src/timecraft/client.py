@@ -120,7 +120,7 @@ class Client:
     Client to interface with the Timecraft server.
     """
 
-    _root = "http://0.0.0.0:7463/timecraft.server.v1.TimecraftService/"
+    _root = "http://127.0.0.1:7463/timecraft.server.v1.TimecraftService/"
 
     def __init__(self):
         self.session = requests.Session()

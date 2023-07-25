@@ -328,7 +328,7 @@ func (s *localSocket) listenPacket() error {
 		return err
 	}
 
-	network := s.protocol.Network()
+	network := s.network()
 	address := s.listenAddress()
 
 	conn, err := s.ns.listenPacket(context.TODO(), network, address)
@@ -382,7 +382,7 @@ func (s *localSocket) listenPacket() error {
 }
 
 func (s *localSocket) listen() error {
-	network := s.protocol.Network()
+	network := s.network()
 	address := s.listenAddress()
 
 	l, err := s.ns.listen(context.TODO(), network, address)
@@ -596,7 +596,7 @@ func (s *localSocket) dial(addr Sockaddr) error {
 	errs := make(chan error, 1)
 	s.errs = errs
 
-	network := s.protocol.Network()
+	network := s.network()
 	address := SockaddrAddrPort(addr).String()
 	go func() {
 		defer close(errs)
@@ -634,7 +634,34 @@ func (s *localSocket) dial(addr Sockaddr) error {
 
 	s.peer.Store(addr)
 	s.state.set(connected | tunneled)
-	return EINPROGRESS
+
+	if s.state.is(nonblocking) {
+		return EINPROGRESS
+	}
+	return nil
+}
+
+func (s *localSocket) network() string {
+	switch s.socktype {
+	case STREAM:
+		switch s.family {
+		case INET:
+			return "tcp4"
+		case INET6:
+			return "tcp6"
+		default:
+			return "unix"
+		}
+	default: // DGRAM
+		switch s.family {
+		case INET:
+			return "udp4"
+		case INET6:
+			return "udp6"
+		default:
+			return "unixgram"
+		}
+	}
 }
 
 func (s *localSocket) Accept() (Socket, Sockaddr, error) {
@@ -697,6 +724,9 @@ func (s *localSocket) Accept() (Socket, Sockaddr, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(msgs) == 0 {
+		return nil, nil, ECONNABORTED
+	}
 
 	// TODO: remove the heap allocation for the return fd slice by implementing
 	// ParseUnixRights and decoding the single file descriptor we received in a
@@ -711,6 +741,7 @@ func (s *localSocket) Accept() (Socket, Sockaddr, error) {
 	socket.fd1.init(-1)
 	socket.name.Store(s.name.Load())
 	socket.peer.Store(addr)
+	fmt.Println("ACCEPT", socket)
 	return socket, addr, nil
 }
 
@@ -951,6 +982,7 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 }
 
 func (s *localSocket) Shutdown(how int) error {
+	fmt.Println("SHUTDOWN!")
 	fd := s.fd0.acquire()
 	if fd < 0 {
 		return EBADF
@@ -1064,6 +1096,7 @@ func (s *localSocket) setOptInt(level, name, value int) error {
 func (s *localSocket) htlsClear() {
 	if s.htls != nil {
 		close(s.htls)
+		s.htls = nil
 	}
 }
 
