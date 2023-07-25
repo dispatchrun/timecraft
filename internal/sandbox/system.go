@@ -142,8 +142,13 @@ func NewSystem(opts ...Option) (*System, error) {
 		opt(s)
 	}
 
+	if err := s.init(); err != nil {
+		return nil, err
+	}
+
 	stdin, stdout, stderr, err := stdio()
 	if err != nil {
+		s.Close(context.Background())
 		return nil, err
 	}
 	s.stdin = os.NewFile(stdin[1], "")

@@ -2,8 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"os"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,10 +13,7 @@ import (
 // System type.
 type system struct {
 	pollfds []unix.PollFd
-
-	mutex sync.Mutex
-	wake  [2]*os.File
-	shut  atomic.Bool
+	kill    [2]atomic.Int32
 }
 
 type timeout struct {
@@ -30,12 +25,9 @@ func (s *System) PollOneOff(ctx context.Context, subscriptions []wasi.Subscripti
 	if len(subscriptions) == 0 || len(events) < len(subscriptions) {
 		return 0, wasi.EINVAL
 	}
-	r, _, err := s.init()
-	if err != nil {
-		return 0, wasi.MakeErrno(err)
-	}
+
 	s.pollfds = append(s.pollfds[:0], unix.PollFd{
-		Fd:     int32(r.Fd()),
+		Fd:     s.kill[0].Load(),
 		Events: unix.POLLIN | unix.POLLHUP,
 	})
 
@@ -138,22 +130,13 @@ func (s *System) PollOneOff(ctx context.Context, subscriptions []wasi.Subscripti
 			return 0, wasi.MakeErrno(err)
 		}
 
-		// poll(2) may cause spurious wake up, so we verify that the system
-		// has indeed been shutdown instead of relying on reading the events
+		// poll(2) may cause spurious kill up, so we verify that the system
+		// has indeed been killed instead of relying on reading the events
 		// reported on the first pollfd.
-		if s.shut.Load() {
-			// If the wake fd was notified it means the system was shut down,
-			// we report this by cancelling all subscriptions.
-			//
-			// Technically we might be erasing events that had already gathered
-			// errors in the first loop prior to the call to unix.Poll; this is
-			// not a concern since at this time the program would likely be
-			// terminating and should not be bothered with handling other
-			// errors.
-			for i := range subscriptions {
-				events[i] = makePollError(subscriptions[i], wasi.ECANCELED)
-			}
-			return len(subscriptions), wasi.ESUCCESS
+		if s.kill[1].Load() < 0 {
+			// If the kill fd was notified it means the system was killed,
+			// terminate.
+			s.ProcRaise(ctx, wasi.SIGKILL)
 		}
 
 		if timeout.subindex >= 0 && deadline.Before(time.Now()) {
@@ -225,53 +208,28 @@ func makePollError(sub wasi.Subscription, errno wasi.Errno) wasi.Event {
 	}
 }
 
-// Shutdown may be called asynchronously to cancel all blocking operations on
+// Kill may be called asynchronously to cancel all blocking operations on
 // the system, causing calls such as PollOneOff to unblock and return an
 // error indicating that the system is shutting down.
-func (s *System) Shutdown(ctx context.Context) error {
-	_, w, err := s.init()
-	if err != nil {
-		if err == context.Canceled {
-			err = nil // already shutdown
-		}
-		return err
+func (s *System) Kill() {
+	if fd := s.kill[1].Swap(-1); fd >= 0 {
+		closeTraceError(int(fd))
 	}
-	s.shut.Store(true)
-	return w.Close()
 }
 
-func (s *System) init() (*os.File, *os.File, error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	if s.wake[0] == nil {
-		if s.shut.Load() {
-			return nil, nil, context.Canceled
-		}
-		r, w, err := os.Pipe()
-		if err != nil {
-			return nil, nil, err
-		}
-		s.wake[0] = r
-		s.wake[1] = w
+func (s *System) init() error {
+	var fds [2]int
+	if err := pipe(&fds); err != nil {
+		return err
 	}
-
-	return s.wake[0], s.wake[1], nil
+	s.kill[0].Store(int32(fds[0]))
+	s.kill[1].Store(int32(fds[1]))
+	return nil
 }
 
 func (s *System) close() {
-	s.shut.Store(true)
-	s.mutex.Lock()
-	r := s.wake[0]
-	w := s.wake[1]
-	s.wake[0] = nil
-	s.wake[1] = nil
-	s.mutex.Unlock()
-
-	if r != nil {
-		r.Close()
-	}
-	if w != nil {
-		w.Close()
-	}
+	closePipe(&[2]int{
+		int(s.kill[0].Swap(-1)),
+		int(s.kill[1].Swap(-1)),
+	})
 }

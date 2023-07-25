@@ -44,7 +44,7 @@ type ProcessManager struct {
 	processes map[ProcessID]*ProcessInfo
 	mu        sync.Mutex
 
-	group  *errgroup.Group
+	group  errgroup.Group
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 
@@ -89,7 +89,6 @@ func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runt
 		processes:     map[ProcessID]*ProcessInfo{},
 		adapter:       adapter,
 	}
-	r.group, ctx = errgroup.WithContext(ctx)
 	r.ctx, r.cancel = context.WithCancelCause(ctx)
 
 	ipv4 := [4]byte{172, 16, 0, 0}
@@ -308,10 +307,11 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		moduleSpec.Stderr = io.Discard
 	}
 
+	group := errgroup.Group{}
 	stdout := guest.Stdout()
 	stderr := guest.Stderr()
-	pm.group.Go(func() error { return copyAndClose(moduleSpec.Stdout, stdout) })
-	pm.group.Go(func() error { return copyAndClose(moduleSpec.Stderr, stderr) })
+	group.Go(func() error { return copyAndClose(moduleSpec.Stdout, stdout) })
+	group.Go(func() error { return copyAndClose(moduleSpec.Stderr, stderr) })
 
 	extensions := imports.DetectExtensions(wasmModule)
 	hostModule := wasi_snapshot_preview1.NewHostModule(extensions...)
@@ -325,6 +325,11 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 
 	ctx := wazergo.WithModuleInstance(pm.ctx, wasiModule)
 	ctx, cancel := context.WithCancelCause(ctx)
+	// This goroutine waits for the context to be canceled and asynchronously
+	// terminate the process. We do this by killing the sandbox, which causes
+	// the next invocation of PollOneOff to imnmediately terminate the module.
+	// TOOD: the sandbox should terminate on any host call to be more reliable.
+	group.Go(func() error { <-ctx.Done(); guest.Kill(); return nil })
 
 	process := &ProcessInfo{
 		ID: processID,
@@ -371,14 +376,15 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 
 		serverListener.Close()
 		server.Close()
+		wasmModule.Close(ctx)
+		wasiModule.Close(ctx)
+
+		group.Wait()
 
 		if logSpec != nil {
 			recordWriter.Flush()
 			logSegment.Close()
 		}
-
-		wasmModule.Close(ctx)
-		wasiModule.Close(ctx)
 
 		netns.Detach()
 		return err
