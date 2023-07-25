@@ -59,7 +59,7 @@ func supervisor(ctx context.Context) error {
 					"X-Foo": []string{"bar"},
 				},
 				Body: []byte("foo"),
-				Port: 3000,
+				Port: 3789,
 			},
 		},
 		{
@@ -71,7 +71,7 @@ func supervisor(ctx context.Context) error {
 					"X-Foo": []string{"bar"},
 				},
 				Body: []byte("bar"),
-				Port: 3000,
+				Port: 3789,
 			},
 		},
 	}
@@ -121,7 +121,7 @@ func supervisor(ctx context.Context) error {
 }
 
 func worker() error {
-	return timecraft.ListenAndServe("127.0.0.1:3000",
+	return timecraft.ListenAndServe("127.0.0.1:3789",
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer r.Body.Close()
 

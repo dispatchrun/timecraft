@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -823,7 +822,6 @@ func (s *System) dial(ctx context.Context, network, address string) (net.Conn, e
 		raddr: networkAddress(network, peer),
 	}
 	socket = nil
-	fmt.Println("DIAL", conn.laddr, "=>", conn.raddr)
 	return conn, nil
 }
 

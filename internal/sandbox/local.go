@@ -236,6 +236,12 @@ func (ns *LocalNamespace) lookup(sock *localSocket, addrPort netip.AddrPort) (*l
 		return nil, EHOSTUNREACH
 	}
 
+	for _, iface := range ns.interfaces() {
+		if iface.contains(addr) {
+			return nil, EHOSTUNREACH
+		}
+	}
+
 	n := ns.network.Load()
 	if n == nil {
 		return nil, ENETUNREACH
@@ -320,6 +326,15 @@ func (i *localInterface) Addrs() ([]net.Addr, error) {
 
 func (i *localInterface) MulticastAddrs() ([]net.Addr, error) {
 	return nil, nil
+}
+
+func (i *localInterface) contains(addr netip.Addr) bool {
+	for j := range i.addrs {
+		if i.addrs[j].Addr() == addr {
+			return true
+		}
+	}
+	return false
 }
 
 func (i *localInterface) bind(sock *localSocket, addrPort netip.AddrPort) error {

@@ -17,12 +17,24 @@ import (
 )
 
 func (ns *LocalNamespace) socket(family Family, socktype Socktype, protocol Protocol) (*localSocket, error) {
+	if protocol == 0 {
+		switch socktype {
+		case STREAM:
+			protocol = TCP
+		case DGRAM:
+			protocol = UDP
+		default:
+			return nil, EPROTONOSUPPORT
+		}
+	}
+
 	socket := &localSocket{
 		ns:       ns,
 		family:   family,
 		socktype: socktype,
 		protocol: protocol,
 	}
+
 	fds, err := socketpair(int(UNIX), int(socktype), 0)
 	if err != nil {
 		return nil, err
@@ -727,6 +739,9 @@ func (s *localSocket) Accept() (Socket, Sockaddr, error) {
 	if len(msgs) == 0 {
 		return nil, nil, ECONNABORTED
 	}
+	if len(msgs) > 1 {
+		println("BUG: accept received fmore than one file descriptor")
+	}
 
 	// TODO: remove the heap allocation for the return fd slice by implementing
 	// ParseUnixRights and decoding the single file descriptor we received in a
@@ -741,7 +756,6 @@ func (s *localSocket) Accept() (Socket, Sockaddr, error) {
 	socket.fd1.init(-1)
 	socket.name.Store(s.name.Load())
 	socket.peer.Store(addr)
-	fmt.Println("ACCEPT", socket)
 	return socket, addr, nil
 }
 
@@ -982,7 +996,6 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 }
 
 func (s *localSocket) Shutdown(how int) error {
-	fmt.Println("SHUTDOWN!")
 	fd := s.fd0.acquire()
 	if fd < 0 {
 		return EBADF

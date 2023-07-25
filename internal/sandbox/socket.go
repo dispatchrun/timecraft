@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -199,13 +198,11 @@ type socketConn struct {
 }
 
 func (c *socketConn) Close() error {
-	fmt.Println("CLOSE", c.laddr, "=>", c.raddr)
 	return c.netError("close", c.sock.Close())
 }
 
 func (c *socketConn) Read(b []byte) (int, error) {
 	n, _, _, err := c.sock.RecvFrom([][]byte{b}, 0)
-	fmt.Println("READ", c.laddr, "=>", c.raddr, n, err)
 	if err != nil {
 		return 0, c.netError("read", err)
 	}
@@ -213,9 +210,6 @@ func (c *socketConn) Read(b []byte) (int, error) {
 		return 0, io.EOF
 	}
 	return n, nil
-
-	//n, err := c.sock.File().Read(b)
-	//return n, c.netError("read", err)
 }
 
 func (c *socketConn) ReadFrom(b []byte) (int, net.Addr, error) {
@@ -237,7 +231,6 @@ func (c *socketConn) ReadFrom(b []byte) (int, net.Addr, error) {
 
 func (c *socketConn) Write(b []byte) (int, error) {
 	n, err := c.sock.File().Write(b)
-	fmt.Println("WRITE", c.laddr, "=>", c.raddr, n, err)
 	return n, c.netError("write", err)
 }
 

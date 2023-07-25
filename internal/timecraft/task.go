@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -279,15 +278,11 @@ func (s *TaskScheduler) executeHTTPTask(process *ProcessInfo, task *TaskInfo, re
 		TransferEncoding: []string{"identity"},
 	}).WithContext(task.ctx)
 
-	fmt.Println("EXEC", req.Method, req.URL.Path)
 	res, err := client.Do(req)
 	if err != nil {
-		fmt.Println("ERR", err)
 		s.completeTask(task, err, nil)
 		return
 	}
-
-	fmt.Println("RES", res.Status)
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {

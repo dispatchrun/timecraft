@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"path/filepath"
 	"testing"
 
@@ -13,19 +14,25 @@ import (
 
 func TestConn(t *testing.T) {
 	tests := []struct {
-		network string
-		address string
+		network  string
+		address  string
+		prefixes []netip.Prefix
 	}{
 		{
 			network: "tcp4",
 			address: ":0",
 		},
-
+		{
+			network: "tcp4",
+			address: "10.1.0.1:0",
+			prefixes: []netip.Prefix{
+				netip.MustParsePrefix("10.1.0.1/16"),
+			},
+		},
 		{
 			network: "tcp6",
 			address: "[::]:0",
 		},
-
 		{
 			network: "unix",
 			address: "unix.sock",
@@ -33,7 +40,7 @@ func TestConn(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.network, func(t *testing.T) {
+		t.Run(test.address, func(t *testing.T) {
 			nettest.TestConn(t, func() (c1, c2 net.Conn, stop func(), err error) {
 				network := test.network
 				address := test.address
@@ -43,7 +50,7 @@ func TestConn(t *testing.T) {
 					address = filepath.Join(t.TempDir(), address)
 				}
 
-				localNet := sandbox.NewLocalNetwork()
+				localNet := sandbox.NewLocalNetwork(test.prefixes...)
 				localNs, err := localNet.CreateNamespace(sandbox.Host())
 				if err != nil {
 					t.Fatal(err)
