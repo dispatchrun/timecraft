@@ -83,6 +83,28 @@ func connect(fd int, addr Sockaddr) error {
 }
 
 func shutdown(fd, how int) error {
+	// Linux allows calling shutdown(2) on listening sockets, but not Darwin.
+	// To provide a portable behavior we align on the POSIX behavior which says
+	// that shutting down non-connected sockets must return ENOTCONN.
+	//
+	// Note that this may cause issues in the future if applications need a way
+	// to break out of a blocking accept(2) call. We could relax this limitation
+	// down the line, tho keep in mind that applications may be better served by
+	// not relying on system-specific behaviors and should use synchronization
+	// mechanisms is user-space to maximize portability.
+	//
+	// For more context see: https://bugzilla.kernel.org/show_bug.cgi?id=106241
+	if runtime.GOOS == "linux" {
+		v, err := ignoreEINTR2(func() (int, error) {
+			return unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ACCEPTCONN)
+		})
+		if err != nil {
+			return err
+		}
+		if v != 0 {
+			return ENOTCONN
+		}
+	}
 	return ignoreEINTR(func() error { return unix.Shutdown(fd, how) })
 }
 

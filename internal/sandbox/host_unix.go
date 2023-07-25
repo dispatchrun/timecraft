@@ -14,6 +14,7 @@ type hostSocket struct {
 	family   Family
 	socktype Socktype
 	file     *os.File
+	connect  bool
 	listen   bool
 	nonblock bool
 	rtimeout time.Duration
@@ -140,6 +141,7 @@ func (s *hostSocket) Connect(addr Sockaddr) error {
 		}
 	}
 
+	s.connect = true
 	err := connect(fd, addr)
 	if err != EINPROGRESS || s.nonblock {
 		return err
@@ -226,6 +228,9 @@ func (s *hostSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, err
 }
 
 func (s *hostSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, error) {
+	if s.connect && addr != nil {
+		return 0, EISCONN
+	}
 	if s.nonblock {
 		fd := s.fd.acquire()
 		if fd < 0 {
