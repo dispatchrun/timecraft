@@ -87,8 +87,8 @@ type localSocket struct {
 	// State of the socket: its pair of file descriptors (fd0=read, fd1=write)
 	// and a bit set tracking how the application configured it (whether it is
 	// connected, listening, etc...).
-	fd0   socketFD
-	fd1   socketFD
+	fd0   fdRef
+	fd1   fdRef
 	state localSocketState
 
 	// The socket name and peer address; the name is set when the socket is

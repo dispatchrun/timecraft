@@ -34,6 +34,14 @@ func (hostNamespace) Interfaces() ([]Interface, error) {
 	return hostInterfaces, nil
 }
 
+func (hostNamespace) Socket(family Family, socktype Socktype, protocol Protocol) (Socket, error) {
+	fd, err := socket(int(family), int(socktype), int(protocol))
+	if err != nil {
+		return nil, err
+	}
+	return newHostSocket(fd, family, socktype), nil
+}
+
 type hostInterface struct{ *net.Interface }
 
 func (i hostInterface) Index() int { return i.Interface.Index }

@@ -5,10 +5,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"golang.org/x/time/rate"
-
 	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
+	"golang.org/x/time/rate"
 )
 
 func rootFS(path string) sandbox.Option {

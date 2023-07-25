@@ -8,6 +8,7 @@ import (
 
 	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
+	"golang.org/x/sys/unix"
 )
 
 func findNonLoopbackIPv4HostAddress() ([]net.Addr, error) {
@@ -246,9 +247,23 @@ func testNamespaceExchangeDatagram(t *testing.T, ns sandbox.Namespace, bind sand
 }
 
 func waitReadyRead(socket sandbox.Socket) error {
-	return sandbox.WaitReadyRead(socket, time.Second)
+	return wait(socket, unix.POLLIN, time.Second)
 }
 
 func waitReadyWrite(socket sandbox.Socket) error {
-	return sandbox.WaitReadyWrite(socket, time.Second)
+	return wait(socket, unix.POLLOUT, time.Second)
+}
+
+func wait(socket sandbox.Socket, events int16, timeout time.Duration) error {
+	tms := int(timeout / time.Millisecond)
+	pfd := []unix.PollFd{{
+		Fd:     int32(socket.Fd()),
+		Events: events,
+	}}
+	for {
+		_, err := unix.Poll(pfd, tms)
+		if err != unix.EINTR {
+			return err
+		}
+	}
 }

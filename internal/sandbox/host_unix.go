@@ -10,7 +10,7 @@ import (
 )
 
 type hostSocket struct {
-	fd       socketFD
+	fd       fdRef
 	family   Family
 	socktype Socktype
 	file     *os.File

@@ -6,12 +6,12 @@ import (
 	"github.com/stealthrocket/timecraft/internal/assert"
 )
 
-func TestSocketRefCount(t *testing.T) {
+func TestRefCount(t *testing.T) {
 	var lastCloseFD int
 	var closeFD = func(fd int) { lastCloseFD = fd }
 
 	t.Run("close with zero ref count", func(t *testing.T) {
-		var s socketFD
+		var s fdRef
 		s.init(42)
 		assert.Equal(t, s.refCount(), 0)
 
@@ -20,7 +20,7 @@ func TestSocketRefCount(t *testing.T) {
 	})
 
 	t.Run("release with zero ref count", func(t *testing.T) {
-		var s socketFD
+		var s fdRef
 		s.init(21)
 
 		fd := s.acquire()
@@ -34,7 +34,7 @@ func TestSocketRefCount(t *testing.T) {
 	})
 
 	t.Run("close with non zero ref count", func(t *testing.T) {
-		var s socketFD
+		var s fdRef
 		s.init(10)
 
 		fd0 := s.acquire()

@@ -1,11 +1,37 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
 	"runtime"
-	"time"
+	"runtime/debug"
+	"sync/atomic"
+	"syscall"
 
 	"golang.org/x/sys/unix"
+)
+
+const (
+	EADDRNOTAVAIL   = unix.EADDRNOTAVAIL
+	EAFNOSUPPORT    = unix.EAFNOSUPPORT
+	EAGAIN          = unix.EAGAIN
+	EBADF           = unix.EBADF
+	ECONNABORTED    = unix.ECONNABORTED
+	ECONNREFUSED    = unix.ECONNREFUSED
+	ECONNRESET      = unix.ECONNRESET
+	EHOSTUNREACH    = unix.EHOSTUNREACH
+	EINVAL          = unix.EINVAL
+	EINTR           = unix.EINTR
+	EINPROGRESS     = unix.EINPROGRESS
+	EISCONN         = unix.EISCONN
+	ENETUNREACH     = unix.ENETUNREACH
+	ENOPROTOOPT     = unix.ENOPROTOOPT
+	ENOSYS          = unix.ENOSYS
+	ENOTCONN        = unix.ENOTCONN
+	EOPNOTSUPP      = unix.EOPNOTSUPP
+	EPROTONOSUPPORT = unix.EPROTONOSUPPORT
+	EPROTOTYPE      = unix.EPROTOTYPE
+	ETIMEDOUT       = unix.ETIMEDOUT
 )
 
 const (
@@ -36,24 +62,70 @@ type SockaddrInet6 = unix.SockaddrInet6
 type SockaddrUnix = unix.SockaddrUnix
 type Timeval = unix.Timeval
 
-func WaitReadyRead(socket Socket, timeout time.Duration) error {
-	return wait(socket, unix.POLLIN, timeout)
+// This function is used to automatically retry syscalls when they return EINTR
+// due to having handled a signal instead of executing.
+func ignoreEINTR(f func() error) error {
+	for {
+		if err := f(); err != EINTR {
+			return err
+		}
+	}
 }
 
-func WaitReadyWrite(socket Socket, timeout time.Duration) error {
-	return wait(socket, unix.POLLOUT, timeout)
+func ignoreEINTR2[F func() (R, error), R any](f F) (R, error) {
+	for {
+		v, err := f()
+		if err != EINTR {
+			return v, err
+		}
+	}
 }
 
-func wait(socket Socket, events int16, timeout time.Duration) error {
-	tms := int(timeout / time.Millisecond)
-	pfd := []unix.PollFd{{
-		Fd:     int32(socket.Fd()),
-		Events: events,
-	}}
-	return ignoreEINTR(func() error {
-		_, err := unix.Poll(pfd, tms)
-		return err
+func ignoreEINTR3[F func() (R1, R2, error), R1, R2 any](f F) (R1, R2, error) {
+	for {
+		v1, v2, err := f()
+		if err != EINTR {
+			return v1, v2, err
+		}
+	}
+}
+
+func dup(oldfd int) (int, error) {
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	newfd, err := ignoreEINTR2(func() (int, error) {
+		return unix.Dup(oldfd)
 	})
+	if err != nil {
+		return -1, err
+	}
+	unix.CloseOnExec(newfd)
+	return newfd, nil
+}
+
+func closePair(fds *[2]int) {
+	if fds[0] >= 0 {
+		closeTraceError(fds[0])
+	}
+	if fds[1] >= 0 {
+		closeTraceError(fds[1])
+	}
+	fds[0] = -1
+	fds[1] = -1
+}
+
+func closeTraceError(fd int) {
+	if err := unix.Close(fd); err != nil {
+		fmt.Fprintf(os.Stderr, "close(%d) => %s\n", fd, err)
+		debug.PrintStack()
+	}
+}
+
+func setNonblock(fd uintptr, nonblock bool) {
+	if err := unix.SetNonblock(int(fd), nonblock); err != nil {
+		fmt.Fprintf(os.Stderr, "setNonblock(%d,%t) => %s\n", fd, nonblock, err)
+		debug.PrintStack()
+	}
 }
 
 func bind(fd int, addr Sockaddr) error {
@@ -198,29 +270,87 @@ func sendmsg(fd int, msg, oob []byte, addr Sockaddr, flags int) error {
 	})
 }
 
-func setFileDeadline(f *os.File, rtimeout, wtimeout time.Duration) error {
-	var now time.Time
-	if rtimeout > 0 || wtimeout > 0 {
-		now = time.Now()
-	}
-	if rtimeout > 0 {
-		if err := f.SetReadDeadline(now.Add(rtimeout)); err != nil {
-			return err
-		}
-	}
-	if wtimeout > 0 {
-		if err := f.SetWriteDeadline(now.Add(wtimeout)); err != nil {
-			return err
-		}
-	}
-	return nil
+// fdRef is used to manage the lifecycle of socket file descriptors;
+// it allows multiple goroutines to share ownership of the socket while
+// coordinating to close the file descriptor via an atomic reference count.
+//
+// Goroutines must call acquire to access the file descriptor; if they get a
+// negative number, it indicates that the socket was already closed and the
+// method should usually return EBADF.
+//
+// After acquiring a valid file descriptor, the goroutine is responsible for
+// calling release with the same fd number that was returned by acquire. The
+// release may cause the file descriptor to be closed if the close method was
+// called in between and releasing the fd causes the reference count to reach
+// zero.
+//
+// The close method detaches the file descriptor from the fdRef, but it only
+// closes it if the reference count is zero (no other goroutines was sharing
+// ownership). After closing the fdRef, all future calls to acquire return a
+// negative number, preventing other goroutines from acquiring ownership of the
+// file descriptor and guaranteeing that it will eventually be closed.
+type fdRef struct {
+	state atomic.Uint64 // upper 32 bits: refCount, lower 32 bits: fd
 }
 
-func handleSocketIOError(err error) error {
-	if err != nil {
-		if err == os.ErrDeadlineExceeded {
-			err = EAGAIN
+func (f *fdRef) init(fd int) {
+	f.state.Store(uint64(fd & 0xFFFFFFFF))
+}
+
+func (f *fdRef) load() int {
+	return int(int32(f.state.Load()))
+}
+
+func (f *fdRef) refCount() int {
+	return int(f.state.Load() >> 32)
+}
+
+func (f *fdRef) acquire() int {
+	for {
+		oldState := f.state.Load()
+		refCount := (oldState >> 32) + 1
+		newState := (refCount << 32) | (oldState & 0xFFFFFFFF)
+
+		fd := int32(oldState)
+		if fd < 0 {
+			return -1
+		}
+		if f.state.CompareAndSwap(oldState, newState) {
+			return int(fd)
 		}
 	}
-	return err
+}
+
+func (f *fdRef) releaseFunc(fd int, closeFD func(int)) {
+	for {
+		oldState := f.state.Load()
+		refCount := (oldState >> 32) - 1
+		newState := (refCount << 32) | (oldState & 0xFFFFFFFF)
+
+		if f.state.CompareAndSwap(oldState, newState) {
+			if int32(oldState) < 0 && refCount == 0 {
+				closeFD(fd)
+			}
+			break
+		}
+	}
+}
+
+func (f *fdRef) closeFunc(closeFD func(int)) {
+	for {
+		oldState := f.state.Load()
+		refCount := oldState >> 32
+		newState := oldState | 0xFFFFFFFF
+
+		fd := int32(oldState)
+		if fd < 0 {
+			break
+		}
+		if f.state.CompareAndSwap(oldState, newState) {
+			if refCount == 0 {
+				closeFD(int(fd))
+			}
+			break
+		}
+	}
 }
