@@ -198,7 +198,7 @@ func jsonDecode(b []byte, value any) error {
 }
 
 type Manifest struct {
-	ProcessID UUID         `json:"-"                  yaml:"-"`
+	ProcessID UUID         `json:"id,omitempty"       yaml:"id,omitempty"`
 	StartTime time.Time    `json:"startTime"          yaml:"startTime"`
 	Process   *Descriptor  `json:"process"            yaml:"process"`
 	Segments  []LogSegment `json:"segments,omitempty" yaml:"segments,omitempty"`
