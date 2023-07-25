@@ -1,4 +1,4 @@
-package network_test
+package sandbox_test
 
 import (
 	"context"
@@ -9,13 +9,13 @@ import (
 	"testing"
 
 	"github.com/stealthrocket/timecraft/internal/assert"
-	"github.com/stealthrocket/timecraft/internal/network"
+	"github.com/stealthrocket/timecraft/internal/sandbox"
 )
 
 func TestLocalNetwork(t *testing.T) {
 	tests := []struct {
 		scenario string
-		function func(*testing.T, *network.LocalNetwork)
+		function func(*testing.T, *sandbox.LocalNetwork)
 	}{
 		{
 			scenario: "a local network namespace has two interfaces",
@@ -102,13 +102,13 @@ func TestLocalNetwork(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.scenario, func(t *testing.T) {
 			test.function(t,
-				network.NewLocalNetwork(ipnet4, ipnet6),
+				sandbox.NewLocalNetwork(ipnet4, ipnet6),
 			)
 		})
 	}
 }
 
-func testLocalNetworkInterfaces(t *testing.T, n *network.LocalNetwork) {
+func testLocalNetworkInterfaces(t *testing.T, n *sandbox.LocalNetwork) {
 	ns, err := n.CreateNamespace(nil)
 	assert.OK(t, err)
 
@@ -141,49 +141,49 @@ func testLocalNetworkInterfaces(t *testing.T, n *network.LocalNetwork) {
 	assert.Equal(t, en0Addrs[1].String(), "fe80::1/64")
 }
 
-func testLocalNetworkConnectStreamLoopbackIPv4(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnectStream(t, n, &network.SockaddrInet4{
+func testLocalNetworkConnectStreamLoopbackIPv4(t *testing.T, n *sandbox.LocalNetwork) {
+	testLocalNetworkConnectStream(t, n, &sandbox.SockaddrInet4{
 		Addr: [4]byte{127, 0, 0, 1},
 		Port: 80,
 	})
 }
 
-func testLocalNetworkConnectStreamLoopbackIPv6(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnectStream(t, n, &network.SockaddrInet6{
+func testLocalNetworkConnectStreamLoopbackIPv6(t *testing.T, n *sandbox.LocalNetwork) {
+	testLocalNetworkConnectStream(t, n, &sandbox.SockaddrInet6{
 		Addr: [16]byte{15: 1},
 		Port: 80,
 	})
 }
 
-func testLocalNetworkConnectStreamInterfaceIPv4(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnectStream(t, n, &network.SockaddrInet4{
+func testLocalNetworkConnectStreamInterfaceIPv4(t *testing.T, n *sandbox.LocalNetwork) {
+	testLocalNetworkConnectStream(t, n, &sandbox.SockaddrInet4{
 		Addr: [4]byte{192, 168, 0, 1},
 		Port: 80,
 	})
 }
 
-func testLocalNetworkConnectStreamInterfaceIPv6(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnectStream(t, n, &network.SockaddrInet6{
+func testLocalNetworkConnectStreamInterfaceIPv6(t *testing.T, n *sandbox.LocalNetwork) {
+	testLocalNetworkConnectStream(t, n, &sandbox.SockaddrInet6{
 		Addr: [16]byte{0: 0xfe, 1: 0x80, 15: 1},
 		Port: 80,
 	})
 }
 
-func testLocalNetworkConnectStream(t *testing.T, n *network.LocalNetwork, bind network.Sockaddr) {
+func testLocalNetworkConnectStream(t *testing.T, n *sandbox.LocalNetwork, bind sandbox.Sockaddr) {
 	ns, err := n.CreateNamespace(nil)
 	assert.OK(t, err)
 	testNamespaceConnectStream(t, ns, bind)
 }
 
-func testLocalNetworkConnectStreamNamespacesIPv4(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnectStreamNamespaces(t, n, network.INET)
+func testLocalNetworkConnectStreamNamespacesIPv4(t *testing.T, n *sandbox.LocalNetwork) {
+	testLocalNetworkConnectStreamNamespaces(t, n, sandbox.INET)
 }
 
-func testLocalNetworkConnectStreamNamespacesIPv6(t *testing.T, n *network.LocalNetwork) {
-	testLocalNetworkConnectStreamNamespaces(t, n, network.INET6)
+func testLocalNetworkConnectStreamNamespacesIPv6(t *testing.T, n *sandbox.LocalNetwork) {
+	testLocalNetworkConnectStreamNamespaces(t, n, sandbox.INET6)
 }
 
-func testLocalNetworkConnectStreamNamespaces(t *testing.T, n *network.LocalNetwork, family network.Family) {
+func testLocalNetworkConnectStreamNamespaces(t *testing.T, n *sandbox.LocalNetwork, family sandbox.Family) {
 	ns1, err := n.CreateNamespace(nil)
 	assert.OK(t, err)
 
@@ -197,22 +197,23 @@ func testLocalNetworkConnectStreamNamespaces(t *testing.T, n *network.LocalNetwo
 	addrs1, err := ifaces1[1].Addrs()
 	assert.OK(t, err)
 
-	server, err := ns1.Socket(family, network.STREAM, network.TCP)
+	server, err := ns1.Socket(family, sandbox.STREAM, sandbox.TCP)
 	assert.OK(t, err)
 	defer server.Close()
+	assert.OK(t, server.SetNonBlock(true))
 
 	assert.OK(t, server.Listen(1))
 	serverAddr, err := server.Name()
 	assert.OK(t, err)
 
 	switch a := serverAddr.(type) {
-	case *network.SockaddrInet4:
+	case *sandbox.SockaddrInet4:
 		for _, addr := range addrs1 {
 			if ipnet := addr.(*net.IPNet); ipnet.IP.To4() != nil {
 				copy(a.Addr[:], ipnet.IP.To4())
 			}
 		}
-	case *network.SockaddrInet6:
+	case *sandbox.SockaddrInet6:
 		for _, addr := range addrs1 {
 			if ipnet := addr.(*net.IPNet); ipnet.IP.To4() == nil {
 				copy(a.Addr[:], ipnet.IP)
@@ -220,25 +221,27 @@ func testLocalNetworkConnectStreamNamespaces(t *testing.T, n *network.LocalNetwo
 		}
 	}
 
-	client, err := ns2.Socket(family, network.STREAM, network.TCP)
+	client, err := ns2.Socket(family, sandbox.STREAM, sandbox.TCP)
 	assert.OK(t, err)
 	defer client.Close()
+	assert.OK(t, client.SetNonBlock(true))
 
-	assert.Error(t, client.Connect(serverAddr), network.EINPROGRESS)
+	assert.Error(t, client.Connect(serverAddr), sandbox.EINPROGRESS)
 	assert.OK(t, waitReadyRead(server))
 
 	conn, addr, err := server.Accept()
 	assert.OK(t, err)
 	defer conn.Close()
+	assert.OK(t, conn.SetNonBlock(true))
 
 	assert.OK(t, waitReadyWrite(client))
 	peer, err := client.Peer()
 	assert.OK(t, err)
-	assert.Equal(t, network.SockaddrAddrPort(peer), network.SockaddrAddrPort(serverAddr))
+	assert.Equal(t, sandbox.SockaddrAddrPort(peer), sandbox.SockaddrAddrPort(serverAddr))
 
 	name, err := client.Name()
 	assert.OK(t, err)
-	assert.Equal(t, network.SockaddrAddrPort(name), network.SockaddrAddrPort(addr))
+	assert.Equal(t, sandbox.SockaddrAddrPort(name), sandbox.SockaddrAddrPort(addr))
 
 	wn, err := client.SendTo([][]byte{[]byte("Hello, World!")}, nil, 0)
 	assert.OK(t, err)
@@ -254,14 +257,14 @@ func testLocalNetworkConnectStreamNamespaces(t *testing.T, n *network.LocalNetwo
 	assert.Equal(t, peer, nil)
 }
 
-func testLocalNetworkOutboundConnectStream(t *testing.T, n *network.LocalNetwork) {
-	ns1 := network.Host()
+func testLocalNetworkOutboundConnectStream(t *testing.T, n *sandbox.LocalNetwork) {
+	ns1 := sandbox.Host()
 
 	ifaces1, err := ns1.Interfaces()
 	assert.OK(t, err)
 	assert.NotEqual(t, len(ifaces1), 0)
 
-	var hostAddr *network.SockaddrInet4
+	var hostAddr *sandbox.SockaddrInet4
 	for _, iface := range ifaces1 {
 		if hostAddr != nil {
 			break
@@ -279,7 +282,7 @@ func testLocalNetworkOutboundConnectStream(t *testing.T, n *network.LocalNetwork
 		for _, addr := range addrs {
 			if a, ok := addr.(*net.IPNet); ok {
 				if ipv4 := a.IP.To4(); ipv4 != nil {
-					hostAddr = &network.SockaddrInet4{Addr: ([4]byte)(ipv4)}
+					hostAddr = &sandbox.SockaddrInet4{Addr: ([4]byte)(ipv4)}
 					break
 				}
 			}
@@ -287,9 +290,10 @@ func testLocalNetworkOutboundConnectStream(t *testing.T, n *network.LocalNetwork
 	}
 	assert.NotEqual(t, hostAddr, nil)
 
-	server, err := ns1.Socket(network.INET, network.STREAM, network.TCP)
+	server, err := ns1.Socket(sandbox.INET, sandbox.STREAM, sandbox.TCP)
 	assert.OK(t, err)
 	defer server.Close()
+	assert.OK(t, server.SetNonBlock(true))
 
 	assert.OK(t, server.Bind(hostAddr))
 	assert.OK(t, server.Listen(1))
@@ -297,27 +301,29 @@ func testLocalNetworkOutboundConnectStream(t *testing.T, n *network.LocalNetwork
 	assert.OK(t, err)
 
 	var dialer net.Dialer
-	ns2, err := n.CreateNamespace(nil, network.DialFunc(dialer.DialContext))
+	ns2, err := n.CreateNamespace(nil, sandbox.DialFunc(dialer.DialContext))
 	assert.OK(t, err)
 
-	client, err := ns2.Socket(network.INET, network.STREAM, network.TCP)
+	client, err := ns2.Socket(sandbox.INET, sandbox.STREAM, sandbox.TCP)
 	assert.OK(t, err)
 	defer client.Close()
+	assert.OK(t, client.SetNonBlock(true))
 
-	assert.Error(t, client.Connect(serverAddr), network.EINPROGRESS)
+	assert.Error(t, client.Connect(serverAddr), sandbox.EINPROGRESS)
 	assert.OK(t, waitReadyRead(server))
 
 	conn, addr, err := server.Accept()
 	assert.OK(t, err)
 	defer conn.Close()
+	assert.OK(t, conn.SetNonBlock(true))
 	assert.NotEqual(t, addr, nil)
 
 	assert.OK(t, waitReadyWrite(client))
 	peer, err := client.Peer()
 	assert.OK(t, err)
 	assert.Equal(t,
-		network.SockaddrAddrPort(peer),
-		network.SockaddrAddrPort(serverAddr))
+		sandbox.SockaddrAddrPort(peer),
+		sandbox.SockaddrAddrPort(serverAddr))
 
 	wn, err := client.SendTo([][]byte{[]byte("Hello, World!")}, nil, 0)
 	assert.OK(t, err)
@@ -333,9 +339,9 @@ func testLocalNetworkOutboundConnectStream(t *testing.T, n *network.LocalNetwork
 	assert.Equal(t, peer, nil)
 }
 
-func testLocalNetworkInboundAccept(t *testing.T, n *network.LocalNetwork) {
+func testLocalNetworkInboundAccept(t *testing.T, n *sandbox.LocalNetwork) {
 	ns, err := n.CreateNamespace(nil,
-		network.ListenFunc(func(ctx context.Context, network, address string) (net.Listener, error) {
+		sandbox.ListenFunc(func(ctx context.Context, network, address string) (net.Listener, error) {
 			_, port, err := net.SplitHostPort(address)
 			if err != nil {
 				return nil, err
@@ -345,7 +351,7 @@ func testLocalNetworkInboundAccept(t *testing.T, n *network.LocalNetwork) {
 	)
 	assert.OK(t, err)
 
-	sock, err := ns.Socket(network.INET, network.STREAM, network.TCP)
+	sock, err := ns.Socket(sandbox.INET, sandbox.STREAM, sandbox.TCP)
 	assert.OK(t, err)
 	defer sock.Close()
 
@@ -353,7 +359,7 @@ func testLocalNetworkInboundAccept(t *testing.T, n *network.LocalNetwork) {
 	addr, err := sock.Name()
 	assert.OK(t, err)
 
-	addrPort := network.SockaddrAddrPort(addr)
+	addrPort := sandbox.SockaddrAddrPort(addr)
 	connAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(addrPort.Port())))
 	conn, err := net.Dial("tcp", connAddr)
 	assert.OK(t, err)
@@ -366,7 +372,7 @@ func testLocalNetworkInboundAccept(t *testing.T, n *network.LocalNetwork) {
 	// verify that the address of the inbound connection matches the remote
 	// address of the peer socket
 	connLocalAddr := conn.LocalAddr().(*net.TCPAddr)
-	peerAddrPort := network.SockaddrAddrPort(peerAddr)
+	peerAddrPort := sandbox.SockaddrAddrPort(peerAddr)
 	connAddrPort := netip.AddrPortFrom(netip.AddrFrom4(([4]byte)(connLocalAddr.IP)), uint16(connLocalAddr.Port))
 	assert.Equal(t, peerAddrPort, connAddrPort)
 
@@ -391,46 +397,46 @@ func testLocalNetworkInboundAccept(t *testing.T, n *network.LocalNetwork) {
 	assert.Equal(t, size, 0)
 
 	// exercise shutting down the write end of the peer socket
-	assert.OK(t, peer.Shutdown(network.SHUTWR))
+	assert.OK(t, peer.Shutdown(sandbox.SHUTWR))
 	_, err = conn.Read(buf)
 	assert.Equal(t, err, io.EOF)
 }
 
-func testLocalNetworkConnectDatagramIPv4(t *testing.T, n *network.LocalNetwork) {
+func testLocalNetworkConnectDatagramIPv4(t *testing.T, n *sandbox.LocalNetwork) {
 	ns, err := n.CreateNamespace(nil)
 	assert.OK(t, err)
-	testNamespaceConnectDatagram(t, ns, &network.SockaddrInet4{
+	testNamespaceConnectDatagram(t, ns, &sandbox.SockaddrInet4{
 		Addr: [4]byte{192, 168, 0, 1},
 	})
 }
 
-func testLocalNetworkConnectDatagramIPv6(t *testing.T, n *network.LocalNetwork) {
+func testLocalNetworkConnectDatagramIPv6(t *testing.T, n *sandbox.LocalNetwork) {
 	ns, err := n.CreateNamespace(nil)
 	assert.OK(t, err)
-	testNamespaceConnectDatagram(t, ns, &network.SockaddrInet6{
+	testNamespaceConnectDatagram(t, ns, &sandbox.SockaddrInet6{
 		Addr: [16]byte{0: 0xfe, 1: 0x80, 15: 1},
 	})
 }
 
-func testLocalNetworkExchangeDatagramIPv4(t *testing.T, n *network.LocalNetwork) {
+func testLocalNetworkExchangeDatagramIPv4(t *testing.T, n *sandbox.LocalNetwork) {
 	ns, err := n.CreateNamespace(nil)
 	assert.OK(t, err)
-	testNamespaceExchangeDatagram(t, ns, &network.SockaddrInet4{
+	testNamespaceExchangeDatagram(t, ns, &sandbox.SockaddrInet4{
 		Addr: [4]byte{192, 168, 0, 1},
 	})
 }
 
-func testLocalNetworkExchangeDatagramIPv6(t *testing.T, n *network.LocalNetwork) {
+func testLocalNetworkExchangeDatagramIPv6(t *testing.T, n *sandbox.LocalNetwork) {
 	ns, err := n.CreateNamespace(nil)
 	assert.OK(t, err)
-	testNamespaceExchangeDatagram(t, ns, &network.SockaddrInet6{
+	testNamespaceExchangeDatagram(t, ns, &sandbox.SockaddrInet6{
 		Addr: [16]byte{0: 0xfe, 1: 0x80, 15: 1},
 	})
 }
 
-func testLocalNetworkInboundDatagram(t *testing.T, n *network.LocalNetwork) {
+func testLocalNetworkInboundDatagram(t *testing.T, n *sandbox.LocalNetwork) {
 	ns, err := n.CreateNamespace(nil,
-		network.ListenPacketFunc(func(ctx context.Context, network, address string) (net.PacketConn, error) {
+		sandbox.ListenPacketFunc(func(ctx context.Context, network, address string) (net.PacketConn, error) {
 			_, port, err := net.SplitHostPort(address)
 			if err != nil {
 				return nil, err
@@ -440,15 +446,15 @@ func testLocalNetworkInboundDatagram(t *testing.T, n *network.LocalNetwork) {
 	)
 	assert.OK(t, err)
 
-	sock, err := ns.Socket(network.INET, network.DGRAM, network.UDP)
+	sock, err := ns.Socket(sandbox.INET, sandbox.DGRAM, sandbox.UDP)
 	assert.OK(t, err)
 	defer sock.Close()
 
-	assert.OK(t, sock.Bind(&network.SockaddrInet4{}))
+	assert.OK(t, sock.Bind(&sandbox.SockaddrInet4{}))
 	addr, err := sock.Name()
 	assert.OK(t, err)
 
-	addrPort := network.SockaddrAddrPort(addr)
+	addrPort := sandbox.SockaddrAddrPort(addr)
 	connAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(addrPort.Port())))
 	conn, err := net.Dial("udp", connAddr)
 	assert.OK(t, err)
@@ -465,15 +471,15 @@ func testLocalNetworkInboundDatagram(t *testing.T, n *network.LocalNetwork) {
 	assert.OK(t, err)
 	assert.Equal(t, size, 7)
 	assert.Equal(t, string(buf[:7]), "message")
-	assert.Equal(t, network.SockaddrAddrPort(peer), localAddr.AddrPort())
+	assert.Equal(t, sandbox.SockaddrAddrPort(peer), localAddr.AddrPort())
 }
 
-func testLocalNetworkOutboundDatagram(t *testing.T, n *network.LocalNetwork) {
+func testLocalNetworkOutboundDatagram(t *testing.T, n *sandbox.LocalNetwork) {
 	hostAddrs, err := findNonLoopbackIPv4HostAddress()
 	assert.OK(t, err)
 
 	ns, err := n.CreateNamespace(nil,
-		network.ListenPacketFunc(func(ctx context.Context, network, address string) (net.PacketConn, error) {
+		sandbox.ListenPacketFunc(func(ctx context.Context, network, address string) (net.PacketConn, error) {
 			_, port, err := net.SplitHostPort(address)
 			if err != nil {
 				return nil, err
@@ -487,13 +493,13 @@ func testLocalNetworkOutboundDatagram(t *testing.T, n *network.LocalNetwork) {
 	assert.OK(t, err)
 	defer conn.Close()
 
-	sock, err := ns.Socket(network.INET, network.DGRAM, network.UDP)
+	sock, err := ns.Socket(sandbox.INET, sandbox.DGRAM, sandbox.UDP)
 	assert.OK(t, err)
 	defer sock.Close()
 
 	connAddr := conn.LocalAddr().(*net.UDPAddr)
 	addrPort := connAddr.AddrPort()
-	sendAddr := &network.SockaddrInet4{
+	sendAddr := &sandbox.SockaddrInet4{
 		Addr: addrPort.Addr().As4(),
 		Port: int(addrPort.Port()),
 	}
@@ -509,5 +515,5 @@ func testLocalNetworkOutboundDatagram(t *testing.T, n *network.LocalNetwork) {
 	size, peer, err := conn.ReadFrom(buf)
 	assert.OK(t, err)
 	assert.Equal(t, size, 7)
-	assert.Equal(t, peer.(*net.UDPAddr).AddrPort().Port(), network.SockaddrAddrPort(addr).Port())
+	assert.Equal(t, peer.(*net.UDPAddr).AddrPort().Port(), sandbox.SockaddrAddrPort(addr).Port())
 }

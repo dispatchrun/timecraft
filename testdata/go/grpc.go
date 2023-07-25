@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/stealthrocket/timecraft/sdk/go/timecraft"
 )
@@ -10,11 +11,11 @@ import (
 func main() {
 	c, err := timecraft.NewClient()
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	version, err := c.Version(context.Background())
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	fmt.Println(version)
 }

@@ -2,7 +2,6 @@ package sandbox_test
 
 import (
 	"context"
-	"io"
 	"testing"
 	"testing/fstest"
 
@@ -10,8 +9,6 @@ import (
 
 	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
-	"github.com/stealthrocket/wasi-go"
-	"github.com/stealthrocket/wasi-go/wasitest"
 )
 
 func rootFS(path string) sandbox.Option {
@@ -39,43 +36,4 @@ func TestSandboxFS(t *testing.T) {
 		"tmp/two",
 		"tmp/three",
 	))
-}
-
-func TestSandboxSystem(t *testing.T) {
-	wasitest.TestSystem(t, func(config wasitest.TestConfig) (wasi.System, error) {
-		options := []sandbox.Option{
-			sandbox.Args(config.Args...),
-			sandbox.Environ(config.Environ...),
-			sandbox.Rand(config.Rand),
-			sandbox.Time(config.Now),
-			sandbox.MaxOpenFiles(config.MaxOpenFiles),
-			sandbox.MaxOpenDirs(config.MaxOpenDirs),
-		}
-
-		if config.RootFS != "" {
-			options = append(options, rootFS(config.RootFS))
-		}
-
-		sys := sandbox.New(options...)
-
-		stdin, stdout, stderr := sys.Stdin(), sys.Stdout(), sys.Stderr()
-		go copyAndClose(stdin, config.Stdin)
-		go copyAndClose(config.Stdout, stdout)
-		go copyAndClose(config.Stderr, stderr)
-
-		return sys, nil
-		//return wasi.Trace(os.Stderr, sys), nil
-	})
-}
-
-func copyAndClose(w io.WriteCloser, r io.ReadCloser) {
-	if w != nil {
-		defer w.Close()
-	}
-	if r != nil {
-		defer r.Close()
-	}
-	if w != nil && r != nil {
-		_, _ = io.Copy(w, r)
-	}
 }

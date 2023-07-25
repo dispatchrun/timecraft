@@ -10,15 +10,18 @@ import (
 // registered in a sandboxed System.
 type File interface {
 	wasi.File[File]
-	FDPoll(ev wasi.EventType, ch chan<- struct{}) bool
+
+	// Returns the underlying file descriptor that this file is opened on.
+	Fd() uintptr
+
 	SockAccept(ctx context.Context, flags wasi.FDFlags) (File, wasi.Errno)
 	SockBind(ctx context.Context, addr wasi.SocketAddress) wasi.Errno
 	SockConnect(ctx context.Context, peer wasi.SocketAddress) wasi.Errno
 	SockListen(ctx context.Context, backlog int) wasi.Errno
-	SockRecv(ctx context.Context, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno)
-	SockSend(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno)
-	SockSendTo(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno)
-	SockRecvFrom(ctx context.Context, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno)
+	SockRecv(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno)
+	SockSend(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno)
+	SockSendTo(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno)
+	SockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno)
 	SockGetOpt(ctx context.Context, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno)
 	SockSetOpt(ctx context.Context, option wasi.SocketOption, value wasi.SocketOptionValue) wasi.Errno
 	SockLocalAddress(ctx context.Context) (wasi.SocketAddress, wasi.Errno)
@@ -54,11 +57,11 @@ func (unimplementedFileMethods) FDFileStatSetTimes(ctx context.Context, accessTi
 	return wasi.EBADF
 }
 
-func (unimplementedFileMethods) FDPread(ctx context.Context, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
+func (unimplementedFileMethods) FDPread(ctx context.Context, iovs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
 	return 0, wasi.EBADF
 }
 
-func (unimplementedFileMethods) FDPwrite(ctx context.Context, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
+func (unimplementedFileMethods) FDPwrite(ctx context.Context, iovs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
 	return 0, wasi.EBADF
 }
 
@@ -136,20 +139,20 @@ func (unimplementedSocketMethods) SockAccept(ctx context.Context, flags wasi.FDF
 	return nil, wasi.ENOTSOCK
 }
 
-func (unimplementedSocketMethods) SockRecv(ctx context.Context, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
+func (unimplementedSocketMethods) SockRecv(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.Errno) {
 	return 0, 0, wasi.ENOTSOCK
 }
 
-func (unimplementedSocketMethods) SockSend(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
-	return 0, wasi.ENOTSOCK
-}
-
-func (unimplementedSocketMethods) SockSendTo(ctx context.Context, iovecs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno) {
-	return 0, wasi.ENOTSOCK
-}
-
-func (unimplementedSocketMethods) SockRecvFrom(ctx context.Context, iovecs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno) {
+func (unimplementedSocketMethods) SockRecvFrom(ctx context.Context, iovs []wasi.IOVec, flags wasi.RIFlags) (wasi.Size, wasi.ROFlags, wasi.SocketAddress, wasi.Errno) {
 	return 0, 0, nil, wasi.ENOTSOCK
+}
+
+func (unimplementedSocketMethods) SockSend(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags) (wasi.Size, wasi.Errno) {
+	return 0, wasi.ENOTSOCK
+}
+
+func (unimplementedSocketMethods) SockSendTo(ctx context.Context, iovs []wasi.IOVec, flags wasi.SIFlags, addr wasi.SocketAddress) (wasi.Size, wasi.Errno) {
+	return 0, wasi.ENOTSOCK
 }
 
 func (unimplementedSocketMethods) SockGetOpt(ctx context.Context, option wasi.SocketOption) (wasi.SocketOptionValue, wasi.Errno) {
