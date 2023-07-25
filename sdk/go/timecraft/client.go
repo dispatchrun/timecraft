@@ -212,15 +212,11 @@ func (c *Client) makeTaskResponse(res *v1.TaskResponse) (TaskResponse, error) {
 }
 
 func (c *Client) makeModuleSpec(module ModuleSpec) *v1.ModuleSpec {
-	m := &v1.ModuleSpec{
+	return &v1.ModuleSpec{
 		Path: module.Path,
 		Args: module.Args,
 		Env:  module.Env,
 	}
-	if module.Capabilities.Has(HostNetworkingCapability) {
-		m.Capabilities |= int64(v1.ModuleCapabilities_MODULE_CAPABILITIES_HOST_NETWORKING)
-	}
-	return m
 }
 
 // ProcessID fetches the ID of the process.
