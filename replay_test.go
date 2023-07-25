@@ -44,7 +44,7 @@ var replay = tests{
 	},
 
 	"guest can interact with host via gRPC": func(t *testing.T) {
-		stdout, processID, exitCode := timecraft(t, "run", "./testdata/go/grpc.wasm")
+		stdout, processID, exitCode := timecraft(t, "run", "--", "./testdata/go/grpc.wasm")
 		assert.Equal(t, exitCode, 0)
 		assert.Equal(t, stdout, "devel\n")
 
@@ -56,6 +56,8 @@ var replay = tests{
 
 	"guest can submit tasks and wait for their completion": func(t *testing.T) {
 		stdout, stderr, exitCode := timecraft(t, "run", "--", "./testdata/go/task.wasm")
+		println(stdout)
+		println(stderr)
 		assert.Equal(t, exitCode, 0)
 
 		processID, _, _ := strings.Cut(stderr, "\n")

@@ -6,9 +6,8 @@ import (
 	"io/fs"
 	"net"
 	"net/netip"
+	"os"
 	"strconv"
-	"sync"
-	"syscall"
 	"time"
 
 	"github.com/stealthrocket/wasi-go"
@@ -60,64 +59,11 @@ func Mount(path string, fsys FS) Option {
 	}
 }
 
-// Socket configures a unix socket to be exposed to the guest module.
-func Socket(name string) Option {
-	return func(s *System) { s.unix.name = name }
-}
-
-// Dial configures a dial function used to establish network connections from
-// the guest module.
+// Network configures the network namespace exposed to the guest module.
 //
-// If not set, the guest module cannot open outbound connections.
-func Dial(dial func(context.Context, string, string) (net.Conn, error)) Option {
-	return func(s *System) {
-		s.ipv4.dialFunc = dial
-		s.ipv6.dialFunc = dial
-		s.unix.dialFunc = dial
-	}
-}
-
-// Listen configures the function used to create listeners accepting connections
-// from the host network and routing them to a listening socket on the guest.
-//
-// The creation of listeners is driven by the guest, when it opens a listening
-// socket, the listen function is invoked with the port number that the socket
-// is bound to in order to create a bridge between the host and guest network.
-//
-// If not set, the guest module cannot accept inbound connections frrom the host
-// network.
-func Listen(listen func(context.Context, string, string) (net.Listener, error)) Option {
-	return func(s *System) {
-		s.ipv4.listenFunc = listen
-		s.ipv6.listenFunc = listen
-		s.unix.listenFunc = listen
-	}
-}
-
-// ListenPacket configures the function used to create datagram sockets on the
-// host network.
-//
-// If not set, the guest module cannot open host datagram sockets.
-func ListenPacket(listenPacket func(context.Context, string, string) (net.PacketConn, error)) Option {
-	return func(s *System) {
-		s.ipv4.listenPacketFunc = listenPacket
-		s.ipv6.listenPacketFunc = listenPacket
-		s.unix.listenPacketFunc = listenPacket
-	}
-}
-
-// IPv4Network configures the network used by the sandbox IPv4 network.
-//
-// Default to "127.0.0.1/8"
-func IPv4Network(ipnet netip.Prefix) Option {
-	return func(s *System) { s.ipv4.ipnet = ipnet }
-}
-
-// IPv6Network configures the network used by the sandbox IPv6 network.
-//
-// Default to "::1/128"
-func IPv6Network(ipnet netip.Prefix) Option {
-	return func(s *System) { s.ipv6.ipnet = ipnet }
+// Default to only exposing a loopback interface.
+func Network(ns Namespace) Option {
+	return func(s *System) { s.netns = ns }
 }
 
 // Resolver configures the name resolver used when the guest attempts to
@@ -157,17 +103,14 @@ type System struct {
 	time   func() time.Time
 	rand   io.Reader
 	files  wasi.FileTable[File]
-	poll   chan struct{}
-	lock   *sync.Mutex
-	stdin  *pipe
-	stdout *pipe
-	stderr *pipe
+	stdin  *os.File
+	stdout *os.File
+	stderr *os.File
 	root   wasi.FD
-	ipv4   ipnet[ipv4]
-	ipv6   ipnet[ipv6]
-	unix   unixnet
 	rslv   ServiceResolver
+	netns  Namespace
 	mounts []mountPoint
+	system
 }
 
 type mountPoint struct {
@@ -182,60 +125,48 @@ const (
 // New creates a new System instance, applying the list of options passed as
 // arguments.
 func New(opts ...Option) *System {
-	lock := new(sync.Mutex)
-	dial := func(context.Context, string, string) (net.Conn, error) {
-		return nil, syscall.ECONNREFUSED
+	s, err := NewSystem(opts...)
+	if err != nil {
+		panic(err)
 	}
-	listen := func(context.Context, string, string) (net.Listener, error) {
-		return nil, syscall.EOPNOTSUPP
-	}
-	listenPacket := func(context.Context, string, string) (net.PacketConn, error) {
-		return nil, syscall.EOPNOTSUPP
-	}
+	return s
+}
 
+func NewSystem(opts ...Option) (*System, error) {
 	s := &System{
-		lock:   lock,
-		stdin:  newPipe(lock),
-		stdout: newPipe(lock),
-		stderr: newPipe(lock),
-		poll:   make(chan struct{}, 1),
-		root:   none,
-		rslv:   defaultResolver{},
-
-		ipv4: ipnet[ipv4]{
-			ipnet:            netip.PrefixFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), 8),
-			dialFunc:         dial,
-			listenFunc:       listen,
-			listenPacketFunc: listenPacket,
-		},
-
-		ipv6: ipnet[ipv6]{
-			ipnet:            netip.PrefixFrom(netip.AddrFrom16([16]byte{15: 1}), 128),
-			dialFunc:         dial,
-			listenFunc:       listen,
-			listenPacketFunc: listenPacket,
-		},
-
-		unix: unixnet{
-			dialFunc:         dial,
-			listenFunc:       listen,
-			listenPacketFunc: listenPacket,
-		},
+		root: none,
+		rslv: defaultResolver{},
 	}
 
 	for _, opt := range opts {
 		opt(s)
 	}
 
-	s.files.Preopen(input{s.stdin}, "/dev/stdin", wasi.FDStat{
+	if err := s.init(); err != nil {
+		return nil, err
+	}
+
+	stdin, stdout, stderr, err := stdio()
+	if err != nil {
+		s.Close(context.Background())
+		return nil, err
+	}
+	s.stdin = os.NewFile(stdin[1], "")
+	s.stdout = os.NewFile(stdout[0], "")
+	s.stderr = os.NewFile(stderr[0], "")
+	setNonblock(stdin[0], false)
+	setNonblock(stdout[1], false)
+	setNonblock(stderr[1], false)
+
+	s.files.Preopen(&input{fd: stdin[0]}, "/dev/stdin", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDWriteRight,
 	})
-	s.files.Preopen(output{s.stdout}, "/dev/stdout", wasi.FDStat{
+	s.files.Preopen(&output{fd: stdout[1]}, "/dev/stdout", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDReadRight,
 	})
-	s.files.Preopen(output{s.stderr}, "/dev/stderr", wasi.FDStat{
+	s.files.Preopen(&output{fd: stderr[1]}, "/dev/stderr", wasi.FDStat{
 		FileType:   wasi.CharacterDeviceType,
 		RightsBase: wasi.TTYRights & ^wasi.FDReadRight,
 	})
@@ -250,7 +181,8 @@ func New(opts ...Option) *System {
 			wasi.FDFlags(0),
 		)
 		if errno != wasi.ESUCCESS {
-			panic(&fs.PathError{Op: "open", Path: mount.path, Err: errno.Syscall()})
+			s.Close(context.Background())
+			return nil, &fs.PathError{Op: "open", Path: mount.path, Err: errno.Syscall()}
 		}
 		fd := s.files.Preopen(f, mount.path, wasi.FDStat{
 			FileType:         wasi.DirectoryType,
@@ -268,21 +200,28 @@ func New(opts ...Option) *System {
 	if s.time != nil {
 		s.epoch = s.time()
 	}
-	return s
+	return s, nil
+}
+
+func (s *System) Close(ctx context.Context) error {
+	s.close()
+	s.stdin.Close()
+	// TODO: should we close stdio files when the system is closed? One issue
+	// with doing so is it may prevent reading buffered data from stdout/stderr
+	// that could have been consumed from the io.Reader exposed by the system.
+	return s.files.Close(ctx)
 }
 
 func (s *System) PreopenFD(fd wasi.FD) { s.files.PreopenFD(fd) }
 
-func (s *System) Close(ctx context.Context) error { return s.files.Close(ctx) }
-
 // Stdin returns a writer to the standard input of the guest module.
-func (s *System) Stdin() io.WriteCloser { return inputWriteCloser{s.stdin} }
+func (s *System) Stdin() io.WriteCloser { return s.stdin }
 
 // Stdout returns a writer to the standard output of the guest module.
-func (s *System) Stdout() io.ReadCloser { return outputReadCloser{s.stdout} }
+func (s *System) Stdout() io.ReadCloser { return s.stdout }
 
 // Stderr returns a writer to the standard output of the guest module.
-func (s *System) Stderr() io.ReadCloser { return outputReadCloser{s.stderr} }
+func (s *System) Stderr() io.ReadCloser { return s.stderr }
 
 // FS returns a fs.FS exposing the file system mounted to the guest module.
 func (s *System) FS() fs.FS {
@@ -551,14 +490,6 @@ func (s *System) SockShutdown(ctx context.Context, fd wasi.FD, flags wasi.SDFlag
 }
 
 func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.SocketType, proto wasi.Protocol, rightsBase, rightsInheriting wasi.Rights) (wasi.FD, wasi.Errno) {
-	switch proto {
-	case wasi.IPProtocol:
-	case wasi.TCPProtocol:
-	case wasi.UDPProtocol:
-	default:
-		return none, wasi.EPROTOTYPE
-	}
-
 	if st == wasi.AnySocket {
 		switch proto {
 		case wasi.TCPProtocol:
@@ -566,62 +497,58 @@ func (s *System) SockOpen(ctx context.Context, pf wasi.ProtocolFamily, st wasi.S
 		case wasi.UDPProtocol:
 			st = wasi.DatagramSocket
 		default:
-			return none, wasi.EPROTOTYPE
+			return none, wasi.EPROTONOSUPPORT
 		}
 	}
 
-	var support bool
+	var protocol Protocol
+	switch proto {
+	case wasi.IPProtocol:
+	case wasi.TCPProtocol:
+		protocol = TCP
+	case wasi.UDPProtocol:
+		protocol = UDP
+	default:
+		return none, wasi.EPROTONOSUPPORT
+	}
+
+	var family Family
 	switch pf {
 	case wasi.InetFamily:
-		support = s.ipv4.supports(protocol(proto))
+		family = INET
 	case wasi.Inet6Family:
-		support = s.ipv6.supports(protocol(proto))
+		family = INET6
 	case wasi.UnixFamily:
-		support = s.unix.supports(protocol(proto))
-	}
-	if !support {
-		return none, wasi.EPROTONOSUPPORT
-	}
-	if !socktype(st).supports(protocol(proto)) {
-		return none, wasi.EPROTONOSUPPORT
-	}
-
-	if proto == wasi.IPProtocol {
-		switch pf {
-		case wasi.InetFamily, wasi.Inet6Family:
-			if st == wasi.StreamSocket {
-				proto = wasi.TCPProtocol
-			} else {
-				proto = wasi.UDPProtocol
-			}
-		}
+		family = UNIX
+	default:
+		return none, wasi.EAFNOSUPPORT
 	}
 
 	if s.files.MaxOpenFiles > 0 && s.files.NumOpenFiles() >= s.files.MaxOpenFiles {
 		return none, wasi.ENFILE
 	}
 
-	var socket File
-	switch pf {
-	case wasi.InetFamily:
-		socket = newSocket[ipv4](&s.ipv4, socktype(st), protocol(proto), s.lock, s.poll)
-	case wasi.Inet6Family:
-		socket = newSocket[ipv6](&s.ipv6, socktype(st), protocol(proto), s.lock, s.poll)
-	case wasi.UnixFamily:
-		socket = newSocket[unix](&s.unix, socktype(st), protocol(proto), s.lock, s.poll)
-	default:
-		return none, wasi.EAFNOSUPPORT
-	}
-
+	var sockType Socktype
 	var fileType wasi.FileType
 	switch st {
 	case wasi.StreamSocket:
 		fileType = wasi.SocketStreamType
+		sockType = STREAM
 	case wasi.DatagramSocket:
 		fileType = wasi.SocketDGramType
+		sockType = DGRAM
 	}
 
-	newFD := s.files.Register(socket, wasi.FDStat{
+	if s.netns == nil {
+		return ^wasi.FD(0), wasi.EAFNOSUPPORT
+	}
+
+	socket, err := s.netns.Socket(family, sockType, protocol)
+	if err != nil {
+		return ^wasi.FD(0), wasi.MakeErrno(err)
+	}
+
+	newFD := s.files.Register(&wasiSocket{socket: socket}, wasi.FDStat{
 		FileType:         fileType,
 		RightsBase:       rightsBase,
 		RightsInheriting: rightsInheriting,
@@ -841,174 +768,303 @@ func (s *System) SockAddressInfo(ctx context.Context, name, service string, hint
 	return n, wasi.ESUCCESS
 }
 
-type timeout struct {
-	duration time.Duration
-	subindex int
-}
-
-func (s *System) PollOneOff(ctx context.Context, subscriptions []wasi.Subscription, events []wasi.Event) (int, wasi.Errno) {
-	if len(subscriptions) == 0 || len(events) < len(subscriptions) {
-		return 0, wasi.EINVAL
-	}
-	events = events[:len(subscriptions)]
-	for i := range events {
-		events[i] = wasi.Event{}
-	}
-
-	numEvents, timeout, errno := s.pollOneOffScatter(subscriptions, events)
-	if errno != wasi.ESUCCESS {
-		return numEvents, errno
-	}
-	if numEvents == 0 && timeout.duration != 0 {
-		s.pollOneOffWait(ctx, subscriptions, events, timeout)
-	}
-	s.pollOneOffGather(subscriptions, events)
-	// Clear the event in case it was set after ctx.Done() or deadline
-	// triggered.
-	select {
-	case <-s.poll:
-	default:
-	}
-
-	n := 0
-	for _, e := range events {
-		if e.EventType != 0 {
-			e.EventType--
-			events[n] = e
-			n++
-		}
-	}
-	return n, wasi.ESUCCESS
-}
-
-func (s *System) pollOneOffWait(ctx context.Context, subscriptions []wasi.Subscription, events []wasi.Event, timeout timeout) {
-	var deadline <-chan time.Time
-	if timeout.duration > 0 {
-		t := time.NewTimer(timeout.duration)
-		defer t.Stop()
-		deadline = t.C
-	}
-	select {
-	case <-s.poll:
-	case <-deadline:
-		events[timeout.subindex] = makePollEvent(subscriptions[timeout.subindex])
-	case <-ctx.Done():
-		panic(ctx.Err())
-	}
-}
-
-func (s *System) pollOneOffScatter(subscriptions []wasi.Subscription, events []wasi.Event) (numEvents int, timeout timeout, errno wasi.Errno) {
-	_ = events[:len(subscriptions)]
-
-	timeout.duration = -1
-	var unixEpoch, now time.Time
-	if s.time != nil {
-		unixEpoch, now = time.Unix(0, 0), s.time()
-	}
-
-	setTimeout := func(i int, d time.Duration) {
-		if d < 0 {
-			d = 0
-		}
-		if timeout.duration < 0 || d < timeout.duration {
-			timeout.subindex = i
-			timeout.duration = d
-		}
-	}
-
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	for i, sub := range subscriptions {
-		switch sub.EventType {
-		case wasi.ClockEvent:
-			clock := sub.GetClock()
-
-			var epoch time.Time
-			switch clock.ID {
-			case wasi.Realtime:
-				epoch = unixEpoch
-			case wasi.Monotonic:
-				epoch = s.epoch
-			}
-			if epoch.IsZero() {
-				events[i] = makePollError(sub, wasi.ENOTSUP)
-				numEvents++
-				continue
-			}
-			duration := time.Duration(clock.Timeout)
-			if clock.Precision > 0 {
-				duration += time.Duration(clock.Precision)
-				duration -= 1
-			}
-			if (clock.Flags & wasi.Abstime) != 0 {
-				deadline := epoch.Add(duration)
-				setTimeout(i, deadline.Sub(now))
-			} else {
-				setTimeout(i, duration)
-			}
-
-		case wasi.FDReadEvent, wasi.FDWriteEvent:
-			// TODO: check read/write rights
-			f, _, errno := s.files.LookupFD(sub.GetFDReadWrite().FD, 0)
-			if errno != wasi.ESUCCESS {
-				events[i] = makePollError(sub, errno)
-				numEvents++
-			} else if f.FDPoll(sub.EventType, s.poll) {
-				events[i] = makePollEvent(sub)
-				numEvents++
-			}
-
-		default:
-			events[i] = makePollError(sub, wasi.ENOTSUP)
-			numEvents++
-		}
-	}
-
-	if timeout.duration == 0 {
-		events[timeout.subindex] = makePollEvent(subscriptions[timeout.subindex])
-		numEvents++
-	}
-
-	return numEvents, timeout, wasi.ESUCCESS
-}
-
-func (s *System) pollOneOffGather(subscriptions []wasi.Subscription, events []wasi.Event) {
-	_ = events[:len(subscriptions)]
-
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	for i, sub := range subscriptions {
-		switch sub.EventType {
-		case wasi.FDReadEvent, wasi.FDWriteEvent:
-			f, _, _ := s.files.LookupFD(sub.GetFDReadWrite().FD, 0)
-			if f == nil {
-				continue
-			}
-			if !f.FDPoll(sub.EventType, nil) {
-				continue
-			}
-			events[i] = makePollEvent(sub)
-		}
-	}
-}
-
-func makePollEvent(sub wasi.Subscription) wasi.Event {
-	return wasi.Event{
-		UserData:  sub.UserData,
-		EventType: sub.EventType + 1,
-	}
-}
-
-func makePollError(sub wasi.Subscription, errno wasi.Errno) wasi.Event {
-	return wasi.Event{
-		UserData:  sub.UserData,
-		EventType: sub.EventType + 1,
-		Errno:     errno,
-	}
-}
-
 var (
 	_ wasi.System = (*System)(nil)
 )
+
+// Dial opens a connection to a listening socket on the guest module network.
+//
+// This function has a signature that matches the one commonly used in the
+// Go standard library as a hook to customize how and where network connections
+// are estalibshed. The intent is for this function to be used when the host
+// needs to establish a connection to the guest, maybe indirectly such as using
+// a http.Transport and setting this method as the transport's dial function.
+func (s *System) Dial(ctx context.Context, network, address string) (net.Conn, error) {
+	c, err := s.dial(ctx, network, address)
+	if err != nil {
+		return nil, &net.OpError{
+			Op:  "dial",
+			Net: network,
+			Err: err,
+		}
+	}
+	return c, nil
+}
+
+func (s *System) dial(ctx context.Context, network, address string) (net.Conn, error) {
+	if s.netns == nil {
+		return nil, net.UnknownNetworkError(network)
+	}
+
+	addr, err := parseDial(network, address)
+	if err != nil {
+		return nil, err
+	}
+
+	socket, err := s.netns.Socket(SockaddrFamily(addr), networkType(network), networkProtocol(network))
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if socket != nil {
+			socket.Close()
+		}
+	}()
+	if err := socket.Connect(addr); err != nil {
+		return nil, err
+	}
+	name, err := socket.Name()
+	if err != nil {
+		return nil, err
+	}
+	peer, err := socket.Peer()
+	if err != nil {
+		return nil, err
+	}
+	conn := &socketConn{
+		sock:  socket,
+		laddr: networkAddress(network, name),
+		raddr: networkAddress(network, peer),
+	}
+	socket = nil
+	return conn, nil
+}
+
+// Listen opens a listening socket on the network stack of the guest module,
+// returning a net.Listener that the host can use to receive connections to the
+// given network address.
+//
+// The returned listener does not exist in the guest module file table, which
+// means that the guest cannot shut it down, allowing the host ot have full
+// control over the lifecycle of the underlying socket.
+func (s *System) Listen(ctx context.Context, network, address string) (net.Listener, error) {
+	l, err := s.listen(ctx, network, address)
+	if err != nil {
+		return nil, &net.OpError{
+			Op:  "listen",
+			Net: network,
+			Err: err,
+		}
+	}
+	return l, nil
+}
+
+func (s *System) listen(ctx context.Context, network, address string) (net.Listener, error) {
+	if s.netns == nil {
+		return nil, net.UnknownNetworkError(network)
+	}
+	addr, err := parseListen(network, address)
+	if err != nil {
+		return nil, err
+	}
+	socket, err := s.netns.Socket(SockaddrFamily(addr), networkType(network), networkProtocol(network))
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if socket != nil {
+			socket.Close()
+		}
+	}()
+	if err := socket.Bind(addr); err != nil {
+		return nil, err
+	}
+	if err := socket.Listen(128); err != nil {
+		return nil, err
+	}
+	name, err := socket.Name()
+	if err != nil {
+		return nil, err
+	}
+	listener := &socketListener{
+		sock: socket,
+		addr: networkAddress(network, name),
+	}
+	socket = nil
+	return listener, nil
+}
+
+// ListenPacket is like Listen but for datagram connections.
+//
+// The supported networks are "udp", "udp4", and "udp6".
+func (s *System) ListenPacket(ctx context.Context, network, address string) (net.PacketConn, error) {
+	c, err := s.listenPacket(ctx, network, address)
+	if err != nil {
+		return nil, &net.OpError{
+			Op:  "listen",
+			Net: network,
+			Err: err,
+		}
+	}
+	return c, nil
+}
+
+func (s *System) listenPacket(ctx context.Context, network, address string) (net.PacketConn, error) {
+	if s.netns == nil {
+		return nil, net.UnknownNetworkError(network)
+	}
+	addr, err := parseListen(network, address)
+	if err != nil {
+		return nil, err
+	}
+	socket, err := s.netns.Socket(SockaddrFamily(addr), networkType(network), networkProtocol(network))
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if socket != nil {
+			socket.Close()
+		}
+	}()
+	if err := socket.Bind(addr); err != nil {
+		return nil, err
+	}
+	name, err := socket.Name()
+	if err != nil {
+		return nil, err
+	}
+	conn := &socketConn{
+		sock:  socket,
+		laddr: networkAddress(network, name),
+	}
+	socket = nil
+	return conn, nil
+}
+
+func parseDial(network, address string) (Sockaddr, error) {
+	switch network {
+	case "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6":
+		addr, port, err := parseAddrPort(network, address)
+		if err != nil {
+			return nil, &net.ParseError{
+				Type: "connect address",
+				Text: address,
+			}
+		}
+		if port == 0 {
+			return nil, &net.AddrError{
+				Err:  "missing port in connect address",
+				Addr: address,
+			}
+		}
+		if addr.Is4() {
+			return &SockaddrInet4{Addr: addr.As4(), Port: int(port)}, nil
+		} else {
+			return &SockaddrInet6{Addr: addr.As16(), Port: int(port)}, nil
+		}
+	case "unix", "unixgram":
+		return &SockaddrUnix{Name: address}, nil
+	default:
+		return nil, net.UnknownNetworkError(network)
+	}
+}
+
+func parseListen(network, address string) (Sockaddr, error) {
+	switch network {
+	case "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6":
+		addr, port, err := parseAddrPort(network, address)
+		if err != nil {
+			return nil, &net.ParseError{
+				Type: "listen address",
+				Text: address,
+			}
+		}
+		if addr.Is4() {
+			return &SockaddrInet4{Addr: addr.As4(), Port: int(port)}, nil
+		} else {
+			return &SockaddrInet6{Addr: addr.As16(), Port: int(port)}, nil
+		}
+	case "unix", "unixgram":
+		return &SockaddrUnix{Name: address}, nil
+	default:
+		return nil, net.UnknownNetworkError(network)
+	}
+}
+
+func parseAddrPort(network, address string) (addr netip.Addr, port uint16, err error) {
+	h, p, err := net.SplitHostPort(address)
+	if err != nil {
+		return addr, port, err
+	}
+
+	// Allow omitting the address to let the system select the best match.
+	if h == "" {
+		if network == "tcp6" || network == "udp6" {
+			h = "[::]"
+		} else {
+			h = "0.0.0.0"
+		}
+	}
+
+	addrPort, err := netip.ParseAddrPort(net.JoinHostPort(h, p))
+	if err != nil {
+		return addr, port, err
+	}
+
+	addr = addrPort.Addr()
+	port = addrPort.Port()
+
+	if addr.Is4() {
+		if network == "tcp6" || network == "udp6" {
+			err = net.InvalidAddrError(address)
+		}
+	} else {
+		if network == "tcp4" || network == "udp4" {
+			err = net.InvalidAddrError(address)
+		}
+	}
+	return addr, port, err
+}
+
+func networkType(network string) Socktype {
+	switch network {
+	case "unix", "tcp", "tcp4", "tcp6":
+		return STREAM
+	default:
+		return DGRAM
+	}
+}
+
+func networkProtocol(network string) Protocol {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		return TCP
+	case "udp", "udp4", "udp6":
+		return UDP
+	default:
+		return 0
+	}
+}
+
+func networkAddress(network string, sa Sockaddr) net.Addr {
+	var addrPort netip.AddrPort
+	switch a := sa.(type) {
+	case *SockaddrInet4:
+		addrPort = addrPortFromInet4(a)
+	case *SockaddrInet6:
+		addrPort = addrPortFromInet6(a)
+	case *SockaddrUnix:
+		return &net.UnixAddr{
+			Net:  network,
+			Name: a.Name,
+		}
+	default:
+		return nil
+	}
+	addr := addrPort.Addr()
+	port := addrPort.Port()
+	switch networkType(network) {
+	case STREAM:
+		return &net.TCPAddr{
+			Port: int(port),
+			IP:   addr.AsSlice(),
+			Zone: addr.Zone(),
+		}
+	default:
+		return &net.UDPAddr{
+			Port: int(port),
+			IP:   addr.AsSlice(),
+			Zone: addr.Zone(),
+		}
+	}
+}

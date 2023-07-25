@@ -1,17 +1,17 @@
-package network_test
+package sandbox_test
 
 import (
 	"net"
 	"testing"
 
 	"github.com/stealthrocket/timecraft/internal/assert"
-	"github.com/stealthrocket/timecraft/internal/network"
+	"github.com/stealthrocket/timecraft/internal/sandbox"
 )
 
 func TestHostNetwork(t *testing.T) {
 	tests := []struct {
 		scenario string
-		function func(*testing.T, network.Namespace)
+		function func(*testing.T, sandbox.Namespace)
 	}{
 		{
 			scenario: "a host network namespace has at least one loopback interface",
@@ -51,12 +51,12 @@ func TestHostNetwork(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.scenario, func(t *testing.T) {
-			test.function(t, network.Host())
+			test.function(t, sandbox.Host())
 		})
 	}
 }
 
-func testHostNetworkInterface(t *testing.T, ns network.Namespace) {
+func testHostNetworkInterface(t *testing.T, ns sandbox.Namespace) {
 	ifaces, err := ns.Interfaces()
 	assert.OK(t, err)
 

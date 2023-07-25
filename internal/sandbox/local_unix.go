@@ -1,4 +1,4 @@
-package network
+package sandbox
 
 import (
 	"context"
@@ -10,18 +10,31 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"syscall"
+	"time"
 
-	"github.com/stealthrocket/timecraft/internal/htls"
 	"golang.org/x/sys/unix"
 )
 
 func (ns *LocalNamespace) socket(family Family, socktype Socktype, protocol Protocol) (*localSocket, error) {
+	if protocol == 0 {
+		switch socktype {
+		case STREAM:
+			protocol = TCP
+		case DGRAM:
+			protocol = UDP
+		default:
+			return nil, EPROTONOSUPPORT
+		}
+	}
+
 	socket := &localSocket{
 		ns:       ns,
 		family:   family,
 		socktype: socktype,
 		protocol: protocol,
 	}
+
 	fds, err := socketpair(int(UNIX), int(socktype), 0)
 	if err != nil {
 		return nil, err
@@ -39,6 +52,7 @@ const (
 	connected
 	tunneled
 	listening
+	nonblocking
 )
 
 func (state localSocketState) is(s localSocketState) bool {
@@ -49,26 +63,61 @@ func (state *localSocketState) set(s localSocketState) {
 	*state |= s
 }
 
+func (state *localSocketState) unset(s localSocketState) {
+	*state &= ^s
+}
+
 const (
+	// Size of the buffer for addresses written on sockets: 20 is the minimum
+	// size needed to store an IPv6 address, 2 bytes port number, and 2 bytes
+	// address family. IPv4 addresses only use 8 bytes of the buffer but we
+	// still serialize 20 bytes because working with fixed-size buffers gratly
+	// simplifies the implementation.
 	addrBufSize = 20
 )
 
 type localSocket struct {
+	// Immutable properties of the socket; those are configured when the
+	// socket is created, whether directly or when accepting on a server.
 	ns       *LocalNamespace
 	family   Family
 	socktype Socktype
 	protocol Protocol
 
+	// State of the socket: its pair of file descriptors (fd0=read, fd1=write)
+	// and a bit set tracking how the application configured it (whether it is
+	// connected, listening, etc...).
 	fd0   socketFD
 	fd1   socketFD
 	state localSocketState
 
+	// The socket name and peer address; the name is set when the socket is
+	// bound to a network interface, the peer is set when connecting the socket.
+	//
+	// We use atomic values because namespace of the same network may access the
+	// socket concurrently and read those fields.
 	name atomic.Value
 	peer atomic.Value
 
+	// Blocking sockets are implemented by lazily creating an *os.File on the
+	// first time a socket enters a blocking operation to integrate with the Go
+	// net poller using syscall.RawConn values constructed from those files.
+	mutex    sync.Mutex
+	file0    *os.File
+	file1    *os.File
+	rtimeout time.Duration
+	wtimeout time.Duration
+
+	// Buffers used for socket operations, retaining them reduces the number of
+	// heap allocation on busy code paths.
 	iovs    [][]byte
 	addrBuf [addrBufSize]byte
 
+	// The feilds below are used to manage bridges to external networks when the
+	// parent namespace was configured with a dial or listen function.
+	//
+	// The error channel receives errors from the background goroutines passing
+	// data back and forth between the socket and the external connections.
 	conn   net.PacketConn
 	lstn   net.Listener
 	htls   chan<- string
@@ -102,11 +151,19 @@ func (s *localSocket) Type() Socktype {
 	return s.socktype
 }
 
-func (s *localSocket) Fd() int {
-	return s.fd0.load()
+func (s *localSocket) Fd() uintptr {
+	return uintptr(s.fd0.load())
+}
+
+func (s *localSocket) File() *os.File {
+	f, _ := s.socketFile0()
+	return f
 }
 
 func (s *localSocket) Close() error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	if s.state.is(bound) {
 		switch addr := s.name.Load().(type) {
 		case *SockaddrInet4:
@@ -114,6 +171,16 @@ func (s *localSocket) Close() error {
 		case *SockaddrInet6:
 			s.ns.unlinkInet6(s, addr)
 		}
+	}
+
+	// When the socket was used in blocking mode, it lazily created an os.File
+	// from a duplicate of its file descriptor in order to integrate with the
+	// Go net poller.
+	if s.file0 != nil {
+		s.file0.Close()
+	}
+	if s.file1 != nil {
+		s.file1.Close()
 	}
 
 	// First close the socket pair; if there are background goroutines managing
@@ -273,7 +340,7 @@ func (s *localSocket) listenPacket() error {
 		return err
 	}
 
-	network := s.protocol.Network()
+	network := s.network()
 	address := s.listenAddress()
 
 	conn, err := s.ns.listenPacket(context.TODO(), network, address)
@@ -317,10 +384,7 @@ func (s *localSocket) listenPacket() error {
 			iovs[0] = addrBuf[:]
 			iovs[1] = buffer[:n]
 
-			_, err = ignoreEINTR2(func() (int, error) {
-				return unix.SendmsgBuffers(sendSocketFd, iovs[:], nil, nil, 0)
-			})
-			if err != nil {
+			if _, err := sendto(sendSocketFd, iovs[:], nil, 0); err != nil {
 				errs <- err
 				return
 			}
@@ -330,7 +394,7 @@ func (s *localSocket) listenPacket() error {
 }
 
 func (s *localSocket) listen() error {
-	network := s.protocol.Network()
+	network := s.network()
 	address := s.listenAddress()
 
 	l, err := s.ns.listen(context.TODO(), network, address)
@@ -467,7 +531,7 @@ func (s *localSocket) Connect(addr Sockaddr) error {
 	s.peer.Store(addr)
 	s.state.set(connected)
 
-	if s.socktype != DGRAM {
+	if s.socktype != DGRAM && s.state.is(nonblocking) {
 		return EINPROGRESS
 	}
 	return nil
@@ -484,7 +548,7 @@ func (s *localSocket) connect(serverFd int, addr any) error {
 	// TODO: remove the heap allocation by implementing UnixRights to output to
 	// a stack buffer.
 	rights := unix.UnixRights(fd1)
-	if err := unix.Sendmsg(serverFd, addrBuf[:], rights, nil, 0); err != nil {
+	if err := sendmsg(serverFd, addrBuf[:], rights, nil, 0); err != nil {
 		return ECONNREFUSED
 	}
 	s.fd1.close()
@@ -544,7 +608,7 @@ func (s *localSocket) dial(addr Sockaddr) error {
 	errs := make(chan error, 1)
 	s.errs = errs
 
-	network := s.protocol.Network()
+	network := s.network()
 	address := SockaddrAddrPort(addr).String()
 	go func() {
 		defer close(errs)
@@ -582,7 +646,34 @@ func (s *localSocket) dial(addr Sockaddr) error {
 
 	s.peer.Store(addr)
 	s.state.set(connected | tunneled)
-	return EINPROGRESS
+
+	if s.state.is(nonblocking) {
+		return EINPROGRESS
+	}
+	return nil
+}
+
+func (s *localSocket) network() string {
+	switch s.socktype {
+	case STREAM:
+		switch s.family {
+		case INET:
+			return "tcp4"
+		case INET6:
+			return "tcp6"
+		default:
+			return "unix"
+		}
+	default: // DGRAM
+		switch s.family {
+		case INET:
+			return "udp4"
+		case INET6:
+			return "udp6"
+		default:
+			return "unixgram"
+		}
+	}
 }
 
 func (s *localSocket) Accept() (Socket, Sockaddr, error) {
@@ -595,7 +686,7 @@ func (s *localSocket) Accept() (Socket, Sockaddr, error) {
 	if !s.state.is(listening) {
 		return nil, nil, EINVAL
 	}
-	if err := s.getError(); err != nil {
+	if err := s.Error(); err != nil {
 		return nil, nil, err
 	}
 
@@ -607,24 +698,35 @@ func (s *localSocket) Accept() (Socket, Sockaddr, error) {
 		state:    bound | accepted | connected,
 	}
 
+	var err error
 	var oobn int
 	var oobBuf [24]byte
 	var addrBuf [addrBufSize]byte
-	for {
-		var err error
-		// TOOD: remove the heap allocation for the receive address by
-		// implementing recvmsg and using the stack-allocated socket address
-		// buffer.
-		_, oobn, _, _, err = unix.Recvmsg(fd, addrBuf[:], oobBuf[:unix.CmsgSpace(1)], 0)
-		if err == nil {
-			break
-		}
-		if err != EINTR {
+
+	cmsg := oobBuf[:unix.CmsgSpace(1)]
+	if s.state.is(nonblocking) {
+		_, oobn, _, _, err = recvmsg(fd, addrBuf[:], cmsg, 0)
+	} else {
+		rawConn, err := s.syscallConn0()
+		if err != nil {
 			return nil, nil, err
 		}
-		if oobn > 0 {
-			break
+		rawConnErr := rawConn.Read(func(fd uintptr) bool {
+			_, oobn, _, _, err = recvmsg(int(fd), addrBuf[:], cmsg, 0)
+			if err != nil {
+				if !s.state.is(nonblocking) {
+					err = nil
+					return false
+				}
+			}
+			return true
+		})
+		if err == nil {
+			err = rawConnErr
 		}
+	}
+	if err != nil {
+		return nil, nil, handleSocketIOError(err)
 	}
 
 	// TOOD: remove the heap allocation for the return value by implementing
@@ -633,6 +735,12 @@ func (s *localSocket) Accept() (Socket, Sockaddr, error) {
 	msgs, err := unix.ParseSocketControlMessage(oobBuf[:oobn])
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(msgs) == 0 {
+		return nil, nil, ECONNABORTED
+	}
+	if len(msgs) > 1 {
+		println("BUG: accept received fmore than one file descriptor")
 	}
 
 	// TODO: remove the heap allocation for the return fd slice by implementing
@@ -697,7 +805,7 @@ func (s *localSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, er
 	if s.state.is(listening) {
 		return -1, 0, nil, EINVAL
 	}
-	if err := s.getError(); err != nil {
+	if err := s.Error(); err != nil {
 		return -1, 0, nil, err
 	}
 	if !s.state.is(bound) {
@@ -714,35 +822,54 @@ func (s *localSocket) RecvFrom(iovs [][]byte, flags int) (int, int, Sockaddr, er
 		defer clearIOVecs(iovs)
 	}
 
-	// TODO: remove the heap allocation that happens for the socket address by
-	// implementing recvfrom(2) and using a cached socket address for connected
-	// sockets.
+	if s.state.is(nonblocking) {
+		for {
+			n, rflags, addr, err := recvfrom(int(fd), iovs, flags)
+			return s.handleRecvFrom(n, rflags, addr, err)
+		}
+	}
+
+	rawConn, err := s.syscallConn0()
+	if err != nil {
+		return -1, 0, nil, err
+	}
+
+	var n, rflags int
+	var addr Sockaddr
 	for {
-		n, _, rflags, _, err := unix.RecvmsgBuffers(fd, iovs, nil, flags)
-		if err == EINTR {
-			if n == 0 {
-				continue
+		rawConnErr := rawConn.Read(func(fd uintptr) bool {
+			n, rflags, addr, err = recvfrom(int(fd), iovs, flags)
+			if err != EAGAIN {
+				return true
 			}
 			err = nil
+			return false
+		})
+		if err == nil {
+			err = rawConnErr
 		}
+		n, rflags, addr, err = s.handleRecvFrom(n, rflags, addr, err)
+		if n >= 0 || err != nil {
+			return n, rflags, addr, err
+		}
+	}
+}
 
-		var addr Sockaddr
-		if s.socktype == DGRAM && !s.state.is(tunneled) {
-			addr = decodeSockaddr(s.addrBuf)
-			n -= addrBufSize
-			// Connected datagram sockets may receive data from addresses that
-			// they are not connected to, those datagrams should be dropped.
-			if s.state.is(connected) {
-				recvAddrPort := SockaddrAddrPort(addr)
-				peerAddrPort := SockaddrAddrPort(s.peer.Load().(Sockaddr))
-				if recvAddrPort != peerAddrPort {
-					continue
-				}
+func (s *localSocket) handleRecvFrom(n, rflags int, addr Sockaddr, err error) (int, int, Sockaddr, error) {
+	if err == nil && s.socktype == DGRAM && !s.state.is(tunneled) {
+		addr = decodeSockaddr(s.addrBuf)
+		n -= addrBufSize
+		// Connected datagram sockets may receive data from addresses that
+		// they are not connected to, those datagrams should be dropped.
+		if s.state.is(connected) {
+			recvAddrPort := SockaddrAddrPort(addr)
+			peerAddrPort := SockaddrAddrPort(s.peer.Load().(Sockaddr))
+			if recvAddrPort != peerAddrPort {
+				return -1, 0, nil, nil
 			}
 		}
-
-		return n, rflags, addr, err
 	}
+	return n, rflags, addr, handleSocketIOError(err)
 }
 
 func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, error) {
@@ -762,7 +889,7 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 	if !s.state.is(connected) && addr == nil {
 		return -1, ENOTCONN
 	}
-	if err := s.getError(); err != nil {
+	if err := s.Error(); err != nil {
 		return -1, err
 	}
 	if !s.state.is(bound) {
@@ -780,7 +907,7 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 		}
 	}
 
-	sendSocketFd := fd
+	sendSocket, sendSocketFd := s, fd
 	// We only perform a lookup of the peer socket if an address is provided,
 	// which means that the socket is not connected to a particular destination
 	// (it must be a datagram socket). This may result in sending the datagram
@@ -827,7 +954,7 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 			return -1, EHOSTUNREACH
 		}
 		defer peer.fd1.release(peerFd)
-		sendSocketFd = peerFd
+		sendSocket, sendSocketFd = peer, peerFd
 	}
 
 	if s.socktype == DGRAM && !s.state.is(tunneled) {
@@ -839,19 +966,43 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 		defer clearIOVecs(iovs)
 	}
 
-	for {
-		n, err := unix.SendmsgBuffers(sendSocketFd, iovs, nil, nil, flags)
-		if err == EINTR {
-			if n == 0 {
-				continue
+	var n int
+	var err error
+
+	if s.state.is(nonblocking) {
+		n, err = sendto(sendSocketFd, iovs, nil, flags)
+	} else {
+		var rawConn syscall.RawConn
+		// When sending to the socket, we write to fd0 because we want the other
+		// side to receive the data (for connected sockets).
+		//
+		// The other condition happens when writing to datagram sockets, in that
+		// case we write directly to the other end of the destination socket.
+		if sendSocket == s {
+			rawConn, err = sendSocket.syscallConn0()
+		} else {
+			rawConn, err = sendSocket.syscallConn1()
+		}
+		if err != nil {
+			return -1, err
+		}
+		rawConnErr := rawConn.Write(func(fd uintptr) bool {
+			n, err = sendto(int(fd), iovs, nil, flags)
+			if err != EAGAIN {
+				return true
 			}
 			err = nil
+			return false
+		})
+		if err == nil {
+			err = rawConnErr
 		}
-		if n > 0 && addr != nil {
-			n -= addrBufSize
-		}
-		return n, err
 	}
+
+	if n > 0 && addr != nil {
+		n -= addrBufSize
+	}
+	return n, handleSocketIOError(err)
 }
 
 func (s *localSocket) Shutdown(how int) error {
@@ -864,65 +1015,7 @@ func (s *localSocket) Shutdown(how int) error {
 	return shutdown(fd, how)
 }
 
-func (s *localSocket) GetOptInt(level, name int) (int, error) {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return -1, EBADF
-	}
-	defer s.fd0.release(fd)
-	return getsockoptInt(fd, level, name)
-}
-
-func (s *localSocket) GetOptString(level, name int) (string, error) {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return "", EBADF
-	}
-	defer s.fd0.release(fd)
-
-	switch level {
-	case htls.Level:
-		switch name {
-		case htls.ServerName:
-			return "", EINVAL
-		default:
-			return "", ENOPROTOOPT
-		}
-	}
-
-	return getsockoptString(fd, level, name)
-}
-
-func (s *localSocket) SetOptInt(level, name, value int) error {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return EBADF
-	}
-	defer s.fd0.release(fd)
-	return setsockoptInt(fd, level, name, value)
-}
-
-func (s *localSocket) SetOptString(level, name int, value string) error {
-	fd := s.fd0.acquire()
-	if fd < 0 {
-		return EBADF
-	}
-	defer s.fd0.release(fd)
-
-	switch level {
-	case htls.Level:
-		switch name {
-		case htls.ServerName:
-			return s.htlsSetServerName(value)
-		default:
-			return ENOPROTOOPT
-		}
-	}
-
-	return setsockoptString(fd, level, name, value)
-}
-
-func (s *localSocket) getError() error {
+func (s *localSocket) Error() error {
 	select {
 	case err := <-s.errs:
 		return err
@@ -931,25 +1024,159 @@ func (s *localSocket) getError() error {
 	}
 }
 
+func (s *localSocket) IsListening() (bool, error) {
+	return s.state.is(listening), nil
+}
+
+func (s *localSocket) IsNonBlock() (bool, error) {
+	return s.state.is(nonblocking), nil
+}
+
+func (s *localSocket) RecvBuffer() (int, error) {
+	return s.getOptInt(unix.SOL_SOCKET, unix.SO_RCVBUF)
+}
+
+func (s *localSocket) SendBuffer() (int, error) {
+	return s.getOptInt(unix.SOL_SOCKET, unix.SO_SNDBUF)
+}
+
+func (s *localSocket) TCPNoDelay() (bool, error) {
+	return false, EOPNOTSUPP
+}
+
+func (s *localSocket) RecvTimeout() (time.Duration, error) {
+	return s.rtimeout, nil
+}
+
+func (s *localSocket) SendTimeout() (time.Duration, error) {
+	return s.wtimeout, nil
+}
+
+func (s *localSocket) SetNonBlock(nonblock bool) error {
+	if nonblock {
+		s.state.set(nonblocking)
+	} else {
+		s.state.unset(nonblocking)
+	}
+	return nil
+}
+
+func (s *localSocket) SetRecvBuffer(size int) error {
+	return s.setOptInt(unix.SOL_SOCKET, unix.SO_RCVBUF, size)
+}
+
+func (s *localSocket) SetSendBuffer(size int) error {
+	return s.setOptInt(unix.SOL_SOCKET, unix.SO_SNDBUF, size)
+}
+
+func (s *localSocket) SetRecvTimeout(timeout time.Duration) error {
+	s.rtimeout = timeout
+	return nil
+}
+
+func (s *localSocket) SetSendTimeout(timeout time.Duration) error {
+	s.wtimeout = timeout
+	return nil
+}
+
+func (s *localSocket) SetTCPNoDelay(nodelay bool) error {
+	return EOPNOTSUPP
+}
+
+func (s *localSocket) SetTLSServerName(serverName string) (err error) {
+	if s.htls == nil {
+		return EINVAL
+	}
+	s.htls <- serverName
+	s.htlsClear()
+	return nil
+}
+
+func (s *localSocket) getOptInt(level, name int) (int, error) {
+	fd := s.fd0.acquire()
+	if fd < 0 {
+		return -1, EBADF
+	}
+	defer s.fd0.release(fd)
+	return getsockoptInt(fd, level, name)
+}
+
+func (s *localSocket) setOptInt(level, name, value int) error {
+	fd := s.fd0.acquire()
+	if fd < 0 {
+		return EBADF
+	}
+	defer s.fd0.release(fd)
+	return setsockoptInt(fd, level, name, value)
+}
+
 func (s *localSocket) htlsClear() {
 	if s.htls != nil {
 		close(s.htls)
+		s.htls = nil
 	}
 }
 
-func (s *localSocket) htlsSetServerName(hostname string) (err error) {
-	defer func() {
-		if recover() != nil {
-			if s.htls == nil {
-				err = EINVAL
-			} else {
-				err = EISCONN
-			}
-		}
-	}()
-	s.htls <- hostname
-	close(s.htls)
-	return nil
+func (s *localSocket) syscallConn0() (syscall.RawConn, error) {
+	f, err := s.socketFile0()
+	if err != nil {
+		return nil, err
+	}
+	if err := setFileDeadline(f, s.rtimeout, s.wtimeout); err != nil {
+		return nil, err
+	}
+	return f.SyscallConn()
+}
+
+func (s *localSocket) syscallConn1() (syscall.RawConn, error) {
+	f, err := s.socketFile1()
+	if err != nil {
+		return nil, err
+	}
+	if err := setFileDeadline(f, s.rtimeout, s.wtimeout); err != nil {
+		return nil, err
+	}
+	return f.SyscallConn()
+}
+
+func (s *localSocket) socketFile0() (*os.File, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.file0 != nil {
+		return s.file0, nil
+	}
+	fd := s.fd0.acquire()
+	if fd < 0 {
+		return nil, EBADF
+	}
+	defer s.fd0.release(fd)
+	fileFd, err := dup(fd)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(fileFd), "")
+	s.file0 = f
+	return f, nil
+}
+
+func (s *localSocket) socketFile1() (*os.File, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	if s.file1 != nil {
+		return s.file1, nil
+	}
+	fd := s.fd1.acquire()
+	if fd < 0 {
+		return nil, EBADF
+	}
+	defer s.fd1.release(fd)
+	fileFd, err := dup(fd)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(fileFd), "")
+	s.file1 = f
+	return f, nil
 }
 
 func clearIOVecs(iovs [][]byte) {

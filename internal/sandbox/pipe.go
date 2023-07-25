@@ -2,330 +2,105 @@ package sandbox
 
 import (
 	"context"
-	"io"
-	"sync"
-	"sync/atomic"
 
 	"github.com/stealthrocket/wasi-go"
+	wasisys "github.com/stealthrocket/wasi-go/systems/unix"
 )
 
-type channel chan []byte
+func stdio() (stdin, stdout, stderr [2]uintptr, err error) {
+	fds0 := [2]int{-1, -1}
+	fds1 := [2]int{-1, -1}
+	fds2 := [2]int{-1, -1}
 
-func (ch channel) poll(ctx context.Context, flags wasi.FDFlags, done <-chan struct{}) ([]byte, wasi.Errno) {
-	if flags.Has(wasi.NonBlock) {
-		select {
-		case data := <-ch:
-			return data, wasi.ESUCCESS
-		case <-done:
-			return nil, wasi.EBADF
-		default:
-			return nil, wasi.EAGAIN
-		}
-	} else {
-		select {
-		case data := <-ch:
-			return data, wasi.ESUCCESS
-		case <-done:
-			return nil, wasi.EBADF
-		case <-ctx.Done():
-			return nil, wasi.MakeErrno(context.Cause(ctx))
-		}
+	defer func() {
+		closePipe(&fds0)
+		closePipe(&fds1)
+		closePipe(&fds2)
+	}()
+
+	if err = pipe(&fds0); err != nil {
+		return
 	}
-}
-
-func (ch channel) read(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
-	data, errno := ch.poll(ctx, flags, done)
-	if errno != wasi.ESUCCESS {
-		// Make a special case for the error indicating that the done channel
-		// was closed, it must return size=0 and errno=0 to indicate EOF.
-		if errno == wasi.EBADF {
-			errno = wasi.ESUCCESS
-		} else {
-			size = ^wasi.Size(0)
-		}
-		return size, errno
+	if err = pipe(&fds1); err != nil {
+		return
 	}
-	for _, iov := range iovs {
-		n := copy(iov, data)
-		data = data[n:]
-		size += wasi.Size(n)
-		if len(data) == 0 {
-			break
-		}
+	if err = pipe(&fds2); err != nil {
+		return
 	}
-	ev.clear()
-	ch <- data
-	return size, wasi.ESUCCESS
+
+	stdin[0] = uintptr(fds0[0])
+	stdin[1] = uintptr(fds0[1])
+
+	stdout[0] = uintptr(fds1[0])
+	stdout[1] = uintptr(fds1[1])
+
+	stderr[0] = uintptr(fds2[0])
+	stderr[1] = uintptr(fds2[1])
+
+	fds0 = [2]int{-1, -1}
+	fds1 = [2]int{-1, -1}
+	fds2 = [2]int{-1, -1}
+	return
 }
 
-func (ch channel) write(ctx context.Context, iovs []wasi.IOVec, flags wasi.FDFlags, ev *event, done <-chan struct{}) (size wasi.Size, errno wasi.Errno) {
-	data, errno := ch.poll(ctx, flags, done)
-	if errno != wasi.ESUCCESS {
-		return ^wasi.Size(0), errno
-	}
-	for _, iov := range iovs {
-		n := copy(data, iov)
-		data = data[n:]
-		size += wasi.Size(n)
-		if len(data) == 0 {
-			break
-		}
-	}
-	ev.clear()
-	ch <- data
-	return size, wasi.ESUCCESS
-}
-
-type event struct {
-	lock   *sync.Mutex
-	status atomic.Uint32
-	signal chan<- struct{}
-}
-
-const (
-	cleared uint32 = iota
-	ready
-	aborted
-)
-
-func makeEvent(lock *sync.Mutex) event {
-	return event{lock: lock}
-}
-
-func (ev *event) state() uint32 {
-	return ev.status.Load()
-}
-
-func (ev *event) abort() {
-	// Abort the event, causing it to signal its hook (if it has one) and
-	// preventing it from going back to be ready or cleared. After entering
-	// this state, the event will always trigger if polled.
-	ev.status.Store(aborted)
-	ev.trigger()
-}
-
-func (ev *event) clear() {
-	// Clear the event state, which means moving it from ready to clear.
-	// If the event is in the abort state, this function has no effect
-	// since it is not possible to bring an event back from being aborted.
-	ev.status.CompareAndSwap(ready, cleared)
-}
-
-// poll checks if the event has been triggered, and if it didn't it installs
-// the given signal channel to be notified the next time it happens. This method
-// must be called while holding the event lock. Use the synchronize method to
-// acquire the event lock from code paths that do not alreayd own it.
-func (ev *event) poll(signal chan<- struct{}) bool {
-	if ev.status.Load() != cleared {
-		ev.signal = nil
-		return true
-	} else {
-		ev.signal = signal
-		return false
-	}
-}
-
-func (ev *event) trigger() {
-	ev.synchronize(func() {
-		ev.status.CompareAndSwap(cleared, ready)
-		trigger(ev.signal)
-	})
-}
-
-func (ev *event) update(trigger bool) {
-	if trigger {
-		ev.trigger()
-	} else {
-		ev.clear()
-	}
-}
-
-func (ev *event) synchronize(f func()) {
-	synchronize(ev.lock, f)
-}
-
-func synchronize(mu *sync.Mutex, f func()) {
-	if mu != nil {
-		mu.Lock()
-		defer mu.Unlock()
-	}
-	f()
-}
-
-func trigger(signal chan<- struct{}) {
-	if signal != nil {
-		select {
-		case signal <- struct{}{}:
-		default:
-		}
-	}
-}
-
-// pipe is a unidirectional channel allowing data to pass between the host and
-// a guest module.
-type pipe struct {
+type input struct {
 	unimplementedFileMethods
 	unimplementedSocketMethods
-	flags wasi.FDFlags
-	mu    sync.Mutex
-	ch    channel
-	ev    event
-	once  sync.Once
-	done  chan struct{}
+	fd uintptr
 }
 
-func newPipe(lock *sync.Mutex) *pipe {
-	return &pipe{
-		ch:   make(channel),
-		ev:   makeEvent(lock),
-		done: make(chan struct{}),
-	}
+func (in *input) Fd() uintptr {
+	return in.fd
 }
 
-func (p *pipe) close() {
-	p.once.Do(func() { close(p.done); p.ev.abort() })
+func (in *input) FDClose(ctx context.Context) wasi.Errno {
+	return wasisys.FD(in.fd).FDClose(ctx)
 }
 
-func (p *pipe) FDClose(ctx context.Context) wasi.Errno {
-	p.close()
-	return wasi.ESUCCESS
+func (in *input) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
+	return wasisys.FD(in.fd).FDRead(ctx, iovs)
 }
 
-func (p *pipe) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
-	p.flags = flags
-	return wasi.ESUCCESS
-}
-
-func (p *pipe) FDFileStatGet(ctx context.Context) (wasi.FileStat, wasi.Errno) {
-	return wasi.FileStat{FileType: wasi.CharacterDeviceType}, wasi.ESUCCESS
-}
-
-// input allows data to flow from the host to the guest.
-type input struct{ *pipe }
-
-func (in input) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return in.ch.read(ctx, iovs, in.flags, &in.ev, in.done)
-}
-
-func (in input) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
+func (in *input) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
 	return ^wasi.Size(0), wasi.EBADF
 }
 
-func (in input) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
-	return ev == wasi.FDReadEvent && in.ev.poll(ch)
+func (in *input) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
+	return wasisys.FD(in.fd).FDStatSetFlags(ctx, flags)
 }
 
-type inputReadCloser struct {
-	in *pipe
+func (in *input) FDFileStatGet(ctx context.Context) (wasi.FileStat, wasi.Errno) {
+	stat := wasi.FileStat{FileType: wasi.CharacterDeviceType}
+	return stat, wasi.ESUCCESS
 }
 
-func (r inputReadCloser) Close() error {
-	r.in.close()
-	return nil
+type output struct {
+	unimplementedFileMethods
+	unimplementedSocketMethods
+	fd uintptr
 }
 
-func (r inputReadCloser) Read(b []byte) (int, error) {
-	if len(b) == 0 {
-		return 0, nil
-	}
-	ctx := context.Background()
-	flag := wasi.FDFlags(0) // blocking
-	iovs := []wasi.IOVec{b}
-	size, errno := r.in.ch.read(ctx, iovs, flag, &r.in.ev, r.in.done)
-	if errno != wasi.ESUCCESS {
-		return int(size), errno
-	}
-	if size == 0 {
-		return 0, io.EOF
-	}
-	return int(size), nil
+func (out *output) Fd() uintptr {
+	return out.fd
 }
 
-type inputWriteCloser struct {
-	in *pipe
+func (out *output) FDClose(ctx context.Context) wasi.Errno {
+	return wasisys.FD(out.fd).FDClose(ctx)
 }
 
-func (w inputWriteCloser) Close() error {
-	w.in.close()
-	return nil
-}
-
-func (w inputWriteCloser) Write(b []byte) (int, error) {
-	w.in.mu.Lock()
-	defer w.in.mu.Unlock()
-
-	n := 0
-	for n < len(b) {
-		w.in.ev.trigger()
-		select {
-		case w.in.ch <- b[n:]:
-			n = len(b) - len(<-w.in.ch)
-		case <-w.in.done:
-			return n, io.ErrClosedPipe
-		}
-	}
-	return n, nil
-}
-
-// output allows data to flow from the guest to the host.
-type output struct{ *pipe }
-
-func (out output) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
+func (out *output) FDRead(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
 	return ^wasi.Size(0), wasi.EBADF
 }
 
-func (out output) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return out.ch.write(ctx, iovs, out.flags, &out.ev, out.done)
+func (out *output) FDWrite(ctx context.Context, iovs []wasi.IOVec) (wasi.Size, wasi.Errno) {
+	return wasisys.FD(out.fd).FDWrite(ctx, iovs)
 }
 
-func (out output) FDPoll(ev wasi.EventType, ch chan<- struct{}) bool {
-	return ev == wasi.FDWriteEvent && out.ev.poll(ch)
+func (out *output) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
+	return wasisys.FD(out.fd).FDStatSetFlags(ctx, flags)
 }
 
-type outputReadCloser struct {
-	out *pipe
-}
-
-func (r outputReadCloser) Close() error {
-	r.out.close()
-	return nil
-}
-
-func (r outputReadCloser) Read(b []byte) (int, error) {
-	r.out.mu.Lock()
-	defer r.out.mu.Unlock()
-
-	r.out.ev.trigger()
-	select {
-	case r.out.ch <- b:
-		return len(b) - len(<-r.out.ch), nil
-	case <-r.out.done:
-		return 0, io.EOF
-	}
-}
-
-type outputWriteCloser struct {
-	out *pipe
-}
-
-func (w outputWriteCloser) Close() error {
-	w.out.close()
-	return nil
-}
-
-func (w outputWriteCloser) Write(b []byte) (n int, err error) {
-	if len(b) == 0 {
-		return 0, nil
-	}
-	ctx := context.Background()
-	flag := wasi.FDFlags(0) // blocking
-	for n < len(b) {
-		iovs := []wasi.IOVec{b[n:]}
-		size, errno := w.out.ch.write(ctx, iovs, flag, &w.out.ev, w.out.done)
-		n += int(size)
-		if errno != wasi.ESUCCESS {
-			return n, errno
-		}
-	}
-	return n, nil
+func (out *output) FDFileStatGet(ctx context.Context) (wasi.FileStat, wasi.Errno) {
+	stat := wasi.FileStat{FileType: wasi.CharacterDeviceType}
+	return stat, wasi.ESUCCESS
 }

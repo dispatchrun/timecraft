@@ -268,7 +268,7 @@ func (s *TaskScheduler) executeHTTPTask(process *ProcessInfo, task *TaskInfo, re
 		Method: request.Method,
 		URL: &url.URL{
 			Scheme: "http",
-			Host:   net.JoinHostPort("timecraft", strconv.Itoa(request.Port)),
+			Host:   net.JoinHostPort("127.0.0.1", strconv.Itoa(request.Port)),
 			Path:   request.Path,
 		},
 		Header: request.Headers,
@@ -283,7 +283,6 @@ func (s *TaskScheduler) executeHTTPTask(process *ProcessInfo, task *TaskInfo, re
 		s.completeTask(task, err, nil)
 		return
 	}
-
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {

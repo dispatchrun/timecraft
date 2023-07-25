@@ -16,16 +16,7 @@ func runModule(ctx context.Context, runtime wazero.Runtime, compiledModule wazer
 	}
 	defer module.Close(ctx)
 
-	ctx, cancel := context.WithCancelCause(ctx)
-	go func() {
-		_, err := module.ExportedFunction("_start").Call(ctx)
-		module.Close(ctx)
-		cancel(err)
-	}()
-
-	<-ctx.Done()
-
-	err = context.Cause(ctx)
+	_, err = module.ExportedFunction("_start").Call(ctx)
 	switch err {
 	case context.Canceled, context.DeadlineExceeded:
 		err = nil

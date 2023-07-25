@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -58,7 +59,7 @@ func supervisor(ctx context.Context) error {
 					"X-Foo": []string{"bar"},
 				},
 				Body: []byte("foo"),
-				Port: 3000,
+				Port: 3789,
 			},
 		},
 		{
@@ -70,7 +71,7 @@ func supervisor(ctx context.Context) error {
 					"X-Foo": []string{"bar"},
 				},
 				Body: []byte("bar"),
-				Port: 3000,
+				Port: 3789,
 			},
 		},
 	}
@@ -95,24 +96,24 @@ func supervisor(ctx context.Context) error {
 
 	for _, task := range tasks {
 		if task.State != timecraft.Success {
-			panic("task did not succeed")
+			log.Fatalf("task did not succeed: %+v", task)
 		}
 		res, ok := task.Output.(*timecraft.HTTPResponse)
 		if !ok {
-			panic("unexpected task output")
+			log.Fatal("unexpected task output")
 		}
 		req, ok := taskRequests[task.ID]
 		if !ok {
-			panic("invalid task ID")
+			log.Fatal("invalid task ID")
 		}
 		if res.StatusCode != 200 {
-			panic("unexpected response code")
+			log.Fatal("unexpected response code")
 		} else if string(req.Body) != string(res.Body) {
-			panic("unexpected response body")
+			log.Fatal("unexpected response body")
 		} else if res.Headers.Get("X-Timecraft-Task") != string(task.ID) {
-			panic("unexpected response headers")
+			log.Fatal("unexpected response headers")
 		} else if res.Headers.Get("X-Timecraft-Creator") != string(processID) {
-			panic("unexpected response headers")
+			log.Fatal("unexpected response headers")
 		}
 	}
 
@@ -120,7 +121,7 @@ func supervisor(ctx context.Context) error {
 }
 
 func worker() error {
-	return timecraft.ListenAndServe(":3000",
+	return timecraft.ListenAndServe("127.0.0.1:3789",
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer r.Body.Close()
 

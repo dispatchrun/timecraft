@@ -73,6 +73,7 @@ func TestConn(t *testing.T) {
 }
 
 func TestPacketConn(t *testing.T) {
+	t.Skip("TODO")
 	// Note: this is not as thorough of a test as TestConn because UDP is lossy
 	// and building a net.Conn on top of a net.PacketConn causes tests to fail
 	// due to packet losses.

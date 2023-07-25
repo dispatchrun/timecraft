@@ -19,7 +19,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stealthrocket/timecraft/format"
-	"github.com/stealthrocket/timecraft/internal/ipam"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
@@ -45,12 +44,11 @@ type ProcessManager struct {
 	processes map[ProcessID]*ProcessInfo
 	mu        sync.Mutex
 
-	group  *errgroup.Group
+	group  errgroup.Group
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 
-	ipv4 ipam.IPv4Pool
-	ipv6 ipam.IPv6Pool
+	network *sandbox.LocalNetwork
 }
 
 // ProcessID is a process identifier.
@@ -97,11 +95,10 @@ func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runt
 		processes:     map[ProcessID]*ProcessInfo{},
 		adapter:       adapter,
 	}
-	r.group, ctx = errgroup.WithContext(ctx)
 	r.ctx, r.cancel = context.WithCancelCause(ctx)
 
-	ipv4 := ipam.IPv4{172, 16, 0, 0}
-	ipv6 := ipam.IPv6{}
+	ipv4 := [4]byte{172, 16, 0, 0}
+	ipv6 := [16]byte{}
 
 	_, err := rand.Read(ipv6[:])
 	if err != nil {
@@ -111,8 +108,10 @@ func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runt
 	ipv6[14] = 0
 	ipv6[15] = 0
 
-	r.ipv4.Reset(ipv4, ipv4NetMask)
-	r.ipv6.Reset(ipv6, ipv6NetMask)
+	r.network = sandbox.NewLocalNetwork(
+		netip.PrefixFrom(netip.AddrFrom4(ipv4), ipv4NetMask),
+		netip.PrefixFrom(netip.AddrFrom16(ipv6), ipv6NetMask),
+	)
 	return r
 }
 
@@ -139,41 +138,47 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 		return ProcessID{}, err
 	}
 
-	ipv4, ok := pm.ipv4.Get()
-	if !ok {
-		return ProcessID{}, fmt.Errorf("exhausted IPv4 address pool: %s", &pm.ipv4)
-	}
-	ipv6, ok := pm.ipv6.Get()
-	if !ok {
-		return ProcessID{}, fmt.Errorf("exhausted IPv6 address pool: %s", &pm.ipv6)
-	}
-
 	dialer := &net.Dialer{}
 	listen := &net.ListenConfig{}
+	netopts := []sandbox.LocalOption{
+		sandbox.DialFunc(dialer.DialContext),
+	}
+
+	if moduleSpec.HostNetworkBinding {
+		netopts = append(netopts,
+			sandbox.ListenFunc(listen.Listen),
+			sandbox.ListenPacketFunc(listen.ListenPacket),
+		)
+	}
+
+	netns, err := pm.network.CreateNamespace(sandbox.Host(), netopts...)
+	if err != nil {
+		return ProcessID{}, err
+	}
+	success := false
+	defer func() {
+		if !success {
+			netns.Detach()
+		}
+	}()
 
 	options := []sandbox.Option{
 		sandbox.Args(append([]string{wasmName}, moduleSpec.Args...)...),
 		sandbox.Environ(moduleSpec.Env...),
 		sandbox.Time(time.Now),
 		sandbox.Rand(rand.Reader),
-		sandbox.Dial(dialer.DialContext),
 		sandbox.Resolver(net.DefaultResolver),
-		sandbox.IPv4Network(netip.PrefixFrom(netip.AddrFrom4(ipv4), ipv4NetMask)),
-		sandbox.IPv6Network(netip.PrefixFrom(netip.AddrFrom16(ipv6), ipv6NetMask)),
-	}
-
-	if moduleSpec.HostNetworkBinding {
-		options = append(options,
-			sandbox.Listen(listen.Listen),
-			sandbox.ListenPacket(listen.ListenPacket),
-		)
+		sandbox.Network(netns),
 	}
 
 	for _, dir := range moduleSpec.Dirs {
 		options = append(options, sandbox.Mount(dir, sandbox.DirFS(dir)))
 	}
 
-	guest := sandbox.New(options...)
+	guest, err := sandbox.NewSystem(options...)
+	if err != nil {
+		return ProcessID{}, err
+	}
 
 	for _, addr := range moduleSpec.Listens {
 		if err := listenTCP(pm.ctx, guest, addr); err != nil {
@@ -272,8 +277,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 	// Setup a gRPC server for the module so that it can interact with the
 	// timecraft runtime.
 	server := pm.serverFactory.NewServer(pm.ctx, processID, moduleSpec, logSpec)
-	serverAddress := netip.AddrPortFrom(netip.AddrFrom4(ipv4), timecraftServicePort)
-	serverListener, err := guest.Listen(pm.ctx, "tcp", serverAddress.String())
+	serverListener, err := guest.Listen(pm.ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", timecraftServicePort))
 	if err != nil {
 		return ProcessID{}, err
 	}
@@ -309,10 +313,11 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 		moduleSpec.Stderr = io.Discard
 	}
 
+	group := errgroup.Group{}
 	stdout := guest.Stdout()
 	stderr := guest.Stderr()
-	pm.group.Go(func() error { return copyAndClose(moduleSpec.Stdout, stdout) })
-	pm.group.Go(func() error { return copyAndClose(moduleSpec.Stderr, stderr) })
+	group.Go(func() error { return copyAndClose(moduleSpec.Stdout, stdout) })
+	group.Go(func() error { return copyAndClose(moduleSpec.Stderr, stderr) })
 
 	extensions := imports.DetectExtensions(wasmModule)
 	hostModule := wasi_snapshot_preview1.NewHostModule(extensions...)
@@ -326,15 +331,18 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 
 	ctx := wazergo.WithModuleInstance(pm.ctx, wasiModule)
 	ctx, cancel := context.WithCancelCause(ctx)
-
-	ipv4Addr := netip.AddrFrom4(ipv4)
+	// This goroutine waits for the context to be canceled and asynchronously
+	// terminate the process. We do this by killing the sandbox, which causes
+	// the next invocation of PollOneOff to imnmediately terminate the module.
+	// TOOD: the sandbox should terminate on any host call to be more reliable.
+	group.Go(func() error { <-ctx.Done(); guest.Kill(); return nil })
 
 	process := &ProcessInfo{
 		ID:       processID,
 		ParentID: parentID,
-		Addr:     ipv4Addr,
+		// Addr:     ipv4Addr, // FIXME
 		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (conn net.Conn, err error) {
+			DialContext: func(ctx context.Context, network, address string) (conn net.Conn, err error) {
 				// The process isn't necessarily available to take on work immediately.
 				// Retry with exponential backoff when an ECONNREFUSED is encountered.
 				// TODO: make these configurable?
@@ -344,8 +352,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 					maxDelay    = 5 * time.Second
 				)
 				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
-					address := netip.AddrPortFrom(ipv4Addr, 3000)
-					conn, err = guest.Dial(ctx, "tcp", address.String())
+					conn, err = guest.Dial(ctx, network, address)
 					return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT)
 				})
 				return
@@ -368,21 +375,23 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 		delete(pm.processes, processID)
 		pm.mu.Unlock()
 
+		serverListener.Close()
+		server.Close()
+		wasmModule.Close(ctx)
+		wasiModule.Close(ctx)
+
+		_ = group.Wait()
+
 		if logSpec != nil {
 			recordWriter.Flush()
 			logSegment.Close()
 		}
 
-		wasmModule.Close(ctx)
-		wasiModule.Close(ctx)
-
-		system.Close(ctx)
-		server.Close()
-
-		serverListener.Close()
+		netns.Detach()
 		return err
 	})
 
+	success = true
 	return processID, nil
 }
 
