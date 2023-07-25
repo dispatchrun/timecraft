@@ -136,7 +136,7 @@ func (s *System) PollOneOff(ctx context.Context, subscriptions []wasi.Subscripti
 		if s.kill[1].Load() < 0 {
 			// If the kill fd was notified it means the system was killed,
 			// terminate.
-			s.ProcRaise(ctx, wasi.SIGKILL)
+			_ = s.ProcRaise(ctx, wasi.SIGKILL)
 		}
 
 		if timeout.subindex >= 0 && deadline.Before(time.Now()) {

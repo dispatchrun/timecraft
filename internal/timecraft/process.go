@@ -379,7 +379,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		wasmModule.Close(ctx)
 		wasiModule.Close(ctx)
 
-		group.Wait()
+		_ = group.Wait()
 
 		if logSpec != nil {
 			recordWriter.Flush()
