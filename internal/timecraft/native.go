@@ -8,7 +8,6 @@ import (
 
 	"github.com/containerd/go-runc"
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 	shim "gvisor.dev/gvisor/pkg/shim/runsc"
 )
 
@@ -16,7 +15,6 @@ type RunscEngine struct {
 	processes map[ProcessID]*ProcessInfo
 	mu        sync.Mutex
 
-	group  errgroup.Group
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 
@@ -24,12 +22,15 @@ type RunscEngine struct {
 }
 
 const (
-	runscBin  = "runsc"
+	runscBin = "runsc"
+	// TODO: hook with timecraft.Registry
 	runscRoot = "/var/run/timecraft/runsc"
 )
 
-func NewRunscEngine() *RunscEngine {
+// TODO: garbage collect old containers
+func NewRunscEngine(ctx context.Context) *RunscEngine {
 	return &RunscEngine{
+		ctx: ctx,
 		runsc: &shim.Runsc{
 			Command: runscBin,
 			Root:    runscRoot,
@@ -90,5 +91,5 @@ func (e *RunscEngine) WaitAll() error {
 
 // Close the process manager.
 func (e *RunscEngine) Close() error {
-	panic("not implemented") // TODO: Implement
+	return nil
 }
