@@ -30,25 +30,21 @@ import (
 	"github.com/tetratelabs/wazero"
 )
 
-// ProcessManager runs WebAssembly modules.
-//
-// A running WebAssembly module is known as a process. Processes are allowed
-// to spawn other processes. The ProcessManager manages the lifecycle of
-// processes.
-type ProcessManager struct {
-	registry      *timemachine.Registry
-	runtime       wazero.Runtime
-	serverFactory *ServerFactory
-	adapter       func(ProcessID, wasi.System) wasi.System
+type ProcessManager interface {
+	// Start a process following the given specification
+	Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *ProcessID) (ProcessID, error)
 
-	processes map[ProcessID]*ProcessInfo
-	mu        sync.Mutex
+	// Lookup a process by ID.
+	Lookup(processID ProcessID) (process ProcessInfo, ok bool)
 
-	group  errgroup.Group
-	ctx    context.Context
-	cancel context.CancelCauseFunc
+	// Wait for a process to exit.
+	Wait(processID ProcessID) error
 
-	network *sandbox.LocalNetwork
+	// Wait for all processes to exit.
+	WaitAll() error
+
+	// Close the process manager.
+	Close() error
 }
 
 // ProcessID is a process identifier.
@@ -69,8 +65,35 @@ type ProcessInfo struct {
 	// ParentID is the ID of the process that spawned this one (if applicable).
 	ParentID *ProcessID
 
+	// ModuleSpec is the module specification of the process.
+	ModuleSpec ModuleSpec
+
+	// ContainerID used by the runsc engine to retrieve the process.
+	ContainerID string
+
 	ctx    context.Context
 	cancel context.CancelCauseFunc
+}
+
+// WasmEngine runs WebAssembly modules.
+//
+// A running WebAssembly module is known as a process. Processes are allowed
+// to spawn other processes. The ProcessManager manages the lifecycle of
+// processes.
+type WasmEngine struct {
+	registry      *timemachine.Registry
+	runtime       wazero.Runtime
+	serverFactory *ServerFactory
+	adapter       func(ProcessID, wasi.System) wasi.System
+
+	processes map[ProcessID]*ProcessInfo
+	mu        sync.Mutex
+
+	group  errgroup.Group
+	ctx    context.Context
+	cancel context.CancelCauseFunc
+
+	network *sandbox.LocalNetwork
 }
 
 const (
@@ -87,8 +110,8 @@ const (
 )
 
 // NewProcessManager creates an ProcessManager.
-func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime, serverFactory *ServerFactory, adapter func(ProcessID, wasi.System) wasi.System) *ProcessManager {
-	r := &ProcessManager{
+func NewWasmEngine(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime, serverFactory *ServerFactory, adapter func(ProcessID, wasi.System) wasi.System) *WasmEngine {
+	r := &WasmEngine{
 		registry:      registry,
 		runtime:       runtime,
 		serverFactory: serverFactory,
@@ -125,7 +148,7 @@ func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runt
 // initializing the WebAssembly module. If the WebAssembly module starts
 // successfully, any errors that occur during execution must be retrieved
 // via Wait or WaitAll.
-func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *ProcessID) (ProcessID, error) {
+func (pm *WasmEngine) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *ProcessID) (ProcessID, error) {
 	wasmPath := moduleSpec.Path
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
@@ -425,7 +448,7 @@ func copyAndClose(w io.Writer, r io.ReadCloser) error {
 //
 // The return flag is true if the process exists and is alive, and
 // false otherwise.
-func (pm *ProcessManager) Lookup(processID ProcessID) (process ProcessInfo, ok bool) {
+func (pm *WasmEngine) Lookup(processID ProcessID) (process ProcessInfo, ok bool) {
 	pm.mu.Lock()
 	var p *ProcessInfo
 	if p, ok = pm.processes[processID]; ok {
@@ -436,7 +459,7 @@ func (pm *ProcessManager) Lookup(processID ProcessID) (process ProcessInfo, ok b
 }
 
 // Wait blocks until a process exits.
-func (pm *ProcessManager) Wait(processID ProcessID) error {
+func (pm *WasmEngine) Wait(processID ProcessID) error {
 	pm.mu.Lock()
 	p, ok := pm.processes[processID]
 	pm.mu.Unlock()
@@ -456,12 +479,12 @@ func (pm *ProcessManager) Wait(processID ProcessID) error {
 }
 
 // WaitAll blocks until all processes have exited.
-func (pm *ProcessManager) WaitAll() error {
+func (pm *WasmEngine) WaitAll() error {
 	return pm.group.Wait()
 }
 
 // Close closes the process manager.
-func (pm *ProcessManager) Close() error {
+func (pm *WasmEngine) Close() error {
 	pm.cancel(nil)
 	return pm.WaitAll()
 }

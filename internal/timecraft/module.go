@@ -12,6 +12,9 @@ import (
 // ModuleSpec is the details about what WebAssembly module to execute,
 // how it should be initialized, and what its inputs are.
 type ModuleSpec struct {
+	// TODO: find another way to define which engine to use.
+	Engine string
+
 	// Path is the path of the WebAssembly module.
 	Path string
 
@@ -46,6 +49,10 @@ type ModuleSpec struct {
 	// Allow the module to bind to the host network when opening listening
 	// sockets.
 	HostNetworkBinding bool
+
+	// Temporay, directory of the container bundle
+	// The option will be removed once we implement OCI.
+	BundleDir string
 }
 
 // Key is a string that uniquely identifies the ModuleSpec.
