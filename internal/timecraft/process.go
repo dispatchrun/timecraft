@@ -8,9 +8,6 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/stealthrocket/timecraft/internal/timemachine"
-	"github.com/stealthrocket/wasi-go"
-	"github.com/tetratelabs/wazero"
 )
 
 // ProcessID is a process identifier.
@@ -41,9 +38,16 @@ type ProcessInfo struct {
 	cancel context.CancelCauseFunc
 }
 
+type Engine interface {
+	Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *ProcessID) (ProcessID, error)
+	Lookup(processID ProcessID) (process ProcessInfo, ok bool)
+	Wait(processID ProcessID) error
+	WaitAll() error // TODO: pass context to WaitAll?
+	// TODO: missing kill/stop/close?
+}
+
 type ProcessManager struct {
-	runsc *RunscEngine
-	wasm  *WasmEngine
+	engines map[string]Engine
 
 	ctx    context.Context
 	cancel context.CancelCauseFunc
@@ -52,14 +56,13 @@ type ProcessManager struct {
 	mu        sync.Mutex
 }
 
-func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runtime wazero.Runtime, serverFactory *ServerFactory, adapter func(ProcessID, wasi.System) wasi.System) *ProcessManager {
+func NewProcessManager(ctx context.Context, engines map[string]Engine) *ProcessManager {
 	ctx, cancel := context.WithCancelCause(ctx)
 
 	pm := &ProcessManager{
-		ctx:    ctx,
-		cancel: cancel,
-		runsc:  NewRunscEngine(ctx),
-		wasm:   NewWasmEngine(ctx, registry, runtime, serverFactory, adapter),
+		ctx:     ctx,
+		cancel:  cancel,
+		engines: engines,
 	}
 
 	return pm
@@ -67,13 +70,11 @@ func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runt
 
 // Start a process following the given specification
 func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *ProcessID) (ProcessID, error) {
-	switch moduleSpec.Engine {
-	case "runsc":
-		return pm.runsc.Start(moduleSpec, logSpec, parentID)
-	case "wasm":
-		return pm.wasm.Start(moduleSpec, logSpec, parentID)
+	eng, ok := pm.engines[moduleSpec.Engine]
+	if !ok {
+		return ProcessID{}, fmt.Errorf("unknown engine %q", moduleSpec.Engine)
 	}
-	return ProcessID{}, fmt.Errorf("unknown engine %q", moduleSpec.Engine)
+	return eng.Start(moduleSpec, logSpec, parentID)
 }
 
 // Lookup a process by ID.
@@ -89,25 +90,22 @@ func (pm *ProcessManager) Lookup(processID ProcessID) (process ProcessInfo, ok b
 
 // Wait for a process to exit.
 func (pm *ProcessManager) Wait(processID ProcessID) error {
-	process, ok := pm.Lookup(processID)
-	if !ok {
-		return fmt.Errorf("process %v not found", processID)
+	for _, eng := range pm.engines {
+		if _, ok := eng.Lookup(processID); ok {
+			return eng.Wait(processID)
+		}
 	}
-	switch process.ModuleSpec.Engine {
-	case "runsc":
-		return pm.runsc.Wait(processID)
-	case "wasm":
-		return pm.wasm.Wait(processID)
-	}
-	return nil
+	return fmt.Errorf("unknown process %s", processID)
 }
 
 // Wait for all processes to exit.
 func (pm *ProcessManager) WaitAll() error {
-	if err := pm.wasm.WaitAll(); err != nil {
-		return err
+	for _, eng := range pm.engines {
+		if err := eng.WaitAll(); err != nil {
+			return err
+		}
 	}
-	return pm.runsc.WaitAll()
+	return nil
 }
 
 // Close the process manager.

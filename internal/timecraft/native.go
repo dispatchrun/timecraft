@@ -86,10 +86,5 @@ func (e *RunscEngine) Wait(processID ProcessID) error {
 
 // Wait for all processes to exit.
 func (e *RunscEngine) WaitAll() error {
-	panic("not implemented") // TODO: Implement
-}
-
-// Close the process manager.
-func (e *RunscEngine) Close() error {
 	return nil
 }

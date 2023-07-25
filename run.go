@@ -122,13 +122,19 @@ func run(ctx context.Context, args []string) error {
 		}
 	}
 
-	processManager := timecraft.NewProcessManager(ctx, registry, runtime, serverFactory, adapter)
+	engines := map[string]timecraft.Engine{
+		"wasm":  timecraft.NewWasmEngine(ctx, registry, runtime, serverFactory, adapter),
+		"runsc": timecraft.NewRunscEngine(ctx),
+	}
+
+	processManager := timecraft.NewProcessManager(ctx, engines)
 	defer processManager.Close()
 
 	serverFactory.ProcessManager = processManager
 	scheduler.ProcessManager = processManager
 
 	moduleSpec := timecraft.ModuleSpec{
+		Engine:  "wasm",
 		Path:    wasmPath,
 		Args:    args,
 		Env:     envs,

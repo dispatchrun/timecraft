@@ -83,6 +83,7 @@ func (s *Server) SubmitTasks(ctx context.Context, req *connect.Request[v1.Submit
 
 func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 	moduleSpec := s.moduleSpec // inherit from the parent
+	moduleSpec.Engine = "wasm" // FIXME: engine should be discovered from the OCI layer
 	moduleSpec.Dials = nil     // not supported
 	moduleSpec.Listens = nil   // not supported
 	moduleSpec.Stdin = nil     // task handlers receive no data on stdin

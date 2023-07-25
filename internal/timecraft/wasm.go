@@ -437,12 +437,6 @@ func (pm *WasmEngine) WaitAll() error {
 	return pm.group.Wait()
 }
 
-// Close closes the process manager.
-func (pm *WasmEngine) Close() error {
-	pm.cancel(nil)
-	return pm.WaitAll()
-}
-
 func dialTCP(ctx context.Context, system *sandbox.System, address string) error {
 	addrInfos, err := getaddrinfo(ctx, system, address, wasi.AddressInfo{
 		Family:     wasi.UnspecifiedFamily,
