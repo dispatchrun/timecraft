@@ -162,6 +162,26 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 		}
 	}()
 
+	infc, err := netns.InterfaceByName("en0")
+	if err != nil {
+		panic(err)
+	}
+	addrs, err := infc.Addrs()
+	if err != nil {
+		panic(err)
+	}
+	var ipv4Addr netip.Addr
+	for _, addr := range addrs {
+		if ip, ok := addr.(*net.IPNet); ok {
+			if ipv4 := ip.IP.To4(); ipv4 != nil {
+				ipv4Addr = netip.AddrFrom4([4]byte(ipv4))
+			}
+		}
+	}
+	if ipv4Addr == (netip.Addr{}) {
+		panic("IPv4 address not found")
+	}
+
 	options := []sandbox.Option{
 		sandbox.Args(append([]string{wasmName}, moduleSpec.Args...)...),
 		sandbox.Environ(moduleSpec.Env...),
@@ -340,7 +360,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 	process := &ProcessInfo{
 		ID:       processID,
 		ParentID: parentID,
-		// Addr:     ipv4Addr, // FIXME
+		Addr:     ipv4Addr,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, address string) (conn net.Conn, err error) {
 				// The process isn't necessarily available to take on work immediately.

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/stealthrocket/net/wasip1"
@@ -51,21 +52,16 @@ func supervisor(ctx context.Context) error {
 
 	// Spawn the same WASM module, but with the "worker" arg.
 	workerModule := timecraft.ModuleSpec{
-		Args:         []string{"worker"},
-		Capabilities: timecraft.HostNetworkingCapability,
+		Args: []string{"worker"},
 	}
 
-	workerID, _, err := client.Spawn(ctx, workerModule)
+	workerID, workerIP, err := client.Spawn(ctx, workerModule)
 	if err != nil {
 		return fmt.Errorf("failed to spawn worker: %w", err)
 	}
 	defer client.Kill(ctx, workerID)
 
-	// FIXME: the retry loop doesn't currently work. The sandbox seems to say that
-	//  the connection succeeds, but then on fd_read it returns ECONNREFUSED??
-	time.Sleep(2 * time.Second)
-
-	workerAddr := fmt.Sprintf("127.0.0.1:%d", workerPort)
+	workerAddr := net.JoinHostPort(workerIP.String(), strconv.Itoa(workerPort))
 
 	fmt.Printf("connecting to worker process %s on address %s\n", workerID, workerAddr)
 
