@@ -23,14 +23,6 @@ message ModuleSpec {
   string path = 1;
   repeated string args = 2;
   repeated string env = 3;
-  int64 capabilities = 4;
-}
-
-enum ModuleCapabilities {
-  // These are intended to be used in a bitset, so stick
-  // with powers of two (0, 1, 2, 4, 8, 16, etc).
-  MODULE_CAPABILITIES_UNSPECIFIED = 0;
-  MODULE_CAPABILITIES_HOST_NETWORKING = 1;
 }
 
 message HTTPRequest {

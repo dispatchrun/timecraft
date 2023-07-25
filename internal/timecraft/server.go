@@ -234,9 +234,8 @@ func (s *Server) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest
 	if path := req.Msg.Module.Path; path != "" {
 		moduleSpec.Path = path
 	}
-	if (req.Msg.Module.Capabilities & int64(v1.ModuleCapabilities_MODULE_CAPABILITIES_HOST_NETWORKING)) != 0 {
-		moduleSpec.HostNetworkBinding = true
-	}
+	// Host networking is not available on child processes.
+	moduleSpec.HostNetworkBinding = false
 
 	var logSpec *LogSpec
 	if s.logSpec != nil {
