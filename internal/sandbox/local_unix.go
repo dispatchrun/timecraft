@@ -972,7 +972,17 @@ func (s *localSocket) SendTo(iovs [][]byte, addr Sockaddr, flags int) (int, erro
 	if s.state.is(nonblocking) {
 		n, err = sendto(sendSocketFd, iovs, nil, flags)
 	} else {
-		rawConn, err := sendSocket.syscallConn1()
+		var rawConn syscall.RawConn
+		// When sending to the socket, we write to fd0 because we want the other
+		// side to receive the data (for connected sockets).
+		//
+		// The other condition happens when writing to datagram sockets, in that
+		// case we write directly to the other end of the destination socket.
+		if sendSocket == s {
+			rawConn, err = sendSocket.syscallConn0()
+		} else {
+			rawConn, err = sendSocket.syscallConn1()
+		}
 		if err != nil {
 			return -1, err
 		}
@@ -1074,17 +1084,11 @@ func (s *localSocket) SetTCPNoDelay(nodelay bool) error {
 }
 
 func (s *localSocket) SetTLSServerName(serverName string) (err error) {
-	defer func() {
-		if recover() != nil {
-			if s.htls == nil {
-				err = EINVAL
-			} else {
-				err = EISCONN
-			}
-		}
-	}()
+	if s.htls == nil {
+		return EINVAL
+	}
 	s.htls <- serverName
-	close(s.htls)
+	s.htlsClear()
 	return nil
 }
 
