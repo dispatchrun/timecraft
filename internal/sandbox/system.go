@@ -50,7 +50,7 @@ func Rand(rand io.Reader) Option {
 // Mount configures a mount point to expose a file system to the guest module.
 //
 // If no endpoints are set, the guest does not have a file system.
-func Mount(path string, fsys FS) Option {
+func Mount(path string, fsys wasiFS) Option {
 	return func(s *System) {
 		s.mounts = append(s.mounts, mountPoint{
 			path: path,
@@ -102,7 +102,7 @@ type System struct {
 	epoch  time.Time
 	time   func() time.Time
 	rand   io.Reader
-	files  wasi.FileTable[File]
+	files  wasi.FileTable[wasiFile]
 	stdin  *os.File
 	stdout *os.File
 	stderr *os.File
@@ -115,7 +115,7 @@ type System struct {
 
 type mountPoint struct {
 	path string
-	fsys FS
+	fsys wasiFS
 }
 
 const (
