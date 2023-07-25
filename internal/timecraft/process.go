@@ -369,6 +369,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		delete(pm.processes, processID)
 		pm.mu.Unlock()
 
+		serverListener.Close()
+		server.Close()
+
 		if logSpec != nil {
 			recordWriter.Flush()
 			logSegment.Close()
@@ -377,10 +380,6 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 		wasmModule.Close(ctx)
 		wasiModule.Close(ctx)
 
-		system.Close(ctx)
-		server.Close()
-
-		serverListener.Close()
 		netns.Detach()
 		return err
 	})
