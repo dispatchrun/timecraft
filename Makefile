@@ -1,4 +1,5 @@
 .PHONY: clean flatbuffers generate test testdata docker-build docker-buildx
+.PRECIOUS: %.wasm
 
 SHELL := /bin/bash
 
@@ -59,23 +60,13 @@ timecraft.sdk.src.py = \
 timecraft.sdk.venv.py = \
 	$(VIRTUALENV)/lib/python$(PYTHONMAJOR).$(PYTHONMINOR)/site-packages/timecraft
 
-proto.src.proto = \
-	buf.gen.yaml buf.work.yaml proto/buf.yaml \
-	proto/timecraft/server/v1/timecraft.proto
-proto.src.go = \
-	gen/proto/go/timecraft/server/v1/timecraft.pb.go \
-	gen/proto/go/timecraft/server/v1/timecraft_vtproto.pb.go \
-	gen/proto/go/timecraft/server/v1/serverv1connect/timecraft.connect.go
-
-.PRECIOUS: $(format.src.go) $(proto.src.go) $(testdata.go.wasm)
-
 timecraft = ./timecraft
 
-$(timecraft): go.mod $(format.src.go) $(timecraft.src.go) $(proto.src.go)
+$(timecraft): go.mod $(timecraft.src.go)
 	$(GO) build -o $@
 
 clean:
-	rm -f $(timecraft) $(testdata.go.wasm)
+	rm -f $(timecraft) $(format.src.go) $(testdata.go.wasm)
 
 lint:
 	golangci-lint run ./...
@@ -84,12 +75,11 @@ lint:
 fmt:
 	$(GO) fmt ./...
 
-generate: flatbuffers protobuf
+generate: flatbuffers
+	buf generate
 
 flatbuffers: go.mod $(format.src.go)
 	$(GO) build ./format/...
-
-protobuf: $(proto.src.go)
 
 test: go-test python-test  wasi-testsuite
 
@@ -139,9 +129,6 @@ testdata/wasi-testsuite/.git: .gitmodules
 %_generated.go: %.fbs
 	flatc --go --gen-onefile --go-namespace $(basename $(notdir $<)) --go-module-name github.com/stealthrocket/timecraft/format -o $(dir $@) $<
 	goimports -w $@
-
-$(proto.src.go) &: $(proto.src.proto)
-	buf generate
 
 docker-build:
 	docker build -f Dockerfile -t $(container.image):$(container.version) .
