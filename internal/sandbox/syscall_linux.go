@@ -23,3 +23,7 @@ func socketpair(family, socktype, protocol int) ([2]int, error) {
 func pipe(fds *[2]int) error {
 	return unix.Pipe2(fds[:], unix.O_CLOEXEC|unix.O_NONBLOCK)
 }
+
+func fdatasync(fd int) error {
+	return ignoreEINTR(func() error { return unix.Fdatasync(fd) })
+}

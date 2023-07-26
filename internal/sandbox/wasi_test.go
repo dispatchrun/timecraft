@@ -215,7 +215,7 @@ func TestSandboxWASI(t *testing.T) {
 		}
 
 		if config.RootFS != "" {
-			options = append(options, rootFS(config.RootFS))
+			options = append(options, throttledSandboxFS(config.RootFS))
 		}
 
 		sys := sandbox.New(options...)

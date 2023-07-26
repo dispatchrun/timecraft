@@ -98,3 +98,7 @@ func setCloseOnExecAndNonBlocking(fd int) error {
 	}
 	return nil
 }
+
+func fdatasync(fd int) error {
+	return unix.Fsync(fd)
+}

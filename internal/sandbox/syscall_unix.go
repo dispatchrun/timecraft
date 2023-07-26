@@ -5,7 +5,6 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
-	"sync/atomic"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -19,19 +18,36 @@ const (
 	ECONNABORTED    = unix.ECONNABORTED
 	ECONNREFUSED    = unix.ECONNREFUSED
 	ECONNRESET      = unix.ECONNRESET
+	EEXIST          = unix.EEXIST
 	EHOSTUNREACH    = unix.EHOSTUNREACH
 	EINVAL          = unix.EINVAL
 	EINTR           = unix.EINTR
 	EINPROGRESS     = unix.EINPROGRESS
 	EISCONN         = unix.EISCONN
+	ELOOP           = unix.ELOOP
+	ENAMETOOLONG    = unix.ENAMETOOLONG
 	ENETUNREACH     = unix.ENETUNREACH
+	ENOENT          = unix.ENOENT
 	ENOPROTOOPT     = unix.ENOPROTOOPT
 	ENOSYS          = unix.ENOSYS
 	ENOTCONN        = unix.ENOTCONN
+	ENOTDIR         = unix.ENOTDIR
 	EOPNOTSUPP      = unix.EOPNOTSUPP
 	EPROTONOSUPPORT = unix.EPROTONOSUPPORT
 	EPROTOTYPE      = unix.EPROTOTYPE
 	ETIMEDOUT       = unix.ETIMEDOUT
+)
+
+const (
+	O_RDONLY    = unix.O_RDONLY
+	O_WRONLY    = unix.O_WRONLY
+	O_RDWR      = unix.O_RDWR
+	O_APPEND    = unix.O_APPEND
+	O_CREAT     = unix.O_CREAT
+	O_EXCL      = unix.O_EXCL
+	O_TRUNC     = unix.O_TRUNC
+	O_DIRECTORY = unix.O_DIRECTORY
+	O_NOFOLLOW  = unix.O_NOFOLLOW
 )
 
 const (
@@ -265,92 +281,34 @@ func sendto(fd int, iovs [][]byte, addr Sockaddr, flags int) (int, error) {
 }
 
 func sendmsg(fd int, msg, oob []byte, addr Sockaddr, flags int) error {
-	return ignoreEINTR(func() error {
-		return unix.Sendmsg(fd, msg, oob, addr, flags)
-	})
+	return ignoreEINTR(func() error { return unix.Sendmsg(fd, msg, oob, addr, flags) })
 }
 
-// fdRef is used to manage the lifecycle of socket file descriptors;
-// it allows multiple goroutines to share ownership of the socket while
-// coordinating to close the file descriptor via an atomic reference count.
-//
-// Goroutines must call acquire to access the file descriptor; if they get a
-// negative number, it indicates that the socket was already closed and the
-// method should usually return EBADF.
-//
-// After acquiring a valid file descriptor, the goroutine is responsible for
-// calling release with the same fd number that was returned by acquire. The
-// release may cause the file descriptor to be closed if the close method was
-// called in between and releasing the fd causes the reference count to reach
-// zero.
-//
-// The close method detaches the file descriptor from the fdRef, but it only
-// closes it if the reference count is zero (no other goroutines was sharing
-// ownership). After closing the fdRef, all future calls to acquire return a
-// negative number, preventing other goroutines from acquiring ownership of the
-// file descriptor and guaranteeing that it will eventually be closed.
-type fdRef struct {
-	state atomic.Uint64 // upper 32 bits: refCount, lower 32 bits: fd
+func fstat(fd int, stat *unix.Stat_t) error {
+	return ignoreEINTR(func() error { return unix.Fstat(fd, stat) })
 }
 
-func (f *fdRef) init(fd int) {
-	f.state.Store(uint64(fd & 0xFFFFFFFF))
+func openat(dirfd int, path string, flags int, mode uint32) (int, error) {
+	return ignoreEINTR2(func() (int, error) { return unix.Openat(dirfd, path, flags, mode) })
 }
 
-func (f *fdRef) load() int {
-	return int(int32(f.state.Load()))
+func fstatat(dirfd int, path string, stat *unix.Stat_t, flags int) error {
+	return ignoreEINTR(func() error { return unix.Fstatat(dirfd, path, stat, flags) })
 }
 
-func (f *fdRef) refCount() int {
-	return int(f.state.Load() >> 32)
-}
-
-func (f *fdRef) acquire() int {
+func readlinkat(dirfd int, path string) (string, error) {
+	buf := make([]byte, 256)
 	for {
-		oldState := f.state.Load()
-		refCount := (oldState >> 32) + 1
-		newState := (refCount << 32) | (oldState & 0xFFFFFFFF)
-
-		fd := int32(oldState)
-		if fd < 0 {
-			return -1
+		n, err := ignoreEINTR2(func() (int, error) { return unix.Readlinkat(dirfd, path, buf) })
+		if err != nil {
+			return "", err
 		}
-		if f.state.CompareAndSwap(oldState, newState) {
-			return int(fd)
+		if n < len(buf) {
+			return string(buf[:n]), nil
 		}
-	}
-}
-
-func (f *fdRef) releaseFunc(fd int, closeFD func(int)) {
-	for {
-		oldState := f.state.Load()
-		refCount := (oldState >> 32) - 1
-		newState := (refCount << 32) | (oldState & 0xFFFFFFFF)
-
-		if f.state.CompareAndSwap(oldState, newState) {
-			if int32(oldState) < 0 && refCount == 0 {
-				closeFD(fd)
-			}
-			break
+		if len(buf) >= 64*1024 {
+			return "", ENAMETOOLONG
 		}
-	}
-}
-
-func (f *fdRef) closeFunc(closeFD func(int)) {
-	for {
-		oldState := f.state.Load()
-		refCount := oldState >> 32
-		newState := oldState | 0xFFFFFFFF
-
-		fd := int32(oldState)
-		if fd < 0 {
-			break
-		}
-		if f.state.CompareAndSwap(oldState, newState) {
-			if refCount == 0 {
-				closeFD(int(fd))
-			}
-			break
-		}
+		buf = make([]byte, 2*len(buf))
 	}
 }

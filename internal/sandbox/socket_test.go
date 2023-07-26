@@ -11,7 +11,7 @@ func TestRefCount(t *testing.T) {
 	var closeFD = func(fd int) { lastCloseFD = fd }
 
 	t.Run("close with zero ref count", func(t *testing.T) {
-		var s fdRef
+		var s socketFD
 		s.init(42)
 		assert.Equal(t, s.refCount(), 0)
 
@@ -20,7 +20,7 @@ func TestRefCount(t *testing.T) {
 	})
 
 	t.Run("release with zero ref count", func(t *testing.T) {
-		var s fdRef
+		var s socketFD
 		s.init(21)
 
 		fd := s.acquire()
@@ -34,7 +34,7 @@ func TestRefCount(t *testing.T) {
 	})
 
 	t.Run("close with non zero ref count", func(t *testing.T) {
-		var s fdRef
+		var s socketFD
 		s.init(10)
 
 		fd0 := s.acquire()
