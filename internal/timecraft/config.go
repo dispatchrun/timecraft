@@ -26,6 +26,9 @@ type Config struct {
 	Cache struct {
 		Location Option[human.Path] `json:"location"`
 	} `json:"cache"`
+	Images struct {
+		Location Option[human.Path] `json:"location"`
+	} `json:"images"`
 }
 
 // ConfigPath is the path to the timecraft configuration.
@@ -80,5 +83,6 @@ func ReadConfig(r io.Reader) (*Config, error) {
 func DefaultConfig() *Config {
 	c := new(Config)
 	c.Registry.Location = Some[human.Path](defaultRegistryPath)
+	c.Images.Location = Some[human.Path](defaultImagesPath)
 	return c
 }
