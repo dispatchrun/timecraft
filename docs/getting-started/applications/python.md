@@ -1,4 +1,4 @@
-# Compiling your Python application to WebAssembly
+# Python
 
 Python applications aren't compiled to WebAssembly. Rather, a Python interpreter (CPython)
 is compiled to WebAssembly and interprets your Python application as it would normally.
