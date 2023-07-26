@@ -1,0 +1,17 @@
+name: Docs
+
+on:
+  push:
+    paths:
+      - 'docs/*'
+    branches:
+      - main
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: ./.github/scripts/publish_docs.sh
+        env:
+          TIMECRAFT_DOCS_SSH_KEY: ${{ secrets.TIMECRAFT_DOCS_SSH_KEY }}
