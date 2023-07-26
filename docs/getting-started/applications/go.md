@@ -1,4 +1,4 @@
-# Compiling your Go application to WebAssembly
+# Go
 
 ## Preparing Go
 
