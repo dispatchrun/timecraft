@@ -211,6 +211,13 @@ class Client:
     def discard_tasks(self, tasks: list[TaskID]):
         self._rpc("DiscardTasks", {"taskId": tasks})
 
+    def spawn(self, module: ModuleSpec):
+        out = self._rpc("Spawn", {"module": dataclasses.asdict(module)})
+        return (ProcessID(out["processId"]), out["ipAddress"])
+
+    def kill(self, process_id: ProcessID):
+        self._rpc("Kill", {"processId": process_id})
+
     def _remap_task(self, r: dict):
         remap(r, "state", "state", TaskState)
         remap(r, "errorMessage", "error")

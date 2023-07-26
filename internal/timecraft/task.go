@@ -221,7 +221,7 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 
 		if !ok {
 			var err error
-			processID, err = s.ProcessManager.Start(task.moduleSpec, task.logSpec)
+			processID, err = s.ProcessManager.Start(task.moduleSpec, task.logSpec, nil)
 			if err != nil {
 				return nil, err
 			}

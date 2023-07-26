@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/netip"
 	"os"
 	"time"
 
@@ -163,11 +164,7 @@ func (c *Client) DiscardTasks(ctx context.Context, taskIDs []TaskID) error {
 
 func (c *Client) makeTaskRequest(req *TaskRequest) (*v1.TaskRequest, error) {
 	r := &v1.TaskRequest{
-		Module: &v1.ModuleSpec{
-			Path: req.Module.Path,
-			Args: req.Module.Args,
-			Env:  req.Module.Env,
-		},
+		Module: c.makeModuleSpec(req.Module),
 	}
 	switch in := req.Input.(type) {
 	case *HTTPRequest:
@@ -214,6 +211,14 @@ func (c *Client) makeTaskResponse(res *v1.TaskResponse) (TaskResponse, error) {
 	return taskResponse, nil
 }
 
+func (c *Client) makeModuleSpec(module ModuleSpec) *v1.ModuleSpec {
+	return &v1.ModuleSpec{
+		Path: module.Path,
+		Args: module.Args,
+		Env:  module.Env,
+	}
+}
+
 // ProcessID fetches the ID of the process.
 func (c *Client) ProcessID(ctx context.Context) (ProcessID, error) {
 	req := connect.NewRequest(&v1.ProcessIDRequest{})
@@ -224,7 +229,29 @@ func (c *Client) ProcessID(ctx context.Context) (ProcessID, error) {
 	return ProcessID(res.Msg.ProcessId), nil
 }
 
-// Version fetches the timecraft version.
+// Spawn spawns a process.
+func (c *Client) Spawn(ctx context.Context, module ModuleSpec) (ProcessID, netip.Addr, error) {
+	req := connect.NewRequest(&v1.SpawnRequest{
+		Module: c.makeModuleSpec(module),
+	})
+	res, err := c.grpcClient.Spawn(ctx, req)
+	if err != nil {
+		return "", netip.Addr{}, err
+	}
+	addr, _ := netip.ParseAddr(res.Msg.IpAddress)
+	return ProcessID(res.Msg.ProcessId), addr, nil
+}
+
+// Kill kills a process.
+func (c *Client) Kill(ctx context.Context, processID ProcessID) error {
+	req := connect.NewRequest(&v1.KillRequest{
+		ProcessId: string(processID),
+	})
+	_, err := c.grpcClient.Kill(ctx, req)
+	return err
+}
+
+// Version fetches the Timecraft version.
 func (c *Client) Version(ctx context.Context) (string, error) {
 	req := connect.NewRequest(&v1.VersionRequest{})
 	res, err := c.grpcClient.Version(ctx, req)

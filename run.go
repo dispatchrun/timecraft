@@ -102,7 +102,9 @@ func run(ctx context.Context, args []string) error {
 	scheduler := &timecraft.TaskScheduler{}
 	defer scheduler.Close()
 
-	serverFactory := &timecraft.ServerFactory{Scheduler: scheduler}
+	serverFactory := &timecraft.ServerFactory{
+		Scheduler: scheduler,
+	}
 
 	var adapter func(timecraft.ProcessID, wasi.System) wasi.System
 	if chaotic > 0 {
@@ -123,6 +125,7 @@ func run(ctx context.Context, args []string) error {
 	processManager := timecraft.NewProcessManager(ctx, registry, runtime, serverFactory, adapter)
 	defer processManager.Close()
 
+	serverFactory.ProcessManager = processManager
 	scheduler.ProcessManager = processManager
 
 	moduleSpec := timecraft.ModuleSpec{
@@ -167,7 +170,7 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintf(os.Stderr, "%s\n", logSpec.ProcessID)
 	}
 
-	processID, err := processManager.Start(moduleSpec, logSpec)
+	processID, err := processManager.Start(moduleSpec, logSpec, nil)
 	if err != nil {
 		return err
 	}

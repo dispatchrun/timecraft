@@ -18,13 +18,15 @@ import (
 
 // ServerFactory is used to create Server instances.
 type ServerFactory struct {
-	Scheduler *TaskScheduler
+	ProcessManager *ProcessManager
+	Scheduler      *TaskScheduler
 }
 
 // NewServer creates a new Server.
 func (f *ServerFactory) NewServer(ctx context.Context, processID uuid.UUID, moduleSpec ModuleSpec, logSpec *LogSpec) *Server {
 	return &Server{
 		ctx:        ctx,
+		processes:  f.ProcessManager,
 		tasks:      NewTaskGroup(f.Scheduler),
 		processID:  processID,
 		moduleSpec: moduleSpec,
@@ -39,6 +41,7 @@ type Server struct {
 
 	ctx        context.Context
 	tasks      *TaskGroup
+	processes  *ProcessManager
 	processID  uuid.UUID
 	moduleSpec ModuleSpec
 	logSpec    *LogSpec
@@ -219,6 +222,56 @@ func (s *Server) DiscardTasks(ctx context.Context, req *connect.Request[v1.Disca
 
 func (s *Server) ProcessID(context.Context, *connect.Request[v1.ProcessIDRequest]) (*connect.Response[v1.ProcessIDResponse], error) {
 	return connect.NewResponse(&v1.ProcessIDResponse{ProcessId: s.processID.String()}), nil
+}
+
+func (s *Server) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest]) (*connect.Response[v1.SpawnResponse], error) {
+	moduleSpec := s.moduleSpec // inherit from the parent
+	moduleSpec.Dials = nil     // not supported
+	moduleSpec.Listens = nil   // not supported
+	moduleSpec.Stdin = nil     // task handlers receive no data on stdin
+	moduleSpec.Args = req.Msg.Module.Args
+	moduleSpec.Env = append(moduleSpec.Env[:len(moduleSpec.Env):len(moduleSpec.Env)], req.Msg.Module.Env...)
+	if path := req.Msg.Module.Path; path != "" {
+		moduleSpec.Path = path
+	}
+	// Host networking is not available on child processes.
+	moduleSpec.HostNetworkBinding = false
+
+	var logSpec *LogSpec
+	if s.logSpec != nil {
+		logSpec = &LogSpec{
+			StartTime:   time.Now(),
+			Compression: s.logSpec.Compression,
+			BatchSize:   s.logSpec.BatchSize,
+		}
+	}
+
+	processID, err := s.processes.Start(moduleSpec, logSpec, &s.processID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to spawn process: %w", err))
+	}
+	processInfo, _ := s.processes.Lookup(processID)
+	return connect.NewResponse(&v1.SpawnResponse{
+		ProcessId: processID.String(),
+		IpAddress: processInfo.Addr.String(),
+	}), nil
+}
+
+func (s *Server) Kill(ctx context.Context, req *connect.Request[v1.KillRequest]) (*connect.Response[v1.KillResponse], error) {
+	processID, err := uuid.Parse(req.Msg.ProcessId)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid process ID %q: %w", req.Msg.ProcessId, err))
+	}
+	process, ok := s.processes.Lookup(processID)
+	if !ok {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("process %q not found", req.Msg.ProcessId))
+	}
+	if process.ParentID == nil || *process.ParentID != s.processID {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("cannot kill process %q", req.Msg.ProcessId))
+	}
+	process.cancel(nil)
+	_ = s.processes.Wait(processID)
+	return connect.NewResponse(&v1.KillResponse{}), nil
 }
 
 func (s *Server) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {

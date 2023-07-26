@@ -59,9 +59,15 @@ type ProcessInfo struct {
 	// ID is the ID of the process.
 	ID ProcessID
 
+	// Addr is a unique IP address for the process.
+	Addr netip.Addr
+
 	// Transport is an HTTP transport that can be used to send work to
 	// the process over the work socket.
 	Transport *http.Transport
+
+	// ParentID is the ID of the process that spawned this one (if applicable).
+	ParentID *ProcessID
 
 	ctx    context.Context
 	cancel context.CancelCauseFunc
@@ -119,7 +125,7 @@ func NewProcessManager(ctx context.Context, registry *timemachine.Registry, runt
 // initializing the WebAssembly module. If the WebAssembly module starts
 // successfully, any errors that occur during execution must be retrieved
 // via Wait or WaitAll.
-func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (ProcessID, error) {
+func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentID *ProcessID) (ProcessID, error) {
 	wasmPath := moduleSpec.Path
 	wasmName := filepath.Base(wasmPath)
 	wasmCode, err := os.ReadFile(wasmPath)
@@ -155,6 +161,26 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 			netns.Detach()
 		}
 	}()
+
+	infc, err := netns.InterfaceByName("en0")
+	if err != nil {
+		panic(err)
+	}
+	addrs, err := infc.Addrs()
+	if err != nil {
+		panic(err)
+	}
+	var ipv4Addr netip.Addr
+	for _, addr := range addrs {
+		if ip, ok := addr.(*net.IPNet); ok {
+			if ipv4 := ip.IP.To4(); ipv4 != nil {
+				ipv4Addr = netip.AddrFrom4([4]byte(ipv4))
+			}
+		}
+	}
+	if ipv4Addr == (netip.Addr{}) {
+		panic("IPv4 address not found")
+	}
 
 	options := []sandbox.Option{
 		sandbox.Args(append([]string{wasmName}, moduleSpec.Args...)...),
@@ -332,7 +358,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	group.Go(func() error { <-ctx.Done(); guest.Kill(); return nil })
 
 	process := &ProcessInfo{
-		ID: processID,
+		ID:       processID,
+		ParentID: parentID,
+		Addr:     ipv4Addr,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, address string) (conn net.Conn, err error) {
 				// The process isn't necessarily available to take on work immediately.
@@ -345,14 +373,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 				)
 				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
 					conn, err = guest.Dial(ctx, network, address)
-					switch {
-					case errors.Is(err, syscall.ECONNREFUSED):
-						return true
-					case errors.Is(err, syscall.ENOENT):
-						return true
-					default:
-						return false
-					}
+					return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT)
 				})
 				return
 			},
