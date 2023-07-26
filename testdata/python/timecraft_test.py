@@ -1,6 +1,8 @@
-import unittest
 import os
+import time
+import unittest
 
+import requests
 import timecraft
 
 
@@ -20,7 +22,7 @@ class TestTimecraft(unittest.TestCase):
         process_id = self.client.process_id()
 
         dir = os.path.dirname(__file__)
-        worker_py = os.path.join(dir, "worker.py")
+        worker_py = os.path.join(dir, "task_worker.py")
         worker = timecraft.ModuleSpec(path="", args=[worker_py])
 
         requests = [
@@ -59,3 +61,26 @@ class TestTimecraft(unittest.TestCase):
             self.assertEqual(headers["X-Timecraft-Creator"], process_id)
 
         tasks = self.client.discard_tasks(task_ids)
+
+    def test_spawn(self):
+        dir = os.path.dirname(__file__)
+        worker_py = os.path.join(dir, "spawn_worker.py")
+        worker = timecraft.ModuleSpec(path="", args=[worker_py])
+
+        process_id, ip_address = self.client.spawn(worker)
+        try:
+            res = None
+            for i in range(6):
+                try:
+                    res = requests.get(f"http://{ip_address}:3000")
+                    res.raise_for_status()
+                except Exception:
+                    pass
+                if res is not None and res.ok:
+                    break
+                time.sleep(0.5)
+
+            self.assertIsNotNone(res)
+            self.assertEqual(res.status_code, 200)
+        finally:
+            self.client.kill(process_id)
