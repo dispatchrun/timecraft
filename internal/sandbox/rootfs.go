@@ -96,10 +96,10 @@ func (f *rootFile) open(name string, flags int, mode fs.FileMode) (File, error) 
 				if !errors.Is(err, ELOOP) || ((flags & O_NOFOLLOW) != 0) {
 					return nil, err
 				}
-				switch err := followSymlink(name, ""); err {
-				case nil:
+				switch err := followSymlink(name, ""); {
+				case errors.Is(err, nil):
 					continue
-				case EINVAL:
+				case errors.Is(err, EINVAL):
 					goto openFile
 				default:
 					return nil, err
@@ -123,10 +123,10 @@ func (f *rootFile) open(name string, flags int, mode fs.FileMode) (File, error) 
 			if !errors.Is(err, ENOTDIR) {
 				return nil, err
 			}
-			switch err := followSymlink(elem, name); err {
-			case nil:
+			switch err := followSymlink(elem, name); {
+			case errors.Is(err, nil):
 				continue
-			case EINVAL:
+			case errors.Is(err, EINVAL):
 				goto openPath
 			default:
 				return nil, err
