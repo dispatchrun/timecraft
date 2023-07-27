@@ -1,9 +1,5 @@
 package sandbox
 
-import (
-	"strings"
-)
-
 // filePathDepth returns the depth of a path. The root "/" has depth zero.
 func filePathDepth(path string) (depth int) {
 	for {
@@ -12,7 +8,7 @@ func filePathDepth(path string) (depth int) {
 			return depth
 		}
 		depth++
-		i := strings.IndexByte(path, '/')
+		i := indexSlash(path)
 		if i < 0 {
 			return depth
 		}
@@ -30,42 +26,73 @@ func joinPath(dir, name string) string {
 // this is necessary to ensure that sybolic links aren't erased from walking
 // the path.
 func cleanPath(path string) string {
-	if path == "" {
-		return ""
+	buf := make([]byte, 0, 256)
+	buf = appendCleanPath(buf, path)
+	return string(buf)
+}
+
+// appendCleanPath is like cleanPath but it appends the result to the byte
+// slice passed as first argument.
+func appendCleanPath(buf []byte, path string) []byte {
+	if len(path) == 0 {
+		return buf
 	}
-	parts := make([]string, 0, 16)
+
+	type region struct {
+		off, end int
+	}
+
+	elems := make([]region, 0, 16)
 	if isAbs(path) {
-		parts = append(parts, "")
+		elems = append(elems, region{})
 	}
+
+	i := 0
 	for {
-		path = trimLeadingSlash(path)
-		if path == "" {
-			if len(parts) == 0 {
-				return "."
-			}
-			if len(parts) == 1 && parts[0] == "" {
-				return "/"
-			}
-			return strings.Join(parts, "/")
+		for i < len(path) && path[i] == '/' {
+			i++
 		}
-		var elem string
-		if i := strings.IndexByte(path, '/'); i < 0 {
-			elem = path
-			path = ""
-		} else {
-			elem = path[:i]
-			path = path[i:]
+		if i == len(path) {
+			break
 		}
-		if elem != "." {
-			parts = append(parts, elem)
+		j := i
+		for j < len(path) && path[j] != '/' {
+			j++
+		}
+		if path[i:j] != "." {
+			elems = append(elems, region{off: i, end: j})
+		}
+		i = j
+	}
+
+	if len(elems) == 0 {
+		return append(buf, '.')
+	}
+	if len(elems) == 1 && elems[0] == (region{}) {
+		return append(buf, '/')
+	}
+	for i, elem := range elems {
+		if i != 0 {
+			buf = append(buf, '/')
+		}
+		buf = append(buf, path[elem.off:elem.end]...)
+	}
+	return buf
+}
+
+func indexSlash(path string) int {
+	for i := 0; i < len(path); i++ {
+		if path[i] == '/' {
+			return i
 		}
 	}
+	return -1
 }
 
 func walkPath(path string) (elem, name string) {
 	path = trimLeadingSlash(path)
 	path = trimTrailingSlash(path)
-	i := strings.IndexByte(path, '/')
+	i := indexSlash(path)
 	if i < 0 {
 		return ".", path
 	} else {

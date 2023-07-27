@@ -28,3 +28,9 @@ func TestCleanPath(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkCleanPath(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = cleanPath("/tmp/.././//test/")
+	}
+}
