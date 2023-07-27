@@ -6,6 +6,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const (
+	openPathFlags = unix.O_DIRECTORY | unix.O_NOFOLLOW
+)
+
 func accept(fd int) (int, Sockaddr, error) {
 	syscall.ForkLock.RLock()
 	defer syscall.ForkLock.RUnlock()

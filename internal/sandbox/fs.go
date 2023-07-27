@@ -307,8 +307,8 @@ func (f *rootFile) open(name string, flags int, mode fs.FileMode) (File, error) 
 			move = +1
 		}
 
-	openDir:
-		d, err := dir.Open(elem, O_DIRECTORY|O_NOFOLLOW, 0)
+	openPath:
+		d, err := dir.Open(elem, openPathFlags, 0)
 		if err != nil {
 			if !errors.Is(err, ENOTDIR) {
 				return nil, err
@@ -317,7 +317,7 @@ func (f *rootFile) open(name string, flags int, mode fs.FileMode) (File, error) 
 			case nil:
 				continue
 			case EINVAL:
-				goto openDir
+				goto openPath
 			default:
 				return nil, err
 			}
@@ -345,19 +345,19 @@ func (f *rootFile) openRoot() (File, error) {
 }
 
 func (f *rootFile) Lstat(name string) (fs.FileInfo, error) {
-	return withDir(f, "stat", name, File.Lstat)
+	return withPath(f, "stat", name, File.Lstat)
 }
 
 func (f *rootFile) ReadLink(name string) (string, error) {
-	return withDir(f, "readlink", name, File.ReadLink)
+	return withPath(f, "readlink", name, File.ReadLink)
 }
 
-func withDir[F func(File, string) (R, error), R any](root *rootFile, op, name string, do F) (ret R, err error) {
+func withPath[F func(File, string) (R, error), R any](root *rootFile, op, name string, do F) (ret R, err error) {
 	dir, base := path.Split(name)
 	if dir == "" {
 		return do(root.File, base)
 	}
-	d, err := OpenDir(root, dir)
+	d, err := root.Open(dir, openPathFlags, 0)
 	if err != nil {
 		return ret, &fs.PathError{Op: op, Path: name, Err: unwrapPathError(err)}
 	}

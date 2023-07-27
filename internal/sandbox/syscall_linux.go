@@ -2,6 +2,10 @@ package sandbox
 
 import "golang.org/x/sys/unix"
 
+const (
+	openPathFlags = unix.O_PATH | unix.O_DIRECTORY | unix.O_NOFOLLOW
+)
+
 func accept(fd int) (int, Sockaddr, error) {
 	return ignoreEINTR3(func() (int, Sockaddr, error) {
 		return unix.Accept4(fd, unix.SOCK_CLOEXEC|unix.SOCK_NONBLOCK)

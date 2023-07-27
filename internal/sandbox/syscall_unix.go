@@ -289,7 +289,7 @@ func fstat(fd int, stat *unix.Stat_t) error {
 }
 
 func openat(dirfd int, path string, flags int, mode uint32) (int, error) {
-	return ignoreEINTR2(func() (int, error) { return unix.Openat(dirfd, path, flags, mode) })
+	return ignoreEINTR2(func() (int, error) { return unix.Openat(dirfd, path, flags|unix.O_CLOEXEC, mode) })
 }
 
 func fstatat(dirfd int, path string, stat *unix.Stat_t, flags int) error {
