@@ -3,7 +3,7 @@ package sandbox
 import (
 	"errors"
 	"io/fs"
-	"path"
+	"os"
 	"time"
 )
 
@@ -155,72 +155,92 @@ func (f *rootFile) openRoot() (File, error) {
 }
 
 func (f *rootFile) Lstat(name string) (fs.FileInfo, error) {
-	return atPath2(f, "stat", name, File.Lstat)
+	return withPath2("stat", f, name, File.Lstat)
 }
 
 func (f *rootFile) Readlink(name string) (string, error) {
-	return atPath2(f, "readlink", name, File.Readlink)
+	return withPath2("readlink", f, name, File.Readlink)
 }
 
 func (f *rootFile) Chtimes(name string, atime, mtime time.Time) error {
 	if name == "" {
 		return f.File.Chtimes("", atime, mtime)
 	}
-	return atPath1(f, "chtimes", name, func(dir File, name string) error {
+	return withPath1("chtimes", f, name, func(dir File, name string) error {
 		return dir.Chtimes(name, atime, mtime)
 	})
 }
 
 func (f *rootFile) Mkdir(name string, mode uint32) error {
-	return atPath1(f, "mkdir", name, func(dir File, name string) error {
+	return withPath1("mkdir", f, name, func(dir File, name string) error {
 		return dir.Mkdir(name, mode)
 	})
 }
 
 func (f *rootFile) Rmdir(name string) error {
-	return atPath1(f, "rmdir", name, File.Rmdir)
+	return withPath1("rmdir", f, name, File.Rmdir)
 }
 
 func (f *rootFile) Rename(oldName string, newDir File, newName string) error {
-	return ENOSYS
+	f2, ok := newDir.(*rootFile)
+	if !ok {
+		path1 := joinPath(f.Name(), oldName)
+		path2 := joinPath(newDir.Name(), newName)
+		return &os.LinkError{Op: "rename", Old: path1, New: path2, Err: EXDEV}
+	}
+	return withPath3("rename", f, oldName, f2, newName, File.Rename)
 }
 
 func (f *rootFile) Link(oldName string, newDir File, newName string) error {
-	return ENOSYS
+	f2, ok := newDir.(*rootFile)
+	if !ok {
+		path1 := joinPath(f.Name(), oldName)
+		path2 := joinPath(newDir.Name(), newName)
+		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: EXDEV}
+	}
+	return withPath3("link", f, oldName, f2, newName, File.Link)
 }
 
 func (f *rootFile) Symlink(oldName, newName string) error {
-	return atPath1(f, "symlink", newName, func(dir File, name string) error {
+	return withPath1("symlink", f, newName, func(dir File, name string) error {
 		return dir.Symlink(oldName, name)
 	})
 }
 
 func (f *rootFile) Unlink(name string) error {
-	return atPath1(f, "unlink", name, File.Unlink)
+	return withPath1("unlink", f, name, File.Unlink)
 }
 
-func atPath1(root *rootFile, op, name string, do func(File, string) error) error {
-	dir, base := path.Split(name)
+func withPath1(op string, root *rootFile, path string, do func(File, string) error) error {
+	dir, base := splitPath(path)
 	if dir == "" {
 		return do(root.File, base)
 	}
 	d, err := root.Open(dir, openPathFlags, 0)
 	if err != nil {
-		return &fs.PathError{Op: op, Path: name, Err: unwrapPathError(err)}
+		return &fs.PathError{Op: op, Path: path, Err: unwrapPathError(err)}
 	}
 	defer d.Close()
 	return do(d.(*rootFile).File, base)
 }
 
-func atPath2[F func(File, string) (R, error), R any](root *rootFile, op, name string, do F) (ret R, err error) {
-	dir, base := path.Split(name)
+func withPath2[F func(File, string) (R, error), R any](op string, root *rootFile, path string, do F) (ret R, err error) {
+	dir, base := splitPath(path)
 	if dir == "" {
 		return do(root.File, base)
 	}
 	d, err := root.Open(dir, openPathFlags, 0)
 	if err != nil {
-		return ret, &fs.PathError{Op: op, Path: name, Err: unwrapPathError(err)}
+		return ret, &fs.PathError{Op: op, Path: path, Err: unwrapPathError(err)}
 	}
 	defer d.Close()
 	return do(d.(*rootFile).File, base)
+}
+
+func withPath3(op string, f1 *rootFile, path1 string, f2 *rootFile, path2 string, do func(File, string, File, string) error) error {
+	return withPath1(op, f1, path1, func(dir1 File, name1 string) error {
+		return withPath1(op, f2, path2, func(dir2 File, name2 string) error {
+			return do(dir1, name1, dir2, name2)
+		})
+	})
 }

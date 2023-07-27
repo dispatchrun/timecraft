@@ -28,7 +28,7 @@ func OpenRoot(fsys FileSystem) (File, error) {
 }
 
 func Lstat(fsys FileSystem, name string) (fs.FileInfo, error) {
-	info, err := atRoot(fsys, func(dir File) (fs.FileInfo, error) {
+	info, err := withRoot(fsys, func(dir File) (fs.FileInfo, error) {
 		return dir.Lstat(name)
 	})
 	if err != nil {
@@ -38,7 +38,7 @@ func Lstat(fsys FileSystem, name string) (fs.FileInfo, error) {
 }
 
 func Stat(fsys FileSystem, name string) (fs.FileInfo, error) {
-	info, err := atRoot(fsys, func(dir File) (fs.FileInfo, error) {
+	info, err := withRoot(fsys, func(dir File) (fs.FileInfo, error) {
 		for i := 0; i < MaxFollowSymlink; i++ {
 			stat, err := dir.Lstat(name)
 			if err != nil {
@@ -64,7 +64,7 @@ func Stat(fsys FileSystem, name string) (fs.FileInfo, error) {
 	return info, nil
 }
 
-func atRoot[F func(File) (R, error), R any](fsys FileSystem, do F) (ret R, err error) {
+func withRoot[F func(File) (R, error), R any](fsys FileSystem, do F) (ret R, err error) {
 	d, err := OpenRoot(fsys)
 	if err != nil {
 		return ret, err

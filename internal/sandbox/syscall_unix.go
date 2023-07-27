@@ -36,6 +36,7 @@ const (
 	EPROTONOSUPPORT = unix.EPROTONOSUPPORT
 	EPROTOTYPE      = unix.EPROTOTYPE
 	ETIMEDOUT       = unix.ETIMEDOUT
+	EXDEV           = unix.EXDEV
 )
 
 const (

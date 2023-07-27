@@ -116,7 +116,7 @@ func (f dirFile) Rename(oldName string, newDir File, newName string) error {
 	fd2 := int(newDir.Fd())
 	if err := renameat(fd1, oldName, fd2, newName); err != nil {
 		path1 := f.join(oldName)
-		path2 := path.Join(newDir.Name(), newName)
+		path2 := joinPath(newDir.Name(), newName)
 		return &os.LinkError{Op: "rename", Old: path1, New: path2, Err: err}
 	}
 	return nil
@@ -127,7 +127,7 @@ func (f dirFile) Link(oldName string, newDir File, newName string) error {
 	fd2 := int(newDir.Fd())
 	if err := linkat(fd1, oldName, fd2, newName, 0); err != nil {
 		path1 := f.join(oldName)
-		path2 := path.Join(newDir.Name(), newName)
+		path2 := joinPath(newDir.Name(), newName)
 		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: err}
 	}
 	return nil
