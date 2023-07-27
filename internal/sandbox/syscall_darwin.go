@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -105,4 +106,52 @@ func setCloseOnExecAndNonBlocking(fd int) error {
 
 func fdatasync(fd int) error {
 	return unix.Fsync(fd)
+}
+
+const (
+	__UTIME_NOW  = -1
+	__UTIME_OMIT = -2
+)
+
+func prepareTimesAndAttrs(ts *[2]unix.Timespec) (attrs, size int, times [2]unix.Timespec) {
+	const sizeOfTimespec = int(unsafe.Sizeof(times[0]))
+	i := 0
+	if ts[1].Nsec != __UTIME_OMIT {
+		attrs |= unix.ATTR_CMN_MODTIME
+		times[i] = ts[1]
+		i++
+	}
+	if ts[0].Nsec != __UTIME_OMIT {
+		attrs |= unix.ATTR_CMN_ACCTIME
+		times[i] = ts[0]
+		i++
+	}
+	return attrs, i * sizeOfTimespec, times
+}
+
+func futimens(fd int, ts *[2]unix.Timespec) error {
+	attrs, size, times := prepareTimesAndAttrs(ts)
+	attrlist := unix.Attrlist{
+		Bitmapcount: unix.ATTR_BIT_MAP_COUNT,
+		Commonattr:  uint32(attrs),
+	}
+	return ignoreEINTR(func() error {
+		return fsetattrlist(fd, &attrlist, unsafe.Pointer(&times), size, 0)
+	})
+}
+
+func fsetattrlist(fd int, attrlist *unix.Attrlist, attrbuf unsafe.Pointer, attrbufsize int, options uint32) error {
+	_, _, e := unix.Syscall6(
+		uintptr(unix.SYS_FSETATTRLIST),
+		uintptr(fd),
+		uintptr(unsafe.Pointer(attrlist)),
+		uintptr(attrbuf),
+		uintptr(attrbufsize),
+		uintptr(options),
+		uintptr(0),
+	)
+	if e != 0 {
+		return e
+	}
+	return nil
 }

@@ -1,6 +1,10 @@
 package sandbox
 
-import "golang.org/x/sys/unix"
+import (
+	"unsafe"
+
+	"golang.org/x/sys/unix"
+)
 
 const (
 	openPathFlags = unix.O_PATH | unix.O_DIRECTORY | unix.O_NOFOLLOW
@@ -30,4 +34,21 @@ func pipe(fds *[2]int) error {
 
 func fdatasync(fd int) error {
 	return ignoreEINTR(func() error { return unix.Fdatasync(fd) })
+}
+
+func futimens(fd int, ts *[2]unix.Timespec) error {
+	// https://github.com/bminor/glibc/blob/master/sysdeps/unix/sysv/linux/futimens.c
+	_, _, err := unix.Syscall6(
+		uintptr(unix.SYS_UTIMENSAT),
+		uintptr(fd),
+		uintptr(0), // path=NULL
+		uintptr(unsafe.Pointer(ts)),
+		uintptr(0),
+		uintptr(0),
+		uintptr(0),
+	)
+	if err != 0 {
+		return err
+	}
+	return nil
 }

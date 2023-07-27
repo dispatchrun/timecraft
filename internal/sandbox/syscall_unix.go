@@ -312,3 +312,27 @@ func readlinkat(dirfd int, path string) (string, error) {
 		buf = make([]byte, 2*len(buf))
 	}
 }
+
+func utimensat(dirfd int, path string, ts *[2]unix.Timespec, flags int) error {
+	return ignoreEINTR(func() error { return unix.UtimesNanoAt(dirfd, path, ts[:], flags) })
+}
+
+func mkdirat(dirfd int, path string, mode uint32) error {
+	return ignoreEINTR(func() error { return unix.Mkdirat(dirfd, path, mode) })
+}
+
+func renameat(olddirfd int, oldpath string, newdirfd int, newpath string) error {
+	return ignoreEINTR(func() error { return unix.Renameat(olddirfd, oldpath, newdirfd, newpath) })
+}
+
+func linkat(olddirfd int, oldpath string, newdirfd int, newpath string, flags int) error {
+	return ignoreEINTR(func() error { return unix.Linkat(olddirfd, oldpath, newdirfd, newpath, flags) })
+}
+
+func symlinkat(target string, dirfd int, path string) error {
+	return ignoreEINTR(func() error { return unix.Symlinkat(target, dirfd, path) })
+}
+
+func unlinkat(dirfd int, path string, flags int) error {
+	return ignoreEINTR(func() error { return unix.Unlinkat(dirfd, path, flags) })
+}
