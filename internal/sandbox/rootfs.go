@@ -31,7 +31,7 @@ type rootFile struct{ File }
 func (f *rootFile) Open(name string, flags int, mode fs.FileMode) (File, error) {
 	file, err := f.open(name, flags, mode)
 	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: unwrapPathError(err)}
+		return nil, &fs.PathError{Op: "open", Path: name, Err: unwrap(err)}
 	}
 	return &rootFile{file}, nil
 }
@@ -218,29 +218,35 @@ func withPath1(op string, root *rootFile, path string, do func(File, string) err
 	}
 	d, err := root.Open(dir, openPathFlags, 0)
 	if err != nil {
-		return &fs.PathError{Op: op, Path: path, Err: unwrapPathError(err)}
+		return &fs.PathError{Op: op, Path: path, Err: unwrap(err)}
 	}
 	defer d.Close()
 	return do(d.(*rootFile).File, base)
 }
 
-func withPath2[F func(File, string) (R, error), R any](op string, root *rootFile, path string, do F) (ret R, err error) {
+func withPath2[R any](op string, root *rootFile, path string, do func(File, string) (R, error)) (ret R, err error) {
 	dir, base := splitPath(path)
 	if dir == "" {
 		return do(root.File, base)
 	}
 	d, err := root.Open(dir, openPathFlags, 0)
 	if err != nil {
-		return ret, &fs.PathError{Op: op, Path: path, Err: unwrapPathError(err)}
+		return ret, &fs.PathError{Op: op, Path: path, Err: unwrap(err)}
 	}
 	defer d.Close()
 	return do(d.(*rootFile).File, base)
 }
 
 func withPath3(op string, f1 *rootFile, path1 string, f2 *rootFile, path2 string, do func(File, string, File, string) error) error {
-	return withPath1(op, f1, path1, func(dir1 File, name1 string) error {
+	err := withPath1(op, f1, path1, func(dir1 File, name1 string) error {
 		return withPath1(op, f2, path2, func(dir2 File, name2 string) error {
 			return do(dir1, name1, dir2, name2)
 		})
 	})
+	if err != nil {
+		path1 = joinPath(f1.Name(), path2)
+		path2 = joinPath(f2.Name(), path2)
+		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: unwrap(err)}
+	}
+	return nil
 }

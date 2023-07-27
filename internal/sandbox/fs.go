@@ -32,7 +32,7 @@ func Lstat(fsys FileSystem, name string) (fs.FileInfo, error) {
 		return dir.Lstat(name)
 	})
 	if err != nil {
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: unwrapPathError(err)}
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: unwrap(err)}
 	}
 	return info, nil
 }
@@ -59,7 +59,7 @@ func Stat(fsys FileSystem, name string) (fs.FileInfo, error) {
 		return nil, ELOOP
 	})
 	if err != nil {
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: unwrapPathError(err)}
+		return nil, &fs.PathError{Op: "stat", Path: name, Err: unwrap(err)}
 	}
 	return info, nil
 }
@@ -152,7 +152,7 @@ func (fsys *fsFileSystem) Stat(name string) (fs.FileInfo, error) {
 }
 
 func fsError(op, name string, err error) error {
-	err = unwrapPathError(err)
+	err = unwrap(err)
 	switch {
 	case errors.Is(err, EEXIST):
 		err = fs.ErrExist
@@ -166,10 +166,9 @@ func fsError(op, name string, err error) error {
 	return &fs.PathError{Op: op, Path: name, Err: err}
 }
 
-func unwrapPathError(err error) error {
-	e, ok := err.(*fs.PathError)
-	if ok {
-		return e.Err
+func unwrap(err error) error {
+	if e := errors.Unwrap(err); e != nil {
+		err = e
 	}
 	return err
 }
