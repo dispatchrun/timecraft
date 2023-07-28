@@ -1,6 +1,8 @@
 import os
 import time
 import unittest
+import socket
+import asyncio
 
 import requests
 import timecraft
@@ -84,3 +86,22 @@ class TestTimecraft(unittest.TestCase):
             self.assertEqual(res.status_code, 200)
         finally:
             self.client.kill(process_id)
+
+    def test_sockpair(self):
+        csock, ssock = socket.socketpair()
+        csock.sendall(b"42")
+        res = ssock.recv(1024)
+        csock.close()
+        ssock.close()
+        self.assertEqual(res, b"42")
+
+    async def sleep(self):
+        await asyncio.sleep(1)
+
+    def test_asyncio(self):
+        asyncio.run(self.sleep())
+        asyncio.run(self.sleep())
+
+
+if __name__ == "__main__":
+    unittest.main()

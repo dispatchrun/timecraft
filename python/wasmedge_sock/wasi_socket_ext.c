@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
+#include <sys/socket.h>
 #include <sys/un.h>
 
 #include "include/netdb.h"
@@ -700,70 +701,55 @@ int getpeername(int sockfd, struct sockaddr* restrict addr,
   return 0;
 }
 
-int getsockname(int fd, struct sockaddr* restrict addr,
+int getsockname(int sockfd, struct sockaddr* restrict addr,
                 socklen_t* restrict addrlen) {
-  // addrlen contains the size of the struct pointed at by addr
-  // it needs to be returned with the actual size of the address
-
-  if (addr == NULL || addrlen == NULL) {
-    errno = EFAULT;
-    return -1;
-  }
+  WSEDEBUG("WASME| getpeername[%d]: fd:'%d' addr:'%p' size:'%d' \n", __LINE__,
+           sockfd, addr, *addrlen);
 
   uint32_t port;
-  we_address_buffer raw;
-  we_address waddr = {
-      .buf = &raw,
-      .len = sizeof(raw),
-  };
-
-  int32_t err = __import_wasip1_sock_getlocaladdr(fd, &waddr, &port);
-  if (0 != err) {
-    errno = err;
+  we_address_buffer buf;
+  we_address rsa = {.buf = &buf, .len = sizeof(buf)};
+  int32_t res = __import_wasip1_sock_getlocaladdr(sockfd, &rsa, &port);
+  if (res != 0) {
+    WSEDEBUG("WASME| bad getpeeraddr %d => %d\n", sockfd, res);
+    errno = res;
     return -1;
   }
-  socklen_t max = *addrlen;
 
-  switch (raw.family) {
+  // Intermediate output address to make truncation easier, for the cost of an
+  // extra copy. Explicitely 0 initialized for inet6 that doesn't fill all the
+  // fields.
+  struct sockaddr_storage storage = {0};
+  socklen_t size;
+
+  switch (buf.family) {
     case WE_INET_FAMILY: {
-      *addrlen = sizeof(struct sockaddr_in);
-      if (max < *addrlen) {
-        // TODO: should just truncate the address instead of panic
-        printf("!!! getsockname buffer too small (%d/%d)\n", max, *addrlen);
-        abort();
-      }
-      struct sockaddr_in* out = (struct sockaddr_in*)(addr);
-      out->sin_family = AF_INET;
-      out->sin_port = port;
-      out->sin_addr.s_addr = *(in_addr_t*)(&raw.inet_addr);  // copy 4 bytes
+      size = sizeof(struct sockaddr_in);
+      struct sockaddr_in* sin = (struct sockaddr_in*)(&storage);
+      sin->sin_family = AF_INET;
+      sin->sin_port = ntohs(port);
+      memcpy(&sin->sin_addr, &buf.inet_addr, 4);
     } break;
     case WE_INET6_FAMILY: {
-      *addrlen = sizeof(struct sockaddr_in6);
-      if (max < *addrlen) {
-        // TODO: should just truncate the address instead of panic
-        printf("!!! getsockname buffer too small (%d/%d)\n", max, *addrlen);
-        abort();
-      }
-      struct sockaddr_in6* out = (struct sockaddr_in6*)(addr);
-      out->sin6_family = AF_INET6;
-      out->sin6_port = port;
-      out->sin6_addr = *(struct in6_addr*)(&raw.inet6_addr);  // copy 16 bytes
+      size = sizeof(struct sockaddr_in6);
+      struct sockaddr_in6* sin6 = (struct sockaddr_in6*)(&storage);
+      sin6->sin6_family = AF_INET6;
+      sin6->sin6_port = port;
+      memcpy(&sin6->sin6_addr, &buf.inet6_addr, 16);
     } break;
     case WE_UNIX_FAMILY: {
-      *addrlen = sizeof(struct sockaddr_un);
-      if (max < *addrlen) {
-        // TODO: should just truncate the address instead of panic
-        printf("!!! getsockname buffer too small (%d/%d)\n", max, *addrlen);
-        abort();
-      }
-      struct sockaddr_un* out = (struct sockaddr_un*)addr;
-      out->sun_family = AF_UNIX;
-      memcpy(&out->sun_path, &raw.unix_addr, 108);
+      struct sockaddr_un* sun = (struct sockaddr_un*)(&storage);
+      size = sizeof(struct sockaddr_un);
+      sun->sun_family = AF_UNIX;
+      memcpy(&sun->sun_path, &buf.unix_addr, 126);
     } break;
     default:
-      printf("!!! unsupported family in getsockname: %d\n", raw.family);
+      printf("!! unsupported family: %d\n", buf.family);
       abort();
   }
+
+  memcpy(addr, &storage, MIN(*addrlen, size));
+  *addrlen = size;
 
   return 0;
 }
