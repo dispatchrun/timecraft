@@ -8,6 +8,8 @@ import (
 
 const (
 	openPathFlags = unix.O_PATH | unix.O_DIRECTORY | unix.O_NOFOLLOW
+
+	_PATH_MAX = 4096
 )
 
 func accept(fd int) (int, Sockaddr, error) {
@@ -51,4 +53,12 @@ func futimens(fd int, ts *[2]unix.Timespec) error {
 		return err
 	}
 	return nil
+}
+
+func freadlink(fd int) (string, error) {
+	return readlinkat(fd, "")
+}
+
+func openat(dirfd int, path string, flags int, mode uint32) (int, error) {
+	return ignoreEINTR2(func() (int, error) { return unix.Openat(dirfd, path, flags|unix.O_CLOEXEC, mode) })
 }

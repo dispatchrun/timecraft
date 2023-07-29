@@ -2,17 +2,33 @@ package sandbox
 
 import (
 	"errors"
+	"io"
 	"io/fs"
-	"path"
+	"strings"
 	"time"
 )
 
 const (
-	MaxFollowSymlink = 10
+	// maxFollowSymlink is the hardcoded limit of symbolic links that may be
+	// followed when resolving paths.
+	//
+	// This limit applies to RootFS, EvalSymlinks, and the functions that
+	// depend on it.
+	maxFollowSymlink = 10
 )
 
+// FileSystem is the interface representing file systems.
+//
+// The interface has a single method used to open a file at a path on the file
+// system, which may be a directory. Often time this method is used to open the
+// root directory and use the methods of the returned File instance to access
+// the rest of the directory tree.
 type FileSystem interface {
 	Open(name string, flags int, mode fs.FileMode) (File, error)
+}
+
+func Create(fsys FileSystem, name string, mode fs.FileMode) (File, error) {
+	return fsys.Open(name, O_CREAT|O_TRUNC|O_WRONLY, mode)
 }
 
 func Open(fsys FileSystem, name string) (File, error) {
@@ -27,8 +43,29 @@ func OpenRoot(fsys FileSystem) (File, error) {
 	return OpenDir(fsys, "/")
 }
 
+func EvalSymlinks(fsys FileSystem, name string) (string, error) {
+	return withRoot2(fsys, func(dir File) (string, error) { return evalSymlinks(dir, name) })
+}
+
+func evalSymlinks(dir File, name string) (string, error) {
+	path := name
+
+	for i := 0; i < maxFollowSymlink; i++ {
+		link, err := dir.Readlink(path)
+		if err != nil {
+			if errors.Is(err, EINVAL) {
+				return path, nil
+			}
+			return "", err
+		}
+		path = link
+	}
+
+	return "", &fs.PathError{Op: "readlink", Path: name, Err: ELOOP}
+}
+
 func Lstat(fsys FileSystem, name string) (fs.FileInfo, error) {
-	info, err := withRoot(fsys, func(dir File) (fs.FileInfo, error) {
+	info, err := withRoot2(fsys, func(dir File) (fs.FileInfo, error) {
 		return dir.Lstat(name)
 	})
 	if err != nil {
@@ -38,33 +75,131 @@ func Lstat(fsys FileSystem, name string) (fs.FileInfo, error) {
 }
 
 func Stat(fsys FileSystem, name string) (fs.FileInfo, error) {
-	info, err := withRoot(fsys, func(dir File) (fs.FileInfo, error) {
-		for i := 0; i < MaxFollowSymlink; i++ {
-			stat, err := dir.Lstat(name)
-			if err != nil {
-				return nil, err
-			}
-			if stat.Mode().Type() != fs.ModeSymlink {
-				return stat, nil
-			}
-			link, err := dir.Readlink(name)
-			if err != nil {
-				return nil, err
-			}
-			if !path.IsAbs(link) {
-				link = path.Join(name, link)
-			}
-			name = link
+	return withRoot2(fsys, func(dir File) (fs.FileInfo, error) {
+		path, err := evalSymlinks(dir, name)
+		if err != nil {
+			return nil, &fs.PathError{Op: "stat", Path: name, Err: unwrap(err)}
 		}
-		return nil, ELOOP
+		stat, err := dir.Lstat(path)
+		if err != nil {
+			return nil, err
+		}
+		if stat.Mode().Type() == fs.ModeSymlink {
+			// If the file system was modified concurrently, the resolved target
+			// of symbolic links may have been replaced by a symbolic link that
+			// we did not follow. Since this is a race condition, we prefer
+			// returning an error rather than attempt to handle this condition.
+			return nil, &fs.PathError{Op: "stat", Path: name, Err: ELOOP}
+		}
+		return stat, nil
 	})
-	if err != nil {
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: unwrap(err)}
-	}
-	return info, nil
 }
 
-func withRoot[F func(File) (R, error), R any](fsys FileSystem, do F) (ret R, err error) {
+func ReadFile(fsys FileSystem, name string, flags int) ([]byte, error) {
+	f, err := fsys.Open(name, flags|O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	s, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	b := make([]byte, s.Size())
+	n, err := io.ReadFull(f, b)
+	return b[:n], err
+}
+
+func WriteFile(fsys FileSystem, name string, data []byte, mode fs.FileMode) error {
+	f, err := fsys.Open(name, O_CREAT|O_WRONLY|O_TRUNC|O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(data)
+	return err
+}
+
+func MkdirAll(fsys FileSystem, name string, mode fs.FileMode) error {
+	if err := mkdirAll(fsys, name, mode); err != nil {
+		return &fs.PathError{Op: "mkdir", Path: name, Err: unwrap(err)}
+	}
+	return nil
+}
+
+func mkdirAll(fsys FileSystem, name string, mode fs.FileMode) error {
+	path := cleanPath(name)
+	if path == "/" || path == "." {
+		return nil
+	}
+	path = strings.TrimPrefix(path, "/")
+
+	d, err := OpenRoot(fsys)
+	if err != nil {
+		return err
+	}
+	defer func() { d.Close() }()
+
+	for path != "" {
+		var dir string
+		dir, path = walkPath(path)
+		if dir == "." {
+			dir, path = path, ""
+		}
+
+		if err := d.Mkdir(dir, mode); err != nil {
+			if !errors.Is(err, EEXIST) {
+				return err
+			}
+		}
+
+		f, err := d.Open(dir, O_DIRECTORY|O_NOFOLLOW, 0)
+		if err != nil {
+			return err
+		}
+		d.Close()
+		d = f
+	}
+	return nil
+}
+
+func Mkdir(fsys FileSystem, name string, mode fs.FileMode) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Mkdir(name, mode) })
+}
+
+func Rmdir(fsys FileSystem, name string) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Rmdir(name) })
+}
+
+func Link(fsys FileSystem, oldName, newName string) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Link(oldName, dir, newName) })
+}
+
+func Symlink(fsys FileSystem, oldName, newName string) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Symlink(oldName, newName) })
+}
+
+func Readlink(fsys FileSystem, name string) (string, error) {
+	return withRoot2(fsys, func(dir File) (string, error) { return dir.Readlink(name) })
+}
+
+func Unlink(fsys FileSystem, name string) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Unlink(name) })
+}
+
+func Rename(fsys FileSystem, oldName, newName string) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Rename(oldName, dir, newName) })
+}
+
+func withRoot1(fsys FileSystem, do func(File) error) error {
+	d, err := OpenRoot(fsys)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return do(d)
+}
+
+func withRoot2[R any](fsys FileSystem, do func(File) (R, error)) (ret R, err error) {
 	d, err := OpenRoot(fsys)
 	if err != nil {
 		return ret, err
@@ -110,7 +245,7 @@ type File interface {
 
 	Chtimes(name string, atime, mtime time.Time) error
 
-	Mkdir(name string, mode uint32) error
+	Mkdir(name string, mode fs.FileMode) error
 
 	Rmdir(name string) error
 
@@ -123,6 +258,9 @@ type File interface {
 	Unlink(name string) error
 }
 
+// FS constructs a fs.FS backed by a FileSystem instance.
+//
+// The returned fs.FS implements fs.StatFS.
 func FS(fsys FileSystem) fs.FS {
 	return &fsFileSystem{fsys}
 }

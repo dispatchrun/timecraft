@@ -24,6 +24,7 @@ const (
 	EINTR           = unix.EINTR
 	EINPROGRESS     = unix.EINPROGRESS
 	EISCONN         = unix.EISCONN
+	EISDIR          = unix.EISDIR
 	ELOOP           = unix.ELOOP
 	ENAMETOOLONG    = unix.ENAMETOOLONG
 	ENETUNREACH     = unix.ENETUNREACH
@@ -32,7 +33,9 @@ const (
 	ENOSYS          = unix.ENOSYS
 	ENOTCONN        = unix.ENOTCONN
 	ENOTDIR         = unix.ENOTDIR
+	ENOTEMPTY       = unix.ENOTEMPTY
 	EOPNOTSUPP      = unix.EOPNOTSUPP
+	EPERM           = unix.EPERM
 	EPROTONOSUPPORT = unix.EPROTONOSUPPORT
 	EPROTOTYPE      = unix.EPROTOTYPE
 	ETIMEDOUT       = unix.ETIMEDOUT
@@ -289,10 +292,6 @@ func fstat(fd int, stat *unix.Stat_t) error {
 	return ignoreEINTR(func() error { return unix.Fstat(fd, stat) })
 }
 
-func openat(dirfd int, path string, flags int, mode uint32) (int, error) {
-	return ignoreEINTR2(func() (int, error) { return unix.Openat(dirfd, path, flags|unix.O_CLOEXEC, mode) })
-}
-
 func fstatat(dirfd int, path string, stat *unix.Stat_t, flags int) error {
 	return ignoreEINTR(func() error { return unix.Fstatat(dirfd, path, stat, flags) })
 }
@@ -307,7 +306,7 @@ func readlinkat(dirfd int, path string) (string, error) {
 		if n < len(buf) {
 			return string(buf[:n]), nil
 		}
-		if len(buf) >= 64*1024 {
+		if len(buf) >= _PATH_MAX {
 			return "", ENAMETOOLONG
 		}
 		buf = make([]byte, 2*len(buf))

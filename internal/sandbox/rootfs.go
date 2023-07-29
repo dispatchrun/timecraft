@@ -57,7 +57,7 @@ func (f *rootFile) open(name string, flags int, mode fs.FileMode) (File, error) 
 		// Limit the maximum number of symbolic links that would be followed
 		// during path resolution; this ensures that if we encounter a loop,
 		// we will eventually abort resolving the path.
-		if followSymlinkDepth == MaxFollowSymlink {
+		if followSymlinkDepth == maxFollowSymlink {
 			return ELOOP
 		}
 		followSymlinkDepth++
@@ -150,6 +150,7 @@ func (f *rootFile) openRoot() (File, error) {
 		}
 		dir.Close()
 		dir = p
+		depth--
 	}
 	return dir, nil
 }
@@ -171,7 +172,7 @@ func (f *rootFile) Chtimes(name string, atime, mtime time.Time) error {
 	})
 }
 
-func (f *rootFile) Mkdir(name string, mode uint32) error {
+func (f *rootFile) Mkdir(name string, mode fs.FileMode) error {
 	return withPath1("mkdir", f, name, func(dir File, name string) error {
 		return dir.Mkdir(name, mode)
 	})

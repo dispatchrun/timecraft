@@ -9,6 +9,8 @@ import (
 
 const (
 	openPathFlags = unix.O_DIRECTORY | unix.O_NOFOLLOW
+
+	_PATH_MAX = 1024
 )
 
 func accept(fd int) (int, Sockaddr, error) {
@@ -154,4 +156,39 @@ func fsetattrlist(fd int, attrlist *unix.Attrlist, attrbuf unsafe.Pointer, attrb
 		return e
 	}
 	return nil
+}
+
+func freadlink(fd int) (string, error) {
+	const SYS_FREADLINK = 551
+	buf := [_PATH_MAX + 1]byte{}
+	n, _, e := syscall.Syscall(
+		uintptr(SYS_FREADLINK),
+		uintptr(fd),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+	)
+	if e != 0 {
+		return "", e
+	}
+	if int(n) == len(buf) {
+		return "", unix.ENAMETOOLONG
+	}
+	return string(buf[:n]), nil
+}
+
+func openat(dirfd int, path string, flags int, mode uint32) (int, error) {
+	return ignoreEINTR2(func() (int, error) {
+		flags |= unix.O_CLOEXEC
+		fd, err := unix.Openat(dirfd, path, flags, mode)
+		if err != nil {
+			if err == ELOOP && ((flags & O_NOFOLLOW) != 0) {
+				// Darwin requires that O_SYMLINK be explicitly set to open a
+				// symbolic link.
+				flags &= ^O_NOFOLLOW
+				flags |= unix.O_SYMLINK
+				fd, err = unix.Openat(dirfd, path, flags, mode)
+			}
+		}
+		return fd, err
+	})
 }

@@ -1,9 +1,12 @@
 package sandbox
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
+	"os/user"
 	"path"
+	"strconv"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -74,11 +77,18 @@ func (f dirFile) Lstat(name string) (fs.FileInfo, error) {
 }
 
 func (f dirFile) Readlink(name string) (string, error) {
-	s, err := readlinkat(f.fd(), name)
+	var link string
+	var err error
+	fd := f.fd()
+	if name == "" {
+		link, err = freadlink(fd)
+	} else {
+		link, err = readlinkat(fd, name)
+	}
 	if err != nil {
 		return "", &fs.PathError{Op: "readlink", Path: f.join(name), Err: err}
 	}
-	return s, nil
+	return link, nil
 }
 
 func (f dirFile) Chtimes(name string, atime, mtime time.Time) error {
@@ -97,8 +107,8 @@ func (f dirFile) Chtimes(name string, atime, mtime time.Time) error {
 	return err
 }
 
-func (f dirFile) Mkdir(name string, mode uint32) error {
-	if err := mkdirat(f.fd(), name, mode); err != nil {
+func (f dirFile) Mkdir(name string, mode fs.FileMode) error {
+	if err := mkdirat(f.fd(), name, uint32(mode.Perm())); err != nil {
 		return &fs.PathError{Op: "mkdir", Path: f.join(name), Err: err}
 	}
 	return nil
@@ -200,4 +210,28 @@ func (info *dirFileInfo) IsDir() bool {
 
 func (info *dirFileInfo) Sys() any {
 	return &info.stat
+}
+
+func (info *dirFileInfo) String() string {
+	group, name := "none", "nobody"
+
+	g, err := user.LookupGroupId(strconv.Itoa(int(info.stat.Gid)))
+	if err == nil {
+		group = g.Name
+	}
+
+	u, err := user.LookupId(strconv.Itoa(int(info.stat.Uid)))
+	if err == nil {
+		name = u.Username
+	}
+
+	return fmt.Sprintf("%s %d %s %s %d %s %s",
+		info.Mode(),
+		info.stat.Nlink,
+		name,
+		group,
+		info.Size(),
+		info.ModTime().Format(time.Stamp),
+		info.Name(),
+	)
 }

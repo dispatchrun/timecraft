@@ -9,10 +9,18 @@ func filePathDepth(path string) (depth int) {
 		if path == "" {
 			return depth
 		}
-		depth++
 		i := indexSlash(path)
 		if i < 0 {
-			return depth
+			i = len(path)
+		}
+		switch path[:i] {
+		case ".":
+		case "..":
+			if depth > 0 {
+				depth--
+			}
+		default:
+			depth++
 		}
 		path = path[i:]
 	}
@@ -21,7 +29,14 @@ func filePathDepth(path string) (depth int) {
 // joinPath is similar to path.Join but is simplified to assumed that the
 // paths passed as arguments hare already clean.
 func joinPath(dir, name string) string {
-	return trimTrailingSlash(dir) + "/" + trimLeadingSlash(name)
+	if dir == "" {
+		return name
+	}
+	name = trimLeadingSlash(name)
+	if name == "" {
+		return dir
+	}
+	return trimTrailingSlash(dir) + "/" + name
 }
 
 // cleanPath is like path.Clean but it preserves parent directory references;
