@@ -235,6 +235,8 @@ type File interface {
 
 	Truncate(size int64) error
 
+	Flags() (int, error)
+
 	SetFlags(flags int) error
 
 	ReadDir(n int) ([]fs.DirEntry, error)

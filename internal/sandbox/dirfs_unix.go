@@ -59,6 +59,14 @@ func (f dirFile) Datasync() error {
 	return nil
 }
 
+func (f dirFile) Flags() (int, error) {
+	flags, err := unix.FcntlInt(f.Fd(), unix.F_GETFL, 0)
+	if err != nil {
+		return 0, &fs.PathError{Op: "fcntl", Path: f.Name(), Err: err}
+	}
+	return flags, nil
+}
+
 func (f dirFile) SetFlags(flags int) error {
 	_, err := unix.FcntlInt(f.Fd(), unix.F_SETFL, flags)
 	if err != nil {

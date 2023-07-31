@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"io"
 	"math"
 	"path"
 	"path/filepath"
@@ -17,13 +18,13 @@ import (
 
 // File is the interface implemented by all flavors of files that can be
 // registered in a sandboxed System.
-type wasiFile interface {
-	wasi.File[wasiFile]
+type anyFile interface {
+	wasi.File[anyFile]
 
 	// Returns the underlying file descriptor that this file is opened on.
 	Fd() uintptr
 
-	SockAccept(ctx context.Context, flags wasi.FDFlags) (wasiFile, wasi.Errno)
+	SockAccept(ctx context.Context, flags wasi.FDFlags) (anyFile, wasi.Errno)
 	SockBind(ctx context.Context, addr wasi.SocketAddress) wasi.Errno
 	SockConnect(ctx context.Context, peer wasi.SocketAddress) wasi.Errno
 	SockListen(ctx context.Context, backlog int) wasi.Errno
@@ -38,7 +39,7 @@ type wasiFile interface {
 	SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.Errno
 }
 
-// unimplementedFileMethods declares all the methods of the wasiFile interface
+// unimplementedFileMethods declares all the methods of the anyFile interface
 // that are not supported by implementations which are not files or directories.
 type unimplementedFileMethods struct{}
 
@@ -98,11 +99,11 @@ func (unimplementedFileMethods) PathFileStatSetTimes(ctx context.Context, lookup
 	return wasi.EBADF
 }
 
-func (unimplementedFileMethods) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir wasiFile, newPath string) wasi.Errno {
+func (unimplementedFileMethods) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir anyFile, newPath string) wasi.Errno {
 	return wasi.EBADF
 }
 
-func (unimplementedFileMethods) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (wasiFile, wasi.Errno) {
+func (unimplementedFileMethods) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (anyFile, wasi.Errno) {
 	return nil, wasi.EBADF
 }
 
@@ -114,7 +115,7 @@ func (unimplementedFileMethods) PathRemoveDirectory(ctx context.Context, path st
 	return wasi.EBADF
 }
 
-func (unimplementedFileMethods) PathRename(ctx context.Context, oldPath string, newDir wasiFile, newPath string) wasi.Errno {
+func (unimplementedFileMethods) PathRename(ctx context.Context, oldPath string, newDir anyFile, newPath string) wasi.Errno {
 	return wasi.EBADF
 }
 
@@ -144,7 +145,7 @@ func (unimplementedSocketMethods) SockListen(ctx context.Context, backlog int) w
 	return wasi.ENOTSOCK
 }
 
-func (unimplementedSocketMethods) SockAccept(ctx context.Context, flags wasi.FDFlags) (wasiFile, wasi.Errno) {
+func (unimplementedSocketMethods) SockAccept(ctx context.Context, flags wasi.FDFlags) (anyFile, wasi.Errno) {
 	return nil, wasi.ENOTSOCK
 }
 
@@ -182,6 +183,184 @@ func (unimplementedSocketMethods) SockRemoteAddress(ctx context.Context) (wasi.S
 
 func (unimplementedSocketMethods) SockShutdown(ctx context.Context, flags wasi.SDFlags) wasi.Errno {
 	return wasi.ENOTSOCK
+}
+
+type wasiFile struct {
+	unimplementedSocketMethods
+	file File
+}
+
+func (f *wasiFile) Fd() uintptr {
+	return f.file.Fd()
+}
+
+func (f *wasiFile) FDAdvise(ctx context.Context, offset, length wasi.FileSize, advice wasi.Advice) wasi.Errno {
+	return wasi.ESUCCESS
+}
+
+func (f *wasiFile) FDAllocate(ctx context.Context, offset, length wasi.FileSize) wasi.Errno {
+	return wasi.ESUCCESS
+}
+
+func (f *wasiFile) FDClose(ctx context.Context) wasi.Errno {
+	return wasi.MakeErrno(f.file.Close())
+}
+
+func (f *wasiFile) FDDataSync(ctx context.Context) wasi.Errno {
+	return wasi.MakeErrno(f.file.Datasync())
+}
+
+func (f *wasiFile) FDFileStatGet(ctx context.Context) (stat wasi.FileStat, errno wasi.Errno) {
+	errno = wasi.ENOSYS
+	return
+}
+
+func (f *wasiFile) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
+	sysFlags, err := f.file.Flags()
+	if err != nil {
+		return wasi.MakeErrno(err)
+	}
+	if flags.Has(wasi.Append) {
+		sysFlags |= O_APPEND
+	}
+	if flags.Has(wasi.DSync) {
+		sysFlags |= O_DSYNC
+	}
+	if flags.Has(wasi.RSync) {
+		sysFlags |= O_RSYNC
+	}
+	if flags.Has(wasi.Sync) {
+		sysFlags |= O_SYNC
+	}
+	return wasi.MakeErrno(f.file.SetFlags(sysFlags))
+}
+
+func (f *wasiFile) FDFileStatSetSize(ctx context.Context, size wasi.FileSize) wasi.Errno {
+	return wasi.MakeErrno(f.file.Truncate(int64(size)))
+}
+
+func (f *wasiFile) FDFileStatSetTimes(ctx context.Context, accessTime, modifyTime wasi.Timestamp, flags wasi.FSTFlags) wasi.Errno {
+	atime := makeFileTime(accessTime, flags.Has(wasi.AccessTime), flags.Has(wasi.AccessTimeNow))
+	mtime := makeFileTime(modifyTime, flags.Has(wasi.ModifyTime), flags.Has(wasi.ModifyTimeNow))
+	return wasi.MakeErrno(f.file.Chtimes("", atime, mtime))
+}
+
+func (f *wasiFile) FDRead(ctx context.Context, iovs []wasi.IOVec) (size wasi.Size, errno wasi.Errno) {
+	for _, iov := range iovs {
+		n, err := f.file.Read(iov)
+		size += wasi.Size(n)
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return size, wasi.MakeErrno(err)
+		}
+	}
+	return size, wasi.ESUCCESS
+}
+
+func (f *wasiFile) FDPread(ctx context.Context, iovs []wasi.IOVec, offset wasi.FileSize) (size wasi.Size, errno wasi.Errno) {
+	for _, iov := range iovs {
+		n, err := f.file.ReadAt(iov, int64(offset))
+		size += wasi.Size(n)
+		offset += wasi.FileSize(n)
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return size, wasi.MakeErrno(err)
+		}
+	}
+	return size, wasi.ESUCCESS
+}
+
+func (f *wasiFile) FDWrite(ctx context.Context, iovs []wasi.IOVec) (size wasi.Size, errno wasi.Errno) {
+	for _, iov := range iovs {
+		n, err := f.file.Write(iov)
+		size += wasi.Size(n)
+		if err != nil {
+			return size, wasi.MakeErrno(err)
+		}
+	}
+	return size, wasi.ESUCCESS
+}
+
+func (f *wasiFile) FDPwrite(ctx context.Context, iovs []wasi.IOVec, offset wasi.FileSize) (size wasi.Size, errno wasi.Errno) {
+	for _, iov := range iovs {
+		n, err := f.file.WriteAt(iov, int64(offset))
+		size += wasi.Size(n)
+		offset += wasi.FileSize(n)
+		if err != nil {
+			return size, wasi.MakeErrno(err)
+		}
+	}
+	return size, wasi.ESUCCESS
+}
+
+func (f *wasiFile) FDOpenDir(ctx context.Context) (wasi.Dir, wasi.Errno) {
+	return nil, wasi.EBADF
+}
+
+func (f *wasiFile) FDSync(ctx context.Context) wasi.Errno {
+	return wasi.MakeErrno(f.file.Sync())
+}
+
+func (f *wasiFile) FDSeek(ctx context.Context, delta wasi.FileDelta, whence wasi.Whence) (wasi.FileSize, wasi.Errno) {
+	offset, err := f.file.Seek(int64(delta), int(whence))
+	return wasi.FileSize(offset), wasi.MakeErrno(err)
+}
+
+func (f *wasiFile) PathCreateDirectory(ctx context.Context, path string) wasi.Errno {
+	return wasi.MakeErrno(f.file.Mkdir(path, 0777))
+}
+
+func (f *wasiFile) PathFileStatGet(ctx context.Context, flags wasi.LookupFlags, path string) (wasi.FileStat, wasi.Errno) {
+	return wasi.FileStat{}, wasi.EBADF
+}
+
+func (f *wasiFile) PathFileStatSetTimes(ctx context.Context, lookupFlags wasi.LookupFlags, path string, accessTime, modifyTime wasi.Timestamp, fstFlags wasi.FSTFlags) wasi.Errno {
+	// TODO: lookup flags
+	atime := makeFileTime(accessTime, fstFlags.Has(wasi.AccessTime), fstFlags.Has(wasi.AccessTimeNow))
+	mtime := makeFileTime(modifyTime, fstFlags.Has(wasi.ModifyTime), fstFlags.Has(wasi.ModifyTimeNow))
+	return wasi.MakeErrno(f.file.Chtimes(path, atime, mtime))
+}
+
+func (f *wasiFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir anyFile, newPath string) wasi.Errno {
+	return wasi.EBADF
+}
+
+func (f *wasiFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (anyFile, wasi.Errno) {
+	return nil, wasi.EBADF
+}
+
+func (f *wasiFile) PathReadLink(ctx context.Context, path string, buffer []byte) (int, wasi.Errno) {
+	return 0, wasi.EBADF
+}
+
+func (f *wasiFile) PathRemoveDirectory(ctx context.Context, path string) wasi.Errno {
+	return wasi.EBADF
+}
+
+func (f *wasiFile) PathRename(ctx context.Context, oldPath string, newDir anyFile, newPath string) wasi.Errno {
+	return wasi.EBADF
+}
+
+func (f *wasiFile) PathSymlink(ctx context.Context, oldPath string, newPath string) wasi.Errno {
+	return wasi.EBADF
+}
+
+func (f *wasiFile) PathUnlinkFile(ctx context.Context, path string) wasi.Errno {
+	return wasi.EBADF
+}
+
+func makeFileTime(t wasi.Timestamp, set, now bool) time.Time {
+	if set {
+		if now {
+			return time.Unix(0, _UTIME_NOW)
+		}
+		return t.Time()
+	}
+	return time.Unix(0, _UTIME_OMIT)
 }
 
 type wasiSocket struct {
@@ -233,7 +412,7 @@ func (s *wasiSocket) SockListen(ctx context.Context, backlog int) wasi.Errno {
 	return wasi.MakeErrno(s.socket.Listen(backlog))
 }
 
-func (s *wasiSocket) SockAccept(ctx context.Context, flags wasi.FDFlags) (wasiFile, wasi.Errno) {
+func (s *wasiSocket) SockAccept(ctx context.Context, flags wasi.FDFlags) (anyFile, wasi.Errno) {
 	socket, _, err := s.socket.Accept()
 	if err != nil {
 		return nil, wasi.MakeErrno(err)
@@ -541,7 +720,7 @@ func wasiROFlags(rflags int) (roflags wasi.ROFlags) {
 // The interface has a single method allowing the sandbox to open the root
 // directory.
 type wasiFS interface {
-	PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (wasiFile, wasi.Errno)
+	PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (anyFile, wasi.Errno)
 }
 
 // ErrFS returns a FS value which always returns the given error.
@@ -549,7 +728,7 @@ func ErrFS(errno wasi.Errno) wasiFS { return errFS(errno) }
 
 type errFS wasi.Errno
 
-func (err errFS) PathOpen(context.Context, wasi.LookupFlags, string, wasi.OpenFlags, wasi.Rights, wasi.Rights, wasi.FDFlags) (wasiFile, wasi.Errno) {
+func (err errFS) PathOpen(context.Context, wasi.LookupFlags, string, wasi.OpenFlags, wasi.Rights, wasi.Rights, wasi.FDFlags) (anyFile, wasi.Errno) {
 	return nil, wasi.Errno(err)
 }
 
@@ -567,7 +746,7 @@ func PathFS(path string) wasiFS {
 
 type wasiDirFS string
 
-func (dir wasiDirFS) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, filePath string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (wasiFile, wasi.Errno) {
+func (dir wasiDirFS) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, filePath string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (anyFile, wasi.Errno) {
 	filePath = path.Join(string(dir), filePath)
 	f, errno := wasisys.FD(sysunix.AT_FDCWD).PathOpen(ctx, lookupFlags, filePath, openFlags, rightsBase, rightsInheriting, fdFlags)
 	if errno != wasi.ESUCCESS {
@@ -657,7 +836,7 @@ func (f *wasiDirFile) PathFileStatSetTimes(ctx context.Context, lookupFlags wasi
 	return f.fd.PathFileStatSetTimes(ctx, lookupFlags, path, accessTime, modifyTime, fstFlags)
 }
 
-func (f *wasiDirFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir wasiFile, newPath string) wasi.Errno {
+func (f *wasiDirFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir anyFile, newPath string) wasi.Errno {
 	d, ok := newDir.(*wasiDirFile)
 	if !ok {
 		return wasi.EXDEV
@@ -665,7 +844,7 @@ func (f *wasiDirFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldP
 	return f.fd.PathLink(ctx, flags, oldPath, d.fd, newPath)
 }
 
-func (f *wasiDirFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (wasiFile, wasi.Errno) {
+func (f *wasiDirFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (anyFile, wasi.Errno) {
 	fd, errno := f.fd.PathOpen(ctx, lookupFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
 	if errno != wasi.ESUCCESS {
 		return nil, errno
@@ -681,7 +860,7 @@ func (f *wasiDirFile) PathRemoveDirectory(ctx context.Context, path string) wasi
 	return f.fd.PathRemoveDirectory(ctx, path)
 }
 
-func (f *wasiDirFile) PathRename(ctx context.Context, oldPath string, newDir wasiFile, newPath string) wasi.Errno {
+func (f *wasiDirFile) PathRename(ctx context.Context, oldPath string, newDir anyFile, newPath string) wasi.Errno {
 	d, ok := newDir.(*wasiDirFile)
 	if !ok {
 		return wasi.EXDEV
@@ -715,7 +894,7 @@ type throttleFS struct {
 	wlim *rate.Limiter
 }
 
-func (fsys *throttleFS) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (wasiFile, wasi.Errno) {
+func (fsys *throttleFS) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (anyFile, wasi.Errno) {
 	f, errno := fsys.base.PathOpen(ctx, lookupFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
 	if canThrottle(errno) {
 		fsys.throttlePathRead(ctx, path, 1)
@@ -766,7 +945,7 @@ func throttle(ctx context.Context, l *rate.Limiter, n int64) {
 
 type throttleFile struct {
 	unimplementedSocketMethods
-	base wasiFile
+	base anyFile
 	fsys *throttleFS
 }
 
@@ -921,7 +1100,7 @@ func (f *throttleFile) PathFileStatSetTimes(ctx context.Context, lookupFlags was
 	return errno
 }
 
-func (f *throttleFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir wasiFile, newPath string) wasi.Errno {
+func (f *throttleFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir anyFile, newPath string) wasi.Errno {
 	d, ok := newDir.(*throttleFile)
 	if !ok {
 		return wasi.EXDEV
@@ -933,7 +1112,7 @@ func (f *throttleFile) PathLink(ctx context.Context, flags wasi.LookupFlags, old
 	return errno
 }
 
-func (f *throttleFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (wasiFile, wasi.Errno) {
+func (f *throttleFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (anyFile, wasi.Errno) {
 	newFile, errno := f.base.PathOpen(ctx, lookupFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
 	if canThrottle(errno) {
 		f.fsys.throttlePathRead(ctx, path, 1)
@@ -960,7 +1139,7 @@ func (f *throttleFile) PathRemoveDirectory(ctx context.Context, path string) was
 	return errno
 }
 
-func (f *throttleFile) PathRename(ctx context.Context, oldPath string, newDir wasiFile, newPath string) wasi.Errno {
+func (f *throttleFile) PathRename(ctx context.Context, oldPath string, newDir anyFile, newPath string) wasi.Errno {
 	d, ok := newDir.(*throttleFile)
 	if !ok {
 		return wasi.EXDEV

@@ -49,9 +49,14 @@ const (
 	O_APPEND    = unix.O_APPEND
 	O_CREAT     = unix.O_CREAT
 	O_EXCL      = unix.O_EXCL
+	O_SYNC      = unix.O_SYNC
 	O_TRUNC     = unix.O_TRUNC
 	O_DIRECTORY = unix.O_DIRECTORY
 	O_NOFOLLOW  = unix.O_NOFOLLOW
+)
+
+const (
+	AT_SYMLINK_NOFOLLOW = unix.AT_SYMLINK_NOFOLLOW
 )
 
 const (

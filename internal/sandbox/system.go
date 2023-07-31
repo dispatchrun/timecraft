@@ -3,7 +3,6 @@ package sandbox
 import (
 	"context"
 	"io"
-	"io/fs"
 	"net"
 	"net/netip"
 	"os"
@@ -47,10 +46,11 @@ func Rand(rand io.Reader) Option {
 	return func(s *System) { s.rand = rand }
 }
 
-// Mount configures a mount point to expose a file system to the guest module.
+// Mount configures a mount point to expose a file system to the guest module,
+// with each mount point exposed as a preopen directory.
 //
 // If no endpoints are set, the guest does not have a file system.
-func Mount(path string, fsys wasiFS) Option {
+func Mount(path string, fsys FileSystem) Option {
 	return func(s *System) {
 		s.mounts = append(s.mounts, mountPoint{
 			path: path,
@@ -102,11 +102,10 @@ type System struct {
 	epoch  time.Time
 	time   func() time.Time
 	rand   io.Reader
-	files  wasi.FileTable[wasiFile]
+	files  wasi.FileTable[anyFile]
 	stdin  *os.File
 	stdout *os.File
 	stderr *os.File
-	root   wasi.FD
 	rslv   ServiceResolver
 	netns  Namespace
 	mounts []mountPoint
@@ -115,7 +114,7 @@ type System struct {
 
 type mountPoint struct {
 	path string
-	fsys wasiFS
+	fsys FileSystem
 }
 
 const (
@@ -134,7 +133,6 @@ func New(opts ...Option) *System {
 
 func NewSystem(opts ...Option) (*System, error) {
 	s := &System{
-		root: none,
 		rslv: defaultResolver{},
 	}
 
@@ -172,29 +170,16 @@ func NewSystem(opts ...Option) (*System, error) {
 	})
 
 	for _, mount := range s.mounts {
-		f, errno := mount.fsys.PathOpen(context.Background(),
-			wasi.LookupFlags(0),
-			".",
-			wasi.OpenDirectory,
-			wasi.DirectoryRights,
-			wasi.DirectoryRights|wasi.FileRights,
-			wasi.FDFlags(0),
-		)
-		if errno != wasi.ESUCCESS {
+		f, err := mount.fsys.Open(".", O_DIRECTORY, 0)
+		if err != nil {
 			s.Close(context.Background())
-			return nil, &fs.PathError{Op: "open", Path: mount.path, Err: errno.Syscall()}
+			return nil, err
 		}
-		fd := s.files.Preopen(f, mount.path, wasi.FDStat{
+		s.files.Preopen(&wasiFile{file: f}, mount.path, wasi.FDStat{
 			FileType:         wasi.DirectoryType,
 			RightsBase:       wasi.DirectoryRights,
 			RightsInheriting: wasi.DirectoryRights | wasi.FileRights,
 		})
-		if s.root == none {
-			// TODO: this is a bit of a hack intended to pass the fstest test
-			// suite, ideally we should have a mechanism to create a unified
-			// view of all mount points when converting to a fs.FS.
-			s.root = fd
-		}
 	}
 
 	if s.time != nil {
@@ -222,16 +207,6 @@ func (s *System) Stdout() io.ReadCloser { return s.stdout }
 
 // Stderr returns a writer to the standard output of the guest module.
 func (s *System) Stderr() io.ReadCloser { return s.stderr }
-
-// FS returns a fs.FS exposing the file system mounted to the guest module.
-func (s *System) FS() fs.FS {
-	if s.root == none {
-		return nil
-	}
-	// TODO: if we have a use case for it, we might want to pass the context
-	// as argument to the method so we can propagate it to the method calls.
-	return wasi.FS(context.TODO(), s, s.root)
-}
 
 func (s *System) ArgsSizesGet(ctx context.Context) (argCount, stringBytes int, errno wasi.Errno) {
 	argCount, stringBytes = wasi.SizesGet(s.args)

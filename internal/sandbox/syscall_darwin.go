@@ -8,9 +8,16 @@ import (
 )
 
 const (
+	O_DSYNC = unix.O_SYNC
+	O_RSYNC = unix.O_SYNC
+)
+
+const (
 	openPathFlags = unix.O_DIRECTORY | unix.O_NOFOLLOW
 
-	_PATH_MAX = 1024
+	_PATH_MAX   = 1024
+	_UTIME_NOW  = -1
+	_UTIME_OMIT = -2
 )
 
 func accept(fd int) (int, Sockaddr, error) {
@@ -110,20 +117,15 @@ func fdatasync(fd int) error {
 	return unix.Fsync(fd)
 }
 
-const (
-	__UTIME_NOW  = -1
-	__UTIME_OMIT = -2
-)
-
 func prepareTimesAndAttrs(ts *[2]unix.Timespec) (attrs, size int, times [2]unix.Timespec) {
 	const sizeOfTimespec = int(unsafe.Sizeof(times[0]))
 	i := 0
-	if ts[1].Nsec != __UTIME_OMIT {
+	if ts[1].Nsec != _UTIME_OMIT {
 		attrs |= unix.ATTR_CMN_MODTIME
 		times[i] = ts[1]
 		i++
 	}
-	if ts[0].Nsec != __UTIME_OMIT {
+	if ts[0].Nsec != _UTIME_OMIT {
 		attrs |= unix.ATTR_CMN_ACCTIME
 		times[i] = ts[0]
 		i++
