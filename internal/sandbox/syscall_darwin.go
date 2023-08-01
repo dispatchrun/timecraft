@@ -26,9 +26,9 @@ const (
 const (
 	openPathFlags = unix.O_DIRECTORY | unix.O_NOFOLLOW
 
-	_PATH_MAX   = 1024
-	_UTIME_NOW  = -1
-	_UTIME_OMIT = -2
+	PATH_MAX   = 1024
+	UTIME_NOW  = -1
+	UTIME_OMIT = -2
 )
 
 func accept(fd int) (int, Sockaddr, error) {
@@ -188,12 +188,12 @@ func lseek(fd int, offset int64, whence int) (int64, error) {
 func prepareTimesAndAttrs(ts *[2]unix.Timespec) (attrs, size int, times [2]unix.Timespec) {
 	const sizeOfTimespec = int(unsafe.Sizeof(times[0]))
 	i := 0
-	if ts[1].Nsec != _UTIME_OMIT {
+	if ts[1].Nsec != UTIME_OMIT {
 		attrs |= unix.ATTR_CMN_MODTIME
 		times[i] = ts[1]
 		i++
 	}
-	if ts[0].Nsec != _UTIME_OMIT {
+	if ts[0].Nsec != UTIME_OMIT {
 		attrs |= unix.ATTR_CMN_ACCTIME
 		times[i] = ts[0]
 		i++

@@ -23,9 +23,9 @@ const (
 const (
 	openPathFlags = unix.O_PATH | unix.O_DIRECTORY | unix.O_NOFOLLOW
 
-	_PATH_MAX   = 4096
-	_UTIME_NOW  = unix.UTIME_NOW
-	_UTIME_OMIT = unix.UTIME_OMIT
+	PATH_MAX   = 4096
+	UTIME_NOW  = unix.UTIME_NOW
+	UTIME_OMIT = unix.UTIME_OMIT
 )
 
 func accept(fd int) (int, Sockaddr, error) {

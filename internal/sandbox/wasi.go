@@ -391,10 +391,10 @@ func (f *wasiFile) PathUnlinkFile(ctx context.Context, path string) wasi.Errno {
 
 func makeTimespec(t wasi.Timestamp, set, now bool) Timespec {
 	if !set {
-		return Timespec{Nsec: _UTIME_OMIT}
+		return Timespec{Nsec: UTIME_OMIT}
 	}
 	if now {
-		return Timespec{Nsec: _UTIME_NOW}
+		return Timespec{Nsec: UTIME_NOW}
 	}
 	return nsecToTimespec(int64(t))
 }

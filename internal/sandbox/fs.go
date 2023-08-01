@@ -195,7 +195,7 @@ func readlink(dir File, name string) (string, error) {
 		if n < len(b) {
 			return string(b[:n]), nil
 		}
-		if len(b) > _PATH_MAX {
+		if len(b) > PATH_MAX {
 			return "", &fs.PathError{Op: "readlink", Path: name, Err: ENAMETOOLONG}
 		}
 		b = make([]byte, 2*len(b))
@@ -256,46 +256,174 @@ type File interface {
 	// The file must point to a directory or the method errors with ENOTDIR.
 	Open(name string, flags int, mode fs.FileMode) (File, error)
 
+	// Readv reads data from the current seek offset of the file into the list
+	// of vectors passed as arguments.
+	//
+	// The method returns the number of bytes read, which may be less than the
+	// total size of the read buffers, even in the absence of errors.
+	//
+	// When the end of file is reached, the method returns zero and a nil error
+	// (it does not return io.EOF).
 	Readv(iovs [][]byte) (int, error)
 
+	// Writev writes data from the list of vectors to the current seek offset
+	// of the file.
+	//
+	// The method returns the number of bytes written, which may be less than
+	// the total size of the write buffers, even in the absence of errors.
 	Writev(iovs [][]byte) (int, error)
 
+	// Preadv reads data from the given seek offset into the list of vectors
+	// passed as arguments.
+	//
+	// The method returns the number of bytes read, which may be less than the
+	// total size of the read buffers, even in the absence of errors.
+	//
+	// When the end of file is reached, the method returns zero and a nil error
+	// (it does not return io.EOF).
 	Preadv(iovs [][]byte, offset int64) (int, error)
 
+	// Pwritev writes data from the list of vectors at the given seek offset.
+	//
+	// The method returns the number of bytes written, which may be less than
+	// the total size of the write buffers, even in the absence of errors.
 	Pwritev(iovs [][]byte, offset int64) (int, error)
 
+	// Seek positions the seek offset of the file at the given location, which
+	// is interpreted relative to the whence value. The whence may be SEEK_SET,
+	// SEEK_CUR, or SEEK_END to describe how to compute the final seek offset.
 	Seek(offset int64, whence int) (int64, error)
 
+	// Pre-allocates storage for the file at the given offset and length. If the
+	// sum of offset and length exceeds the current size, the file is extended
+	// as if Truncate(offset + length) had been called.
 	Allocate(offset, length int64) error
 
+	// Sets the file to the given size.
+	//
+	// If the size is shorter than the current file size, its content is
+	// truncated and the data at the end of the file is dropped.
+	//
+	// If the size is larger than the current file size, zero bytes are appended
+	// at the end to match the requested size.
 	Truncate(size int64) error
 
+	// Blocks until all buffered changes have been flushed to the underyling
+	// storage device.
+	//
+	// Syncing includes writing metdata such as mutations to a directory.
 	Sync() error
 
+	// Datasync is similar to Sync but it only synchronizes writes to a file
+	// content.
 	Datasync() error
 
+	// Returns the bitset of flags currently set on the file, which is a
+	// combination of O_* flags such as those that can be passed to Open.
+	//
+	// The set of flags supported by the file depends on the underlying type.
 	Flags() (int, error)
 
+	// Changes the bitset of flags set on the file. The flags are a combination
+	// of O_* flags such as those that can be passed to Open.
+	//
+	// The set of flags supported by the file depends on the underlying type.
 	SetFlags(flags int) error
 
+	// Read directory entries into the given buffer. The caller must be aware of
+	// the way directory entries are laid out by the underlying file system to
+	// interpret the content.
+	//
+	// The method returns the number of bytes written to buf.
 	ReadDirent(buf []byte) (int, error)
 
+	// Looks up and return file metdata.
+	//
+	// If the receiver is a directory, a name may be given to represent the file
+	// to retrieve metdata for, relative to the directory. The flags may be
+	// AT_SYMLINK_NOFOLLOW to retrieve metdata for a symbolic link instead of
+	// its target.
+	//
+	// If the name is empty, flags are ignored and the method returns metdata
+	// for the receiver.
 	Stat(name string, flags int) (FileInfo, error)
 
+	// Reads the target of a symbolic link into buf.
+	//
+	// If the name is empty, the method assumes that the receiver is a file
+	// opened on a symbolic link and returns the receiver's target.
+	//
+	// The method returns the number of bytes written to buf.
 	Readlink(name string, buf []byte) (int, error)
 
+	// Changes the access and modification time of a file.
+	//
+	// The access time is the first Timespec value, the modification time is the
+	// second. Either of the Timespec values may have their nanosecond field set
+	// to UTIME_OMIT to ignore it, or UTIME_NOW to set it to the current time.
+	//
+	// If the receiver is a directory, a name may be given to represent the file
+	// to set the times for, relative to the directory. The flags may be
+	// AT_SYMLINK_NOFOLLOW to change the times of a symbolic link instead of its
+	// target (note that not all file systems may support it).
+	//
+	// If the name is empty, flags are ignored and the method changes times of
+	// the receiver.
 	Chtimes(name string, times [2]Timespec, flags int) error
 
+	// Creates a directory at the named location.
+	//
+	// The method assumes that the receiver is a directory and resolves the path
+	// relative to it.
+	//
+	// The mode sets permissions on the newly created directory.
 	Mkdir(name string, mode fs.FileMode) error
 
+	// Removes an empty directory at a named location.
+	//
+	// The method assumes that the receiver is a directory and resolves the path
+	// relative to it.
 	Rmdir(name string) error
 
+	// Moves a file to a new location.
+	//
+	// The old name is the path to the file to be moved, relative to the
+	// receiver, which is expected to refer to a directory.
+	//
+	// The new name is interpreted relative to the directory passed as argument,
+	// which may or may not be the same as the receiver, but must be on the same
+	// file system.
 	Rename(oldName string, newDir File, newName string) error
 
+	// Creates a hard link to a named location.
+	//
+	// The old name is the path to the file to be linked, relative to the
+	// receiver, which is expected to refer to a directory.
+	//
+	// The new name is interpreted relative to the directory passed as argument,
+	// which may or may not be the same as the reciver, but must be on the same
+	// file system.
+	//
+	// The flags may be AT_SYMLINK_NOFOLLOW to create a link to a symbolic link
+	// instead of its target.
 	Link(oldName string, newDir File, newName string, flags int) error
 
+	// Creates a symbolic link to a named location.
+	//
+	// The old name may be an absolute or relative location, and does not need
+	// to exist on the file system.
+	//
+	// The new name is interpreted relative to the receiver, which is expected
+	// to refer to a directory.
 	Symlink(oldName, newName string) error
 
+	// Removes a file or symbolic link from the file system.
+	//
+	// The method is not idempotent, an error is returned if no files exist at
+	// the location.
+	//
+	// Unlinking a file only drops the name referencing it, its content is only
+	// reclaimed by the file system once all open references have been closed.
 	Unlink(name string) error
 }
 
@@ -304,10 +432,10 @@ type File interface {
 type FileInfo struct {
 	Dev   uint64
 	Ino   uint64
-	Nlink uint64
+	Nlink uint32
 	Mode  fs.FileMode
-	Gid   uint32
 	Uid   uint32
+	Gid   uint32
 	Size  int64
 	Atime Timespec
 	Mtime Timespec
@@ -339,10 +467,11 @@ func (info FileInfo) String() string {
 
 // FS constructs a fs.FS backed by a FileSystem instance.
 //
+// This method is useful to run the standard testing/fstest test suite against
+// instances of the FileSystem interface.
+//
 // The returned fs.FS implements fs.StatFS.
-func FS(fsys FileSystem) fs.FS {
-	return &fsFileSystem{fsys}
-}
+func FS(fsys FileSystem) fs.FS { return &fsFileSystem{fsys} }
 
 type fsFileSystem struct{ base FileSystem }
 

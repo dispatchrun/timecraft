@@ -377,7 +377,7 @@ func openat(dirfd int, path string, flags int, mode uint32) (int, error) {
 	return ignoreEINTR2(func() (int, error) { return unix.Openat(dirfd, path, flags|unix.O_CLOEXEC, mode) })
 }
 
-const dirbufsize = 4 * _PATH_MAX // must be greater than sizeOfDirent
+const dirbufsize = 2 * PATH_MAX // must be greater than sizeOfDirent
 
 type dirbuf struct {
 	buffer *[dirbufsize]byte
