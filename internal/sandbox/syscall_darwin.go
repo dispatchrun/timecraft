@@ -177,20 +177,3 @@ func freadlink(fd int) (string, error) {
 	}
 	return string(buf[:n]), nil
 }
-
-func openat(dirfd int, path string, flags int, mode uint32) (int, error) {
-	return ignoreEINTR2(func() (int, error) {
-		flags |= unix.O_CLOEXEC
-		fd, err := unix.Openat(dirfd, path, flags, mode)
-		if err != nil {
-			if err == ELOOP && ((flags & O_NOFOLLOW) != 0) {
-				// Darwin requires that O_SYMLINK be explicitly set to open a
-				// symbolic link.
-				flags &= ^O_NOFOLLOW
-				flags |= unix.O_SYMLINK
-				fd, err = unix.Openat(dirfd, path, flags, mode)
-			}
-		}
-		return fd, err
-	})
-}

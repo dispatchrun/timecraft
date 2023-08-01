@@ -341,3 +341,7 @@ func symlinkat(target string, dirfd int, path string) error {
 func unlinkat(dirfd int, path string, flags int) error {
 	return ignoreEINTR(func() error { return unix.Unlinkat(dirfd, path, flags) })
 }
+
+func openat(dirfd int, path string, flags int, mode uint32) (int, error) {
+	return ignoreEINTR2(func() (int, error) { return unix.Openat(dirfd, path, flags|unix.O_CLOEXEC, mode) })
+}
