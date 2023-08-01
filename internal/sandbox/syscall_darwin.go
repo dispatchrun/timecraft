@@ -151,11 +151,13 @@ func fallocate(fd int, offset, length int64) error {
 }
 
 func fdatasync(fd int) error {
-	_, _, err := unix.Syscall(unix.SYS_FDATASYNC, uintptr(fd), 0, 0)
-	if err != 0 {
-		return err
-	}
-	return nil
+	return ignoreEINTR(func() error {
+		_, _, errno := syscall.Syscall(syscall.SYS_FDATASYNC, uintptr(fd), 0, 0)
+		if errno != 0 {
+			return errno
+		}
+		return nil
+	})
 }
 
 func fsync(fd int) error {
@@ -211,8 +213,8 @@ func futimens(fd int, ts *[2]unix.Timespec) error {
 }
 
 func fsetattrlist(fd int, attrlist *unix.Attrlist, attrbuf unsafe.Pointer, attrbufsize int, options uint32) error {
-	_, _, err := unix.Syscall6(
-		uintptr(unix.SYS_FSETATTRLIST),
+	_, _, err := syscall.Syscall6(
+		uintptr(syscall.SYS_FSETATTRLIST),
 		uintptr(fd),
 		uintptr(unsafe.Pointer(attrlist)),
 		uintptr(attrbuf),

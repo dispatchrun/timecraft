@@ -1,7 +1,5 @@
 package sandbox
 
-import "path"
-
 // filePathDepth returns the depth of a path. The root "/" has depth zero.
 func filePathDepth(path string) (depth int) {
 	for {
@@ -107,10 +105,6 @@ func indexSlash(path string) int {
 		}
 	}
 	return -1
-}
-
-func splitPath(dirpath string) (dir, base string) {
-	return path.Split(dirpath)
 }
 
 func walkPath(path string) (elem, name string) {
