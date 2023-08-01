@@ -1,511 +1,670 @@
 package sandbox
 
 import (
-	"context"
-	"math"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os/user"
 	"path"
-	"path/filepath"
-
-	"golang.org/x/time/rate"
-
-	"github.com/stealthrocket/wasi-go"
-	wasisys "github.com/stealthrocket/wasi-go/systems/unix"
-	sysunix "golang.org/x/sys/unix"
+	"strconv"
+	"strings"
+	"time"
 )
 
-// FS is an interface used to represent a sandbox file system.
+const (
+	// maxFollowSymlink is the hardcoded limit of symbolic links that may be
+	// followed when resolving paths.
+	//
+	// This limit applies to RootFS, EvalSymlinks, and the functions that
+	// depend on it.
+	maxFollowSymlink = 10
+)
+
+// FileSystem is the interface representing file systems.
 //
-// The interface has a single method allowing the sandbox to open the root
-// directory.
-type FS interface {
-	PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno)
+// The interface has a single method used to open a file at a path on the file
+// system, which may be a directory. Often time this method is used to open the
+// root directory and use the methods of the returned File instance to access
+// the rest of the directory tree.
+type FileSystem interface {
+	Open(name string, flags int, mode fs.FileMode) (File, error)
 }
 
-// ErrFS returns a FS value which always returns the given error.
-func ErrFS(errno wasi.Errno) FS { return errFS(errno) }
-
-type errFS wasi.Errno
-
-func (err errFS) PathOpen(context.Context, wasi.LookupFlags, string, wasi.OpenFlags, wasi.Rights, wasi.Rights, wasi.FDFlags) (File, wasi.Errno) {
-	return nil, wasi.Errno(err)
+// Create creates and opens a file on a file system. The name is the location
+// where the file is created and the mode is used to set permissions.
+func Create(fsys FileSystem, name string, mode fs.FileMode) (File, error) {
+	return fsys.Open(name, O_CREAT|O_TRUNC|O_WRONLY, mode)
 }
 
-// DirFS returns a FS value which opens files from the given file system path.
+// Open opens a file with the given name on a file system.
+func Open(fsys FileSystem, name string) (File, error) {
+	return fsys.Open(name, O_RDONLY, 0)
+}
+
+// OpenDir opens a directory with the given name on the file system.
+func OpenDir(fsys FileSystem, name string) (File, error) {
+	return fsys.Open(name, O_DIRECTORY, 0)
+}
+
+// OpenRoot opens the root directory of a file system.
+func OpenRoot(fsys FileSystem) (File, error) {
+	return OpenDir(fsys, "/")
+}
+
+// Lstat returns information about a file on a file system.
 //
-// The path is resolved to an absolute path in order to guarantee that the FS is
-// not dependent on the current working directory.
-func DirFS(path string) FS {
-	path, err := filepath.Abs(path)
+// Is the name points to a location where a symbolic link exists, the function
+// returns information about the link itself.
+func Lstat(fsys FileSystem, name string) (FileInfo, error) {
+	return withRoot2(fsys, func(dir File) (FileInfo, error) { return dir.Stat(name, AT_SYMLINK_NOFOLLOW) })
+}
+
+// Stat returns information about a file on a file system.
+//
+// Is the name points to a location where a symbolic link exists, the function
+// returns information about the link target.
+func Stat(fsys FileSystem, name string) (FileInfo, error) {
+	return withRoot2(fsys, func(dir File) (FileInfo, error) { return dir.Stat(name, 0) })
+}
+
+// ReadFile reads the content of a file on a file system. The name represents
+// the location where the file is recorded on the file system. The flags are
+// passed to configure how the file is opened (e.g. passing O_NOFOLLOW will
+// fail if a symbolic link exists at that location).
+func ReadFile(fsys FileSystem, name string, flags int) ([]byte, error) {
+	f, err := fsys.Open(name, flags|O_RDONLY, 0)
 	if err != nil {
-		return ErrFS(wasi.MakeErrno(err))
+		return nil, err
 	}
-	return dirFS(filepath.ToSlash(path))
-}
-
-type dirFS string
-
-func (dir dirFS) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, filePath string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
-	filePath = path.Join(string(dir), filePath)
-	f, errno := wasisys.FD(sysunix.AT_FDCWD).PathOpen(ctx, lookupFlags, filePath, openFlags, rightsBase, rightsInheriting, fdFlags)
-	if errno != wasi.ESUCCESS {
-		return nil, errno
+	defer f.Close()
+	s, err := f.Stat("", 0)
+	if err != nil {
+		return nil, err
 	}
-	return &dirFile{fd: f}, wasi.ESUCCESS
-}
-
-type dirFile struct {
-	unimplementedSocketMethods
-	fd wasisys.FD
-}
-
-func (f *dirFile) Fd() uintptr {
-	return uintptr(f.fd)
-}
-
-func (f *dirFile) FDClose(ctx context.Context) wasi.Errno {
-	return f.fd.FDClose(ctx)
-}
-
-func (f *dirFile) FDAdvise(ctx context.Context, offset, length wasi.FileSize, advice wasi.Advice) wasi.Errno {
-	return f.fd.FDAdvise(ctx, offset, length, advice)
-}
-
-func (f *dirFile) FDAllocate(ctx context.Context, offset, length wasi.FileSize) wasi.Errno {
-	return f.fd.FDAllocate(ctx, offset, length)
-}
-
-func (f *dirFile) FDDataSync(ctx context.Context) wasi.Errno {
-	return f.fd.FDDataSync(ctx)
-}
-
-func (f *dirFile) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
-	return f.fd.FDStatSetFlags(ctx, flags)
-}
-
-func (f *dirFile) FDFileStatGet(ctx context.Context) (wasi.FileStat, wasi.Errno) {
-	return f.fd.FDFileStatGet(ctx)
-}
-
-func (f *dirFile) FDFileStatSetSize(ctx context.Context, size wasi.FileSize) wasi.Errno {
-	return f.fd.FDFileStatSetSize(ctx, size)
-}
-
-func (f *dirFile) FDFileStatSetTimes(ctx context.Context, accessTime, modifyTime wasi.Timestamp, flags wasi.FSTFlags) wasi.Errno {
-	return f.fd.FDFileStatSetTimes(ctx, accessTime, modifyTime, flags)
-}
-
-func (f *dirFile) FDPread(ctx context.Context, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
-	return f.fd.FDPread(ctx, iovecs, offset)
-}
-
-func (f *dirFile) FDPwrite(ctx context.Context, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
-	return f.fd.FDPwrite(ctx, iovecs, offset)
-}
-
-func (f *dirFile) FDRead(ctx context.Context, iovecs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return f.fd.FDRead(ctx, iovecs)
-}
-
-func (f *dirFile) FDWrite(ctx context.Context, iovecs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	return f.fd.FDWrite(ctx, iovecs)
-}
-
-func (f *dirFile) FDOpenDir(ctx context.Context) (wasi.Dir, wasi.Errno) {
-	return f.fd.FDOpenDir(ctx)
-}
-
-func (f *dirFile) FDSync(ctx context.Context) wasi.Errno {
-	return f.fd.FDSync(ctx)
-}
-
-func (f *dirFile) FDSeek(ctx context.Context, delta wasi.FileDelta, whence wasi.Whence) (wasi.FileSize, wasi.Errno) {
-	return f.fd.FDSeek(ctx, delta, whence)
-}
-
-func (f *dirFile) PathCreateDirectory(ctx context.Context, path string) wasi.Errno {
-	return f.fd.PathCreateDirectory(ctx, path)
-}
-
-func (f *dirFile) PathFileStatGet(ctx context.Context, flags wasi.LookupFlags, path string) (wasi.FileStat, wasi.Errno) {
-	return f.fd.PathFileStatGet(ctx, flags, path)
-}
-
-func (f *dirFile) PathFileStatSetTimes(ctx context.Context, lookupFlags wasi.LookupFlags, path string, accessTime, modifyTime wasi.Timestamp, fstFlags wasi.FSTFlags) wasi.Errno {
-	return f.fd.PathFileStatSetTimes(ctx, lookupFlags, path, accessTime, modifyTime, fstFlags)
-}
-
-func (f *dirFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir File, newPath string) wasi.Errno {
-	d, ok := newDir.(*dirFile)
-	if !ok {
-		return wasi.EXDEV
+	if _, err := f.Seek(0, 0); err != nil {
+		return nil, err
 	}
-	return f.fd.PathLink(ctx, flags, oldPath, d.fd, newPath)
-}
-
-func (f *dirFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
-	fd, errno := f.fd.PathOpen(ctx, lookupFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
-	if errno != wasi.ESUCCESS {
-		return nil, errno
-	}
-	return &dirFile{fd: fd}, wasi.ESUCCESS
-}
-
-func (f *dirFile) PathReadLink(ctx context.Context, path string, buffer []byte) (int, wasi.Errno) {
-	return f.fd.PathReadLink(ctx, path, buffer)
-}
-
-func (f *dirFile) PathRemoveDirectory(ctx context.Context, path string) wasi.Errno {
-	return f.fd.PathRemoveDirectory(ctx, path)
-}
-
-func (f *dirFile) PathRename(ctx context.Context, oldPath string, newDir File, newPath string) wasi.Errno {
-	d, ok := newDir.(*dirFile)
-	if !ok {
-		return wasi.EXDEV
-	}
-	return f.fd.PathRename(ctx, oldPath, d.fd, newPath)
-}
-
-func (f *dirFile) PathSymlink(ctx context.Context, oldPath string, newPath string) wasi.Errno {
-	return f.fd.PathSymlink(ctx, oldPath, newPath)
-}
-
-func (f *dirFile) PathUnlinkFile(ctx context.Context, path string) wasi.Errno {
-	return f.fd.PathUnlinkFile(ctx, path)
-}
-
-// ThrottleFS wraps the file system passed as argument to apply the rate limits
-// r and w on read and write operations.
-//
-// The limits apply to all access to the underlying file system which may result
-// in I/O operations.
-//
-// Passing a nil rate limiter to r or w disables rate limiting on the
-// corresponding I/O operations.
-func ThrottleFS(f FS, r, w *rate.Limiter) FS {
-	return &throttleFS{base: f, rlim: r, wlim: w}
-}
-
-type throttleFS struct {
-	base FS
-	rlim *rate.Limiter
-	wlim *rate.Limiter
-}
-
-func (fsys *throttleFS) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
-	f, errno := fsys.base.PathOpen(ctx, lookupFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
-	if canThrottle(errno) {
-		fsys.throttlePathRead(ctx, path, 1)
-	}
-	if errno != wasi.ESUCCESS {
-		return nil, errno
-	}
-	return &throttleFile{base: f, fsys: fsys}, wasi.ESUCCESS
-}
-
-func (fsys *throttleFS) throttlePathRead(ctx context.Context, path string, n int64) {
-	fsys.throttleRead(ctx, int64(len(path))+alignIOPageSize(n))
-}
-
-func (fsys *throttleFS) throttlePathWrite(ctx context.Context, path string, n int64) {
-	fsys.throttleRead(ctx, int64(len(path)))
-	fsys.throttleWrite(ctx, n)
-}
-
-func (fsys *throttleFS) throttleRead(ctx context.Context, n int64) {
-	throttle(ctx, fsys.rlim, alignIOPageSize(n))
-}
-
-func (fsys *throttleFS) throttleWrite(ctx context.Context, n int64) {
-	throttle(ctx, fsys.wlim, alignIOPageSize(n))
-}
-
-func alignIOPageSize(n int64) int64 {
-	const pageSize = 4096
-	return ((n + pageSize - 1) / pageSize) * pageSize
-}
-
-func throttle(ctx context.Context, l *rate.Limiter, n int64) {
-	if l == nil {
-		return
-	}
-	for n > 0 {
-		waitN := n
-		if waitN > math.MaxInt32 {
-			waitN = math.MaxInt32
+	b := make([]byte, s.Size)
+	v := make([][]byte, 1)
+	n := 0
+	for n < len(b) {
+		v[0] = b[n:]
+		rn, err := f.Readv(v)
+		if rn > 0 {
+			n += rn
 		}
-		if err := l.WaitN(ctx, int(waitN)); err != nil {
-			panic(err)
+		if err != nil || rn == 0 {
+			return b[:n], err
 		}
-		n -= waitN
 	}
+	return b, nil
 }
 
-type throttleFile struct {
-	unimplementedSocketMethods
-	base File
-	fsys *throttleFS
-}
-
-func (f *throttleFile) Fd() uintptr {
-	return f.base.Fd()
-}
-
-func (f *throttleFile) FDClose(ctx context.Context) wasi.Errno {
-	return f.base.FDClose(ctx)
-}
-
-func (f *throttleFile) FDAdvise(ctx context.Context, offset, length wasi.FileSize, advice wasi.Advice) wasi.Errno {
-	errno := f.base.FDAdvise(ctx, offset, length, advice)
-	if canThrottle(errno) {
-		f.fsys.throttleRead(ctx, int64(length))
+// WriteFile writes a file on a file system.
+func WriteFile(fsys FileSystem, name string, data []byte, mode fs.FileMode) error {
+	f, err := fsys.Open(name, O_CREAT|O_WRONLY|O_TRUNC|O_EXCL, mode)
+	if err != nil {
+		return err
 	}
-	return errno
+	defer f.Close()
+	_, err = f.Writev([][]byte{data})
+	return err
 }
 
-func (f *throttleFile) FDAllocate(ctx context.Context, offset, length wasi.FileSize) wasi.Errno {
-	errno := f.base.FDAllocate(ctx, offset, length)
-	if canThrottle(errno) {
-		f.fsys.throttleWrite(ctx, int64(length))
+// MkdirAll creates all directories to form the given path name on a file
+// system. The mode is used to set the permissions of each new directory,
+// permissions of existing directories are left untouched.
+func MkdirAll(fsys FileSystem, name string, mode fs.FileMode) error {
+	if err := mkdirAll(fsys, name, mode); err != nil {
+		return &fs.PathError{Op: "mkdir", Path: name, Err: unwrap(err)}
 	}
-	return errno
+	return nil
 }
 
-func (f *throttleFile) FDDataSync(ctx context.Context) wasi.Errno {
-	s, errno := f.base.FDFileStatGet(ctx)
-	if errno != wasi.ESUCCESS {
-		return errno
+func mkdirAll(fsys FileSystem, name string, mode fs.FileMode) error {
+	path := cleanPath(name)
+	if path == "/" || path == "." {
+		return nil
 	}
-	errno = f.base.FDDataSync(ctx)
-	if canThrottle(errno) {
-		f.fsys.throttleWrite(ctx, int64(s.Size))
-	}
-	return errno
-}
+	path = strings.TrimPrefix(path, "/")
 
-func (f *throttleFile) FDStatSetFlags(ctx context.Context, flags wasi.FDFlags) wasi.Errno {
-	return f.base.FDStatSetFlags(ctx, flags)
-}
+	d, err := OpenRoot(fsys)
+	if err != nil {
+		return err
+	}
+	defer func() { d.Close() }()
 
-func (f *throttleFile) FDFileStatGet(ctx context.Context) (wasi.FileStat, wasi.Errno) {
-	stat, errno := f.base.FDFileStatGet(ctx)
-	if canThrottle(errno) {
-		f.fsys.throttleRead(ctx, 1)
-	}
-	return stat, errno
-}
-
-func (f *throttleFile) FDFileStatSetSize(ctx context.Context, size wasi.FileSize) wasi.Errno {
-	errno := f.base.FDFileStatSetSize(ctx, size)
-	if canThrottle(errno) {
-		f.fsys.throttleWrite(ctx, int64(size))
-	}
-	return errno
-}
-
-func (f *throttleFile) FDFileStatSetTimes(ctx context.Context, accessTime, modifyTime wasi.Timestamp, flags wasi.FSTFlags) wasi.Errno {
-	errno := f.base.FDFileStatSetTimes(ctx, accessTime, modifyTime, flags)
-	if canThrottle(errno) {
-		f.fsys.throttleWrite(ctx, 1)
-	}
-	return errno
-}
-
-func (f *throttleFile) FDPread(ctx context.Context, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
-	n, errno := f.base.FDPread(ctx, iovecs, offset)
-	if canThrottle(errno) {
-		f.fsys.throttleRead(ctx, sizeToInt64(n))
-	}
-	return n, errno
-}
-
-func (f *throttleFile) FDPwrite(ctx context.Context, iovecs []wasi.IOVec, offset wasi.FileSize) (wasi.Size, wasi.Errno) {
-	n, errno := f.base.FDPwrite(ctx, iovecs, offset)
-	if canThrottle(errno) {
-		f.fsys.throttleWrite(ctx, sizeToInt64(n))
-	}
-	return n, errno
-}
-
-func (f *throttleFile) FDRead(ctx context.Context, iovecs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	n, errno := f.base.FDRead(ctx, iovecs)
-	if canThrottle(errno) {
-		f.fsys.throttleRead(ctx, sizeToInt64(n))
-	}
-	return n, errno
-}
-
-func (f *throttleFile) FDWrite(ctx context.Context, iovecs []wasi.IOVec) (wasi.Size, wasi.Errno) {
-	n, errno := f.base.FDWrite(ctx, iovecs)
-	if canThrottle(errno) {
-		f.fsys.throttleWrite(ctx, sizeToInt64(n))
-	}
-	return n, errno
-}
-
-func (f *throttleFile) FDOpenDir(ctx context.Context) (wasi.Dir, wasi.Errno) {
-	d, errno := f.base.FDOpenDir(ctx)
-	if canThrottle(errno) {
-		f.fsys.throttleRead(ctx, 1)
-	}
-	if errno != wasi.ESUCCESS {
-		return nil, errno
-	}
-	return &throttleDir{base: d, fsys: f.fsys}, wasi.ESUCCESS
-}
-
-func (f *throttleFile) FDSync(ctx context.Context) wasi.Errno {
-	s, errno := f.base.FDFileStatGet(ctx)
-	if errno != wasi.ESUCCESS {
-		return errno
-	}
-	errno = f.base.FDSync(ctx)
-	if canThrottle(errno) {
-		f.fsys.throttleWrite(ctx, int64(s.Size))
-	}
-	return errno
-}
-
-func (f *throttleFile) FDSeek(ctx context.Context, delta wasi.FileDelta, whence wasi.Whence) (wasi.FileSize, wasi.Errno) {
-	offset, errno := f.base.FDSeek(ctx, delta, whence)
-	if canThrottle(errno) {
-		f.fsys.throttleWrite(ctx, 1)
-	}
-	return offset, errno
-}
-
-func (f *throttleFile) PathCreateDirectory(ctx context.Context, path string) wasi.Errno {
-	errno := f.base.PathCreateDirectory(ctx, path)
-	if canThrottle(errno) {
-		f.fsys.throttlePathWrite(ctx, path, 1)
-	}
-	return errno
-}
-
-func (f *throttleFile) PathFileStatGet(ctx context.Context, flags wasi.LookupFlags, path string) (wasi.FileStat, wasi.Errno) {
-	stat, errno := f.base.PathFileStatGet(ctx, flags, path)
-	if canThrottle(errno) {
-		f.fsys.throttlePathRead(ctx, path, 1)
-	}
-	return stat, errno
-}
-
-func (f *throttleFile) PathFileStatSetTimes(ctx context.Context, lookupFlags wasi.LookupFlags, path string, accessTime, modifyTime wasi.Timestamp, fstFlags wasi.FSTFlags) wasi.Errno {
-	errno := f.base.PathFileStatSetTimes(ctx, lookupFlags, path, accessTime, modifyTime, fstFlags)
-	if canThrottle(errno) {
-		f.fsys.throttlePathWrite(ctx, path, 1)
-	}
-	return errno
-}
-
-func (f *throttleFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir File, newPath string) wasi.Errno {
-	d, ok := newDir.(*throttleFile)
-	if !ok {
-		return wasi.EXDEV
-	}
-	errno := f.base.PathLink(ctx, flags, oldPath, d.base, newPath)
-	if canThrottle(errno) {
-		f.fsys.throttlePathWrite(ctx, oldPath, int64(len(newPath)))
-	}
-	return errno
-}
-
-func (f *throttleFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (File, wasi.Errno) {
-	newFile, errno := f.base.PathOpen(ctx, lookupFlags, path, openFlags, rightsBase, rightsInheriting, fdFlags)
-	if canThrottle(errno) {
-		f.fsys.throttlePathRead(ctx, path, 1)
-	}
-	if errno != wasi.ESUCCESS {
-		return nil, errno
-	}
-	return &throttleFile{base: newFile, fsys: f.fsys}, wasi.ESUCCESS
-}
-
-func (f *throttleFile) PathReadLink(ctx context.Context, path string, buffer []byte) (int, wasi.Errno) {
-	n, errno := f.base.PathReadLink(ctx, path, buffer)
-	if canThrottle(errno) {
-		f.fsys.throttlePathRead(ctx, path, int64(n))
-	}
-	return n, errno
-}
-
-func (f *throttleFile) PathRemoveDirectory(ctx context.Context, path string) wasi.Errno {
-	errno := f.base.PathRemoveDirectory(ctx, path)
-	if canThrottle(errno) {
-		f.fsys.throttlePathWrite(ctx, path, 1)
-	}
-	return errno
-}
-
-func (f *throttleFile) PathRename(ctx context.Context, oldPath string, newDir File, newPath string) wasi.Errno {
-	d, ok := newDir.(*throttleFile)
-	if !ok {
-		return wasi.EXDEV
-	}
-	errno := f.base.PathRename(ctx, oldPath, d.base, newPath)
-	if canThrottle(errno) {
-		f.fsys.throttlePathWrite(ctx, oldPath, int64(len(newPath)))
-	}
-	return errno
-}
-
-func (f *throttleFile) PathSymlink(ctx context.Context, oldPath string, newPath string) wasi.Errno {
-	errno := f.base.PathSymlink(ctx, oldPath, newPath)
-	if canThrottle(errno) {
-		f.fsys.throttlePathWrite(ctx, oldPath, int64(len(newPath)))
-	}
-	return errno
-}
-
-func (f *throttleFile) PathUnlinkFile(ctx context.Context, path string) wasi.Errno {
-	errno := f.base.PathUnlinkFile(ctx, path)
-	if canThrottle(errno) {
-		f.fsys.throttlePathWrite(ctx, path, 1)
-	}
-	return errno
-}
-
-// canThrottle returns true if the given errno code indicates that throttling
-// can be applied to the operation that it was returned from.
-//
-// Throttling is always applied after performing the operation because we cannot
-// know in advance whether the arguments passed to the method are valid; we have
-// to first make the call and determine after the fact if the error returned by
-// the method indicates that the operation was aborted due to having invalid
-// arguments, or it was attempted and we need to take the I/O operation cost
-// into account.
-//
-// The list of errors here may not be exhaustive; future maintainers may choose
-// to add more. Keep in mind that we are better off apply throttling in excess
-// than missing conditions where it should be applied because malcious guests
-// could take advantage of error conditions that caused I/O utilization but were
-// not accounted for.
-func canThrottle(errno wasi.Errno) bool {
-	return errno != wasi.EBADF && errno != wasi.EINVAL && errno != wasi.ENOTCAPABLE
-}
-
-func sizeToInt64(size wasi.Size) int64 {
-	return int64(int32(size)) // for sign extension
-}
-
-type throttleDir struct {
-	base wasi.Dir
-	fsys *throttleFS
-}
-
-func (d *throttleDir) FDReadDir(ctx context.Context, entries []wasi.DirEntry, cookie wasi.DirCookie, bufferSizeBytes int) (int, wasi.Errno) {
-	n, errno := d.base.FDReadDir(ctx, entries, cookie, bufferSizeBytes)
-	if canThrottle(errno) {
-		size := int64(0)
-		for _, entry := range entries[:n] {
-			size += wasi.SizeOfDirent
-			size += int64(len(entry.Name))
+	for path != "" {
+		var dir string
+		dir, path = walkPath(path)
+		if dir == "." {
+			dir, path = path, ""
 		}
-		d.fsys.throttleRead(ctx, size)
+
+		if err := d.Mkdir(dir, mode); err != nil {
+			if !errors.Is(err, EEXIST) {
+				return err
+			}
+		}
+
+		f, err := d.Open(dir, O_DIRECTORY|O_NOFOLLOW, 0)
+		if err != nil {
+			return err
+		}
+		d.Close()
+		d = f
 	}
-	return n, errno
+	return nil
 }
 
-func (d *throttleDir) FDCloseDir(ctx context.Context) wasi.Errno {
-	return d.base.FDCloseDir(ctx)
+// Mkdir creates a directory on a file system. The mode is used to set the
+// permissions of the new directory.
+func Mkdir(fsys FileSystem, name string, mode fs.FileMode) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Mkdir(name, mode) })
+}
+
+// Rmdir removes an empty directory from a file system.
+func Rmdir(fsys FileSystem, name string) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Rmdir(name) })
+}
+
+// Link creates a hard link between the old and new names passed as arguments.
+func Link(fsys FileSystem, oldName, newName string) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Link(oldName, dir, newName, AT_SYMLINK_NOFOLLOW) })
+}
+
+// Symlink creates a symbolic link to a file system location.
+func Symlink(fsys FileSystem, oldName, newName string) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Symlink(oldName, newName) })
+}
+
+// Readlink reads the target of a symbolic link located at the given path name
+// on a file system.
+func Readlink(fsys FileSystem, name string) (string, error) {
+	return withRoot2(fsys, func(dir File) (string, error) { return readlink(dir, name) })
+}
+
+func readlink(dir File, name string) (string, error) {
+	b := make([]byte, 256)
+	for {
+		n, err := dir.Readlink(name, b)
+		if err != nil {
+			return "", err
+		}
+		if n < len(b) {
+			return string(b[:n]), nil
+		}
+		if len(b) > PATH_MAX {
+			return "", &fs.PathError{Op: "readlink", Path: name, Err: ENAMETOOLONG}
+		}
+		b = make([]byte, 2*len(b))
+	}
+}
+
+// Unlink removes a file or symbolic link from a file system.
+func Unlink(fsys FileSystem, name string) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Unlink(name) })
+}
+
+// Rename changes the name referencing a file, symbolic link, or directory on a
+// file system.
+func Rename(fsys FileSystem, oldName, newName string) error {
+	return withRoot1(fsys, func(dir File) error { return dir.Rename(oldName, dir, newName) })
+}
+
+func withRoot1(fsys FileSystem, do func(File) error) error {
+	d, err := OpenRoot(fsys)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return do(d)
+}
+
+func withRoot2[R any](fsys FileSystem, do func(File) (R, error)) (ret R, err error) {
+	d, err := OpenRoot(fsys)
+	if err != nil {
+		return ret, err
+	}
+	defer d.Close()
+	return do(d)
+}
+
+// File is an interface representing files opened from a file system.
+type File interface {
+	// Returns the file descriptor number for the underlying kernel handle for
+	// the file.
+	Fd() uintptr
+
+	// Returns the canonical name of the file on the file system.
+	//
+	// Assuming the file system is not modified concurrently, a file opened at
+	// the location returned by this method will point to the same resource.
+	Name() string
+
+	// Closes the file.
+	//
+	// This method must be opened when the program does not need the file
+	// anymore. Attempting to use the file after it was closed will cause
+	// the methods to return errors.
+	Close() error
+
+	// Opens a file at the given name, relative to the file's position in the
+	// file system.
+	//
+	// The file must point to a directory or the method errors with ENOTDIR.
+	Open(name string, flags int, mode fs.FileMode) (File, error)
+
+	// Readv reads data from the current seek offset of the file into the list
+	// of vectors passed as arguments.
+	//
+	// The method returns the number of bytes read, which may be less than the
+	// total size of the read buffers, even in the absence of errors.
+	//
+	// When the end of file is reached, the method returns zero and a nil error
+	// (it does not return io.EOF).
+	Readv(iovs [][]byte) (int, error)
+
+	// Writev writes data from the list of vectors to the current seek offset
+	// of the file.
+	//
+	// The method returns the number of bytes written, which may be less than
+	// the total size of the write buffers, even in the absence of errors.
+	Writev(iovs [][]byte) (int, error)
+
+	// Preadv reads data from the given seek offset into the list of vectors
+	// passed as arguments.
+	//
+	// The method returns the number of bytes read, which may be less than the
+	// total size of the read buffers, even in the absence of errors.
+	//
+	// When the end of file is reached, the method returns zero and a nil error
+	// (it does not return io.EOF).
+	Preadv(iovs [][]byte, offset int64) (int, error)
+
+	// Pwritev writes data from the list of vectors at the given seek offset.
+	//
+	// The method returns the number of bytes written, which may be less than
+	// the total size of the write buffers, even in the absence of errors.
+	Pwritev(iovs [][]byte, offset int64) (int, error)
+
+	// Seek positions the seek offset of the file at the given location, which
+	// is interpreted relative to the whence value. The whence may be SEEK_SET,
+	// SEEK_CUR, or SEEK_END to describe how to compute the final seek offset.
+	Seek(offset int64, whence int) (int64, error)
+
+	// Pre-allocates storage for the file at the given offset and length. If the
+	// sum of offset and length exceeds the current size, the file is extended
+	// as if Truncate(offset + length) had been called.
+	Allocate(offset, length int64) error
+
+	// Sets the file to the given size.
+	//
+	// If the size is shorter than the current file size, its content is
+	// truncated and the data at the end of the file is dropped.
+	//
+	// If the size is larger than the current file size, zero bytes are appended
+	// at the end to match the requested size.
+	Truncate(size int64) error
+
+	// Blocks until all buffered changes have been flushed to the underyling
+	// storage device.
+	//
+	// Syncing includes writing metdata such as mutations to a directory.
+	Sync() error
+
+	// Datasync is similar to Sync but it only synchronizes writes to a file
+	// content.
+	Datasync() error
+
+	// Returns the bitset of flags currently set on the file, which is a
+	// combination of O_* flags such as those that can be passed to Open.
+	//
+	// The set of flags supported by the file depends on the underlying type.
+	Flags() (int, error)
+
+	// Changes the bitset of flags set on the file. The flags are a combination
+	// of O_* flags such as those that can be passed to Open.
+	//
+	// The set of flags supported by the file depends on the underlying type.
+	SetFlags(flags int) error
+
+	// Read directory entries into the given buffer. The caller must be aware of
+	// the way directory entries are laid out by the underlying file system to
+	// interpret the content.
+	//
+	// The method returns the number of bytes written to buf.
+	ReadDirent(buf []byte) (int, error)
+
+	// Looks up and return file metdata.
+	//
+	// If the receiver is a directory, a name may be given to represent the file
+	// to retrieve metdata for, relative to the directory. The flags may be
+	// AT_SYMLINK_NOFOLLOW to retrieve metdata for a symbolic link instead of
+	// its target.
+	//
+	// If the name is empty, flags are ignored and the method returns metdata
+	// for the receiver.
+	Stat(name string, flags int) (FileInfo, error)
+
+	// Reads the target of a symbolic link into buf.
+	//
+	// If the name is empty, the method assumes that the receiver is a file
+	// opened on a symbolic link and returns the receiver's target.
+	//
+	// The method returns the number of bytes written to buf.
+	Readlink(name string, buf []byte) (int, error)
+
+	// Changes the access and modification time of a file.
+	//
+	// The access time is the first Timespec value, the modification time is the
+	// second. Either of the Timespec values may have their nanosecond field set
+	// to UTIME_OMIT to ignore it, or UTIME_NOW to set it to the current time.
+	//
+	// If the receiver is a directory, a name may be given to represent the file
+	// to set the times for, relative to the directory. The flags may be
+	// AT_SYMLINK_NOFOLLOW to change the times of a symbolic link instead of its
+	// target (note that not all file systems may support it).
+	//
+	// If the name is empty, flags are ignored and the method changes times of
+	// the receiver.
+	Chtimes(name string, times [2]Timespec, flags int) error
+
+	// Creates a directory at the named location.
+	//
+	// The method assumes that the receiver is a directory and resolves the path
+	// relative to it.
+	//
+	// The mode sets permissions on the newly created directory.
+	Mkdir(name string, mode fs.FileMode) error
+
+	// Removes an empty directory at a named location.
+	//
+	// The method assumes that the receiver is a directory and resolves the path
+	// relative to it.
+	Rmdir(name string) error
+
+	// Moves a file to a new location.
+	//
+	// The old name is the path to the file to be moved, relative to the
+	// receiver, which is expected to refer to a directory.
+	//
+	// The new name is interpreted relative to the directory passed as argument,
+	// which may or may not be the same as the receiver, but must be on the same
+	// file system.
+	Rename(oldName string, newDir File, newName string) error
+
+	// Creates a hard link to a named location.
+	//
+	// The old name is the path to the file to be linked, relative to the
+	// receiver, which is expected to refer to a directory.
+	//
+	// The new name is interpreted relative to the directory passed as argument,
+	// which may or may not be the same as the reciver, but must be on the same
+	// file system.
+	//
+	// The flags may be AT_SYMLINK_NOFOLLOW to create a link to a symbolic link
+	// instead of its target.
+	Link(oldName string, newDir File, newName string, flags int) error
+
+	// Creates a symbolic link to a named location.
+	//
+	// The old name may be an absolute or relative location, and does not need
+	// to exist on the file system.
+	//
+	// The new name is interpreted relative to the receiver, which is expected
+	// to refer to a directory.
+	Symlink(oldName, newName string) error
+
+	// Removes a file or symbolic link from the file system.
+	//
+	// The method is not idempotent, an error is returned if no files exist at
+	// the location.
+	//
+	// Unlinking a file only drops the name referencing it, its content is only
+	// reclaimed by the file system once all open references have been closed.
+	Unlink(name string) error
+}
+
+// FileInfo is a type similar to fs.FileInfo or syscall.Stat_t on unix systems.
+// It contains metadata about an entry on the file system.
+type FileInfo struct {
+	Dev   uint64
+	Ino   uint64
+	Nlink uint64
+	Mode  fs.FileMode
+	Uid   uint32
+	Gid   uint32
+	Size  int64
+	Atime Timespec
+	Mtime Timespec
+	Ctime Timespec
+}
+
+func (info FileInfo) String() string {
+	group, name := "none", "nobody"
+
+	g, err := user.LookupGroupId(strconv.Itoa(int(info.Gid)))
+	if err == nil {
+		group = g.Name
+	}
+
+	u, err := user.LookupId(strconv.Itoa(int(info.Uid)))
+	if err == nil {
+		name = u.Username
+	}
+
+	return fmt.Sprintf("%s %d %s %s %d %s",
+		info.Mode,
+		info.Nlink,
+		name,
+		group,
+		info.Size,
+		time.Unix(info.Mtime.Unix()).Format(time.Stamp),
+	)
+}
+
+// FS constructs a fs.FS backed by a FileSystem instance.
+//
+// This method is useful to run the standard testing/fstest test suite against
+// instances of the FileSystem interface.
+//
+// The returned fs.FS implements fs.StatFS.
+func FS(fsys FileSystem) fs.FS { return &fsFileSystem{fsys} }
+
+type fsFileSystem struct{ base FileSystem }
+
+func (fsys *fsFileSystem) Open(name string) (fs.File, error) {
+	if !fs.ValidPath(name) {
+		return nil, fsError("open", name, fs.ErrNotExist)
+	}
+	f, err := Open(fsys.base, name)
+	if err != nil {
+		return nil, fsError("open", name, err)
+	}
+	return &fsFile{fsys: fsys.base, File: f}, nil
+}
+
+func (fsys *fsFileSystem) Stat(name string) (fs.FileInfo, error) {
+	if !fs.ValidPath(name) {
+		return nil, fsError("stat", name, fs.ErrNotExist)
+	}
+	s, err := Stat(fsys.base, name)
+	if err != nil {
+		return nil, fsError("stat", name, err)
+	}
+	return &fsFileInfo{name: path.Base(name), stat: s}, nil
+}
+
+func fsError(op, name string, err error) error {
+	err = unwrap(err)
+	switch {
+	case errors.Is(err, EEXIST):
+		err = fs.ErrExist
+	case errors.Is(err, ENOENT):
+		err = fs.ErrNotExist
+	case errors.Is(err, EINVAL):
+		err = fs.ErrInvalid
+	case errors.Is(err, EBADF):
+		err = fs.ErrClosed
+	}
+	return &fs.PathError{Op: op, Path: name, Err: err}
+}
+
+func unwrap(err error) error {
+	if e := errors.Unwrap(err); e != nil {
+		err = e
+	}
+	return err
+}
+
+var (
+	_ fs.StatFS = (*fsFileSystem)(nil)
+)
+
+type fsFile struct {
+	fsys FileSystem
+	dir  *dirbuf
+	File
+}
+
+func (f *fsFile) Stat() (fs.FileInfo, error) {
+	stat, err := f.File.Stat("", AT_SYMLINK_NOFOLLOW)
+	if err != nil {
+		return nil, err
+	}
+	name := path.Base(f.File.Name())
+	return &fsFileInfo{name: name, stat: stat}, nil
+}
+
+func (f *fsFile) Read(b []byte) (int, error) {
+	iovs := [][]byte{b}
+	read := 0
+	for {
+		n, err := f.File.Readv(iovs)
+		if n > 0 {
+			read += n
+		}
+		if read == len(b) || err != nil {
+			return read, err
+		}
+		if n == 0 {
+			return read, io.EOF
+		}
+		iovs[0] = b[read:]
+	}
+}
+
+func (f *fsFile) ReadAt(b []byte, off int64) (int, error) {
+	iovs := [][]byte{b}
+	read := 0
+	for {
+		n, err := f.File.Preadv(iovs, off)
+		if n > 0 {
+			off += int64(n)
+			read += n
+		}
+		if read == len(b) || err != nil {
+			return read, err
+		}
+		if n == 0 {
+			return read, io.EOF
+		}
+		iovs[0] = b[read:]
+	}
+}
+
+func (f *fsFile) ReadDir(n int) ([]fs.DirEntry, error) {
+	var dirents []fs.DirEntry
+
+	if n > 0 {
+		dirents = make([]fs.DirEntry, 0, n)
+	}
+	if f.dir == nil {
+		f.dir = &dirbuf{file: f.File}
+	}
+
+	for {
+		name, mode, err := f.dir.readDirEntry()
+		if err != nil {
+			if err == io.EOF && n <= 0 {
+				err = nil
+			}
+			f.dir = nil
+			return dirents, err
+		}
+		dirents = append(dirents, &fsDirEntry{
+			file: f,
+			name: name,
+			mode: mode,
+		})
+		if n == len(dirents) {
+			return dirents, nil
+		}
+	}
+}
+
+var (
+	_ io.ReaderAt = (*fsFile)(nil)
+)
+
+type fsFileInfo struct {
+	name string
+	stat FileInfo
+}
+
+func (info *fsFileInfo) IsDir() bool {
+	return info.stat.Mode.IsDir()
+}
+
+func (info *fsFileInfo) Mode() fs.FileMode {
+	return info.stat.Mode
+}
+
+func (info *fsFileInfo) ModTime() time.Time {
+	return time.Unix(info.stat.Mtime.Unix())
+}
+
+func (info *fsFileInfo) Name() string {
+	return info.name
+}
+
+func (info *fsFileInfo) Size() int64 {
+	return info.stat.Size
+}
+
+func (info *fsFileInfo) Sys() any {
+	return &info.stat
+}
+
+func (info *fsFileInfo) String() string {
+	return info.stat.String() + " " + info.name
+}
+
+type fsDirEntry struct {
+	file *fsFile
+	name string
+	mode fs.FileMode
+}
+
+func (dirent *fsDirEntry) IsDir() bool {
+	return dirent.mode.IsDir()
+}
+
+func (dirent *fsDirEntry) Type() fs.FileMode {
+	return dirent.mode
+}
+
+func (dirent *fsDirEntry) Name() string {
+	return dirent.name
+}
+
+func (dirent *fsDirEntry) Info() (fs.FileInfo, error) {
+	name := dirent.Name()
+	stat, err := dirent.file.File.Stat(name, AT_SYMLINK_NOFOLLOW)
+	if err != nil {
+		return nil, fsError("stat", dirent.Name(), err)
+	}
+	return &fsFileInfo{name: name, stat: stat}, nil
 }

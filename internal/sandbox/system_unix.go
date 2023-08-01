@@ -228,7 +228,7 @@ func (s *System) init() error {
 }
 
 func (s *System) close() {
-	closePipe(&[2]int{
+	closePair(&[2]int{
 		int(s.kill[0].Swap(-1)),
 		int(s.kill[1].Swap(-1)),
 	})

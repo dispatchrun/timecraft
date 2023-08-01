@@ -6,7 +6,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/assert"
 )
 
-func TestSocketRefCount(t *testing.T) {
+func TestRefCount(t *testing.T) {
 	var lastCloseFD int
 	var closeFD = func(fd int) { lastCloseFD = fd }
 

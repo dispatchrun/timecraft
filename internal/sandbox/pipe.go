@@ -13,9 +13,9 @@ func stdio() (stdin, stdout, stderr [2]uintptr, err error) {
 	fds2 := [2]int{-1, -1}
 
 	defer func() {
-		closePipe(&fds0)
-		closePipe(&fds1)
-		closePipe(&fds2)
+		closePair(&fds0)
+		closePair(&fds1)
+		closePair(&fds2)
 	}()
 
 	if err = pipe(&fds0); err != nil {

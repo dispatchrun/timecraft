@@ -31,7 +31,7 @@ func False(t testing.TB, value bool) {
 func Error(t testing.TB, got, want error) {
 	if !errors.Is(got, want) {
 		t.Helper()
-		t.Fatalf("error mismatch\nwant = %s\ngot  = %s", want, got)
+		t.Fatalf("error mismatch\nwant = %v\ngot  = %v", want, got)
 	}
 }
 
