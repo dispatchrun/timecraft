@@ -38,7 +38,7 @@ func joinPath(dir, name string) string {
 }
 
 // cleanPath is like path.Clean but it preserves parent directory references;
-// this is necessary to ensure that sybolic links aren't erased from walking
+// this is necessary to ensure that symbolic links aren't erased from walking
 // the path.
 func cleanPath(path string) string {
 	buf := make([]byte, 0, 256)
