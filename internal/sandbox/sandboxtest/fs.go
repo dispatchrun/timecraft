@@ -1,9 +1,10 @@
 package sandboxtest
 
 import (
-	"maps"
-	"slices"
 	"testing"
+
+	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 )
