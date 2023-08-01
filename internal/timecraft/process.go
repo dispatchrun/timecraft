@@ -166,7 +166,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec) (Proces
 	}
 
 	for _, dir := range moduleSpec.Dirs {
-		options = append(options, sandbox.Mount(dir, sandbox.PathFS(dir)))
+		options = append(options, sandbox.Mount(dir, sandbox.DirFS(dir)))
 	}
 
 	guest, err := sandbox.NewSystem(options...)

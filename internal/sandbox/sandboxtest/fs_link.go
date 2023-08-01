@@ -1,7 +1,6 @@
 package sandboxtest
 
 import (
-	"io"
 	"testing"
 
 	"github.com/stealthrocket/timecraft/internal/assert"
@@ -53,7 +52,7 @@ var fsTestLink = fsTestSuite{
 		assert.OK(t, err)
 		defer f.Close()
 
-		_, err = io.WriteString(f, ", world!")
+		_, err = f.Writev([][]byte{[]byte(", world!")})
 		assert.OK(t, err)
 
 		for _, name := range []string{"test", "link-1", "link-2", "link-3"} {

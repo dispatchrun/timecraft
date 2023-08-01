@@ -4,8 +4,19 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/stealthrocket/wasi-go"
 	"golang.org/x/sys/unix"
 )
+
+const sizeOfDirent = 21
+
+type dirent struct {
+	ino     uint64
+	seekoff uint64
+	reclen  uint16
+	namlen  uint16
+	typ     uint8
+}
 
 const (
 	O_DSYNC = unix.O_SYNC
@@ -113,8 +124,63 @@ func setCloseOnExecAndNonBlocking(fd int) error {
 	return nil
 }
 
+func fallocate(fd int, offset, length int64) error {
+	var stat unix.Stat_t
+	if err := ignoreEINTR(func() error {
+		return unix.Fstat(fd, &stat)
+	}); err != nil {
+		return err
+	}
+	if offset != stat.Size {
+		return wasi.ENOSYS
+	}
+	err := ignoreEINTR(func() error {
+		return unix.FcntlFstore(uintptr(fd), unix.F_PREALLOCATE, &unix.Fstore_t{
+			Flags:   unix.F_ALLOCATEALL | unix.F_ALLOCATECONTIG,
+			Posmode: unix.F_PEOFPOSMODE,
+			Offset:  0,
+			Length:  length,
+		})
+	})
+	if err != nil {
+		return err
+	}
+	return ignoreEINTR(func() error {
+		return unix.Ftruncate(fd, stat.Size+length)
+	})
+}
+
 func fdatasync(fd int) error {
-	return unix.Fsync(fd)
+	_, _, err := unix.Syscall(unix.SYS_FDATASYNC, uintptr(fd), 0, 0)
+	if err != 0 {
+		return err
+	}
+	return nil
+}
+
+func fsync(fd int) error {
+	// See https://twitter.com/TigerBeetleDB/status/1422854887113732097
+	_, err := unix.FcntlInt(uintptr(fd), unix.F_FULLFSYNC, 0)
+	return err
+}
+
+func lseek(fd int, offset int64, whence int) (int64, error) {
+	// Note: there is an issue with unix.Seek where it returns random error
+	// values for delta >= 2^32-1; syscall.Seek does not appear to suffer from
+	// this problem, nor does using unix.Syscall directly.
+	//
+	// The standard syscall package uses a special syscallX function to call
+	// lseek, which x/sys/unix does not, here is the reason (copied from
+	// src/runtime/sys_darwin.go):
+	//
+	//  The X versions of syscall expect the libc call to return a 64-bit result.
+	//  Otherwise (the non-X version) expects a 32-bit result.
+	//  This distinction is required because an error is indicated by returning -1,
+	//  and we need to know whether to check 32 or 64 bits of the result.
+	//  (Some libc functions that return 32 bits put junk in the upper 32 bits of AX.)
+	//
+	// return unix.Seek(f.FD, int64(delta), sysWhence)
+	return syscall.Seek(fd, offset, whence)
 }
 
 func prepareTimesAndAttrs(ts *[2]unix.Timespec) (attrs, size int, times [2]unix.Timespec) {
@@ -145,7 +211,7 @@ func futimens(fd int, ts *[2]unix.Timespec) error {
 }
 
 func fsetattrlist(fd int, attrlist *unix.Attrlist, attrbuf unsafe.Pointer, attrbufsize int, options uint32) error {
-	_, _, e := unix.Syscall6(
+	_, _, err := unix.Syscall6(
 		uintptr(unix.SYS_FSETATTRLIST),
 		uintptr(fd),
 		uintptr(unsafe.Pointer(attrlist)),
@@ -154,22 +220,108 @@ func fsetattrlist(fd int, attrlist *unix.Attrlist, attrbuf unsafe.Pointer, attrb
 		uintptr(options),
 		uintptr(0),
 	)
-	if e != 0 {
-		return e
+	if err != 0 {
+		return err
 	}
 	return nil
 }
 
 func freadlink(fd int, buf []byte) (int, error) {
 	const SYS_FREADLINK = 551
-	n, _, e := syscall.Syscall(
+	n, _, err := syscall.Syscall(
 		uintptr(SYS_FREADLINK),
 		uintptr(fd),
 		uintptr(unsafe.Pointer(unsafe.SliceData(buf))),
 		uintptr(len(buf)),
 	)
-	if e != 0 {
-		return int(n), e
+	if err != 0 {
+		return int(n), err
 	}
 	return int(n), nil
+}
+
+func read(fd int, buf []byte) (int, error) {
+	return handleEINTR(func() (int, error) { return unix.Read(fd, buf) })
+}
+
+func write(fd int, buf []byte) (int, error) {
+	return handleEINTR(func() (int, error) { return unix.Write(fd, buf) })
+}
+
+func pread(fd int, buf []byte, off int64) (int, error) {
+	return handleEINTR(func() (int, error) { return unix.Pread(fd, buf, off) })
+}
+
+func pwrite(fd int, buf []byte, off int64) (int, error) {
+	return handleEINTR(func() (int, error) { return unix.Pwrite(fd, buf, off) })
+}
+
+func readv(fd int, iovs [][]byte) (int, error) {
+	rn := 0
+	for _, iov := range iovs {
+		n, err := read(fd, iov)
+		if n > 0 {
+			rn += n
+		}
+		if err != nil {
+			return rn, err
+		}
+		if n < len(iov) {
+			break
+		}
+	}
+	return rn, nil
+}
+
+func writev(fd int, iovs [][]byte) (int, error) {
+	wn := 0
+	for _, iov := range iovs {
+		n, err := write(fd, iov)
+		if n > 0 {
+			wn += n
+		}
+		if err != nil {
+			return wn, err
+		}
+		if n < len(iov) {
+			break
+		}
+	}
+	return wn, nil
+}
+
+func preadv(fd int, iovs [][]byte, off int64) (int, error) {
+	rn := 0
+	for _, iov := range iovs {
+		n, err := pread(fd, iov, off)
+		if n > 0 {
+			off += int64(n)
+			rn += n
+		}
+		if err != nil {
+			return rn, err
+		}
+		if n < len(iov) {
+			break
+		}
+	}
+	return rn, nil
+}
+
+func pwritev(fd int, iovs [][]byte, off int64) (int, error) {
+	wn := 0
+	for _, iov := range iovs {
+		n, err := pwrite(fd, iov, off)
+		if n > 0 {
+			off += int64(n)
+			wn += n
+		}
+		if err != nil {
+			return wn, err
+		}
+		if n < len(iov) {
+			break
+		}
+	}
+	return wn, nil
 }

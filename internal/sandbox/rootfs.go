@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"time"
 )
 
 func RootFS(fsys FileSystem) FileSystem {
@@ -52,9 +51,9 @@ func (f *rootFile) Readlink(name string, buf []byte) (int, error) {
 	})
 }
 
-func (f *rootFile) Chtimes(name string, atime, mtime time.Time, flags int) error {
+func (f *rootFile) Chtimes(name string, times [2]Timespec, flags int) error {
 	return withPath1("chtimes", f, name, flags, func(dir File, name string) error {
-		return dir.Chtimes(name, atime, mtime, AT_SYMLINK_NOFOLLOW)
+		return dir.Chtimes(name, times, AT_SYMLINK_NOFOLLOW)
 	})
 }
 
@@ -144,6 +143,9 @@ func withPath3(op string, f1 *rootFile, path1 string, f2 *rootFile, path2 string
 func resolvePath[R any](f *rootFile, name string, flags int, do func(File, string) (R, error)) (ret R, err error) {
 	if name == "" {
 		return do(f.File, "")
+	}
+	if hasTrailingSlash(name) {
+		flags |= O_DIRECTORY
 	}
 	dir := f.File
 	dirToClose := File(nil)

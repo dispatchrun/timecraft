@@ -1,11 +1,15 @@
 package sandbox
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"runtime"
 	"runtime/debug"
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -53,10 +57,28 @@ const (
 	O_TRUNC     = unix.O_TRUNC
 	O_DIRECTORY = unix.O_DIRECTORY
 	O_NOFOLLOW  = unix.O_NOFOLLOW
+	O_NONBLOCK  = unix.O_NONBLOCK
 )
 
 const (
 	AT_SYMLINK_NOFOLLOW = unix.AT_SYMLINK_NOFOLLOW
+)
+
+const (
+	SEEK_SET = unix.SEEK_SET
+	SEEK_CUR = unix.SEEK_CUR
+	SEEK_END = unix.SEEK_END
+)
+
+const (
+	DT_BLK     = unix.DT_BLK
+	DT_CHR     = unix.DT_CHR
+	DT_DIR     = unix.DT_DIR
+	DT_LNK     = unix.DT_LNK
+	DT_REG     = unix.DT_REG
+	DT_FIFO    = unix.DT_FIFO
+	DT_SOCK    = unix.DT_SOCK
+	DT_UNKNOWN = unix.DT_UNKNOWN
 )
 
 const (
@@ -86,6 +108,11 @@ type SockaddrInet4 = unix.SockaddrInet4
 type SockaddrInet6 = unix.SockaddrInet6
 type SockaddrUnix = unix.SockaddrUnix
 type Timeval = unix.Timeval
+type Timespec = unix.Timespec
+
+func nsecToTimespec(ns int64) Timespec {
+	return unix.NsecToTimespec(ns)
+}
 
 // This function is used to automatically retry syscalls when they return EINTR
 // due to having handled a signal instead of executing.
@@ -112,6 +139,19 @@ func ignoreEINTR3[F func() (R1, R2, error), R1, R2 any](f F) (R1, R2, error) {
 		if err != EINTR {
 			return v1, v2, err
 		}
+	}
+}
+
+func handleEINTR(f func() (int, error)) (int, error) {
+	for {
+		n, err := f()
+		if err == unix.EINTR {
+			if n == 0 {
+				continue
+			}
+			err = nil
+		}
+		return n, err
 	}
 }
 
@@ -297,6 +337,10 @@ func fstat(fd int, stat *unix.Stat_t) error {
 	return ignoreEINTR(func() error { return unix.Fstat(fd, stat) })
 }
 
+func ftruncate(fd int, size int64) error {
+	return ignoreEINTR(func() error { return unix.Ftruncate(fd, size) })
+}
+
 func fstatat(dirfd int, path string, stat *unix.Stat_t, flags int) error {
 	return ignoreEINTR(func() error { return unix.Fstatat(dirfd, path, stat, flags) })
 }
@@ -331,4 +375,77 @@ func unlinkat(dirfd int, path string, flags int) error {
 
 func openat(dirfd int, path string, flags int, mode uint32) (int, error) {
 	return ignoreEINTR2(func() (int, error) { return unix.Openat(dirfd, path, flags|unix.O_CLOEXEC, mode) })
+}
+
+const dirbufsize = 4 * _PATH_MAX // must be greater than sizeOfDirent
+
+type dirbuf struct {
+	buffer *[dirbufsize]byte
+	offset int
+	length int
+	file   File
+}
+
+func (d *dirbuf) readDirEntry() (string, fs.FileMode, error) {
+	if d.buffer == nil {
+		d.buffer = new([dirbufsize]byte)
+	}
+
+	for {
+		if (d.length - d.offset) < sizeOfDirent {
+			n, err := d.file.ReadDirent(d.buffer[:])
+			if err != nil {
+				return "", 0, err
+			}
+			if n == 0 {
+				return "", 0, io.EOF
+			}
+			d.offset = 0
+			d.length = n
+		}
+
+		dirent := (*dirent)(unsafe.Pointer(&d.buffer[d.offset]))
+
+		if (d.offset + int(dirent.reclen)) > d.length {
+			d.offset = d.length
+			continue
+		}
+
+		mode := fs.FileMode(0)
+		switch dirent.typ {
+		case DT_REG:
+			mode = 0
+		case DT_BLK:
+			mode = fs.ModeDevice
+		case DT_CHR:
+			mode = fs.ModeDevice | fs.ModeCharDevice
+		case DT_DIR:
+			mode = fs.ModeDir
+		case DT_LNK:
+			mode = fs.ModeSymlink
+		case DT_FIFO:
+			mode = fs.ModeNamedPipe
+		case DT_SOCK:
+			mode = fs.ModeSocket
+		default: // DT_WHT, DT_UNKNOWN
+			mode = fs.ModeIrregular
+		}
+
+		i := d.offset + sizeOfDirent
+		j := d.offset + int(dirent.reclen)
+		name := d.buffer[i:j:j]
+
+		n := bytes.IndexByte(name, 0)
+		if n >= 0 {
+			name = name[:n:n]
+		}
+
+		d.offset += int(dirent.reclen)
+
+		switch string(name) {
+		case ".", "..":
+		default:
+			return string(name), mode, nil
+		}
+	}
 }

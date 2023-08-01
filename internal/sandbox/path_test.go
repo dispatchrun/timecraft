@@ -40,7 +40,7 @@ func TestCleanPath(t *testing.T) {
 		{"/././././", "/"},
 		{"hello/world", "hello/world"},
 		{"/hello/world", "/hello/world"},
-		{"/tmp/.././//test/", "/tmp/../test"},
+		{"/tmp/.././//test/", "/tmp/../test/"},
 	}
 
 	for _, test := range tests {

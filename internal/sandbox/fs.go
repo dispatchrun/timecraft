@@ -81,13 +81,28 @@ func ReadFile(fsys FileSystem, name string, flags int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
 	s, err := f.Stat("", 0)
 	if err != nil {
 		return nil, err
 	}
+	if _, err := f.Seek(0, 0); err != nil {
+		return nil, err
+	}
 	b := make([]byte, s.Size)
-	n, err := io.ReadFull(f, b)
-	return b[:n], err
+	v := make([][]byte, 1)
+	n := 0
+	for n < len(b) {
+		v[0] = b[n:]
+		rn, err := f.Readv(v)
+		if rn > 0 {
+			n += rn
+		}
+		if err != nil || rn == 0 {
+			return b[:n], err
+		}
+	}
+	return b, nil
 }
 
 func WriteFile(fsys FileSystem, name string, data []byte, mode fs.FileMode) error {
@@ -96,7 +111,7 @@ func WriteFile(fsys FileSystem, name string, data []byte, mode fs.FileMode) erro
 		return err
 	}
 	defer f.Close()
-	_, err = f.Write(data)
+	_, err = f.Writev([][]byte{data})
 	return err
 }
 
@@ -231,41 +246,35 @@ type File interface {
 	// The file must point to a directory or the method errors with ENOTDIR.
 	Open(name string, flags int, mode fs.FileMode) (File, error)
 
-	// Read reads data from the current seek offset.
-	//
-	// The method satisfies io.Reader, it returns io.EOF when the end of file
-	// has been reached.
-	Read(data []byte) (int, error)
+	Readv(iovs [][]byte) (int, error)
 
-	// ReadAt reads data from the given file offset.
-	//
-	// The method satisfies io.ReaderAt, it returnes io.EOF when the end of
-	// file has been reached.
-	ReadAt(data []byte, offset int64) (int, error)
+	Writev(iovs [][]byte) (int, error)
 
-	Write(data []byte) (int, error)
+	Preadv(iovs [][]byte, offset int64) (int, error)
 
-	WriteAt(data []byte, offset int64) (int, error)
+	Pwritev(iovs [][]byte, offset int64) (int, error)
 
 	Seek(offset int64, whence int) (int64, error)
+
+	Allocate(offset, length int64) error
+
+	Truncate(size int64) error
 
 	Sync() error
 
 	Datasync() error
 
-	Truncate(size int64) error
-
 	Flags() (int, error)
 
 	SetFlags(flags int) error
 
-	ReadDir(n int) ([]fs.DirEntry, error)
+	ReadDirent(buf []byte) (int, error)
 
 	Stat(name string, flags int) (FileInfo, error)
 
 	Readlink(name string, buf []byte) (int, error)
 
-	Chtimes(name string, atime, mtime time.Time, flags int) error
+	Chtimes(name string, times [2]Timespec, flags int) error
 
 	Mkdir(name string, mode fs.FileMode) error
 
@@ -290,9 +299,9 @@ type FileInfo struct {
 	Gid   uint32
 	Uid   uint32
 	Size  int64
-	Atime time.Time
-	Mtime time.Time
-	Ctime time.Time
+	Atime Timespec
+	Mtime Timespec
+	Ctime Timespec
 }
 
 func (info FileInfo) String() string {
@@ -314,7 +323,7 @@ func (info FileInfo) String() string {
 		name,
 		group,
 		info.Size,
-		info.Mtime.Format(time.Stamp),
+		time.Unix(info.Mtime.Unix()).Format(time.Stamp),
 	)
 }
 
@@ -335,7 +344,7 @@ func (fsys *fsFileSystem) Open(name string) (fs.File, error) {
 	if err != nil {
 		return nil, fsError("open", name, err)
 	}
-	return &fsFile{fsys.base, f}, nil
+	return &fsFile{fsys: fsys.base, File: f}, nil
 }
 
 func (fsys *fsFileSystem) Stat(name string) (fs.FileInfo, error) {
@@ -377,6 +386,7 @@ var (
 
 type fsFile struct {
 	fsys FileSystem
+	dir  *dirbuf
 	File
 }
 
@@ -389,19 +399,82 @@ func (f *fsFile) Stat() (fs.FileInfo, error) {
 	return &fsFileInfo{name: name, stat: stat}, nil
 }
 
-func (f *fsFile) ReadDir(n int) ([]fs.DirEntry, error) {
-	dirents, err := f.File.ReadDir(n)
-	if len(dirents) > 0 {
-		fsDirEntries := make([]fsDirEntry, len(dirents))
-		for i, dirent := range dirents {
-			fsDirEntries[i] = fsDirEntry{f, dirent}
+func (f *fsFile) Read(b []byte) (int, error) {
+	iovs := [][]byte{b}
+	read := 0
+	for {
+		n, err := f.File.Readv(iovs)
+		if n > 0 {
+			read += n
 		}
-		for i := range dirents {
-			dirents[i] = &fsDirEntries[i]
+		if read == len(b) {
+			return read, nil
+		}
+		if err != nil {
+			return read, err
+		}
+		if n == 0 {
+			return read, io.EOF
+		}
+		iovs[0] = b[read:]
+	}
+}
+
+func (f *fsFile) ReadAt(b []byte, off int64) (int, error) {
+	iovs := [][]byte{b}
+	read := 0
+	for {
+		n, err := f.File.Preadv(iovs, off)
+		if n > 0 {
+			off += int64(n)
+			read += n
+		}
+		if read == len(b) {
+			return read, nil
+		}
+		if err != nil {
+			return read, err
+		}
+		if n == 0 {
+			return read, io.EOF
+		}
+		iovs[0] = b[read:]
+	}
+}
+
+func (f *fsFile) ReadDir(n int) ([]fs.DirEntry, error) {
+	var dirents []fs.DirEntry
+
+	if n > 0 {
+		dirents = make([]fs.DirEntry, 0, n)
+	}
+	if f.dir == nil {
+		f.dir = &dirbuf{file: f.File}
+	}
+
+	for {
+		name, mode, err := f.dir.readDirEntry()
+		if err != nil {
+			if err == io.EOF && n <= 0 {
+				err = nil
+			}
+			f.dir = nil
+			return dirents, err
+		}
+		dirents = append(dirents, &fsDirEntry{
+			file: f,
+			name: name,
+			mode: mode,
+		})
+		if n == len(dirents) {
+			return dirents, nil
 		}
 	}
-	return dirents, err
 }
+
+var (
+	_ io.ReaderAt = (*fsFile)(nil)
+)
 
 type fsFileInfo struct {
 	name string
@@ -417,7 +490,7 @@ func (info *fsFileInfo) Mode() fs.FileMode {
 }
 
 func (info *fsFileInfo) ModTime() time.Time {
-	return info.stat.Mtime
+	return time.Unix(info.stat.Mtime.Unix())
 }
 
 func (info *fsFileInfo) Name() string {
@@ -438,7 +511,20 @@ func (info *fsFileInfo) String() string {
 
 type fsDirEntry struct {
 	file *fsFile
-	fs.DirEntry
+	name string
+	mode fs.FileMode
+}
+
+func (dirent *fsDirEntry) IsDir() bool {
+	return dirent.mode.IsDir()
+}
+
+func (dirent *fsDirEntry) Type() fs.FileMode {
+	return dirent.mode
+}
+
+func (dirent *fsDirEntry) Name() string {
+	return dirent.name
 }
 
 func (dirent *fsDirEntry) Info() (fs.FileInfo, error) {

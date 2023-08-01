@@ -6,6 +6,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const sizeOfDirent = 19
+
+type dirent struct {
+	ino    uint64
+	off    int64
+	reclen uint16
+	typ    uint8
+}
+
 const (
 	O_DSYNC = unix.O_DSYNC
 	O_RSYNC = unix.O_RSYNC
@@ -41,6 +50,10 @@ func pipe(fds *[2]int) error {
 	return unix.Pipe2(fds[:], unix.O_CLOEXEC|unix.O_NONBLOCK)
 }
 
+func fallocate(fd int, offset, length int64) error {
+	return ignoreEINTR(func() error { return unix.Fallocate(fd, 0, offset, length) })
+}
+
 func fdatasync(fd int) error {
 	return ignoreEINTR(func() error { return unix.Fdatasync(fd) })
 }
@@ -64,4 +77,24 @@ func futimens(fd int, ts *[2]unix.Timespec) error {
 
 func freadlink(fd int, buf []byte) (int, error) {
 	return readlinkat(fd, "", buf)
+}
+
+func lseek(fd int, offset int64, whence int) (int64, error) {
+	return ignoreEINTR2(func() (int64, error) { return unix.Seek(fd, offset, whence) })
+}
+
+func readv(fd int, iovs [][]byte) (int, error) {
+	return handleEINTR(func() (int, error) { return unix.Readv(fd, iovs) })
+}
+
+func writev(fd int, iovs [][]byte) (int, error) {
+	return handleEINTR(func() (int, error) { return unix.Writev(fd, iovs) })
+}
+
+func preadv(fd int, iovs [][]byte, offset int64) (int, error) {
+	return handleEINTR(func() (int, error) { return unix.Preadv(fd, iovs, offset) })
+}
+
+func pwritev(fd int, iovs [][]byte, offset int64) (int, error) {
+	return handleEINTR(func() (int, error) { return unix.Pwritev(fd, iovs, offset) })
 }

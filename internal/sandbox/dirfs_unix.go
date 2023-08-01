@@ -20,7 +20,7 @@ func (root dirFS) Open(name string, flags int, mode fs.FileMode) (File, error) {
 		return nil, &fs.PathError{Op: "open", Path: string(root), Err: err}
 	}
 	if name = cleanPath(name); name == "/" || name == "." { // root?
-		return dirFile{os.NewFile(uintptr(dirfd), "/")}, nil
+		return &dirFile{fd: dirfd, name: "/"}, nil
 	}
 	defer closeTraceError(dirfd)
 	relPath := "/" + trimLeadingSlash(name)
@@ -28,53 +28,137 @@ func (root dirFS) Open(name string, flags int, mode fs.FileMode) (File, error) {
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: relPath, Err: err}
 	}
-	return dirFile{os.NewFile(uintptr(fd), relPath)}, nil
+	return &dirFile{fd: fd, name: relPath}, nil
 }
 
-type dirFile struct{ *os.File }
-
-func (f dirFile) Open(name string, flags int, mode fs.FileMode) (File, error) {
-	name = cleanPath(name)
-	relPath := f.join(name)
-	fd, err := openat(f.fd(), name, flags, uint32(mode.Perm()))
-	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: relPath, Err: err}
-	}
-	return dirFile{os.NewFile(uintptr(fd), relPath)}, nil
+type dirFile struct {
+	fd   int
+	name string
 }
 
-func (f dirFile) Datasync() error {
-	if err := fdatasync(f.fd()); err != nil {
-		return &fs.PathError{Op: "datasync", Path: f.Name(), Err: err}
+func (f *dirFile) Fd() uintptr {
+	return uintptr(f.fd)
+}
+
+func (f *dirFile) Name() string {
+	return f.name
+}
+
+func (f *dirFile) Close() error {
+	fd := f.fd
+	f.fd = -1
+	if fd >= 0 {
+		closeTraceError(fd)
 	}
 	return nil
 }
 
-func (f dirFile) Flags() (int, error) {
-	flags, err := unix.FcntlInt(f.Fd(), unix.F_GETFL, 0)
+func (f *dirFile) Open(name string, flags int, mode fs.FileMode) (File, error) {
+	name = cleanPath(name)
+	relPath := f.join(name)
+	fd, err := openat(f.fd, name, flags, uint32(mode.Perm()))
 	if err != nil {
-		return 0, &fs.PathError{Op: "fcntl", Path: f.Name(), Err: err}
+		return nil, &fs.PathError{Op: "open", Path: relPath, Err: err}
+	}
+	return &dirFile{fd: fd, name: relPath}, nil
+}
+
+func (f *dirFile) Readv(iovs [][]byte) (int, error) {
+	n, err := readv(f.fd, iovs)
+	if err != nil {
+		err = &fs.PathError{Op: "read", Path: f.name, Err: err}
+	}
+	return n, err
+}
+
+func (f *dirFile) Writev(iovs [][]byte) (int, error) {
+	n, err := writev(f.fd, iovs)
+	if err != nil {
+		err = &fs.PathError{Op: "write", Path: f.name, Err: err}
+	}
+	return n, err
+}
+
+func (f *dirFile) Preadv(iovs [][]byte, offset int64) (int, error) {
+	n, err := preadv(f.fd, iovs, offset)
+	if err != nil {
+		err = &fs.PathError{Op: "pread", Path: f.name, Err: err}
+	}
+	return n, err
+}
+
+func (f *dirFile) Pwritev(iovs [][]byte, offset int64) (int, error) {
+	n, err := pwritev(f.fd, iovs, offset)
+	if err != nil {
+		err = &fs.PathError{Op: "pwrite", Path: f.name, Err: err}
+	}
+	return n, err
+}
+
+func (f *dirFile) Seek(offset int64, whence int) (int64, error) {
+	seek, err := lseek(f.fd, offset, whence)
+	if err != nil {
+		err = &fs.PathError{Op: "seek", Path: f.name, Err: err}
+	}
+	return seek, err
+}
+
+func (f *dirFile) Allocate(offset, length int64) error {
+	if err := fallocate(f.fd, offset, length); err != nil {
+		return &fs.PathError{Op: "allocate", Path: f.name, Err: err}
+	}
+	return nil
+}
+
+func (f *dirFile) Truncate(size int64) error {
+	if err := ftruncate(f.fd, size); err != nil {
+		return &fs.PathError{Op: "truncate", Path: f.name, Err: err}
+	}
+	return nil
+}
+
+func (f *dirFile) Sync() error {
+	if err := fsync(f.fd); err != nil {
+		return &fs.PathError{Op: "sync", Path: f.name, Err: err}
+	}
+	return nil
+}
+
+func (f *dirFile) Datasync() error {
+	if err := fdatasync(f.fd); err != nil {
+		return &fs.PathError{Op: "datasync", Path: f.name, Err: err}
+	}
+	return nil
+}
+
+func (f *dirFile) Flags() (int, error) {
+	flags, err := unix.FcntlInt(uintptr(f.fd), unix.F_GETFL, 0)
+	if err != nil {
+		return 0, &fs.PathError{Op: "fcntl", Path: f.name, Err: err}
 	}
 	return flags, nil
 }
 
-func (f dirFile) SetFlags(flags int) error {
-	_, err := unix.FcntlInt(f.Fd(), unix.F_SETFL, flags)
+func (f *dirFile) SetFlags(flags int) error {
+	_, err := unix.FcntlInt(uintptr(f.fd), unix.F_SETFL, flags)
 	if err != nil {
-		return &fs.PathError{Op: "fcntl", Path: f.Name(), Err: err}
+		return &fs.PathError{Op: "fcntl", Path: f.name, Err: err}
 	}
 	return nil
 }
 
-func (f dirFile) Stat(name string, flags int) (FileInfo, error) {
+func (f *dirFile) ReadDirent(buf []byte) (int, error) {
+	return ignoreEINTR2(func() (int, error) { return unix.ReadDirent(f.fd, buf) })
+}
+
+func (f *dirFile) Stat(name string, flags int) (FileInfo, error) {
 	var stat unix.Stat_t
 	var err error
 
-	fd := f.fd()
 	if name == "" {
-		err = fstat(fd, &stat)
+		err = fstat(f.fd, &stat)
 	} else {
-		err = fstatat(fd, name, &stat, flags)
+		err = fstatat(f.fd, name, &stat, flags)
 	}
 	if err != nil {
 		return FileInfo{}, &fs.PathError{Op: "stat", Path: f.join(name), Err: err}
@@ -86,9 +170,9 @@ func (f dirFile) Stat(name string, flags int) (FileInfo, error) {
 		Nlink: uint64(stat.Nlink),
 		Mode:  fs.FileMode(stat.Mode & 0777), // perm
 		Size:  int64(stat.Size),
-		Atime: time.Unix(stat.Atim.Unix()),
-		Mtime: time.Unix(stat.Mtim.Unix()),
-		Ctime: time.Unix(stat.Ctim.Unix()),
+		Atime: stat.Atim,
+		Mtime: stat.Mtim,
+		Ctime: stat.Ctim,
 	}
 
 	switch stat.Mode & unix.S_IFMT {
@@ -111,12 +195,11 @@ func (f dirFile) Stat(name string, flags int) (FileInfo, error) {
 	return info, nil
 }
 
-func (f dirFile) Readlink(name string, buf []byte) (n int, err error) {
-	fd := f.fd()
+func (f *dirFile) Readlink(name string, buf []byte) (n int, err error) {
 	if name == "" {
-		n, err = freadlink(fd, buf)
+		n, err = freadlink(f.fd, buf)
 	} else {
-		n, err = readlinkat(fd, name, buf)
+		n, err = readlinkat(f.fd, name, buf)
 	}
 	if err != nil {
 		err = &fs.PathError{Op: "readlink", Path: f.join(name), Err: err}
@@ -124,15 +207,12 @@ func (f dirFile) Readlink(name string, buf []byte) (n int, err error) {
 	return n, err
 }
 
-func (f dirFile) Chtimes(name string, atime, mtime time.Time, flags int) error {
-	var ts [2]unix.Timespec
+func (f *dirFile) Chtimes(name string, times [2]Timespec, flags int) error {
 	var err error
-	ts[0], _ = unix.TimeToTimespec(atime)
-	ts[1], _ = unix.TimeToTimespec(mtime)
 	if name == "" {
-		err = futimens(f.fd(), &ts)
+		err = futimens(f.fd, &times)
 	} else {
-		err = utimensat(f.fd(), name, &ts, flags)
+		err = utimensat(f.fd, name, &times, flags)
 	}
 	if err != nil {
 		return &fs.PathError{Op: "chtimes", Path: f.join(name), Err: err}
@@ -140,22 +220,22 @@ func (f dirFile) Chtimes(name string, atime, mtime time.Time, flags int) error {
 	return err
 }
 
-func (f dirFile) Mkdir(name string, mode fs.FileMode) error {
-	if err := mkdirat(f.fd(), name, uint32(mode.Perm())); err != nil {
+func (f *dirFile) Mkdir(name string, mode fs.FileMode) error {
+	if err := mkdirat(f.fd, name, uint32(mode.Perm())); err != nil {
 		return &fs.PathError{Op: "mkdir", Path: f.join(name), Err: err}
 	}
 	return nil
 }
 
-func (f dirFile) Rmdir(name string) error {
-	if err := unlinkat(f.fd(), name, unix.AT_REMOVEDIR); err != nil {
+func (f *dirFile) Rmdir(name string) error {
+	if err := unlinkat(f.fd, name, unix.AT_REMOVEDIR); err != nil {
 		return &fs.PathError{Op: "rmdir", Path: f.join(name), Err: err}
 	}
 	return nil
 }
 
-func (f dirFile) Rename(oldName string, newDir File, newName string) error {
-	fd1 := f.fd()
+func (f *dirFile) Rename(oldName string, newDir File, newName string) error {
+	fd1 := f.fd
 	fd2 := int(newDir.Fd())
 	if err := renameat(fd1, oldName, fd2, newName); err != nil {
 		path1 := f.join(oldName)
@@ -165,12 +245,12 @@ func (f dirFile) Rename(oldName string, newDir File, newName string) error {
 	return nil
 }
 
-func (f dirFile) Link(oldName string, newDir File, newName string, flags int) error {
+func (f *dirFile) Link(oldName string, newDir File, newName string, flags int) error {
 	linkFlags := 0
 	if (flags & AT_SYMLINK_NOFOLLOW) == 0 {
 		linkFlags |= unix.AT_SYMLINK_FOLLOW
 	}
-	fd1 := f.fd()
+	fd1 := f.fd
 	fd2 := int(newDir.Fd())
 	if err := linkat(fd1, oldName, fd2, newName, linkFlags); err != nil {
 		path1 := f.join(oldName)
@@ -180,26 +260,22 @@ func (f dirFile) Link(oldName string, newDir File, newName string, flags int) er
 	return nil
 }
 
-func (f dirFile) Symlink(oldName string, newName string) error {
-	if err := symlinkat(oldName, f.fd(), newName); err != nil {
+func (f *dirFile) Symlink(oldName string, newName string) error {
+	if err := symlinkat(oldName, f.fd, newName); err != nil {
 		return &fs.PathError{Op: "symlink", Path: f.join(newName), Err: err}
 	}
 	return nil
 }
 
-func (f dirFile) Unlink(name string) error {
-	if err := unlinkat(f.fd(), name, 0); err != nil {
+func (f *dirFile) Unlink(name string) error {
+	if err := unlinkat(f.fd, name, 0); err != nil {
 		return &fs.PathError{Op: "unlink", Path: f.join(name), Err: err}
 	}
 	return nil
 }
 
-func (f dirFile) fd() int {
-	return int(f.Fd())
-}
-
-func (f dirFile) join(name string) string {
-	return joinPath(f.Name(), name)
+func (f *dirFile) join(name string) string {
+	return joinPath(f.name, name)
 }
 
 type dirFileInfo struct {

@@ -94,6 +94,9 @@ func appendCleanPath(buf []byte, path string) []byte {
 		}
 		buf = append(buf, path[elem.off:elem.end]...)
 	}
+	if hasTrailingSlash(path) {
+		buf = append(buf, '/')
+	}
 	return buf
 }
 
@@ -119,6 +122,10 @@ func walkPath(path string) (elem, name string) {
 	} else {
 		return path[:i], trimLeadingSlash(path[i:])
 	}
+}
+
+func hasTrailingSlash(s string) bool {
+	return len(s) > 0 && s[len(s)-1] == '/'
 }
 
 func trimLeadingSlash(s string) string {
