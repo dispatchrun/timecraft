@@ -6,6 +6,13 @@ import (
 	"os"
 )
 
+// RootFS wraps the given FileSystem to prevent path resolution from escaping
+// its root directory.
+//
+// RootFS is useful to create a sandbox in combination with a DirFS pointing at
+// a directory on the local file system. Operations performed on the RootFS are
+// guaranteed not to escape the base directory, even in the presence of symbolic
+// links pointing to parent directories of the root.
 func RootFS(fsys FileSystem) FileSystem {
 	return &rootFS{fsys}
 }

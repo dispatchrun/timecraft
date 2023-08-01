@@ -31,51 +31,47 @@ type FileSystem interface {
 	Open(name string, flags int, mode fs.FileMode) (File, error)
 }
 
+// Create creates and opens a file on a file system. The name is the location
+// where the file is created and the mode is used to set permissions.
 func Create(fsys FileSystem, name string, mode fs.FileMode) (File, error) {
 	return fsys.Open(name, O_CREAT|O_TRUNC|O_WRONLY, mode)
 }
 
+// Open opens a file with the given name on a file system.
 func Open(fsys FileSystem, name string) (File, error) {
 	return fsys.Open(name, O_RDONLY, 0)
 }
 
+// OpenDir opens a directory with the given name on the file system.
 func OpenDir(fsys FileSystem, name string) (File, error) {
 	return fsys.Open(name, O_DIRECTORY, 0)
 }
 
+// OpenRoot opens the root directory of a file system.
 func OpenRoot(fsys FileSystem) (File, error) {
 	return OpenDir(fsys, "/")
 }
 
-func EvalSymlinks(fsys FileSystem, name string) (string, error) {
-	return withRoot2(fsys, func(dir File) (string, error) { return evalSymlinks(dir, name) })
-}
-
-func evalSymlinks(dir File, name string) (string, error) {
-	path := name
-
-	for i := 0; i < maxFollowSymlink; i++ {
-		link, err := readlink(dir, path)
-		if err != nil {
-			if errors.Is(err, EINVAL) {
-				return path, nil
-			}
-			return "", err
-		}
-		path = link
-	}
-
-	return "", &fs.PathError{Op: "readlink", Path: name, Err: ELOOP}
-}
-
+// Lstat returns information about a file on a file system.
+//
+// Is the name points to a location where a symbolic link exists, the function
+// returns information about the link itself.
 func Lstat(fsys FileSystem, name string) (FileInfo, error) {
 	return withRoot2(fsys, func(dir File) (FileInfo, error) { return dir.Stat(name, AT_SYMLINK_NOFOLLOW) })
 }
 
+// Stat returns information about a file on a file system.
+//
+// Is the name points to a location where a symbolic link exists, the function
+// returns information about the link target.
 func Stat(fsys FileSystem, name string) (FileInfo, error) {
 	return withRoot2(fsys, func(dir File) (FileInfo, error) { return dir.Stat(name, 0) })
 }
 
+// ReadFile reads the content of a file on a file system. The name represents
+// the location where the file is recorded on the file system. The flags are
+// passed to configure how the file is opened (e.g. passing O_NOFOLLOW will
+// fail if a symbolic link exists at that location).
 func ReadFile(fsys FileSystem, name string, flags int) ([]byte, error) {
 	f, err := fsys.Open(name, flags|O_RDONLY, 0)
 	if err != nil {
@@ -105,6 +101,7 @@ func ReadFile(fsys FileSystem, name string, flags int) ([]byte, error) {
 	return b, nil
 }
 
+// WriteFile writes a file on a file system.
 func WriteFile(fsys FileSystem, name string, data []byte, mode fs.FileMode) error {
 	f, err := fsys.Open(name, O_CREAT|O_WRONLY|O_TRUNC|O_EXCL, mode)
 	if err != nil {
@@ -115,6 +112,9 @@ func WriteFile(fsys FileSystem, name string, data []byte, mode fs.FileMode) erro
 	return err
 }
 
+// MkdirAll creates all directories to form the given path name on a file
+// system. The mode is used to set the permissions of each new directory,
+// permissions of existing directories are left untouched.
 func MkdirAll(fsys FileSystem, name string, mode fs.FileMode) error {
 	if err := mkdirAll(fsys, name, mode); err != nil {
 		return &fs.PathError{Op: "mkdir", Path: name, Err: unwrap(err)}
@@ -158,22 +158,29 @@ func mkdirAll(fsys FileSystem, name string, mode fs.FileMode) error {
 	return nil
 }
 
+// Mkdir creates a directory on a file system. The mode is used to set the
+// permissions of the new directory.
 func Mkdir(fsys FileSystem, name string, mode fs.FileMode) error {
 	return withRoot1(fsys, func(dir File) error { return dir.Mkdir(name, mode) })
 }
 
+// Rmdir removes an empty directory from a file system.
 func Rmdir(fsys FileSystem, name string) error {
 	return withRoot1(fsys, func(dir File) error { return dir.Rmdir(name) })
 }
 
+// Link creates a hard link between the old and new names passed as arguments.
 func Link(fsys FileSystem, oldName, newName string) error {
 	return withRoot1(fsys, func(dir File) error { return dir.Link(oldName, dir, newName, AT_SYMLINK_NOFOLLOW) })
 }
 
+// Symlink creates a symbolic link to a file system location.
 func Symlink(fsys FileSystem, oldName, newName string) error {
 	return withRoot1(fsys, func(dir File) error { return dir.Symlink(oldName, newName) })
 }
 
+// Readlink reads the target of a symbolic link located at the given path name
+// on a file system.
 func Readlink(fsys FileSystem, name string) (string, error) {
 	return withRoot2(fsys, func(dir File) (string, error) { return readlink(dir, name) })
 }
@@ -195,10 +202,13 @@ func readlink(dir File, name string) (string, error) {
 	}
 }
 
+// Unlink removes a file or symbolic link from a file system.
 func Unlink(fsys FileSystem, name string) error {
 	return withRoot1(fsys, func(dir File) error { return dir.Unlink(name) })
 }
 
+// Rename changes the name referencing a file, symbolic link, or directory on a
+// file system.
 func Rename(fsys FileSystem, oldName, newName string) error {
 	return withRoot1(fsys, func(dir File) error { return dir.Rename(oldName, dir, newName) })
 }
