@@ -162,7 +162,7 @@ func (f *dirFile) Stat(name string, flags int) (FileInfo, error) {
 	info := FileInfo{
 		Dev:   uint64(stat.Dev),
 		Ino:   uint64(stat.Ino),
-		Nlink: uint32(stat.Nlink),
+		Nlink: uint64(stat.Nlink),
 		Mode:  fs.FileMode(stat.Mode & 0777), // perm
 		Uid:   uint32(stat.Uid),
 		Gid:   uint32(stat.Gid),

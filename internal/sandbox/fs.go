@@ -432,7 +432,7 @@ type File interface {
 type FileInfo struct {
 	Dev   uint64
 	Ino   uint64
-	Nlink uint32
+	Nlink uint64
 	Mode  fs.FileMode
 	Uid   uint32
 	Gid   uint32
