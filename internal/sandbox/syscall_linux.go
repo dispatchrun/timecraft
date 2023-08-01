@@ -54,6 +54,10 @@ func fallocate(fd int, offset, length int64) error {
 	return ignoreEINTR(func() error { return unix.Fallocate(fd, 0, offset, length) })
 }
 
+func fsync(fd int) error {
+	return ignoreEINTR(func() error { return unix.Fsync(fd) })
+}
+
 func fdatasync(fd int) error {
 	return ignoreEINTR(func() error { return unix.Fdatasync(fd) })
 }
