@@ -98,6 +98,9 @@ func appendCleanPath(buf []byte, path string) []byte {
 	return buf
 }
 
+// indexSlash is like strings.IndexByte(path, '/') but the function is simple
+// enough to be inlined, which is a measurable improvement since it gets called
+// very often by the other routines in this file.
 func indexSlash(path string) int {
 	for i := 0; i < len(path); i++ {
 		if path[i] == '/' {

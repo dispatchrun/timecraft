@@ -417,10 +417,7 @@ func (f *fsFile) Read(b []byte) (int, error) {
 		if n > 0 {
 			read += n
 		}
-		if read == len(b) {
-			return read, nil
-		}
-		if err != nil {
+		if read == len(b) || err != nil {
 			return read, err
 		}
 		if n == 0 {
@@ -439,10 +436,7 @@ func (f *fsFile) ReadAt(b []byte, off int64) (int, error) {
 			off += int64(n)
 			read += n
 		}
-		if read == len(b) {
-			return read, nil
-		}
-		if err != nil {
+		if read == len(b) || err != nil {
 			return read, err
 		}
 		if n == 0 {

@@ -31,7 +31,7 @@ func (fsys *rootFS) Open(name string, flags int, mode fs.FileMode) (File, error)
 type rootFile struct{ File }
 
 func (f *rootFile) Open(name string, flags int, mode fs.FileMode) (File, error) {
-	file, err := resolvePath(f, name, flags, func(dir File, name string) (File, error) {
+	file, err := resolvePath(f.File, name, flags, func(dir File, name string) (File, error) {
 		return dir.Open(name, flags|O_NOFOLLOW, mode)
 	})
 	if err != nil {
@@ -107,7 +107,7 @@ func (f *rootFile) Unlink(name string) error {
 }
 
 func withPath1(op string, root *rootFile, path string, flags int, do func(File, string) error) error {
-	_, err := resolvePath(root, path, flags, func(dir File, name string) (_ struct{}, err error) {
+	_, err := resolvePath(root.File, path, flags, func(dir File, name string) (_ struct{}, err error) {
 		err = do(dir, name)
 		return
 	})
@@ -118,7 +118,7 @@ func withPath1(op string, root *rootFile, path string, flags int, do func(File, 
 }
 
 func withPath2[R any](op string, root *rootFile, path string, flags int, do func(File, string) (R, error)) (ret R, err error) {
-	ret, err = resolvePath(root, path, flags, do)
+	ret, err = resolvePath(root.File, path, flags, do)
 	if err != nil {
 		err = &fs.PathError{Op: op, Path: path, Err: unwrap(err)}
 	}
@@ -147,26 +147,20 @@ func withPath3(op string, f1 *rootFile, path1 string, f2 *rootFile, path2 string
 // was encountered and must be followed, in which case resolvePath continues
 // walking the path at the link target. Any other value or error returned by the
 // do function will be returned immediately.
-func resolvePath[R any](f *rootFile, name string, flags int, do func(File, string) (R, error)) (ret R, err error) {
+func resolvePath[R any](dir File, name string, flags int, do func(File, string) (R, error)) (ret R, err error) {
 	if name == "" {
-		return do(f.File, "")
+		return do(dir, "")
 	}
 	if hasTrailingSlash(name) {
 		flags |= O_DIRECTORY
 	}
-	dir := f.File
-	dirToClose := File(nil)
 
-	closeDir := func() {
-		if dirToClose != nil {
-			dirToClose.Close()
-		}
-	}
-	defer closeDir()
+	var lastOpenDir File
+	defer func() { closeFileIfNotNil(lastOpenDir) }()
 
 	setCurrentDirectory := func(cd File) {
-		closeDir()
-		dir, dirToClose = cd, cd
+		closeFileIfNotNil(lastOpenDir)
+		dir, lastOpenDir = cd, cd
 	}
 
 	followSymlinkDepth := 0
@@ -195,13 +189,13 @@ func resolvePath[R any](f *rootFile, name string, flags int, do func(File, strin
 		return nil
 	}
 
-	depth := filePathDepth(f.Name())
+	depth := filePathDepth(dir.Name())
 	for {
 		if isAbs(name) {
 			if name = trimLeadingSlash(name); name == "" {
 				name = "."
 			}
-			d, err := openRoot(f)
+			d, err := openRoot(dir)
 			if err != nil {
 				return ret, err
 			}
@@ -263,25 +257,28 @@ func resolvePath[R any](f *rootFile, name string, flags int, do func(File, strin
 	}
 }
 
-func openRoot(f *rootFile) (File, error) {
-	depth := filePathDepth(f.Name())
+func openRoot(dir File) (File, error) {
+	depth := filePathDepth(dir.Name())
 	if depth == 0 {
-		return f.Open(".", openPathFlags, 0)
+		return dir.Open(".", openPathFlags, 0)
 	}
-	dir := f.File
-	dirToClose := File(nil)
 
+	var lastOpenDir File
 	for depth > 0 {
 		p, err := dir.Open("..", openPathFlags, 0)
 		if err != nil {
 			return nil, err
 		}
-		if dirToClose != nil {
-			dirToClose.Close()
-		}
-		dir, dirToClose = p, p
+		closeFileIfNotNil(lastOpenDir)
+		dir, lastOpenDir = p, p
 		depth--
 	}
 
 	return dir, nil
+}
+
+func closeFileIfNotNil(f File) {
+	if f != nil {
+		f.Close()
+	}
 }
