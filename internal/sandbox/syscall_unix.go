@@ -301,21 +301,8 @@ func fstatat(dirfd int, path string, stat *unix.Stat_t, flags int) error {
 	return ignoreEINTR(func() error { return unix.Fstatat(dirfd, path, stat, flags) })
 }
 
-func readlinkat(dirfd int, path string) (string, error) {
-	buf := make([]byte, 256)
-	for {
-		n, err := ignoreEINTR2(func() (int, error) { return unix.Readlinkat(dirfd, path, buf) })
-		if err != nil {
-			return "", err
-		}
-		if n < len(buf) {
-			return string(buf[:n]), nil
-		}
-		if len(buf) >= _PATH_MAX {
-			return "", ENAMETOOLONG
-		}
-		buf = make([]byte, 2*len(buf))
-	}
+func readlinkat(dirfd int, path string, buf []byte) (int, error) {
+	return ignoreEINTR2(func() (int, error) { return unix.Readlinkat(dirfd, path, buf) })
 }
 
 func utimensat(dirfd int, path string, ts *[2]unix.Timespec, flags int) error {

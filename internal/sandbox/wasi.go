@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"io"
+	"io/fs"
 	"math"
 	"path"
 	"path/filepath"
@@ -242,7 +243,7 @@ func (f *wasiFile) FDFileStatSetSize(ctx context.Context, size wasi.FileSize) wa
 func (f *wasiFile) FDFileStatSetTimes(ctx context.Context, accessTime, modifyTime wasi.Timestamp, flags wasi.FSTFlags) wasi.Errno {
 	atime := makeFileTime(accessTime, flags.Has(wasi.AccessTime), flags.Has(wasi.AccessTimeNow))
 	mtime := makeFileTime(modifyTime, flags.Has(wasi.ModifyTime), flags.Has(wasi.ModifyTimeNow))
-	return wasi.MakeErrno(f.file.Chtimes("", atime, mtime))
+	return wasi.MakeErrno(f.file.Chtimes("", atime, mtime, 0))
 }
 
 func (f *wasiFile) FDRead(ctx context.Context, iovs []wasi.IOVec) (size wasi.Size, errno wasi.Errno) {
@@ -298,7 +299,11 @@ func (f *wasiFile) FDPwrite(ctx context.Context, iovs []wasi.IOVec, offset wasi.
 }
 
 func (f *wasiFile) FDOpenDir(ctx context.Context) (wasi.Dir, wasi.Errno) {
-	return nil, wasi.EBADF
+	dirents, err := f.file.ReadDir(-1)
+	if err != nil {
+		return nil, wasi.MakeErrno(err)
+	}
+	return &wasiDir{dirents}, wasi.ESUCCESS
 }
 
 func (f *wasiFile) FDSync(ctx context.Context) wasi.Errno {
@@ -322,11 +327,15 @@ func (f *wasiFile) PathFileStatSetTimes(ctx context.Context, lookupFlags wasi.Lo
 	// TODO: lookup flags
 	atime := makeFileTime(accessTime, fstFlags.Has(wasi.AccessTime), fstFlags.Has(wasi.AccessTimeNow))
 	mtime := makeFileTime(modifyTime, fstFlags.Has(wasi.ModifyTime), fstFlags.Has(wasi.ModifyTimeNow))
-	return wasi.MakeErrno(f.file.Chtimes(path, atime, mtime))
+	return wasi.MakeErrno(f.file.Chtimes(path, atime, mtime, makeLookupFlags(lookupFlags)))
 }
 
-func (f *wasiFile) PathLink(ctx context.Context, flags wasi.LookupFlags, oldPath string, newDir anyFile, newPath string) wasi.Errno {
-	return wasi.EBADF
+func (f *wasiFile) PathLink(ctx context.Context, lookupFlags wasi.LookupFlags, oldPath string, newDir anyFile, newPath string) wasi.Errno {
+	d, ok := newDir.(*wasiFile)
+	if !ok {
+		return wasi.EXDEV
+	}
+	return wasi.MakeErrno(f.file.Link(oldPath, d.file, newPath, makeLookupFlags(lookupFlags)))
 }
 
 func (f *wasiFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsDefault, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (anyFile, wasi.Errno) {
@@ -334,23 +343,28 @@ func (f *wasiFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, p
 }
 
 func (f *wasiFile) PathReadLink(ctx context.Context, path string, buffer []byte) (int, wasi.Errno) {
-	return 0, wasi.EBADF
+	n, err := f.file.Readlink(path, buffer)
+	return n, wasi.MakeErrno(err)
 }
 
 func (f *wasiFile) PathRemoveDirectory(ctx context.Context, path string) wasi.Errno {
-	return wasi.EBADF
+	return wasi.MakeErrno(f.file.Rmdir(path))
 }
 
 func (f *wasiFile) PathRename(ctx context.Context, oldPath string, newDir anyFile, newPath string) wasi.Errno {
-	return wasi.EBADF
+	d, ok := newDir.(*wasiFile)
+	if !ok {
+		return wasi.EXDEV
+	}
+	return wasi.MakeErrno(f.file.Rename(oldPath, d.file, newPath))
 }
 
 func (f *wasiFile) PathSymlink(ctx context.Context, oldPath string, newPath string) wasi.Errno {
-	return wasi.EBADF
+	return wasi.MakeErrno(f.file.Symlink(oldPath, newPath))
 }
 
 func (f *wasiFile) PathUnlinkFile(ctx context.Context, path string) wasi.Errno {
-	return wasi.EBADF
+	return wasi.MakeErrno(f.file.Unlink(path))
 }
 
 func makeFileTime(t wasi.Timestamp, set, now bool) time.Time {
@@ -361,6 +375,66 @@ func makeFileTime(t wasi.Timestamp, set, now bool) time.Time {
 		return t.Time()
 	}
 	return time.Unix(0, _UTIME_OMIT)
+}
+
+func makeLookupFlags(lookupFlags wasi.LookupFlags) (flags int) {
+	if !lookupFlags.Has(wasi.SymlinkFollow) {
+		flags |= AT_SYMLINK_NOFOLLOW
+	}
+	return flags
+}
+
+// TODO: this implementation is not very optimal because it causes a lot of heap
+// allocations for the fs.DirEntry values and the conversion to wasi.DirEntry;
+// we should replace it with something that does not require loading all the
+// entries in memory, and avoids the allocation of intermediary bytes slices to
+// hold the entry names.
+type wasiDir struct {
+	entries []fs.DirEntry
+}
+
+func (d *wasiDir) FDCloseDir(ctx context.Context) wasi.Errno {
+	d.entries = nil
+	return wasi.ESUCCESS
+}
+
+func (d *wasiDir) FDReadDir(ctx context.Context, entries []wasi.DirEntry, cookie wasi.DirCookie, bufferSizeBytes int) (n int, errno wasi.Errno) {
+	for i := int(cookie); n < len(entries) && i < len(d.entries); {
+		e := d.entries[i]
+
+		entries[n].Next = wasi.DirCookie(i + 1)
+		entries[n].Type = wasiFileType(e.Type())
+		entries[n].Name = []byte(e.Name())
+
+		bufferSizeBytes -= wasi.SizeOfDirent
+		bufferSizeBytes -= len(entries[n].Name)
+
+		if bufferSizeBytes <= 0 {
+			break
+		}
+		i++
+		n++
+	}
+	return n, wasi.ESUCCESS
+}
+
+func wasiFileType(mode fs.FileMode) wasi.FileType {
+	switch mode.Type() {
+	case 0:
+		return wasi.RegularFileType
+	case fs.ModeDevice:
+		return wasi.BlockDeviceType
+	case fs.ModeDevice | fs.ModeCharDevice:
+		return wasi.CharacterDeviceType
+	case fs.ModeDir:
+		return wasi.DirectoryType
+	case fs.ModeSymlink:
+		return wasi.SymbolicLinkType
+	case fs.ModeSocket:
+		return wasi.SocketStreamType
+	default:
+		return wasi.UnknownType
+	}
 }
 
 type wasiSocket struct {

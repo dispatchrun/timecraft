@@ -160,20 +160,16 @@ func fsetattrlist(fd int, attrlist *unix.Attrlist, attrbuf unsafe.Pointer, attrb
 	return nil
 }
 
-func freadlink(fd int) (string, error) {
+func freadlink(fd int, buf []byte) (int, error) {
 	const SYS_FREADLINK = 551
-	buf := [_PATH_MAX + 1]byte{}
 	n, _, e := syscall.Syscall(
 		uintptr(SYS_FREADLINK),
 		uintptr(fd),
-		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(unsafe.Pointer(unsafe.SliceData(buf))),
 		uintptr(len(buf)),
 	)
 	if e != 0 {
-		return "", e
+		return int(n), e
 	}
-	if int(n) == len(buf) {
-		return "", unix.ENAMETOOLONG
-	}
-	return string(buf[:n]), nil
+	return int(n), nil
 }

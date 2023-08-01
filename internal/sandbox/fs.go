@@ -2,8 +2,12 @@ package sandbox
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
+	"os/user"
+	"path"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -51,7 +55,7 @@ func evalSymlinks(dir File, name string) (string, error) {
 	path := name
 
 	for i := 0; i < maxFollowSymlink; i++ {
-		link, err := dir.Readlink(path)
+		link, err := readlink(dir, path)
 		if err != nil {
 			if errors.Is(err, EINVAL) {
 				return path, nil
@@ -64,35 +68,12 @@ func evalSymlinks(dir File, name string) (string, error) {
 	return "", &fs.PathError{Op: "readlink", Path: name, Err: ELOOP}
 }
 
-func Lstat(fsys FileSystem, name string) (fs.FileInfo, error) {
-	info, err := withRoot2(fsys, func(dir File) (fs.FileInfo, error) {
-		return dir.Lstat(name)
-	})
-	if err != nil {
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: unwrap(err)}
-	}
-	return info, nil
+func Lstat(fsys FileSystem, name string) (FileInfo, error) {
+	return withRoot2(fsys, func(dir File) (FileInfo, error) { return dir.Stat(name, AT_SYMLINK_NOFOLLOW) })
 }
 
-func Stat(fsys FileSystem, name string) (fs.FileInfo, error) {
-	return withRoot2(fsys, func(dir File) (fs.FileInfo, error) {
-		path, err := evalSymlinks(dir, name)
-		if err != nil {
-			return nil, &fs.PathError{Op: "stat", Path: name, Err: unwrap(err)}
-		}
-		stat, err := dir.Lstat(path)
-		if err != nil {
-			return nil, err
-		}
-		if stat.Mode().Type() == fs.ModeSymlink {
-			// If the file system was modified concurrently, the resolved target
-			// of symbolic links may have been replaced by a symbolic link that
-			// we did not follow. Since this is a race condition, we prefer
-			// returning an error rather than attempt to handle this condition.
-			return nil, &fs.PathError{Op: "stat", Path: name, Err: ELOOP}
-		}
-		return stat, nil
-	})
+func Stat(fsys FileSystem, name string) (FileInfo, error) {
+	return withRoot2(fsys, func(dir File) (FileInfo, error) { return dir.Stat(name, 0) })
 }
 
 func ReadFile(fsys FileSystem, name string, flags int) ([]byte, error) {
@@ -100,11 +81,11 @@ func ReadFile(fsys FileSystem, name string, flags int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	s, err := f.Stat()
+	s, err := f.Stat("", 0)
 	if err != nil {
 		return nil, err
 	}
-	b := make([]byte, s.Size())
+	b := make([]byte, s.Size)
 	n, err := io.ReadFull(f, b)
 	return b[:n], err
 }
@@ -171,7 +152,7 @@ func Rmdir(fsys FileSystem, name string) error {
 }
 
 func Link(fsys FileSystem, oldName, newName string) error {
-	return withRoot1(fsys, func(dir File) error { return dir.Link(oldName, dir, newName) })
+	return withRoot1(fsys, func(dir File) error { return dir.Link(oldName, dir, newName, AT_SYMLINK_NOFOLLOW) })
 }
 
 func Symlink(fsys FileSystem, oldName, newName string) error {
@@ -179,7 +160,24 @@ func Symlink(fsys FileSystem, oldName, newName string) error {
 }
 
 func Readlink(fsys FileSystem, name string) (string, error) {
-	return withRoot2(fsys, func(dir File) (string, error) { return dir.Readlink(name) })
+	return withRoot2(fsys, func(dir File) (string, error) { return readlink(dir, name) })
+}
+
+func readlink(dir File, name string) (string, error) {
+	b := make([]byte, 256)
+	for {
+		n, err := dir.Readlink(name, b)
+		if err != nil {
+			return "", err
+		}
+		if n < len(b) {
+			return string(b[:n]), nil
+		}
+		if len(b) > _PATH_MAX {
+			return "", &fs.PathError{Op: "readlink", Path: name, Err: ENAMETOOLONG}
+		}
+		b = make([]byte, 2*len(b))
+	}
 }
 
 func Unlink(fsys FileSystem, name string) error {
@@ -208,17 +206,41 @@ func withRoot2[R any](fsys FileSystem, do func(File) (R, error)) (ret R, err err
 	return do(d)
 }
 
+// File is an interface representing files opened from a file system.
 type File interface {
+	// Returns the file descriptor number for the underlying kernel handle for
+	// the file.
 	Fd() uintptr
 
+	// Returns the canonical name of the file on the file system.
+	//
+	// Assuming the file system is not modified concurrently, a file opened at
+	// the location returned by this method will point to the same resource.
 	Name() string
 
+	// Closes the file.
+	//
+	// This method must be opened when the program does not need the file
+	// anymore. Attempting to use the file after it was closed will cause
+	// the methods to return errors.
 	Close() error
 
+	// Opens a file at the given name, relative to the file's position in the
+	// file system.
+	//
+	// The file must point to a directory or the method errors with ENOTDIR.
 	Open(name string, flags int, mode fs.FileMode) (File, error)
 
+	// Read reads data from the current seek offset.
+	//
+	// The method satisfies io.Reader, it returns io.EOF when the end of file
+	// has been reached.
 	Read(data []byte) (int, error)
 
+	// ReadAt reads data from the given file offset.
+	//
+	// The method satisfies io.ReaderAt, it returnes io.EOF when the end of
+	// file has been reached.
 	ReadAt(data []byte, offset int64) (int, error)
 
 	Write(data []byte) (int, error)
@@ -226,8 +248,6 @@ type File interface {
 	WriteAt(data []byte, offset int64) (int, error)
 
 	Seek(offset int64, whence int) (int64, error)
-
-	Stat() (fs.FileInfo, error)
 
 	Sync() error
 
@@ -241,11 +261,11 @@ type File interface {
 
 	ReadDir(n int) ([]fs.DirEntry, error)
 
-	Lstat(name string) (fs.FileInfo, error)
+	Stat(name string, flags int) (FileInfo, error)
 
-	Readlink(name string) (string, error)
+	Readlink(name string, buf []byte) (int, error)
 
-	Chtimes(name string, atime, mtime time.Time) error
+	Chtimes(name string, atime, mtime time.Time, flags int) error
 
 	Mkdir(name string, mode fs.FileMode) error
 
@@ -253,11 +273,49 @@ type File interface {
 
 	Rename(oldName string, newDir File, newName string) error
 
-	Link(oldName string, newDir File, newName string) error
+	Link(oldName string, newDir File, newName string, flags int) error
 
 	Symlink(oldName, newName string) error
 
 	Unlink(name string) error
+}
+
+// FileInfo is a type similar to fs.FileInfo or syscall.Stat_t on unix systems.
+// It contains metadata about an entry on the file system.
+type FileInfo struct {
+	Dev   uint64
+	Ino   uint64
+	Nlink uint64
+	Mode  fs.FileMode
+	Gid   uint32
+	Uid   uint32
+	Size  int64
+	Atime time.Time
+	Mtime time.Time
+	Ctime time.Time
+}
+
+func (info FileInfo) String() string {
+	group, name := "none", "nobody"
+
+	g, err := user.LookupGroupId(strconv.Itoa(int(info.Gid)))
+	if err == nil {
+		group = g.Name
+	}
+
+	u, err := user.LookupId(strconv.Itoa(int(info.Uid)))
+	if err == nil {
+		name = u.Username
+	}
+
+	return fmt.Sprintf("%s %d %s %s %d %s",
+		info.Mode,
+		info.Nlink,
+		name,
+		group,
+		info.Size,
+		info.Mtime.Format(time.Stamp),
+	)
 }
 
 // FS constructs a fs.FS backed by a FileSystem instance.
@@ -288,7 +346,7 @@ func (fsys *fsFileSystem) Stat(name string) (fs.FileInfo, error) {
 	if err != nil {
 		return nil, fsError("stat", name, err)
 	}
-	return s, nil
+	return &fsFileInfo{name: path.Base(name), stat: s}, nil
 }
 
 func fsError(op, name string, err error) error {
@@ -322,6 +380,15 @@ type fsFile struct {
 	File
 }
 
+func (f *fsFile) Stat() (fs.FileInfo, error) {
+	stat, err := f.File.Stat("", AT_SYMLINK_NOFOLLOW)
+	if err != nil {
+		return nil, err
+	}
+	name := path.Base(f.File.Name())
+	return &fsFileInfo{name: name, stat: stat}, nil
+}
+
 func (f *fsFile) ReadDir(n int) ([]fs.DirEntry, error) {
 	dirents, err := f.File.ReadDir(n)
 	if len(dirents) > 0 {
@@ -336,15 +403,49 @@ func (f *fsFile) ReadDir(n int) ([]fs.DirEntry, error) {
 	return dirents, err
 }
 
+type fsFileInfo struct {
+	name string
+	stat FileInfo
+}
+
+func (info *fsFileInfo) IsDir() bool {
+	return info.stat.Mode.IsDir()
+}
+
+func (info *fsFileInfo) Mode() fs.FileMode {
+	return info.stat.Mode
+}
+
+func (info *fsFileInfo) ModTime() time.Time {
+	return info.stat.Mtime
+}
+
+func (info *fsFileInfo) Name() string {
+	return info.name
+}
+
+func (info *fsFileInfo) Size() int64 {
+	return info.stat.Size
+}
+
+func (info *fsFileInfo) Sys() any {
+	return &info.stat
+}
+
+func (info *fsFileInfo) String() string {
+	return info.stat.String() + " " + info.name
+}
+
 type fsDirEntry struct {
 	file *fsFile
 	fs.DirEntry
 }
 
 func (dirent *fsDirEntry) Info() (fs.FileInfo, error) {
-	s, err := dirent.file.Lstat(dirent.Name())
+	name := dirent.Name()
+	stat, err := dirent.file.File.Stat(name, AT_SYMLINK_NOFOLLOW)
 	if err != nil {
 		return nil, fsError("stat", dirent.Name(), err)
 	}
-	return s, nil
+	return &fsFileInfo{name: name, stat: stat}, nil
 }

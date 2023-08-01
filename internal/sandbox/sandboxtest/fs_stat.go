@@ -18,7 +18,7 @@ var fsTestStat = fsTestSuite{
 		assert.OK(t, err)
 		assert.OK(t, f.Close())
 
-		_, err = f.Stat()
+		_, err = f.Stat("", 0)
 		assert.Error(t, err, sandbox.EBADF)
 	},
 
@@ -26,7 +26,8 @@ var fsTestStat = fsTestSuite{
 		assert.OK(t, sandbox.WriteFile(fsys, "test", []byte("hello"), 0600))
 		s, err := sandbox.Stat(fsys, "test")
 		assert.OK(t, err)
-		assert.Equal(t, s.Size(), 5)
+		assert.Equal(t, s.Mode.Type(), 0)
+		assert.Equal(t, s.Size, 5)
 	},
 
 	"stat of a symlink provides information about the link target": func(t *testing.T, fsys sandbox.FileSystem) {
@@ -34,6 +35,7 @@ var fsTestStat = fsTestSuite{
 		assert.OK(t, sandbox.Symlink(fsys, "test", "link"))
 		s, err := sandbox.Stat(fsys, "link")
 		assert.OK(t, err)
-		assert.Equal(t, s.Size(), 5)
+		assert.Equal(t, s.Mode.Type(), 0)
+		assert.Equal(t, s.Size, 5)
 	},
 }

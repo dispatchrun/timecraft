@@ -22,31 +22,147 @@ func (fsys *rootFS) Open(name string, flags int, mode fs.FileMode) (File, error)
 	return (&rootFile{f}).Open(name, flags, mode)
 }
 
-type nopFileCloser struct{ File }
-
-func (nopFileCloser) Close() error { return nil }
-
 type rootFile struct{ File }
 
 func (f *rootFile) Open(name string, flags int, mode fs.FileMode) (File, error) {
-	file, err := f.open(name, flags, mode)
+	file, err := resolvePath(f, name, flags, func(dir File, name string) (File, error) {
+		return dir.Open(name, flags|O_NOFOLLOW, mode)
+	})
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: unwrap(err)}
 	}
 	return &rootFile{file}, nil
 }
 
-func (f *rootFile) open(name string, flags int, mode fs.FileMode) (File, error) {
-	dir := File(nopFileCloser{f.File})
-	defer func() { dir.Close() }()
+func (f *rootFile) Stat(name string, flags int) (FileInfo, error) {
+	return withPath2("stat", f, name, flags, func(dir File, name string) (FileInfo, error) {
+		info, err := dir.Stat(name, AT_SYMLINK_NOFOLLOW)
+		if err == nil {
+			if info.Mode.Type() == fs.ModeSymlink && ((flags & AT_SYMLINK_NOFOLLOW) == 0) {
+				err = ELOOP
+			}
+		}
+		return info, err
+	})
+}
+
+func (f *rootFile) Readlink(name string, buf []byte) (int, error) {
+	return withPath2("readlink", f, name, AT_SYMLINK_NOFOLLOW, func(dir File, name string) (int, error) {
+		return dir.Readlink(name, buf)
+	})
+}
+
+func (f *rootFile) Chtimes(name string, atime, mtime time.Time, flags int) error {
+	return withPath1("chtimes", f, name, flags, func(dir File, name string) error {
+		return dir.Chtimes(name, atime, mtime, AT_SYMLINK_NOFOLLOW)
+	})
+}
+
+func (f *rootFile) Mkdir(name string, mode fs.FileMode) error {
+	return withPath1("mkdir", f, name, AT_SYMLINK_NOFOLLOW, func(dir File, name string) error {
+		return dir.Mkdir(name, mode)
+	})
+}
+
+func (f *rootFile) Rmdir(name string) error {
+	return withPath1("rmdir", f, name, AT_SYMLINK_NOFOLLOW, File.Rmdir)
+}
+
+func (f *rootFile) Rename(oldName string, newDir File, newName string) error {
+	f2, ok := newDir.(*rootFile)
+	if !ok {
+		path1 := joinPath(f.Name(), oldName)
+		path2 := joinPath(newDir.Name(), newName)
+		return &os.LinkError{Op: "rename", Old: path1, New: path2, Err: EXDEV}
+	}
+	return withPath3("rename", f, oldName, f2, newName, AT_SYMLINK_NOFOLLOW, File.Rename)
+}
+
+func (f *rootFile) Link(oldName string, newDir File, newName string, flags int) error {
+	f2, ok := newDir.(*rootFile)
+	if !ok {
+		path1 := joinPath(f.Name(), oldName)
+		path2 := joinPath(newDir.Name(), newName)
+		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: EXDEV}
+	}
+	return withPath3("link", f, oldName, f2, newName, flags, func(oldDir File, oldName string, newDir File, newName string) error {
+		return oldDir.Link(oldName, newDir, newName, AT_SYMLINK_NOFOLLOW)
+	})
+}
+
+func (f *rootFile) Symlink(oldName, newName string) error {
+	return withPath1("symlink", f, newName, AT_SYMLINK_NOFOLLOW, func(dir File, name string) error {
+		return dir.Symlink(oldName, name)
+	})
+}
+
+func (f *rootFile) Unlink(name string) error {
+	return withPath1("unlink", f, name, AT_SYMLINK_NOFOLLOW, File.Unlink)
+}
+
+func withPath1(op string, root *rootFile, path string, flags int, do func(File, string) error) error {
+	_, err := resolvePath(root, path, flags, func(dir File, name string) (_ struct{}, err error) {
+		err = do(dir, name)
+		return
+	})
+	if err != nil {
+		err = &fs.PathError{Op: op, Path: path, Err: unwrap(err)}
+	}
+	return err
+}
+
+func withPath2[R any](op string, root *rootFile, path string, flags int, do func(File, string) (R, error)) (ret R, err error) {
+	ret, err = resolvePath(root, path, flags, do)
+	if err != nil {
+		err = &fs.PathError{Op: op, Path: path, Err: unwrap(err)}
+	}
+	return ret, err
+}
+
+func withPath3(op string, f1 *rootFile, path1 string, f2 *rootFile, path2 string, flags int, do func(File, string, File, string) error) error {
+	err := withPath1(op, f1, path1, flags, func(dir1 File, name1 string) error {
+		return withPath1(op, f2, path2, flags, func(dir2 File, name2 string) error {
+			return do(dir1, name1, dir2, name2)
+		})
+	})
+	if err != nil {
+		path1 = joinPath(f1.Name(), path2)
+		path2 = joinPath(f2.Name(), path2)
+		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: unwrap(err)}
+	}
+	return nil
+}
+
+// resolvePath is the path resolution algorithm which guarantees sandboxing of
+// path access in a root FS.
+//
+// The algorithm walks the path name from f, calling the do function when it
+// reaches a path leaf. The function may return ELOOP to indicate that a symlink
+// was encountered and must be followed, in which case resolvePath continues
+// walking the path at the link target. Any other value or error returned by the
+// do function will be returned immediately.
+func resolvePath[R any](f *rootFile, name string, flags int, do func(File, string) (R, error)) (ret R, err error) {
+	if name == "" {
+		return do(f.File, "")
+	}
+	dir := f.File
+	dirToClose := File(nil)
+
+	closeDir := func() {
+		if dirToClose != nil {
+			dirToClose.Close()
+		}
+	}
+	defer closeDir()
+
 	setCurrentDirectory := func(cd File) {
-		dir.Close()
-		dir = cd
+		closeDir()
+		dir, dirToClose = cd, cd
 	}
 
 	followSymlinkDepth := 0
 	followSymlink := func(symlink, target string) error {
-		link, err := dir.Readlink(symlink)
+		link, err := readlink(dir, symlink)
 		if err != nil {
 			// This error may be EINVAL if the file system was modified
 			// concurrently and the directory entry was not pointing to a
@@ -76,9 +192,9 @@ func (f *rootFile) open(name string, flags int, mode fs.FileMode) (File, error) 
 			if name = trimLeadingSlash(name); name == "" {
 				name = "."
 			}
-			d, err := f.openRoot()
+			d, err := openRoot(f)
 			if err != nil {
-				return nil, err
+				return ret, err
 			}
 			depth = 0
 			setCurrentDirectory(d)
@@ -90,22 +206,23 @@ func (f *rootFile) open(name string, flags int, mode fs.FileMode) (File, error) 
 
 		switch elem {
 		case ".":
-		openFile:
-			file, err := dir.Open(name, flags|O_NOFOLLOW, mode)
+		doFile:
+			ret, err = do(dir, name)
 			if err != nil {
 				if !errors.Is(err, ELOOP) || ((flags & O_NOFOLLOW) != 0) {
-					return nil, err
+					return ret, err
 				}
 				switch err := followSymlink(name, ""); {
 				case errors.Is(err, nil):
 					continue
 				case errors.Is(err, EINVAL):
-					goto openFile
+					goto doFile
 				default:
-					return nil, err
+					return ret, err
 				}
 			}
-			return file, nil
+			return ret, nil
+
 		case "..":
 			// This check ensures that we cannot escape the root of the file
 			// system when accessing a parent directory.
@@ -121,7 +238,7 @@ func (f *rootFile) open(name string, flags int, mode fs.FileMode) (File, error) 
 		d, err := dir.Open(elem, openPathFlags, 0)
 		if err != nil {
 			if !errors.Is(err, ENOTDIR) {
-				return nil, err
+				return ret, err
 			}
 			switch err := followSymlink(elem, name); {
 			case errors.Is(err, nil):
@@ -129,7 +246,7 @@ func (f *rootFile) open(name string, flags int, mode fs.FileMode) (File, error) 
 			case errors.Is(err, EINVAL):
 				goto openPath
 			default:
-				return nil, err
+				return ret, err
 			}
 		}
 		depth += delta
@@ -137,117 +254,25 @@ func (f *rootFile) open(name string, flags int, mode fs.FileMode) (File, error) 
 	}
 }
 
-func (f *rootFile) openRoot() (File, error) {
+func openRoot(f *rootFile) (File, error) {
 	depth := filePathDepth(f.Name())
 	if depth == 0 {
 		return f.Open(".", openPathFlags, 0)
 	}
-	dir := File(nopFileCloser{f.File})
+	dir := f.File
+	dirToClose := File(nil)
+
 	for depth > 0 {
 		p, err := dir.Open("..", openPathFlags, 0)
 		if err != nil {
 			return nil, err
 		}
-		dir.Close()
-		dir = p
+		if dirToClose != nil {
+			dirToClose.Close()
+		}
+		dir, dirToClose = p, p
 		depth--
 	}
+
 	return dir, nil
-}
-
-func (f *rootFile) Lstat(name string) (fs.FileInfo, error) {
-	return withPath2("stat", f, name, File.Lstat)
-}
-
-func (f *rootFile) Readlink(name string) (string, error) {
-	return withPath2("readlink", f, name, File.Readlink)
-}
-
-func (f *rootFile) Chtimes(name string, atime, mtime time.Time) error {
-	if name == "" {
-		return f.File.Chtimes("", atime, mtime)
-	}
-	return withPath1("chtimes", f, name, func(dir File, name string) error {
-		return dir.Chtimes(name, atime, mtime)
-	})
-}
-
-func (f *rootFile) Mkdir(name string, mode fs.FileMode) error {
-	return withPath1("mkdir", f, name, func(dir File, name string) error {
-		return dir.Mkdir(name, mode)
-	})
-}
-
-func (f *rootFile) Rmdir(name string) error {
-	return withPath1("rmdir", f, name, File.Rmdir)
-}
-
-func (f *rootFile) Rename(oldName string, newDir File, newName string) error {
-	f2, ok := newDir.(*rootFile)
-	if !ok {
-		path1 := joinPath(f.Name(), oldName)
-		path2 := joinPath(newDir.Name(), newName)
-		return &os.LinkError{Op: "rename", Old: path1, New: path2, Err: EXDEV}
-	}
-	return withPath3("rename", f, oldName, f2, newName, File.Rename)
-}
-
-func (f *rootFile) Link(oldName string, newDir File, newName string) error {
-	f2, ok := newDir.(*rootFile)
-	if !ok {
-		path1 := joinPath(f.Name(), oldName)
-		path2 := joinPath(newDir.Name(), newName)
-		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: EXDEV}
-	}
-	return withPath3("link", f, oldName, f2, newName, File.Link)
-}
-
-func (f *rootFile) Symlink(oldName, newName string) error {
-	return withPath1("symlink", f, newName, func(dir File, name string) error {
-		return dir.Symlink(oldName, name)
-	})
-}
-
-func (f *rootFile) Unlink(name string) error {
-	return withPath1("unlink", f, name, File.Unlink)
-}
-
-func withPath1(op string, root *rootFile, path string, do func(File, string) error) error {
-	dir, base := splitPath(path)
-	if dir == "" {
-		return do(root.File, base)
-	}
-	d, err := root.Open(dir, openPathFlags, 0)
-	if err != nil {
-		return &fs.PathError{Op: op, Path: path, Err: unwrap(err)}
-	}
-	defer d.Close()
-	return do(d.(*rootFile).File, base)
-}
-
-func withPath2[R any](op string, root *rootFile, path string, do func(File, string) (R, error)) (ret R, err error) {
-	dir, base := splitPath(path)
-	if dir == "" {
-		return do(root.File, base)
-	}
-	d, err := root.Open(dir, openPathFlags, 0)
-	if err != nil {
-		return ret, &fs.PathError{Op: op, Path: path, Err: unwrap(err)}
-	}
-	defer d.Close()
-	return do(d.(*rootFile).File, base)
-}
-
-func withPath3(op string, f1 *rootFile, path1 string, f2 *rootFile, path2 string, do func(File, string, File, string) error) error {
-	err := withPath1(op, f1, path1, func(dir1 File, name1 string) error {
-		return withPath1(op, f2, path2, func(dir2 File, name2 string) error {
-			return do(dir1, name1, dir2, name2)
-		})
-	})
-	if err != nil {
-		path1 = joinPath(f1.Name(), path2)
-		path2 = joinPath(f2.Name(), path2)
-		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: unwrap(err)}
-	}
-	return nil
 }

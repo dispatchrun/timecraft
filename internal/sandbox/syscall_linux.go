@@ -62,6 +62,6 @@ func futimens(fd int, ts *[2]unix.Timespec) error {
 	return nil
 }
 
-func freadlink(fd int) (string, error) {
-	return readlinkat(fd, "")
+func freadlink(fd int, buf []byte) (int, error) {
+	return readlinkat(fd, "", buf)
 }

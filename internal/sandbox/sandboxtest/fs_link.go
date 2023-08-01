@@ -19,7 +19,7 @@ var fsTestLink = fsTestSuite{
 		assert.OK(t, err)
 		assert.OK(t, f.Close())
 
-		err = f.Link("f1", f, "f2")
+		err = f.Link("f1", f, "f2", sandbox.AT_SYMLINK_NOFOLLOW)
 		assert.Error(t, err, sandbox.EBADF)
 	},
 

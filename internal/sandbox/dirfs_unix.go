@@ -43,15 +43,6 @@ func (f dirFile) Open(name string, flags int, mode fs.FileMode) (File, error) {
 	return dirFile{os.NewFile(uintptr(fd), relPath)}, nil
 }
 
-func (f dirFile) Stat() (fs.FileInfo, error) {
-	info := &dirFileInfo{name: f.Name()}
-	err := fstat(f.fd(), &info.stat)
-	if err != nil {
-		return nil, &fs.PathError{Op: "stat", Path: info.name, Err: err}
-	}
-	return info, nil
-}
-
 func (f dirFile) Datasync() error {
 	if err := fdatasync(f.fd()); err != nil {
 		return &fs.PathError{Op: "datasync", Path: f.Name(), Err: err}
@@ -75,31 +66,65 @@ func (f dirFile) SetFlags(flags int) error {
 	return nil
 }
 
-func (f dirFile) Lstat(name string) (fs.FileInfo, error) {
-	info := &dirFileInfo{name: f.join(name)}
-	err := fstatat(f.fd(), name, &info.stat, unix.AT_SYMLINK_NOFOLLOW)
+func (f dirFile) Stat(name string, flags int) (FileInfo, error) {
+	var stat unix.Stat_t
+	var err error
+
+	fd := f.fd()
+	if name == "" {
+		err = fstat(fd, &stat)
+	} else {
+		err = fstatat(fd, name, &stat, flags)
+	}
 	if err != nil {
-		return nil, &fs.PathError{Op: "stat", Path: info.name, Err: err}
+		return FileInfo{}, &fs.PathError{Op: "stat", Path: f.join(name), Err: err}
+	}
+
+	info := FileInfo{
+		Dev:   uint64(stat.Dev),
+		Ino:   uint64(stat.Ino),
+		Nlink: uint64(stat.Nlink),
+		Mode:  fs.FileMode(stat.Mode & 0777), // perm
+		Size:  int64(stat.Size),
+		Atime: time.Unix(stat.Atim.Unix()),
+		Mtime: time.Unix(stat.Mtim.Unix()),
+		Ctime: time.Unix(stat.Ctim.Unix()),
+	}
+
+	switch stat.Mode & unix.S_IFMT {
+	case unix.S_IFREG:
+	case unix.S_IFBLK:
+		info.Mode |= fs.ModeDevice
+	case unix.S_IFCHR:
+		info.Mode |= fs.ModeDevice | fs.ModeCharDevice
+	case unix.S_IFDIR:
+		info.Mode |= fs.ModeDir
+	case unix.S_IFIFO:
+		info.Mode |= fs.ModeNamedPipe
+	case unix.S_IFLNK:
+		info.Mode |= fs.ModeSymlink
+	case unix.S_IFSOCK:
+		info.Mode |= fs.ModeSocket
+	default:
+		info.Mode |= fs.ModeIrregular
 	}
 	return info, nil
 }
 
-func (f dirFile) Readlink(name string) (string, error) {
-	var link string
-	var err error
+func (f dirFile) Readlink(name string, buf []byte) (n int, err error) {
 	fd := f.fd()
 	if name == "" {
-		link, err = freadlink(fd)
+		n, err = freadlink(fd, buf)
 	} else {
-		link, err = readlinkat(fd, name)
+		n, err = readlinkat(fd, name, buf)
 	}
 	if err != nil {
-		return "", &fs.PathError{Op: "readlink", Path: f.join(name), Err: err}
+		err = &fs.PathError{Op: "readlink", Path: f.join(name), Err: err}
 	}
-	return link, nil
+	return n, err
 }
 
-func (f dirFile) Chtimes(name string, atime, mtime time.Time) error {
+func (f dirFile) Chtimes(name string, atime, mtime time.Time, flags int) error {
 	var ts [2]unix.Timespec
 	var err error
 	ts[0], _ = unix.TimeToTimespec(atime)
@@ -107,7 +132,7 @@ func (f dirFile) Chtimes(name string, atime, mtime time.Time) error {
 	if name == "" {
 		err = futimens(f.fd(), &ts)
 	} else {
-		err = utimensat(f.fd(), name, &ts, unix.AT_SYMLINK_NOFOLLOW)
+		err = utimensat(f.fd(), name, &ts, flags)
 	}
 	if err != nil {
 		return &fs.PathError{Op: "chtimes", Path: f.join(name), Err: err}
@@ -140,10 +165,14 @@ func (f dirFile) Rename(oldName string, newDir File, newName string) error {
 	return nil
 }
 
-func (f dirFile) Link(oldName string, newDir File, newName string) error {
+func (f dirFile) Link(oldName string, newDir File, newName string, flags int) error {
+	linkFlags := 0
+	if (flags & AT_SYMLINK_NOFOLLOW) == 0 {
+		linkFlags |= unix.AT_SYMLINK_FOLLOW
+	}
 	fd1 := f.fd()
 	fd2 := int(newDir.Fd())
-	if err := linkat(fd1, oldName, fd2, newName, 0); err != nil {
+	if err := linkat(fd1, oldName, fd2, newName, linkFlags); err != nil {
 		path1 := f.join(oldName)
 		path2 := joinPath(newDir.Name(), newName)
 		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: err}
