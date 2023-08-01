@@ -67,5 +67,5 @@ func freadlink(fd int) (string, error) {
 }
 
 func openat(dirfd int, path string, flags int, mode uint32) (int, error) {
-	return ignoreEINTR2(func() (int, error) { return unix.Openat(dirfd, path, flags|unix.O_CLOEXEC, mode) })
+	return ignoreEINTR2(func() (int, error) { return unix.Openat(dirfd, path, flags, mode) })
 }

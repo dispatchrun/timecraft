@@ -20,14 +20,15 @@ var fsTestOpen = fsTestSuite{
 		assert.OK(t, f.Close())
 	},
 
-	"existing symlinks can be opened": func(t *testing.T, fsys sandbox.FileSystem) {
+	"existing symlinks cannot be opened": func(t *testing.T, fsys sandbox.FileSystem) {
 		assert.OK(t, sandbox.Symlink(fsys, "test", "link"))
+		_, err := fsys.Open("link", sandbox.O_NOFOLLOW, 0)
+		assert.Error(t, err, sandbox.ELOOP)
+	},
 
-		f, err := fsys.Open("link", sandbox.O_NOFOLLOW, 0)
-		assert.OK(t, err)
-		defer func() { assert.OK(t, f.Close()) }()
-
-		s, err := f.Readlink("")
+	"symlinks can be read to obtain their target": func(t *testing.T, fsys sandbox.FileSystem) {
+		assert.OK(t, sandbox.Symlink(fsys, "test", "link"))
+		s, err := sandbox.Readlink(fsys, "link")
 		assert.OK(t, err)
 		assert.Equal(t, s, "test")
 	},
