@@ -1,5 +1,5 @@
 ---
-sidebar_position: 1
+sidebar_position: 2
 ---
 # Installing Timecraft
 
@@ -13,14 +13,14 @@ Timecraft requires [Go](https://go.dev/).
 
 macOS users using [homebrew](https://brew.sh/) can install Go using:
 
-```console
-$ brew install go
+```bash
+brew install go
 ```
 
 Ubuntu users can install Go with:
 
-```console
-$ sudo apt install golang
+```bash
+sudo apt install golang
 ```
 
 For other Linux systems, please see the [Go Releases](https://go.dev/dl/) page for installation instructions.
@@ -29,15 +29,15 @@ For other Linux systems, please see the [Go Releases](https://go.dev/dl/) page f
 
 To install Timecraft, run:
 
-```console
-$ go install github.com/stealthrocket/timecraft@latest
+```bash
+go install github.com/stealthrocket/timecraft@latest
 ```
 
 Timecraft should now be available. To check that installation was successful,
 run:
 
-```console
-$ timecraft help
+```bash
+timecraft help
 ```
 
 ## Installation Issues
@@ -47,12 +47,12 @@ $ timecraft help
 If the `timecraft` command cannot be found, make sure `$GOPATH/bin` is in
 your search path:
 
-```console
+```bash
 export PATH="$GOPATH/bin:$PATH"
 ```
 
 If `$GOPATH` has not been set, try:
 
-```
-$ go env | grep GOPATH
+```bash
+go env | grep GOPATH
 ```
