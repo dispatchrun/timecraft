@@ -46,6 +46,10 @@ type ModuleSpec struct {
 	// Allow the module to bind to the host network when opening listening
 	// sockets.
 	HostNetworkBinding bool
+
+	// Proxy is the path of the WebAssembly module that proxies network
+	// traffic for the module.
+	ProxyPath string
 }
 
 // Key is a string that uniquely identifies the ModuleSpec.
@@ -74,4 +78,15 @@ type LogSpec struct {
 	StartTime   time.Time
 	Compression timemachine.Compression
 	BatchSize   int
+}
+
+func (l *LogSpec) Fork() *LogSpec {
+	if l == nil {
+		return nil
+	}
+	return &LogSpec{
+		StartTime:   time.Now(),
+		BatchSize:   l.BatchSize,
+		Compression: l.Compression,
+	}
 }

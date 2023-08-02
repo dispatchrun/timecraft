@@ -289,6 +289,13 @@ func boolVar(f *flag.FlagSet, dst *bool, name string, alias ...string) {
 	}
 }
 
+func stringVar(f *flag.FlagSet, dst *string, name string, alias ...string) {
+	f.StringVar(dst, name, *dst, "")
+	for _, name := range alias {
+		f.StringVar(dst, name, *dst, "")
+	}
+}
+
 func customVar(f *flag.FlagSet, dst flag.Value, name string, alias ...string) {
 	f.Var(dst, name, "")
 	for _, name := range alias {

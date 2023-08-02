@@ -96,15 +96,6 @@ func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 	// connections and send requests to those processes.
 	moduleSpec.HostNetworkBinding = false
 
-	var logSpec *LogSpec
-	if s.logSpec != nil {
-		logSpec = &LogSpec{
-			StartTime:   time.Now(),
-			Compression: s.logSpec.Compression,
-			BatchSize:   s.logSpec.BatchSize,
-		}
-	}
-
 	var input TaskInput
 	switch in := req.Input.(type) {
 	case *v1.TaskRequest_HttpRequest:
@@ -121,7 +112,7 @@ func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 		input = httpRequest
 	}
 
-	taskID, err := s.tasks.Submit(moduleSpec, logSpec, input, s.processID)
+	taskID, err := s.tasks.Submit(moduleSpec, s.logSpec.Fork(), input, s.processID)
 	if err != nil {
 		return TaskID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to submit task: %w", err))
 	}
@@ -237,16 +228,7 @@ func (s *Server) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest
 	// Host networking is not available on child processes.
 	moduleSpec.HostNetworkBinding = false
 
-	var logSpec *LogSpec
-	if s.logSpec != nil {
-		logSpec = &LogSpec{
-			StartTime:   time.Now(),
-			Compression: s.logSpec.Compression,
-			BatchSize:   s.logSpec.BatchSize,
-		}
-	}
-
-	processID, err := s.processes.Start(moduleSpec, logSpec, &s.processID)
+	processID, err := s.processes.Start(moduleSpec, s.logSpec.Fork(), &s.processID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to spawn process: %w", err))
 	}

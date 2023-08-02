@@ -256,8 +256,10 @@ func (s *TaskScheduler) scheduleTask(task *TaskInfo) {
 
 func (s *TaskScheduler) executeHTTPTask(process *ProcessInfo, task *TaskInfo, request *HTTPRequest) {
 	client := http.Client{
-		Transport: process.Transport,
-		Timeout:   executionTimeout,
+		Transport: &http.Transport{
+			DialContext: process.DialContext,
+		},
+		Timeout: executionTimeout,
 	}
 
 	request.Headers.Set("User-Agent", "timecraft "+Version())
