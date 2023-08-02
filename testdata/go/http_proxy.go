@@ -12,7 +12,7 @@ import (
 
 func main() {
 	var addr string
-	flag.StringVar(&addr, "http", ":3000", "Network address to listen on for incoming connections")
+	flag.StringVar(&addr, "http", ":80", "Network address to listen on for incoming connections")
 	flag.Parse()
 
 	log.Printf("listening on %s", addr)

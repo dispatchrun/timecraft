@@ -159,16 +159,11 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 			return ProcessID{}, fmt.Errorf("failed to initialize proxy %q: process is not available", proxyPath)
 		}
 		netopts = append(netopts, sandbox.DialFunc(func(ctx context.Context, network string, address string) (net.Conn, error) {
-			dialIP, dialPort, err := net.SplitHostPort(address)
+			_, dialPort, err := net.SplitHostPort(address)
 			if err != nil {
 				return nil, err
 			}
-
-			// TODO: let caller define mappings, e.g. *:80 => proxy:3000
-			_ = dialIP
-			_ = dialPort
-			address = net.JoinHostPort(proxyProcess.Addr.String(), "3000")
-
+			address = net.JoinHostPort(proxyProcess.Addr.String(), dialPort)
 			return proxyProcess.DialContext(ctx, network, address)
 		}))
 	} else {
