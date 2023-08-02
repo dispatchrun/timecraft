@@ -147,6 +147,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 			Path:   proxyPath,
 			Stdout: moduleSpec.Stdout,
 			Stderr: moduleSpec.Stderr,
+			Dirs:   moduleSpec.Dirs,
 		}, logSpec.Fork(), nil)
 		if err != nil {
 			return ProcessID{}, fmt.Errorf("failed to initialize proxy %q: %w", proxyPath, err)
