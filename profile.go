@@ -115,7 +115,7 @@ func profile(ctx context.Context, args []string) error {
 		startTime = human.Time(processStartTime)
 	}
 
-	moduleCode, err := replay.ModuleCode(ctx)
+	moduleCode, function, err := replay.ModuleCode(ctx)
 	if err != nil {
 		return err
 	}
@@ -152,7 +152,7 @@ func profile(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if err := replay.ReplayRecordsModule(ctx, compiledModule, records); err != nil {
+	if err := replay.ReplayRecordsModule(ctx, function, compiledModule, records); err != nil {
 		return err
 	}
 

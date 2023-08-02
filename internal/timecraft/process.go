@@ -132,7 +132,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 	if err != nil {
 		return ProcessID{}, fmt.Errorf("could not read wasm file '%s': %w", wasmPath, err)
 	}
-
+	function := moduleSpec.Function
 	wasmModule, err := pm.runtime.CompileModule(pm.ctx, wasmCode)
 	if err != nil {
 		return ProcessID{}, err
@@ -233,6 +233,9 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 		}, object.Tag{
 			Name:  "timecraft.module.name",
 			Value: wasmModule.Name(),
+		}, object.Tag{
+			Name:  "timecraft.module.function",
+			Value: function,
 		})
 		if err != nil {
 			return ProcessID{}, err
@@ -388,7 +391,7 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 
 	// Run the module in the background, and tidy up once complete.
 	pm.group.Go(func() error {
-		err := runModule(ctx, pm.runtime, wasmModule)
+		err := runModule(ctx, pm.runtime, wasmModule, function)
 		cancel(err)
 
 		pm.mu.Lock()

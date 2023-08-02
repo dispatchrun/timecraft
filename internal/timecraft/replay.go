@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
@@ -55,7 +56,7 @@ func (r *Replay) SetTrace(w io.Writer) {
 
 // Replay replays process execution.
 func (r *Replay) Replay(ctx context.Context) error {
-	moduleCode, err := r.ModuleCode(ctx)
+	moduleCode, function, err := r.ModuleCode(ctx)
 	if err != nil {
 		return err
 	}
@@ -66,28 +67,39 @@ func (r *Replay) Replay(ctx context.Context) error {
 	}
 	defer records.Close()
 
-	return r.ReplayRecords(ctx, moduleCode, records)
+	return r.ReplayRecords(ctx, function, moduleCode, records)
 }
 
 // ModuleCode reads the module's WebAssembly code.
-func (r *Replay) ModuleCode(ctx context.Context) ([]byte, error) {
+func (r *Replay) ModuleCode(ctx context.Context) ([]byte, string, error) {
 	manifest, err := r.registry.LookupLogManifest(ctx, r.processID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+	fn := lookupFunction(manifest)
 	process, err := r.registry.LookupProcess(ctx, manifest.Process.Digest)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	processConfig, err := r.registry.LookupConfig(ctx, process.Config.Digest)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	module, err := r.registry.LookupModule(ctx, processConfig.Modules[0].Digest)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return module.Code, nil
+	return module.Code, fn, nil
+}
+
+func lookupFunction(m *format.Manifest) string {
+	for key, value := range m.Process.Annotations {
+		// TODO: create well known tags list
+		if key == "timecraft.module.function" {
+			return value
+		}
+	}
+	return ""
 }
 
 // RecordReader constructs a reader for the process replay log.
@@ -108,7 +120,7 @@ func (r *Replay) RecordReader(ctx context.Context) (records stream.ReadCloser[ti
 
 // ReplayRecordsModule replays process execution using the specified records on
 // a pre-compiled module.
-func (r *Replay) ReplayRecordsModule(ctx context.Context, compiledModule wazero.CompiledModule, records stream.Reader[timemachine.Record]) error {
+func (r *Replay) ReplayRecordsModule(ctx context.Context, function string, compiledModule wazero.CompiledModule, records stream.Reader[timemachine.Record]) error {
 	replay := wasicall.NewReplay(records)
 	defer replay.Close(ctx)
 
@@ -128,17 +140,17 @@ func (r *Replay) ReplayRecordsModule(ctx context.Context, compiledModule wazero.
 	hostModuleInstance := wazergo.MustInstantiate(ctx, r.runtime, hostModule, wasi_snapshot_preview1.WithWASI(system))
 	ctx = wazergo.WithModuleInstance(ctx, hostModuleInstance)
 
-	return runModule(ctx, r.runtime, compiledModule)
+	return runModule(ctx, r.runtime, compiledModule, function)
 }
 
 // ReplayRecords replays process execution using the specified records.
-func (r *Replay) ReplayRecords(ctx context.Context, moduleCode []byte, records stream.Reader[timemachine.Record]) error {
+func (r *Replay) ReplayRecords(ctx context.Context, function string, moduleCode []byte, records stream.Reader[timemachine.Record]) error {
 	compiledModule, err := r.runtime.CompileModule(ctx, moduleCode)
 	if err != nil {
 		return err
 	}
 	defer compiledModule.Close(ctx)
-	return r.ReplayRecordsModule(ctx, compiledModule, records)
+	return r.ReplayRecordsModule(ctx, function, compiledModule, records)
 }
 
 type recordReadCloser struct {

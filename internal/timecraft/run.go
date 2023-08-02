@@ -8,7 +8,13 @@ import (
 	"github.com/tetratelabs/wazero/sys"
 )
 
-func runModule(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule) error {
+const defaultFunction = "_start"
+
+func runModule(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule, fn string) error {
+	if fn == "" {
+		fn = defaultFunction
+	}
+
 	module, err := runtime.InstantiateModule(ctx, compiledModule, wazero.NewModuleConfig().
 		WithStartFunctions())
 	if err != nil {
@@ -16,7 +22,7 @@ func runModule(ctx context.Context, runtime wazero.Runtime, compiledModule wazer
 	}
 	defer module.Close(ctx)
 
-	_, err = module.ExportedFunction("_start").Call(ctx)
+	_, err = module.ExportedFunction(fn).Call(ctx)
 	switch err {
 	case context.Canceled, context.DeadlineExceeded:
 		err = nil
