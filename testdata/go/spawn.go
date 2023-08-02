@@ -52,8 +52,7 @@ func supervisor(ctx context.Context) error {
 
 	// Spawn the same WASM module, but with the "worker" arg.
 	workerModule := timecraft.ModuleSpec{
-		Function: "worker",
-		//Args: []string{"worker"},
+		Args: []string{"worker"},
 	}
 
 	workerID, workerIP, err := client.Spawn(ctx, workerModule)
