@@ -15,6 +15,15 @@ type dirent struct {
 	typ    uint8
 }
 
+func makeDirent(typ uint8, ino, off uint64, name string) dirent {
+	return dirent{
+		ino:    ino,
+		off:    off,
+		reclen: sizeOfDirent + uint16(len(name)) + 1,
+		typ:    typ,
+	}
+}
+
 const (
 	O_DSYNC = unix.O_DSYNC
 	O_RSYNC = unix.O_RSYNC

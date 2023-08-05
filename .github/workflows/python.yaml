@@ -3,7 +3,7 @@ name: Python
 on:
   push:
     paths:
-      - 'python/**'
+      - 'python/*'
       - '.github/workflows/python.yaml'
 
 permissions:

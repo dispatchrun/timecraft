@@ -18,7 +18,7 @@ const (
 	//
 	// This limit applies to RootFS, EvalSymlinks, and the functions that
 	// depend on it.
-	maxFollowSymlink = 10
+	MaxFollowSymlink = 10
 )
 
 // FileSystem is the interface representing file systems.
