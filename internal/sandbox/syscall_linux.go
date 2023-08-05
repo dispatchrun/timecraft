@@ -18,7 +18,7 @@ type dirent struct {
 func makeDirent(typ uint8, ino, off uint64, name string) dirent {
 	return dirent{
 		ino:    ino,
-		off:    off,
+		off:    int64(off),
 		reclen: sizeOfDirent + uint16(len(name)) + 1,
 		typ:    typ,
 	}
