@@ -14,7 +14,7 @@ type placeholder struct {
 	info sandbox.FileInfo
 }
 
-func (p *placeholder) open(fsys *FileSystem) (sandbox.File, error) {
+func (p *placeholder) open(fsys *FileSystem, name string) (sandbox.File, error) {
 	return nil, syscall.EPERM
 }
 
