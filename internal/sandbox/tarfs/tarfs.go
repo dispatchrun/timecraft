@@ -175,9 +175,10 @@ func trimLeadingSlash(path string) string {
 
 func makeFileInfo(header *tar.Header) sandbox.FileInfo {
 	info := header.FileInfo()
+	mode := info.Mode()
 	return sandbox.FileInfo{
 		Size:  info.Size(),
-		Mode:  info.Mode(),
+		Mode:  mode.Type() | (mode.Perm() & 0555),
 		Uid:   uint32(header.Uid),
 		Gid:   uint32(header.Gid),
 		Nlink: 1,
