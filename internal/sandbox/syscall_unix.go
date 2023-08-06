@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -42,6 +43,7 @@ const (
 	EPERM           = unix.EPERM
 	EPROTONOSUPPORT = unix.EPROTONOSUPPORT
 	EPROTOTYPE      = unix.EPROTOTYPE
+	EROFS           = unix.EROFS
 	ETIMEDOUT       = unix.ETIMEDOUT
 	EXDEV           = unix.EXDEV
 )
@@ -109,6 +111,10 @@ type SockaddrInet6 = unix.SockaddrInet6
 type SockaddrUnix = unix.SockaddrUnix
 type Timeval = unix.Timeval
 type Timespec = unix.Timespec
+
+func TimeToTimespec(t time.Time) Timespec {
+	return nsecToTimespec(t.UnixNano())
+}
 
 func nsecToTimespec(ns int64) Timespec {
 	return unix.NsecToTimespec(ns)
@@ -448,4 +454,42 @@ func (d *dirbuf) readDirEntry() (string, fs.FileMode, error) {
 			return string(name), mode, nil
 		}
 	}
+}
+
+// WriteDirent writes a directory entry to buf.
+//
+// Thie function is useful to create implementations of the FileSystem interface
+// which need to implement the ReadDirent method to read directories.
+func WriteDirent(buf []byte, typ fs.FileMode, ino, off uint64, name string) int {
+	dt := uint8(0)
+	switch typ.Type() {
+	case 0:
+		dt = DT_REG
+	case fs.ModeDevice:
+		dt = DT_BLK
+	case fs.ModeDevice | fs.ModeCharDevice:
+		dt = DT_CHR
+	case fs.ModeDir:
+		dt = DT_DIR
+	case fs.ModeNamedPipe:
+		dt = DT_FIFO
+	case fs.ModeSymlink:
+		dt = DT_LNK
+	case fs.ModeSocket:
+		dt = DT_SOCK
+	default:
+		dt = DT_UNKNOWN
+	}
+
+	dirent := makeDirent(dt, ino, off, name)
+	dirbuf := unsafe.Slice((*byte)(unsafe.Pointer(&dirent)), sizeOfDirent)
+
+	n := 0
+	n += copy(buf[n:], dirbuf)
+	n += copy(buf[n:], name)
+	if n < len(buf) {
+		buf[n] = 0 // null-terminate name
+		n++
+	}
+	return n
 }

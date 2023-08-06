@@ -176,7 +176,7 @@ func resolvePath[R any](dir File, name string, flags int, do func(File, string) 
 		// Limit the maximum number of symbolic links that would be followed
 		// during path resolution; this ensures that if we encounter a loop,
 		// we will eventually abort resolving the path.
-		if followSymlinkDepth == maxFollowSymlink {
+		if followSymlinkDepth == MaxFollowSymlink {
 			return ELOOP
 		}
 		followSymlinkDepth++

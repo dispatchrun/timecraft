@@ -1,6 +1,7 @@
 package sandbox_test
 
 import (
+	"io/fs"
 	"testing"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
@@ -8,9 +9,12 @@ import (
 )
 
 func TestDirFS(t *testing.T) {
-	t.Run("fstest", func(t *testing.T) {
-		testFS(t, sandbox.FS(sandbox.DirFS("testdata/fstest")))
+	t.Run("fs.FS", func(t *testing.T) {
+		sandboxtest.TestFS(t, func(t *testing.T, path string) fs.FS {
+			return sandbox.FS(sandbox.DirFS(path))
+		})
 	})
+
 	sandboxtest.TestFileSystem(t, func(t *testing.T) sandbox.FileSystem {
 		return sandbox.DirFS(t.TempDir())
 	})
