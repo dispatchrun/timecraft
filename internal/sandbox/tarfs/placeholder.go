@@ -1,6 +1,7 @@
 package tarfs
 
 import (
+	"archive/tar"
 	"io/fs"
 	"syscall"
 	"unsafe"
@@ -12,6 +13,23 @@ import (
 // system entries that are not supported yet.
 type placeholder struct {
 	info sandbox.FileInfo
+}
+
+func newPlaceholder(header *tar.Header) *placeholder {
+	info := header.FileInfo()
+	mode := info.Mode()
+	return &placeholder{
+		info: sandbox.FileInfo{
+			Size:  info.Size(),
+			Mode:  mode.Type() | (mode.Perm() & 0555),
+			Uid:   1,
+			Gid:   1,
+			Nlink: 1,
+			Mtime: sandbox.TimeToTimespec(header.ModTime),
+			Atime: sandbox.TimeToTimespec(header.AccessTime),
+			Ctime: sandbox.TimeToTimespec(header.ChangeTime),
+		},
+	}
 }
 
 func (p *placeholder) open(fsys *FileSystem, name string) (sandbox.File, error) {

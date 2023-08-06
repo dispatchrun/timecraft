@@ -1,11 +1,13 @@
 package tarfs
 
 import (
+	"archive/tar"
 	"io/fs"
 	"path"
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
@@ -13,8 +15,30 @@ import (
 )
 
 type dir struct {
-	ents []dirEntry
-	info sandbox.FileInfo
+	perm  fs.FileMode
+	mtime int64
+	atime int64
+	ctime int64
+	ents  []dirEntry
+}
+
+func newDir(header *tar.Header) *dir {
+	mode := header.FileInfo().Mode()
+	return &dir{
+		perm:  mode.Perm() & 0555,
+		mtime: header.ModTime.UnixNano(),
+		atime: header.AccessTime.UnixNano(),
+		ctime: header.ChangeTime.UnixNano(),
+	}
+}
+
+func makeDir(modTime time.Time) dir {
+	return dir{
+		perm:  0555,
+		mtime: modTime.UnixNano(),
+		atime: modTime.UnixNano(),
+		ctime: modTime.UnixNano(),
+	}
 }
 
 type dirEntry struct {
@@ -29,11 +53,26 @@ func (d *dir) open(fsys *FileSystem, name string) (sandbox.File, error) {
 }
 
 func (d *dir) stat() sandbox.FileInfo {
-	return d.info
+	size := d.memsize()
+
+	for _, ent := range d.ents {
+		size += ent.file.memsize()
+	}
+
+	return sandbox.FileInfo{
+		Mode:  d.mode(),
+		Size:  int64(size),
+		Uid:   1,
+		Gid:   1,
+		Nlink: 1,
+		Mtime: sandbox.TimeToTimespec(time.Unix(0, d.mtime)),
+		Atime: sandbox.TimeToTimespec(time.Unix(0, d.atime)),
+		Ctime: sandbox.TimeToTimespec(time.Unix(0, d.ctime)),
+	}
 }
 
 func (d *dir) mode() fs.FileMode {
-	return d.info.Mode
+	return fs.ModeDir | d.perm
 }
 
 func (d *dir) memsize() uintptr {
