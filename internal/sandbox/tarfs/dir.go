@@ -43,7 +43,7 @@ func makeDir(modTime time.Time) dir {
 }
 
 type dirEntry struct {
-	name string
+	name cstring
 	file fileEntry
 }
 
@@ -80,7 +80,7 @@ func (d *dir) memsize() uintptr {
 	size := unsafe.Sizeof(dir{})
 	for _, ent := range d.ents {
 		size += unsafe.Sizeof(ent)
-		size += uintptr(len(ent.name))
+		size += uintptr(ent.name.len() + 1)
 	}
 	return size
 }
@@ -93,9 +93,9 @@ func (d *dir) find(name string) fileEntry {
 		return d.parent
 	}
 	i := sort.Search(len(d.ents), func(i int) bool {
-		return d.ents[i].name >= name
+		return d.ents[i].name.string() >= name
 	})
-	if i == len(d.ents) || d.ents[i].name != name {
+	if i == len(d.ents) || d.ents[i].name.string() != name {
 		return nil
 	}
 	return d.ents[i].file
@@ -276,7 +276,7 @@ func (d *openDir) ReadDirent(buf []byte) (int, error) {
 	}
 
 	for i := d.index - 2; i < len(dir.ents) && n < len(buf); i++ {
-		name := dir.ents[i].name
+		name := dir.ents[i].name.string()
 		file := dir.ents[i].file
 		wn := sandbox.WriteDirent(buf[n:], file.mode(), 0, d.offset, name)
 		n += wn

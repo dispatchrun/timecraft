@@ -7,7 +7,9 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"golang.org/x/exp/slices"
@@ -66,6 +68,7 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 		root: makeDir(modTime),
 	}
 
+	alloc := new(cstringAllocator)
 	links := make(map[string]string)
 	files := make(map[string]fileEntry)
 	files["/"] = &fsys.root
@@ -77,6 +80,9 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 				break
 			}
 			return nil, err
+		}
+		if strings.IndexByte(header.Name, 0) >= 0 {
+			return nil, fmt.Errorf("tarfs contains invalid file name with null byte (%q)", header.Name)
 		}
 		name := absPath(header.Name)
 
@@ -115,7 +121,7 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 		}
 		files[name] = entry
 
-		if err := makePath(files, name, modTime, entry); err != nil {
+		if err := makePath(files, name, modTime, entry, alloc); err != nil {
 			return nil, err
 		}
 	}
@@ -133,7 +139,7 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 		if files[link] != nil {
 			return nil, fmt.Errorf("%s: duplicate file entry in tar archive", link)
 		}
-		if err := makePath(files, link, modTime, entry); err != nil {
+		if err := makePath(files, link, modTime, entry, alloc); err != nil {
 			return nil, err
 		}
 	}
@@ -142,7 +148,7 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 		if d, ok := entry.(*dir); ok {
 			d.parent = files[path.Dir(name)].(*dir)
 			slices.SortFunc(d.ents, func(a, b dirEntry) bool {
-				return a.name < b.name
+				return a.name.string() < b.name.string()
 			})
 		}
 	}
@@ -184,13 +190,13 @@ func absPath(p string) string {
 	return path.Join("/", p)
 }
 
-func makePath(files map[string]fileEntry, name string, modTime time.Time, file fileEntry) error {
+func makePath(files map[string]fileEntry, name string, modTime time.Time, file fileEntry, alloc *cstringAllocator) error {
 	var d *dir
 
 	dirname := path.Dir(name)
 	switch f := files[dirname].(type) {
 	case nil:
-		if err := makePath(files, name, modTime, file); err != nil {
+		if err := makePath(files, name, modTime, file, alloc); err != nil {
 			return err
 		}
 		dir := makeDir(modTime)
@@ -203,7 +209,7 @@ func makePath(files map[string]fileEntry, name string, modTime time.Time, file f
 	}
 
 	d.ents = append(d.ents, dirEntry{
-		name: path.Base(name),
+		name: alloc.makeCString(path.Base(name)),
 		file: file,
 	})
 	return nil
@@ -248,3 +254,42 @@ func (leafFile) Link(string, sandbox.File, string, int) error { return sandbox.E
 func (leafFile) Symlink(string, string) error { return sandbox.ENOTDIR }
 
 func (leafFile) Unlink(string) error { return sandbox.ENOTDIR }
+
+type cstring struct {
+	ptr unsafe.Pointer
+}
+
+func (s cstring) len() int {
+	ptr := s.ptr
+	for *(*byte)(ptr) != 0 {
+		ptr = unsafe.Pointer(uintptr(ptr) + 1)
+	}
+	return int(uintptr(ptr) - uintptr(s.ptr))
+}
+
+func (s cstring) string() string {
+	return unsafe.String((*byte)(s.ptr), s.len())
+}
+
+type cstringAllocator struct {
+	buf []byte
+	off int
+}
+
+func (a *cstringAllocator) makeCString(s string) cstring {
+	if len(s) > 1024 {
+		b := make([]byte, len(s)+1)
+		copy(b, s)
+		return cstring{ptr: unsafe.Pointer(&b[0])}
+	}
+
+	if (len(a.buf) - a.off) < len(s) {
+		a.buf = make([]byte, 4096)
+		a.off = 0
+	}
+
+	copy(a.buf[a.off:], s)
+	ptr := &a.buf[a.off]
+	a.off += len(s) + 1
+	return cstring{ptr: unsafe.Pointer(ptr)}
+}
