@@ -117,13 +117,6 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 		}
 	}
 
-	for _, entry := range files {
-		fsys.memsize += int64(entry.memsize())
-		if f, ok := entry.(*file); ok {
-			fsys.filesize += f.info.Size
-		}
-	}
-
 	for link, name := range links {
 		entry := files[name]
 		switch f := entry.(type) {
@@ -152,6 +145,13 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 			slices.SortFunc(d.ents, func(a, b dirEntry) bool {
 				return a.name < b.name
 			})
+		}
+	}
+
+	for _, entry := range files {
+		fsys.memsize += int64(entry.memsize())
+		if f, ok := entry.(*file); ok {
+			fsys.filesize += f.info.Size
 		}
 	}
 
