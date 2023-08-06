@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+
+	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 )
 
 // RootFS wraps the given FileSystem to prevent path resolution from escaping
@@ -77,8 +79,8 @@ func (f *rootFile) Rmdir(name string) error {
 func (f *rootFile) Rename(oldName string, newDir File, newName string) error {
 	f2, ok := newDir.(*rootFile)
 	if !ok {
-		path1 := joinPath(f.Name(), oldName)
-		path2 := joinPath(newDir.Name(), newName)
+		path1 := fspath.Join(f.Name(), oldName)
+		path2 := fspath.Join(newDir.Name(), newName)
 		return &os.LinkError{Op: "rename", Old: path1, New: path2, Err: EXDEV}
 	}
 	return withPath3("rename", f, oldName, f2, newName, AT_SYMLINK_NOFOLLOW, File.Rename)
@@ -87,8 +89,8 @@ func (f *rootFile) Rename(oldName string, newDir File, newName string) error {
 func (f *rootFile) Link(oldName string, newDir File, newName string, flags int) error {
 	f2, ok := newDir.(*rootFile)
 	if !ok {
-		path1 := joinPath(f.Name(), oldName)
-		path2 := joinPath(newDir.Name(), newName)
+		path1 := fspath.Join(f.Name(), oldName)
+		path2 := fspath.Join(newDir.Name(), newName)
 		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: EXDEV}
 	}
 	return withPath3("link", f, oldName, f2, newName, flags, func(oldDir File, oldName string, newDir File, newName string) error {
@@ -132,8 +134,8 @@ func withPath3(op string, f1 *rootFile, path1 string, f2 *rootFile, path2 string
 		})
 	})
 	if err != nil {
-		path1 = joinPath(f1.Name(), path2)
-		path2 = joinPath(f2.Name(), path2)
+		path1 = fspath.Join(f1.Name(), path2)
+		path2 = fspath.Join(f2.Name(), path2)
 		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: unwrap(err)}
 	}
 	return nil
@@ -151,7 +153,7 @@ func resolvePath[R any](dir File, name string, flags int, do func(File, string) 
 	if name == "" {
 		return do(dir, "")
 	}
-	if hasTrailingSlash(name) {
+	if fspath.HasTrailingSlash(name) {
 		flags |= O_DIRECTORY
 	}
 
@@ -189,10 +191,10 @@ func resolvePath[R any](dir File, name string, flags int, do func(File, string) 
 		return nil
 	}
 
-	depth := filePathDepth(dir.Name())
+	depth := fspath.Depth(dir.Name())
 	for {
-		if isAbs(name) {
-			if name = trimLeadingSlash(name); name == "" {
+		if fspath.IsAbs(name) {
+			if name = fspath.TrimLeadingSlash(name); name == "" {
 				name = "."
 			}
 			d, err := openRoot(dir)
@@ -205,17 +207,16 @@ func resolvePath[R any](dir File, name string, flags int, do func(File, string) 
 
 		var delta int
 		var elem string
-		elem, name = walkPath(name)
+		elem, name = fspath.Walk(name)
 
-		switch elem {
-		case ".":
+		if name == "" {
 		doFile:
-			ret, err = do(dir, name)
+			ret, err = do(dir, elem)
 			if err != nil {
 				if !errors.Is(err, ELOOP) || ((flags & O_NOFOLLOW) != 0) {
 					return ret, err
 				}
-				switch err := followSymlink(name, ""); {
+				switch err := followSymlink(elem, ""); {
 				case errors.Is(err, nil):
 					continue
 				case errors.Is(err, EINVAL):
@@ -225,15 +226,20 @@ func resolvePath[R any](dir File, name string, flags int, do func(File, string) 
 				}
 			}
 			return ret, nil
+		}
 
-		case "..":
+		if elem == "." {
+			continue
+		}
+
+		if elem == ".." {
 			// This check ensures that we cannot escape the root of the file
 			// system when accessing a parent directory.
 			if depth == 0 {
 				continue
 			}
 			delta = -1
-		default:
+		} else {
 			delta = +1
 		}
 
@@ -258,7 +264,7 @@ func resolvePath[R any](dir File, name string, flags int, do func(File, string) 
 }
 
 func openRoot(dir File) (File, error) {
-	depth := filePathDepth(dir.Name())
+	depth := fspath.Depth(dir.Name())
 	if depth == 0 {
 		return dir.Open(".", openPathFlags, 0)
 	}

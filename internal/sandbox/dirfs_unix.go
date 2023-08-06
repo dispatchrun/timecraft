@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 	"golang.org/x/sys/unix"
 )
 
@@ -14,11 +15,11 @@ func (root dirFS) Open(name string, flags int, mode fs.FileMode) (File, error) {
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: string(root), Err: err}
 	}
-	if name = cleanPath(name); name == "/" || name == "." { // root?
+	if name = fspath.Clean(name); name == "/" || name == "." { // root?
 		return &dirFile{fd: dirfd, name: "/"}, nil
 	}
 	defer closeTraceError(dirfd)
-	relPath := "/" + trimLeadingSlash(name)
+	relPath := "/" + fspath.TrimLeadingSlash(name)
 	fd, err := openat(dirfd, name, flags, uint32(mode.Perm()))
 	if err != nil {
 		return nil, &fs.PathError{Op: "open", Path: relPath, Err: err}
@@ -49,7 +50,7 @@ func (f *dirFile) Close() error {
 }
 
 func (f *dirFile) Open(name string, flags int, mode fs.FileMode) (File, error) {
-	name = cleanPath(name)
+	name = fspath.Clean(name)
 	relPath := f.join(name)
 	fd, err := openat(f.fd, name, flags, uint32(mode.Perm()))
 	if err != nil {
@@ -236,7 +237,7 @@ func (f *dirFile) Rename(oldName string, newDir File, newName string) error {
 	fd2 := int(newDir.Fd())
 	if err := renameat(fd1, oldName, fd2, newName); err != nil {
 		path1 := f.join(oldName)
-		path2 := joinPath(newDir.Name(), newName)
+		path2 := fspath.Join(newDir.Name(), newName)
 		return &os.LinkError{Op: "rename", Old: path1, New: path2, Err: err}
 	}
 	return nil
@@ -251,7 +252,7 @@ func (f *dirFile) Link(oldName string, newDir File, newName string, flags int) e
 	fd2 := int(newDir.Fd())
 	if err := linkat(fd1, oldName, fd2, newName, linkFlags); err != nil {
 		path1 := f.join(oldName)
-		path2 := joinPath(newDir.Name(), newName)
+		path2 := fspath.Join(newDir.Name(), newName)
 		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: err}
 	}
 	return nil
@@ -272,5 +273,5 @@ func (f *dirFile) Unlink(name string) error {
 }
 
 func (f *dirFile) join(name string) string {
-	return joinPath(f.name, name)
+	return fspath.Join(f.name, name)
 }

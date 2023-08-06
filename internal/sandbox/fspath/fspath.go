@@ -1,13 +1,15 @@
-package sandbox
+// Package fspath is similar to the standard path package but provides functions
+// that are more useful for path manipulation in the presence of symbolic links.
+package fspath
 
-// filePathDepth returns the depth of a path. The root "/" has depth zero.
-func filePathDepth(path string) (depth int) {
+// Depth returns the depth of a path. The root "/" has depth zero.
+func Depth(path string) (depth int) {
 	for {
-		path = trimLeadingSlash(path)
+		path = TrimLeadingSlash(path)
 		if path == "" {
 			return depth
 		}
-		i := indexSlash(path)
+		i := IndexSlash(path)
 		if i < 0 {
 			i = len(path)
 		}
@@ -24,31 +26,31 @@ func filePathDepth(path string) (depth int) {
 	}
 }
 
-// joinPath is similar to path.Join but is simplified to assumed that the
-// paths passed as arguments hare already clean.
-func joinPath(dir, name string) string {
+// Join is similar to path.Join but is simplified to assumed that the paths
+// passed as arguments hare already clean.
+func Join(dir, name string) string {
 	if dir == "" {
 		return name
 	}
-	name = trimLeadingSlash(name)
+	name = TrimLeadingSlash(name)
 	if name == "" {
 		return dir
 	}
-	return trimTrailingSlash(dir) + "/" + name
+	return TrimTrailingSlash(dir) + "/" + name
 }
 
-// cleanPath is like path.Clean but it preserves parent directory references;
+// Clean is like path.Clean but it preserves parent directory references;
 // this is necessary to ensure that symbolic links aren't erased from walking
 // the path.
-func cleanPath(path string) string {
+func Clean(path string) string {
 	buf := make([]byte, 0, 256)
-	buf = appendCleanPath(buf, path)
+	buf = AppendClean(buf, path)
 	return string(buf)
 }
 
-// appendCleanPath is like cleanPath but it appends the result to the byte
-// slice passed as first argument.
-func appendCleanPath(buf []byte, path string) []byte {
+// AppendClean is like cleanPath but it appends the result to the byte slice
+// passed as first argument.
+func AppendClean(buf []byte, path string) []byte {
 	if len(path) == 0 {
 		return buf
 	}
@@ -58,7 +60,7 @@ func appendCleanPath(buf []byte, path string) []byte {
 	}
 
 	elems := make([]region, 0, 16)
-	if isAbs(path) {
+	if IsAbs(path) {
 		elems = append(elems, region{})
 	}
 
@@ -92,16 +94,16 @@ func appendCleanPath(buf []byte, path string) []byte {
 		}
 		buf = append(buf, path[elem.off:elem.end]...)
 	}
-	if hasTrailingSlash(path) {
+	if HasTrailingSlash(path) {
 		buf = append(buf, '/')
 	}
 	return buf
 }
 
-// indexSlash is like strings.IndexByte(path, '/') but the function is simple
+// IndexSlash is like strings.IndexByte(path, '/') but the function is simple
 // enough to be inlined, which is a measurable improvement since it gets called
 // very often by the other routines in this file.
-func indexSlash(path string) int {
+func IndexSlash(path string) int {
 	for i := 0; i < len(path); i++ {
 		if path[i] == '/' {
 			return i
@@ -110,22 +112,23 @@ func indexSlash(path string) int {
 	return -1
 }
 
-func walkPath(path string) (elem, name string) {
-	path = trimLeadingSlash(path)
-	path = trimTrailingSlash(path)
-	i := indexSlash(path)
+// Walk separates the next path element from the rest of the path.
+func Walk(path string) (elem, name string) {
+	i := IndexSlash(path)
 	if i < 0 {
-		return ".", path
-	} else {
-		return path[:i], trimLeadingSlash(path[i:])
+		return path, ""
 	}
+	if i == 0 {
+		i = 1
+	}
+	return path[:i], TrimLeadingSlash(path[i:])
 }
 
-func hasTrailingSlash(s string) bool {
+func HasTrailingSlash(s string) bool {
 	return len(s) > 0 && s[len(s)-1] == '/'
 }
 
-func trimLeadingSlash(s string) string {
+func TrimLeadingSlash(s string) string {
 	i := 0
 	for i < len(s) && s[i] == '/' {
 		i++
@@ -133,7 +136,7 @@ func trimLeadingSlash(s string) string {
 	return s[i:]
 }
 
-func trimTrailingSlash(s string) string {
+func TrimTrailingSlash(s string) string {
 	i := len(s)
 	for i > 0 && s[i-1] == '/' {
 		i--
@@ -141,6 +144,6 @@ func trimTrailingSlash(s string) string {
 	return s[:i]
 }
 
-func isAbs(path string) bool {
+func IsAbs(path string) bool {
 	return len(path) > 0 && path[0] == '/'
 }

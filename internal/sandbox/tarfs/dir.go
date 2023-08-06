@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
+	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 )
 
 type dir struct {
@@ -54,7 +55,7 @@ func resolve[R any](fsys *fileSystem, cwd *dir, name string, flags int, do func(
 		}
 
 		var elem string
-		elem, name = splitPath(name)
+		elem, name = fspath.Walk(name)
 
 		if elem == "/" {
 			cwd = &fsys.root
@@ -132,6 +133,11 @@ func (d *openDir) Open(name string, flags int, mode fs.FileMode) (sandbox.File, 
 	if dir == nil {
 		return nil, sandbox.EBADF
 	}
+
+	if fspath.HasTrailingSlash(name) {
+		flags |= sandbox.O_DIRECTORY
+	}
+
 	return resolve(d.fsys, dir, name, flags, func(f fileEntry) (sandbox.File, error) {
 		if _, ok := f.(*symlink); ok {
 			return nil, sandbox.ELOOP

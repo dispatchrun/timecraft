@@ -1,12 +1,13 @@
-package sandbox
+package fspath_test
 
 import (
 	"testing"
 
 	"github.com/stealthrocket/timecraft/internal/assert"
+	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 )
 
-func TestFilePathDepth(t *testing.T) {
+func TestDepth(t *testing.T) {
 	tests := []struct {
 		path  string
 		depth int
@@ -23,12 +24,12 @@ func TestFilePathDepth(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
-			assert.Equal(t, filePathDepth(test.path), test.depth)
+			assert.Equal(t, fspath.Depth(test.path), test.depth)
 		})
 	}
 }
 
-func TestCleanPath(t *testing.T) {
+func TestClean(t *testing.T) {
 	tests := []struct {
 		input  string
 		output string
@@ -45,14 +46,14 @@ func TestCleanPath(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.input, func(t *testing.T) {
-			path := cleanPath(test.input)
+			path := fspath.Clean(test.input)
 			assert.Equal(t, path, test.output)
 		})
 	}
 }
 
-func BenchmarkCleanPath(b *testing.B) {
+func BenchmarkClean(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_ = cleanPath("/tmp/.././//test/")
+		_ = fspath.Clean("/tmp/.././//test/")
 	}
 }

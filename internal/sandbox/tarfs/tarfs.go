@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
@@ -152,25 +151,6 @@ type fileEntry interface {
 
 func absPath(p string) string {
 	return path.Join("/", p)
-}
-
-func splitPath(path string) (string, string) {
-	i := strings.IndexByte(path, '/')
-	if i < 0 {
-		return path, ""
-	} else if i == 0 {
-		return path[:1], trimLeadingSlash(path[1:])
-	} else {
-		return path[:i], trimLeadingSlash(path[i+1:])
-	}
-}
-
-func trimLeadingSlash(path string) string {
-	i := 0
-	for i < len(path) && path[i] == '/' {
-		i++
-	}
-	return path[i:]
 }
 
 func makeFileInfo(header *tar.Header) sandbox.FileInfo {
