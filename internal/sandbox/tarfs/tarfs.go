@@ -13,18 +13,54 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+// FileSystem is an implementation of the sandbox.FileSystem interface backed by
+// a tarball.
+type FileSystem struct {
+	data     io.ReaderAt
+	size     int64
+	memsize  int64
+	filesize int64
+	root     dir
+}
+
+// Open satisfies sandbox.FileSystem.
+func (fsys *FileSystem) Open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
+	f, err := fsys.root.open(fsys)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return f.Open(name, flags, mode)
+}
+
+// Size returns the size of data in the file system, which is the value passed
+// to Open when fsys was created. It is the full size of the underlying tarball.
+func (fsys *FileSystem) Size() int64 {
+	return fsys.size
+}
+
+// Memsize returns the size occupied by the file system in memory.
+func (fsys *FileSystem) Memsize() int64 {
+	return fsys.memsize
+}
+
+// Filesize returns the size occupied by the file data in the file system.
+func (fsys *FileSystem) Filesize() int64 {
+	return fsys.filesize
+}
+
 // Open creates a file system from the tarball represented by the given section.
 //
 // The file system retains the io.ReaderAt as a backing storage layer, it does
 // not load the content of the files present in the tarball in memory; only the
 // structure of the file system is held in memory (e.g. directory paths and
 // metadata about the files).
-func Open(data io.ReaderAt, size int64) (sandbox.FileSystem, error) {
+func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 	section := io.NewSectionReader(data, 0, size)
 	r := tar.NewReader(section)
 
 	modTime := time.Now()
-	fsys := &fileSystem{
+	fsys := &FileSystem{
 		data: data,
 		size: size,
 		root: dir{
@@ -81,6 +117,13 @@ func Open(data io.ReaderAt, size int64) (sandbox.FileSystem, error) {
 		}
 	}
 
+	for _, entry := range files {
+		fsys.memsize += int64(entry.memsize())
+		if f, ok := entry.(*file); ok {
+			fsys.filesize += f.info.Size
+		}
+	}
+
 	for link, name := range links {
 		entry := files[name]
 		switch f := entry.(type) {
@@ -99,14 +142,14 @@ func Open(data io.ReaderAt, size int64) (sandbox.FileSystem, error) {
 		}
 	}
 
-	for name, file := range files {
-		switch f := file.(type) {
-		case *dir:
-			f.ents = append(f.ents,
-				dirEntry{name: ".", file: f},
+	for name, entry := range files {
+		if d, ok := entry.(*dir); ok {
+			d.ents = append(d.ents,
+				dirEntry{name: ".", file: d},
 				dirEntry{name: "..", file: files[path.Dir(name)].(*dir)},
 			)
-			slices.SortFunc(f.ents, func(a, b dirEntry) bool {
+			d.info.Size = int64(d.memsize())
+			slices.SortFunc(d.ents, func(a, b dirEntry) bool {
 				return a.name < b.name
 			})
 		}
@@ -120,7 +163,7 @@ func Open(data io.ReaderAt, size int64) (sandbox.FileSystem, error) {
 //
 // The file must remain open for as long as the program needs to access the file
 // system.
-func OpenFile(f *os.File) (sandbox.FileSystem, error) {
+func OpenFile(f *os.File) (*FileSystem, error) {
 	s, err := f.Stat()
 	if err != nil {
 		return nil, err
@@ -128,25 +171,14 @@ func OpenFile(f *os.File) (sandbox.FileSystem, error) {
 	return Open(f, s.Size())
 }
 
-type fileSystem struct {
-	data io.ReaderAt
-	size int64
-	root dir
-}
-
-func (fsys *fileSystem) Open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
-	f, err := fsys.root.open(fsys)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	return f.Open(name, flags, mode)
-}
-
 type fileEntry interface {
-	open(fsys *fileSystem) (sandbox.File, error)
+	open(fsys *FileSystem) (sandbox.File, error)
+
 	stat() sandbox.FileInfo
+
 	mode() fs.FileMode
+
+	memsize() uintptr
 }
 
 func absPath(p string) string {

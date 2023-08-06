@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 )
@@ -15,7 +16,7 @@ type file struct {
 	offset int64
 }
 
-func (f *file) open(fsys *fileSystem) (sandbox.File, error) {
+func (f *file) open(fsys *FileSystem) (sandbox.File, error) {
 	open := new(openFile)
 	open.file.Store(f)
 	open.data = *io.NewSectionReader(fsys.data, f.offset, f.info.Size)
@@ -28,6 +29,10 @@ func (f *file) stat() sandbox.FileInfo {
 
 func (f *file) mode() fs.FileMode {
 	return f.info.Mode
+}
+
+func (f *file) memsize() uintptr {
+	return unsafe.Sizeof(file{}) + uintptr(len(f.name))
 }
 
 type openFile struct {

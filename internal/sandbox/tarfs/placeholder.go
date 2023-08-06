@@ -3,6 +3,7 @@ package tarfs
 import (
 	"io/fs"
 	"syscall"
+	"unsafe"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 )
@@ -13,7 +14,7 @@ type placeholder struct {
 	info sandbox.FileInfo
 }
 
-func (p *placeholder) open(fsys *fileSystem) (sandbox.File, error) {
+func (p *placeholder) open(fsys *FileSystem) (sandbox.File, error) {
 	return nil, syscall.EPERM
 }
 
@@ -23,4 +24,8 @@ func (p *placeholder) stat() sandbox.FileInfo {
 
 func (p *placeholder) mode() fs.FileMode {
 	return p.info.Mode
+}
+
+func (p *placeholder) memsize() uintptr {
+	return unsafe.Sizeof(placeholder{})
 }

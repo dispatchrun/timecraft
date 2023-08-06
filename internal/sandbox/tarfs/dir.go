@@ -6,6 +6,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
@@ -22,7 +23,7 @@ type dirEntry struct {
 	file fileEntry
 }
 
-func (d *dir) open(fsys *fileSystem) (sandbox.File, error) {
+func (d *dir) open(fsys *FileSystem) (sandbox.File, error) {
 	open := &openDir{fsys: fsys}
 	open.dir.Store(d)
 	return open, nil
@@ -36,6 +37,18 @@ func (d *dir) mode() fs.FileMode {
 	return d.info.Mode
 }
 
+func (d *dir) memsize() (size uintptr) {
+	size += unsafe.Sizeof(dir{})
+	size += uintptr(len(d.name))
+
+	for _, ent := range d.ents {
+		size += unsafe.Sizeof(ent)
+		size += uintptr(len(ent.name))
+	}
+
+	return size
+}
+
 func (d *dir) find(name string) fileEntry {
 	i := sort.Search(len(d.ents), func(i int) bool {
 		return d.ents[i].name >= name
@@ -46,7 +59,7 @@ func (d *dir) find(name string) fileEntry {
 	return d.ents[i].file
 }
 
-func resolve[R any](fsys *fileSystem, cwd *dir, name string, flags int, do func(fileEntry) (R, error)) (R, error) {
+func resolve[R any](fsys *FileSystem, cwd *dir, name string, flags int, do func(fileEntry) (R, error)) (R, error) {
 	var zero R
 
 	for loop := 0; loop < sandbox.MaxFollowSymlink; loop++ {
@@ -100,7 +113,7 @@ func resolve[R any](fsys *fileSystem, cwd *dir, name string, flags int, do func(
 
 type openDir struct {
 	readOnlyFile
-	fsys   *fileSystem
+	fsys   *FileSystem
 	dir    atomic.Pointer[dir]
 	mu     sync.Mutex
 	index  int
