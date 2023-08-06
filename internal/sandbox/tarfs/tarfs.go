@@ -80,7 +80,10 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 		}
 		name := absPath(header.Name)
 
-		if name == "/" {
+		switch name {
+		case ".", "..":
+			continue // ignore those entries, they should never exist anyway
+		case "/":
 			template := newDir(header)
 			fsys.root.perm = template.perm
 			fsys.root.mtime = template.mtime
@@ -137,10 +140,7 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 
 	for name, entry := range files {
 		if d, ok := entry.(*dir); ok {
-			d.ents = append(d.ents,
-				dirEntry{name: ".", file: d},
-				dirEntry{name: "..", file: files[path.Dir(name)].(*dir)},
-			)
+			d.parent = files[path.Dir(name)].(*dir)
 			slices.SortFunc(d.ents, func(a, b dirEntry) bool {
 				return a.name < b.name
 			})
