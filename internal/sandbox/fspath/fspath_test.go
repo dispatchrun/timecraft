@@ -47,6 +47,7 @@ func TestJoin(t *testing.T) {
 		{"//hello", "//world", "/hello/world"},
 		{"//hello/", "//world//", "/hello/world/"},
 		{"hello/../", "../world/./", "hello/../../world/"},
+		{"hello", "/.", "hello/."},
 	}
 
 	for _, test := range tests {
