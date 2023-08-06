@@ -26,17 +26,18 @@ func Depth(path string) (depth int) {
 	}
 }
 
-// Join is similar to path.Join but is simplified to assumed that the paths
-// passed as arguments hare already clean.
+// Join is similar to path.Join but is simplified to only join two paths and
+// avoid cleaning parent directory references in the paths.
 func Join(dir, name string) string {
-	if dir == "" {
-		return name
+	buf := make([]byte, 0, 256)
+	buf = AppendClean(buf, dir)
+	if name = TrimLeadingSlash(name); name != "" {
+		if !HasTrailingSlash(string(buf)) {
+			buf = append(buf, '/')
+		}
+		buf = AppendClean(buf, name)
 	}
-	name = TrimLeadingSlash(name)
-	if name == "" {
-		return dir
-	}
-	return TrimTrailingSlash(dir) + "/" + name
+	return string(buf)
 }
 
 // Clean is like path.Clean but it preserves parent directory references;

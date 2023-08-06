@@ -29,6 +29,34 @@ func TestDepth(t *testing.T) {
 	}
 }
 
+func TestJoin(t *testing.T) {
+	tests := []struct {
+		dir  string
+		name string
+		path string
+	}{
+		{"", "", ""},
+		{".", ".", "./."},
+		{".", "hello", "./hello"},
+		{"hello", ".", "hello/."},
+		{"/", "/", "/"},
+		{"..//", ".", "../."},
+		{"hello/world", "!", "hello/world/!"},
+		{"/hello", "/world", "/hello/world"},
+		{"/hello", "/world/", "/hello/world/"},
+		{"//hello", "//world", "/hello/world"},
+		{"//hello/", "//world//", "/hello/world/"},
+		{"hello/../", "../world/./", "hello/../../world/"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			path := fspath.Join(test.dir, test.name)
+			assert.Equal(t, path, test.path)
+		})
+	}
+}
+
 func TestClean(t *testing.T) {
 	tests := []struct {
 		input  string
