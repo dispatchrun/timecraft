@@ -63,9 +63,7 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 	fsys := &FileSystem{
 		data: data,
 		size: size,
-		root: dir{
-			info: makeDirInfo(modTime),
-		},
+		root: makeDir(modTime),
 	}
 
 	links := make(map[string]string)
@@ -81,10 +79,13 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 			return nil, err
 		}
 		name := absPath(header.Name)
-		info := makeFileInfo(header)
 
 		if name == "/" {
-			fsys.root.info = info
+			template := newDir(header)
+			fsys.root.perm = template.perm
+			fsys.root.mtime = template.mtime
+			fsys.root.atime = template.atime
+			fsys.root.ctime = template.ctime
 			continue
 		}
 
@@ -92,11 +93,11 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 		switch header.Typeflag {
 		case tar.TypeReg:
 			offset, _ := section.Seek(0, io.SeekCurrent)
-			entry = &file{info: info, offset: offset}
+			entry = newFile(header, offset)
 		case tar.TypeDir:
-			entry = &dir{info: info}
+			entry = newDir(header)
 		case tar.TypeSymlink:
-			entry = &symlink{info: info, link: header.Linkname}
+			entry = newSymlink(header)
 		case tar.TypeLink:
 			if _, exists := links[name]; exists {
 				return nil, fmt.Errorf("%s: duplicate link entry in tar archive", name)
@@ -104,7 +105,7 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 			links[name] = absPath(header.Linkname)
 			continue
 		default:
-			entry = &placeholder{info: info}
+			entry = newPlaceholder(header)
 		}
 		if files[name] != nil {
 			return nil, fmt.Errorf("%s: duplicate file entry in tar archive", name)
@@ -120,9 +121,9 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 		entry := files[name]
 		switch f := entry.(type) {
 		case *file:
-			f.info.Nlink++
+			f.nlink++
 		case *symlink:
-			f.info.Nlink++
+			f.nlink++
 		default:
 			return nil, fmt.Errorf("%s->%s: hard link to invalid file in tar archive", link, name)
 		}
@@ -140,7 +141,6 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 				dirEntry{name: ".", file: d},
 				dirEntry{name: "..", file: files[path.Dir(name)].(*dir)},
 			)
-			d.info.Size = int64(d.memsize())
 			slices.SortFunc(d.ents, func(a, b dirEntry) bool {
 				return a.name < b.name
 			})
@@ -150,7 +150,7 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 	for _, entry := range files {
 		fsys.memsize += int64(entry.memsize())
 		if f, ok := entry.(*file); ok {
-			fsys.filesize += f.info.Size
+			fsys.filesize += f.size
 		}
 	}
 
@@ -184,34 +184,6 @@ func absPath(p string) string {
 	return path.Join("/", p)
 }
 
-func makeFileInfo(header *tar.Header) sandbox.FileInfo {
-	info := header.FileInfo()
-	mode := info.Mode()
-	return sandbox.FileInfo{
-		Size:  info.Size(),
-		Mode:  mode.Type() | (mode.Perm() & 0555),
-		Uid:   uint32(header.Uid),
-		Gid:   uint32(header.Gid),
-		Nlink: 1,
-		Mtime: sandbox.TimeToTimespec(header.ModTime),
-		Atime: sandbox.TimeToTimespec(header.AccessTime),
-		Ctime: sandbox.TimeToTimespec(header.ChangeTime),
-	}
-}
-
-func makeDirInfo(modTime time.Time) sandbox.FileInfo {
-	ts := sandbox.TimeToTimespec(modTime)
-	return sandbox.FileInfo{
-		Mode:  fs.ModeDir | 0755,
-		Nlink: 1,
-		Uid:   1,
-		Gid:   1,
-		Atime: ts,
-		Mtime: ts,
-		Ctime: ts,
-	}
-}
-
 func makePath(files map[string]fileEntry, name string, modTime time.Time, file fileEntry) error {
 	var d *dir
 
@@ -221,9 +193,8 @@ func makePath(files map[string]fileEntry, name string, modTime time.Time, file f
 		if err := makePath(files, name, modTime, file); err != nil {
 			return err
 		}
-		d = &dir{
-			info: makeDirInfo(modTime),
-		}
+		dir := makeDir(modTime)
+		d = &dir
 		files[dirname] = d
 	case *dir:
 		d = f

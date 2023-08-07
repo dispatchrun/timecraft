@@ -1,33 +1,63 @@
 package tarfs
 
 import (
+	"archive/tar"
 	"io"
 	"io/fs"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 )
 
 type file struct {
-	info   sandbox.FileInfo
+	perm   fs.FileMode
+	nlink  uint32
+	size   int64
+	mtime  int64
+	atime  int64
+	ctime  int64
 	offset int64
+}
+
+func newFile(header *tar.Header, offset int64) *file {
+	info := header.FileInfo()
+	mode := info.Mode()
+	return &file{
+		perm:   mode.Perm() & 0555,
+		nlink:  1,
+		size:   info.Size(),
+		mtime:  header.ModTime.UnixNano(),
+		atime:  header.AccessTime.UnixNano(),
+		ctime:  header.ChangeTime.UnixNano(),
+		offset: offset,
+	}
 }
 
 func (f *file) open(fsys *FileSystem, name string) (sandbox.File, error) {
 	open := &openFile{name: name}
 	open.file.Store(f)
-	open.data = *io.NewSectionReader(fsys.data, f.offset, f.info.Size)
+	open.data = *io.NewSectionReader(fsys.data, f.offset, f.size)
 	return open, nil
 }
 
 func (f *file) stat() sandbox.FileInfo {
-	return f.info
+	return sandbox.FileInfo{
+		Mode:  f.mode(),
+		Uid:   1,
+		Gid:   1,
+		Nlink: uint64(f.nlink),
+		Size:  f.size,
+		Mtime: sandbox.TimeToTimespec(time.Unix(0, f.mtime)),
+		Atime: sandbox.TimeToTimespec(time.Unix(0, f.atime)),
+		Ctime: sandbox.TimeToTimespec(time.Unix(0, f.ctime)),
+	}
 }
 
 func (f *file) mode() fs.FileMode {
-	return f.info.Mode
+	return f.perm
 }
 
 func (f *file) memsize() uintptr {
@@ -59,7 +89,7 @@ func (f *openFile) Stat(name string, flags int) (sandbox.FileInfo, error) {
 	case name != "":
 		return sandbox.FileInfo{}, sandbox.ENOTDIR
 	default:
-		return file.info, nil
+		return file.stat(), nil
 	}
 }
 
