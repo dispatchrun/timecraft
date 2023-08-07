@@ -8,12 +8,11 @@ import (
 )
 
 type symlink struct {
-	name string
 	link string
 	info sandbox.FileInfo
 }
 
-func (s *symlink) open(fsys *FileSystem) (sandbox.File, error) {
+func (s *symlink) open(fsys *FileSystem, name string) (sandbox.File, error) {
 	return nil, sandbox.ELOOP
 }
 
@@ -26,5 +25,5 @@ func (s *symlink) mode() fs.FileMode {
 }
 
 func (s *symlink) memsize() uintptr {
-	return unsafe.Sizeof(symlink{}) + uintptr(len(s.name)) + uintptr(len(s.link))
+	return unsafe.Sizeof(symlink{}) + uintptr(len(s.link))
 }

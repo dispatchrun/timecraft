@@ -25,7 +25,7 @@ type FileSystem struct {
 
 // Open satisfies sandbox.FileSystem.
 func (fsys *FileSystem) Open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
-	f, err := fsys.root.open(fsys)
+	f, err := fsys.root.open(fsys, "/")
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,6 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 		data: data,
 		size: size,
 		root: dir{
-			name: "/",
 			info: makeDirInfo(modTime),
 		},
 	}
@@ -93,11 +92,11 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 		switch header.Typeflag {
 		case tar.TypeReg:
 			offset, _ := section.Seek(0, io.SeekCurrent)
-			entry = &file{name: name, info: info, offset: offset}
+			entry = &file{info: info, offset: offset}
 		case tar.TypeDir:
-			entry = &dir{name: name, info: info}
+			entry = &dir{info: info}
 		case tar.TypeSymlink:
-			entry = &symlink{name: name, info: info, link: header.Linkname}
+			entry = &symlink{info: info, link: header.Linkname}
 		case tar.TypeLink:
 			if _, exists := links[name]; exists {
 				return nil, fmt.Errorf("%s: duplicate link entry in tar archive", name)
@@ -172,7 +171,7 @@ func OpenFile(f *os.File) (*FileSystem, error) {
 }
 
 type fileEntry interface {
-	open(fsys *FileSystem) (sandbox.File, error)
+	open(fsys *FileSystem, name string) (sandbox.File, error)
 
 	stat() sandbox.FileInfo
 
@@ -223,7 +222,6 @@ func makePath(files map[string]fileEntry, name string, modTime time.Time, file f
 			return err
 		}
 		d = &dir{
-			name: name,
 			info: makeDirInfo(modTime),
 		}
 		files[dirname] = d

@@ -13,7 +13,6 @@ import (
 )
 
 type dir struct {
-	name string
 	ents []dirEntry
 	info sandbox.FileInfo
 }
@@ -23,8 +22,8 @@ type dirEntry struct {
 	file fileEntry
 }
 
-func (d *dir) open(fsys *FileSystem) (sandbox.File, error) {
-	open := &openDir{fsys: fsys}
+func (d *dir) open(fsys *FileSystem, name string) (sandbox.File, error) {
+	open := &openDir{fsys: fsys, name: name}
 	open.dir.Store(d)
 	return open, nil
 }
@@ -37,15 +36,12 @@ func (d *dir) mode() fs.FileMode {
 	return d.info.Mode
 }
 
-func (d *dir) memsize() (size uintptr) {
-	size += unsafe.Sizeof(dir{})
-	size += uintptr(len(d.name))
-
+func (d *dir) memsize() uintptr {
+	size := unsafe.Sizeof(dir{})
 	for _, ent := range d.ents {
 		size += unsafe.Sizeof(ent)
 		size += uintptr(len(ent.name))
 	}
-
 	return size
 }
 
@@ -59,12 +55,14 @@ func (d *dir) find(name string) fileEntry {
 	return d.ents[i].file
 }
 
-func resolve[R any](fsys *FileSystem, cwd *dir, name string, flags int, do func(fileEntry) (R, error)) (R, error) {
+func resolve[R any](fsys *FileSystem, cwd *dir, cwdName, name string, flags int, do func(fileEntry, []string) (R, error)) (R, error) {
 	var zero R
+	pathElems := make([]string, 1, 8)
+	pathElems[0] = cwdName
 
 	for loop := 0; loop < sandbox.MaxFollowSymlink; loop++ {
 		if name == "" {
-			return do(cwd)
+			return do(cwd, pathElems)
 		}
 
 		var elem string
@@ -72,6 +70,7 @@ func resolve[R any](fsys *FileSystem, cwd *dir, name string, flags int, do func(
 
 		if elem == "/" {
 			cwd = &fsys.root
+			pathElems = append(pathElems[:0], "/")
 			continue
 		}
 
@@ -79,6 +78,8 @@ func resolve[R any](fsys *FileSystem, cwd *dir, name string, flags int, do func(
 		if f == nil {
 			return zero, sandbox.ENOENT
 		}
+
+		pathElems = append(pathElems, elem)
 
 		if name != "" {
 			switch c := f.(type) {
@@ -105,7 +106,7 @@ func resolve[R any](fsys *FileSystem, cwd *dir, name string, flags int, do func(
 			}
 		}
 
-		return do(f)
+		return do(f, pathElems)
 	}
 
 	return zero, sandbox.ELOOP
@@ -114,6 +115,7 @@ func resolve[R any](fsys *FileSystem, cwd *dir, name string, flags int, do func(
 type openDir struct {
 	readOnlyFile
 	fsys   *FileSystem
+	name   string
 	dir    atomic.Pointer[dir]
 	mu     sync.Mutex
 	index  int
@@ -121,10 +123,7 @@ type openDir struct {
 }
 
 func (d *openDir) Name() string {
-	if dir := d.dir.Load(); dir != nil {
-		return dir.name
-	}
-	return ""
+	return d.name
 }
 
 func (d *openDir) Close() error {
@@ -151,11 +150,11 @@ func (d *openDir) Open(name string, flags int, mode fs.FileMode) (sandbox.File, 
 		flags |= sandbox.O_DIRECTORY
 	}
 
-	return resolve(d.fsys, dir, name, flags, func(f fileEntry) (sandbox.File, error) {
+	return resolve(d.fsys, dir, d.name, name, flags, func(f fileEntry, pathElems []string) (sandbox.File, error) {
 		if _, ok := f.(*symlink); ok {
 			return nil, sandbox.ELOOP
 		}
-		return f.open(d.fsys)
+		return f.open(d.fsys, path.Join(pathElems...))
 	})
 }
 
@@ -168,7 +167,7 @@ func (d *openDir) Stat(name string, flags int) (sandbox.FileInfo, error) {
 	if (flags & sandbox.AT_SYMLINK_NOFOLLOW) != 0 {
 		openFlags |= sandbox.O_NOFOLLOW
 	}
-	return resolve(d.fsys, dir, name, openFlags, func(f fileEntry) (sandbox.FileInfo, error) {
+	return resolve(d.fsys, dir, d.name, name, openFlags, func(f fileEntry, _ []string) (sandbox.FileInfo, error) {
 		return f.stat(), nil
 	})
 }
@@ -178,7 +177,7 @@ func (d *openDir) Readlink(name string, buf []byte) (int, error) {
 	if dir == nil {
 		return 0, sandbox.EBADF
 	}
-	return resolve(d.fsys, dir, name, sandbox.O_NOFOLLOW, func(f fileEntry) (int, error) {
+	return resolve(d.fsys, dir, d.name, name, sandbox.O_NOFOLLOW, func(f fileEntry, _ []string) (int, error) {
 		if s, ok := f.(*symlink); ok {
 			return copy(buf, s.link), nil
 		} else {

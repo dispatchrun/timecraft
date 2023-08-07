@@ -11,13 +11,12 @@ import (
 )
 
 type file struct {
-	name   string
 	info   sandbox.FileInfo
 	offset int64
 }
 
-func (f *file) open(fsys *FileSystem) (sandbox.File, error) {
-	open := new(openFile)
+func (f *file) open(fsys *FileSystem, name string) (sandbox.File, error) {
+	open := &openFile{name: name}
 	open.file.Store(f)
 	open.data = *io.NewSectionReader(fsys.data, f.offset, f.info.Size)
 	return open, nil
@@ -32,21 +31,19 @@ func (f *file) mode() fs.FileMode {
 }
 
 func (f *file) memsize() uintptr {
-	return unsafe.Sizeof(file{}) + uintptr(len(f.name))
+	return unsafe.Sizeof(file{})
 }
 
 type openFile struct {
 	leafFile
+	name string
 	file atomic.Pointer[file]
 	seek sync.Mutex
 	data io.SectionReader
 }
 
 func (f *openFile) Name() string {
-	if file := f.file.Load(); file != nil {
-		return file.name
-	}
-	return ""
+	return f.name
 }
 
 func (f *openFile) Close() error {
