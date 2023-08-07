@@ -2,6 +2,8 @@ package tarfs_test
 
 import (
 	"archive/tar"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"io/fs"
 	"os"
@@ -65,12 +67,19 @@ func TestAlpine(t *testing.T) {
 	fsys, err := tarfs.OpenFile(tarball)
 	assert.OK(t, err)
 
-	f, err := fsys.Open("/usr/share/apk/keys/aarch64/alpine-devel@lists.alpinelinux.org-58199dcc.rsa.pub", sandbox.O_RDONLY, 0)
+	// sha256 hash of the file we read below, we validate that the content is
+	// what we expect by comparing it to this value.
+	sha, _ := hex.DecodeString("73867d92083f2f8ab899a26ccda7ef63dfaa0032a938620eda605558958a8041")
+	// This is a deeply nested file that we use to verify that the content of
+	// the tarball was loaded as expected.
+	b, err := sandbox.ReadFile(fsys, "/usr/share/apk/keys/aarch64/alpine-devel@lists.alpinelinux.org-58199dcc.rsa.pub", 0)
 	assert.OK(t, err)
-	defer f.Close()
-
-	s, err := f.Stat("", 0)
+	assert.Equal(t, len(b), 451)
+	assert.Equal(t, sha256.Sum256(b), ([sha256.Size]byte)(sha))
+	// Also verify that the metadata for the file is what we expected.
+	s, err := sandbox.Stat(fsys, "/usr/share/apk/keys/aarch64/alpine-devel@lists.alpinelinux.org-58199dcc.rsa.pub")
 	assert.OK(t, err)
+	assert.Equal(t, s.Mode, 0444)
 	assert.Equal(t, s.Size, 451)
 
 	size, memsize, filesize := fsys.Size(), fsys.Memsize(), fsys.Filesize()
