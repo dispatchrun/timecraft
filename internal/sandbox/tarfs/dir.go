@@ -15,11 +15,12 @@ import (
 )
 
 type dir struct {
-	perm  fs.FileMode
-	mtime int64
-	atime int64
-	ctime int64
-	ents  []dirEntry
+	parent *dir
+	perm   fs.FileMode
+	mtime  int64
+	atime  int64
+	ctime  int64
+	ents   []dirEntry
 }
 
 func newDir(header *tar.Header) *dir {
@@ -85,6 +86,12 @@ func (d *dir) memsize() uintptr {
 }
 
 func (d *dir) find(name string) fileEntry {
+	switch name {
+	case ".":
+		return d
+	case "..":
+		return d.parent
+	}
 	i := sort.Search(len(d.ents), func(i int) bool {
 		return d.ents[i].name >= name
 	})
@@ -253,13 +260,30 @@ func (d *openDir) ReadDirent(buf []byte) (int, error) {
 	defer d.mu.Unlock()
 
 	n := 0
-	for n < len(buf) && d.index < len(dir.ents) {
-		dirent := &dir.ents[d.index]
-		wn := sandbox.WriteDirent(buf[n:], dirent.file.mode(), 0, d.offset, dirent.name)
+
+	if d.index == 0 && n < len(buf) {
+		wn := sandbox.WriteDirent(buf[n:], dir.mode(), 0, d.offset, ".")
 		n += wn
 		d.index++
-		d.offset += uint64(n)
+		d.offset += uint64(wn)
 	}
+
+	if d.index == 1 && n < len(buf) {
+		wn := sandbox.WriteDirent(buf[n:], dir.parent.mode(), 0, d.offset, "..")
+		n += wn
+		d.index++
+		d.offset += uint64(wn)
+	}
+
+	for i := d.index - 2; i < len(dir.ents) && n < len(buf); i++ {
+		name := dir.ents[i].name
+		file := dir.ents[i].file
+		wn := sandbox.WriteDirent(buf[n:], file.mode(), 0, d.offset, name)
+		n += wn
+		d.index++
+		d.offset += uint64(wn)
+	}
+
 	return n, nil
 }
 
