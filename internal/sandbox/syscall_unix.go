@@ -456,6 +456,59 @@ func (d *dirbuf) readDirEntry() (string, fs.FileMode, error) {
 	}
 }
 
+// ReadDirent reads a directory entry from buf, returning the number of bytes
+// consumed and the values extracted from the buffer.
+//
+// If the buffer was too short to contain a directory entry, the function
+// returns io.ErrShortBuffer.
+func ReadDirent(buf []byte) (n int, typ fs.FileMode, ino, off uint64, name []byte, err error) {
+	if len(buf) < sizeOfDirent {
+		err = io.ErrShortBuffer
+		return
+	}
+
+	dirent := (*dirent)(unsafe.Pointer(unsafe.SliceData(buf)))
+
+	if int(dirent.reclen) > len(buf) {
+		err = io.ErrShortBuffer
+		return
+	}
+
+	switch dirent.typ {
+	case DT_REG:
+		typ = 0
+	case DT_BLK:
+		typ = fs.ModeDevice
+	case DT_CHR:
+		typ = fs.ModeDevice | fs.ModeCharDevice
+	case DT_DIR:
+		typ = fs.ModeDir
+	case DT_LNK:
+		typ = fs.ModeSymlink
+	case DT_FIFO:
+		typ = fs.ModeNamedPipe
+	case DT_SOCK:
+		typ = fs.ModeSocket
+	default: // DT_WHT, DT_UNKNOWN
+		typ = fs.ModeIrregular
+	}
+
+	ino = dirent.ino
+	off = dirent.off
+
+	i := sizeOfDirent
+	j := int(dirent.reclen)
+	name = buf[i:j:j]
+
+	k := bytes.IndexByte(name, 0)
+	if k >= 0 {
+		name = name[:k:k]
+	}
+
+	n = int(dirent.reclen)
+	return
+}
+
 // WriteDirent writes a directory entry to buf.
 //
 // Thie function is useful to create implementations of the FileSystem interface

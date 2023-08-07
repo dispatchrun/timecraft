@@ -2,6 +2,7 @@ package tarfs
 
 import (
 	"archive/tar"
+	"fmt"
 	"io"
 	"io/fs"
 	"sync"
@@ -70,6 +71,10 @@ type openFile struct {
 	file atomic.Pointer[file]
 	seek sync.Mutex
 	data io.SectionReader
+}
+
+func (f *openFile) String() string {
+	return fmt.Sprintf("&tarfs.openFile{name:%q}", f.name)
 }
 
 func (f *openFile) Name() string {
