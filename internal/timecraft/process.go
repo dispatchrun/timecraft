@@ -141,23 +141,20 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 	listen := &net.ListenConfig{}
 	netopts := []sandbox.LocalOption{}
 
-	if proxyPath := moduleSpec.ProxyPath; proxyPath != "" {
-		// TODO: how should the proxy module be configured (e.g. env/args)?
-		proxyProcessID, err := pm.Start(ModuleSpec{
-			Path:   proxyPath,
-			Stdout: moduleSpec.Stdout,
-			Stderr: moduleSpec.Stderr,
-			Dirs:   moduleSpec.Dirs,
-		}, logSpec.Fork(), nil)
+	// If an outbound proxy was specified, route outbound traffic through it.
+	// Otherwise, configure the instance so that it dials on the host network.
+	if outboundProxy := moduleSpec.OutboundProxy; outboundProxy != nil {
+		proxyProcessID, err := pm.Start(*outboundProxy, logSpec.Fork(), nil)
 		if err != nil {
-			return ProcessID{}, fmt.Errorf("failed to initialize proxy %q: %w", proxyPath, err)
+			return ProcessID{}, fmt.Errorf("failed to initialize outbound proxy %v: %w", outboundProxy, err)
 		}
-		fmt.Println("PROXY:", proxyProcessID)
-
 		proxyProcess, ok := pm.Lookup(proxyProcessID)
 		if !ok {
-			return ProcessID{}, fmt.Errorf("failed to initialize proxy %q: process is not available", proxyPath)
+			return ProcessID{}, fmt.Errorf("failed to initialize outbound proxy %v: process is not available", outboundProxy)
 		}
+		fmt.Println("OUTBOUND PROXY:", proxyProcessID)
+
+		// Connect the two instances.
 		netopts = append(netopts, sandbox.DialFunc(func(ctx context.Context, network string, address string) (net.Conn, error) {
 			_, dialPort, err := net.SplitHostPort(address)
 			if err != nil {

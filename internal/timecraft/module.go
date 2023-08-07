@@ -47,9 +47,10 @@ type ModuleSpec struct {
 	// sockets.
 	HostNetworkBinding bool
 
-	// Proxy is the path of the WebAssembly module that proxies network
-	// traffic for the module.
-	ProxyPath string
+	// OutboundProxy is a run specification for a WebAssembly module to be
+	// spawn alongside this module. The extra module is a sidecar that proxies
+	// outbound network traffic.
+	OutboundProxy *ModuleSpec
 }
 
 // Key is a string that uniquely identifies the ModuleSpec.

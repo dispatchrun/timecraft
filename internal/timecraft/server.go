@@ -81,21 +81,44 @@ func (s *Server) SubmitTasks(ctx context.Context, req *connect.Request[v1.Submit
 	return res, nil
 }
 
-func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
-	moduleSpec := s.moduleSpec // inherit from the parent
-	moduleSpec.Dials = nil     // not supported
-	moduleSpec.Listens = nil   // not supported
-	moduleSpec.Stdin = nil     // task handlers receive no data on stdin
-	moduleSpec.Args = req.Module.Args
-	moduleSpec.Env = append(moduleSpec.Env[:len(moduleSpec.Env):len(moduleSpec.Env)], req.Module.Env...)
-	if path := req.Module.Path; path != "" {
-		moduleSpec.Path = path
-	}
-	// The task processes can only bind on their virtual network, we don't
-	// create bridges to the host network for them. Only timecraft can open
-	// connections and send requests to those processes.
-	moduleSpec.HostNetworkBinding = false
+func (s *Server) subprocessModuleSpec(r *v1.ModuleSpec) ModuleSpec {
+	child := s.moduleSpec // shallow copy the parent
 
+	// Inherit the parent's path.
+	if path := r.Path; path != "" {
+		child.Path = path
+	}
+
+	// Override the parent's args.
+	child.Args = r.Args
+
+	// Inherit and then override the parent's env.
+	child.Env = append(child.Env[:len(child.Env):len(child.Env)], r.Env...)
+
+	// Stdout/stderr are inherited from the parent, but stdin is disabled.
+	child.Stdin = nil
+
+	// TODO: child.Dirs? it's inherited at the moment, but this might not be the best model
+
+	// Subprocesses can only bind on their virtual network. We don't
+	// create bridges to the host network for them. Only Timecraft can
+	// open connections and send requests to those processes.
+	child.HostNetworkBinding = false
+
+	// Pre-opened sockets are not available on subprocesses.
+	child.Dials = nil
+	child.Listens = nil
+
+	// Assign an optional outbound proxy module spec.
+	if r.OutboundProxy != nil {
+		proxy := s.subprocessModuleSpec(r.OutboundProxy)
+		child.OutboundProxy = &proxy
+	}
+
+	return child
+}
+
+func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 	var input TaskInput
 	switch in := req.Input.(type) {
 	case *v1.TaskRequest_HttpRequest:
@@ -112,6 +135,7 @@ func (s *Server) submitTask(req *v1.TaskRequest) (TaskID, error) {
 		input = httpRequest
 	}
 
+	moduleSpec := s.subprocessModuleSpec(req.Module)
 	taskID, err := s.tasks.Submit(moduleSpec, s.logSpec.Fork(), input, s.processID)
 	if err != nil {
 		return TaskID{}, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to submit task: %w", err))
@@ -216,23 +240,15 @@ func (s *Server) ProcessID(context.Context, *connect.Request[v1.ProcessIDRequest
 }
 
 func (s *Server) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest]) (*connect.Response[v1.SpawnResponse], error) {
-	moduleSpec := s.moduleSpec // inherit from the parent
-	moduleSpec.Dials = nil     // not supported
-	moduleSpec.Listens = nil   // not supported
-	moduleSpec.Stdin = nil     // task handlers receive no data on stdin
-	moduleSpec.Args = req.Msg.Module.Args
-	moduleSpec.Env = append(moduleSpec.Env[:len(moduleSpec.Env):len(moduleSpec.Env)], req.Msg.Module.Env...)
-	if path := req.Msg.Module.Path; path != "" {
-		moduleSpec.Path = path
-	}
-	// Host networking is not available on child processes.
-	moduleSpec.HostNetworkBinding = false
-
+	moduleSpec := s.subprocessModuleSpec(req.Msg.Module)
 	processID, err := s.processes.Start(moduleSpec, s.logSpec.Fork(), &s.processID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to spawn process: %w", err))
 	}
-	processInfo, _ := s.processes.Lookup(processID)
+	processInfo, ok := s.processes.Lookup(processID)
+	if !ok {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to spawn process: process is not available"))
+	}
 	return connect.NewResponse(&v1.SpawnResponse{
 		ProcessId: processID.String(),
 		IpAddress: processInfo.Addr.String(),
