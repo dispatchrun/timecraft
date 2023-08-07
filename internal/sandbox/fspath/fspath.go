@@ -148,7 +148,3 @@ func TrimTrailingSlash(s string) string {
 func IsAbs(path string) bool {
 	return len(path) > 0 && path[0] == '/'
 }
-
-func IsLeaf(path string) bool {
-	return IndexSlash(path) < 0
-}
