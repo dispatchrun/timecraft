@@ -16,7 +16,7 @@ func TestReadDirent(t *testing.T) {
 	n += sandbox.WriteDirent(b[n:], fs.ModeDir, 2, uint64(n), "..")
 	n += sandbox.WriteDirent(b[n:], 0, 3, uint64(n), "hello")
 	n += sandbox.WriteDirent(b[n:], fs.ModeSymlink, 4, uint64(n), "world")
-	_ = n
+	b = b[:n]
 
 	n, typ, ino, _, name, err := sandbox.ReadDirent(b)
 	assert.OK(t, err)
@@ -39,11 +39,13 @@ func TestReadDirent(t *testing.T) {
 	assert.Equal(t, string(name), "hello")
 	b = b[n:]
 
-	_, typ, ino, _, name, err = sandbox.ReadDirent(b)
+	n, typ, ino, _, name, err = sandbox.ReadDirent(b)
 	assert.OK(t, err)
 	assert.Equal(t, typ, fs.ModeSymlink)
 	assert.Equal(t, ino, 4)
 	assert.Equal(t, string(name), "world")
+	b = b[n:]
+	assert.Equal(t, len(b), 0)
 }
 
 func TestWriteDirent(t *testing.T) {
