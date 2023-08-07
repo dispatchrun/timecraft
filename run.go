@@ -51,7 +51,6 @@ func run(ctx context.Context, args []string) error {
 		flyBlind    = false
 		restrict    = false
 		trace       = false
-		proxy       = ""
 	)
 
 	flagSet := newFlagSet("timecraft run", runUsage)
@@ -66,7 +65,6 @@ func run(ctx context.Context, args []string) error {
 	boolVar(flagSet, &restrict, "restrict")
 	customVar(flagSet, &batchSize, "record-batch-size")
 	customVar(flagSet, &compression, "record-compression")
-	stringVar(flagSet, &proxy, "proxy")
 
 	if err := flagSet.Parse(args); err != nil {
 		return err
@@ -145,7 +143,6 @@ func run(ctx context.Context, args []string) error {
 		// so server applications can receive connections as if they were
 		// running outside of timecraft.
 		HostNetworkBinding: true,
-		ProxyPath:          proxy,
 	}
 	if trace {
 		moduleSpec.Trace = os.Stderr
