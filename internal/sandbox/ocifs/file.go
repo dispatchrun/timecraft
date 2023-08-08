@@ -103,6 +103,14 @@ func (f *file) openFile(name string, flags int, mode fs.FileMode) (sandbox.File,
 				// below, and it is masked by the upper directory layers.
 				break
 			}
+			if errors.Is(err, sandbox.ENOTDIR) && ((flags & sandbox.O_NOFOLLOW) != 0) && len(files) > 0 {
+				// The program attempted to open a directory but a lower layer
+				// had a file of a different type with the same name. This is
+				// an indicator that we must stop merging layers here because
+				// the file masks its lower layers and it is masked by the
+				// directories at the upper layers.
+				break
+			}
 			if !errors.Is(err, sandbox.ENOENT) {
 				// Errors other than ENOENT indicate that something went wrong
 				// and we must abort path resolution because we might otherwise
