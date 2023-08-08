@@ -10,7 +10,7 @@ For a deep dive into the technology, see [this blog post](https://blog.stealthro
 
 Here's an example process:
 
-```
+```bash
 $ timecraft run testdata/go/echo.wasm foo
 9341c1c8-1d9b-43b5-a140-b36f866e00cf
 foo
@@ -19,7 +19,7 @@ foo
 To generate profiles, use the `timecraft profile` command. This will generate a CPU
 profile and memory profile, and write them to the registry:
 
-```
+```bash
 $ timecraft profile 9341c1c8-1d9b-43b5-a140-b36f866e00cf
 PROFILE ID    PROCESS ID                            TYPE    START   DURATION  SIZE
 a53837e395c3  9341c1c8-1d9b-43b5-a140-b36f866e00cf  cpu     6s ago  5ms       37.6 KiB
@@ -33,14 +33,14 @@ time range and sampling rate. See `timecraft profile -h`.
 
 To export a profile from the registry, use `timecraft export profile`:
 
-```
-$ timecraft export profile a53837e395c3 profile.out
+```bash
+timecraft export profile a53837e395c3 profile.out
 ```
 
 To view the profile interactively, use:
 
-```
-$ go tool pprof -http :3000 profile.out
+```bash
+go tool pprof -http :3000 profile.out
 ```
 
 ## Profiling Issues

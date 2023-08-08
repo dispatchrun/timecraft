@@ -17,7 +17,7 @@ abilities. Server-side and further configuration options will be supported as
 needed. [Send a pull request!][htls-code]
 
 [htls-code]: https://github.com/stealthrocket/timecraft
-[tracing]: /using-timecraft/execution-tracing.md
+[tracing]: /guides/execution-tracing.md
 
 At a very high level, hTLS works by setting a special option on a socket. How
 to set that option is described in the [Usage](#usage) section below. Socket
@@ -92,7 +92,7 @@ with socket.create_connection((hostname, 443)) as sock:
         print(buf[:nbytes])
 ```
 
-[python]: /getting-started/prep-application/compiling-python.md
+[python]: /applications/python
 [requests]: https://requests.readthedocs.io/en/latest/
 
 ### C

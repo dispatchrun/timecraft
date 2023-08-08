@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+sidebar_position: 3
 ---
 # Configuring Timecraft
 
@@ -9,12 +9,12 @@ Timecraft directory and configuration file are created on demand.
 
 To view the current Timecraft configuration, run:
 
-```console
-$ timecraft config
+```bash
+timecraft config
 ```
 
 To edit the Timecraft configuration with your `$EDITOR`, run:
 
-```console
-$ timecraft config --edit
+```bash
+timecraft config --edit
 ```

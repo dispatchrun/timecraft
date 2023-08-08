@@ -7,8 +7,8 @@ during execution, they are generated after the fact.
 
 To show a trace of [WASI](https://wasi.dev/) system calls made by the WebAssembly module, use:
 
-```console
-$ timecraft run --trace <MODULE>
+```bash
+timecraft run --trace <MODULE>
 ```
 
 This is similar to the [`strace`](https://man7.org/linux/man-pages/man1/strace.1.html) tool
@@ -16,8 +16,8 @@ on Linux.
 
 To show a trace of WASI system calls made by a process that was running in the past, use:
 
-```console
-$ timecraft replay --trace <ID>
+```bash
+timecraft replay --trace <ID>
 ```
 
 ## Network Tracing
@@ -26,7 +26,7 @@ Timecraft can trace network activity.
 
 Here's an example application that makes an HTTP request:
 
-```
+```bash
 $ timecraft run testdata/go/get.wasm https://eo3qh2ncelpc9q0.m.pipedream.net
 b5770968-2ec7-4307-b613-61e8e9b2f9d2
 Hello, World!
@@ -34,7 +34,7 @@ Hello, World!
 
 To trace low-level networking activity, use:
 
-```
+```bash
 $ timecraft trace network b5770968-2ec7-4307-b613-61e8e9b2f9d2
 2023/06/30 08:13:20.463329 TCP 172.16.0.0:49152 > 44.194.85.187:443: CONN EINPROGRESS
 2023/06/30 08:13:20.947931 TCP 172.16.0.0:49152 > 44.194.85.187:443: SEND OK 112
@@ -43,7 +43,7 @@ $ timecraft trace network b5770968-2ec7-4307-b613-61e8e9b2f9d2
 
 To show bytes transmitted, use `-v`:
 
-```
+```bash
 $ timecraft trace network -v b5770968-2ec7-4307-b613-61e8e9b2f9d2
 [23] 2023/06/30 08:13:20.463329 TCP 172.16.0.0:49152 > 44.194.85.187:443: CONN EINPROGRESS
 [40] 2023/06/30 08:13:20.947931 TCP 172.16.0.0:49152 > 44.194.85.187:443: SEND OK 112
@@ -76,14 +76,14 @@ $ timecraft trace network -v b5770968-2ec7-4307-b613-61e8e9b2f9d2
 
 To trace HTTP requests, use:
 
-```
+```bash
 $ timecraft trace request b5770968-2ec7-4307-b613-61e8e9b2f9d2
 2023/06/30 08:13:24.326929 HTTP 172.16.0.0:49152 > 44.194.85.187:443: GET / => 200 OK
 ```
 
 To show HTTP headers/body, use `-v`:
 
-```
+```bash
 $ timecraft trace request -v b5770968-2ec7-4307-b613-61e8e9b2f9d2
 2023/06/30 08:13:24.326929 HTTP 172.16.0.0:49152 > 44.194.85.187:443
 > GET / HTTP/1.1

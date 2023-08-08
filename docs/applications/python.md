@@ -11,7 +11,7 @@ create servers and connect to databases. We intend to upstream our patches at so
 
 We provide a pre-compiled Python interpreter and patched standard library. You can download them by running
 
-```
+```bash
 curl -fsSL https://timecraft.s3.amazonaws.com/python/main/python.wasm -o python.wasm
 curl -fsSL https://timecraft.s3.amazonaws.com/python/main/python311.zip -o python311.zip
 ```
@@ -25,9 +25,9 @@ To build Python from scratch, see the instructions in the
 
 It's recommended that you install your Python dependencies in a virtualenv:
 
-```console
-$ python3 -m venv env
-$ source ./env/bin/activate
+```bash
+python3 -m venv env
+source ./env/bin/activate
 (env) $ pip install -r /path/to/requirements.txt
 ```
 
@@ -40,13 +40,13 @@ Assuming both the interpreter (`python.wasm`) and standard library (`python311.z
 are located in the current directory, you can pass this information to the
 interpreter like so:
 
-```
-$ export PYTHONHOME=env
-$ export PYTHONPATH=python311.zip:$PYTHONHOME
+```bash
+export PYTHONHOME=env
+export PYTHONPATH=python311.zip:$PYTHONHOME
 ```
 
 You can now run your application:
 
-```
-$ timecraft run python.wasm main.py
+```bash
+timecraft run python.wasm main.py
 ```

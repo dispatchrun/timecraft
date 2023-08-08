@@ -1,4 +1,4 @@
-# Task orchestration
+# Durable execution
 
 Timecraft includes a technical preview of a task orchestration feature.
 

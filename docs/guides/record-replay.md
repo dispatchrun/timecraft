@@ -6,7 +6,7 @@ Timecraft records a trace of execution to a log, and stores the log and the WebA
 
 Here's an example (`hello.go`):
 
-```go
+```go showLineNumbers
 package main
 
 import "fmt"
@@ -16,8 +16,8 @@ func main() {
 }
 ```
 
-```console
-$ GOOS=wasip1 GOARCH=wasm gotip build -o hello.wasm hello.go
+```bash
+$ GOOS=wasip1 GOARCH=wasm go build -o hello.wasm hello.go
 $ timecraft run hello.wasm
 7fdf35be-42e5-43ed-8417-8bc56e4cefd0
 Hello, World!
@@ -31,7 +31,7 @@ The identifier can be used to replay or analyze execution at a later stage.
 
 To replay execution, use:
 
-```console
+```bash
 $ timecraft replay 7fdf35be-42e5-43ed-8417-8bc56e4cefd0
 Hello, World!
 ```
@@ -50,15 +50,15 @@ Timecraft stores resources, such as process logs and WebAssembly modules, in a l
 
 To list resource types:
 
-```console
-$ timecraft get
+```bash
+timecraft get
 ```
 
 ### Processes
 
 To show recently executed processes:
 
-```console
+```bash
 $ timecraft get process
 PROCESS ID                            START    SIZE
 7fdf35be-42e5-43ed-8417-8bc56e4cefd0  17m ago  2.43 KiB
@@ -66,7 +66,7 @@ PROCESS ID                            START    SIZE
 
 To show details about a process and its trace of execution:
 
-```console
+```bash
 $ timecraft describe process 7fdf35be-42e5-43ed-8417-8bc56e4cefd0
 ID:      7fdf35be-42e5-43ed-8417-8bc56e4cefd0
 Start:   16m ago, Thu, 29 Jun 2023 16:33:32 AEST
@@ -87,7 +87,7 @@ SEGMENT  RECORDS  BATCHES  DURATION  SIZE      UNCOMPRESSED SIZE  COMPRESSED SIZ
 
 To show WebAssembly modules that were recently executed:
 
-```console
+```bash
 $ timecraft get module
 MODULE ID     MODULE NAME  SIZE
 9aa43ada4d63  hello.wasm   1.94 MiB
@@ -95,7 +95,7 @@ MODULE ID     MODULE NAME  SIZE
 
 To show details about a WebAssembly module:
 
-```console
+```bash
 $ timecraft describe module 9aa43ada4d63
 ID:   sha256:9aa43ada4d6394d6df8bbb32d8481fb00d2bc967049a465f01c5c3baf00703e0
 Name: hello.wasm
@@ -105,6 +105,6 @@ Size: 1.94 MiB
 
 To export a WebAssembly module:
 
-```console
-$ timecraft export module 9aa43ada4d63 hello2.wasm
+```bash
+timecraft export module 9aa43ada4d63 hello2.wasm
 ```
