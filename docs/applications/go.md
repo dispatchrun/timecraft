@@ -49,7 +49,7 @@ Let's go over a quick example.
 
 
 ```go reference title="Simple HTTP server listening on http://localhost:3000"
-https://github.com/stealthrocket/net/blob/example-httpserver/examples/httpserver/main.go
+https://github.com/stealthrocket/net/blob/main/examples/httpserver/main.go
 ```
 
 In this example, we create a listener using WASI as well as the WasmEdge extension in order to serve incoming HTTP request through the WASI layer.
