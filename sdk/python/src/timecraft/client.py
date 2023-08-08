@@ -4,7 +4,7 @@ from typing import Optional
 from pprint import pprint
 from enum import Enum
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import requests
 
 
@@ -32,8 +32,11 @@ TaskID = str
 
 @dataclass
 class ModuleSpec:
-    path: str
-    args: list[str]
+    path: Optional[str] = None
+    function: Optional[str] = None
+    args: list[str] = field(default_factory=list)
+    env: list[str] = field(default_factory=list)
+    outbound_proxy: Optional["ModuleSpec"] = None
 
 
 @dataclass

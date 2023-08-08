@@ -50,6 +50,11 @@ type ModuleSpec struct {
 	// Allow the module to bind to the host network when opening listening
 	// sockets.
 	HostNetworkBinding bool
+
+	// OutboundProxy is a run specification for a WebAssembly module to be
+	// spawn alongside this module. The extra module is a sidecar that proxies
+	// outbound network traffic.
+	OutboundProxy *ModuleSpec
 }
 
 // Key is a string that uniquely identifies the ModuleSpec.
@@ -78,4 +83,15 @@ type LogSpec struct {
 	StartTime   time.Time
 	Compression timemachine.Compression
 	BatchSize   int
+}
+
+func (l *LogSpec) Fork() *LogSpec {
+	if l == nil {
+		return nil
+	}
+	return &LogSpec{
+		StartTime:   time.Now(),
+		BatchSize:   l.BatchSize,
+		Compression: l.Compression,
+	}
 }

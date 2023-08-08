@@ -90,8 +90,9 @@ func (*HTTPResponse) taskOutput() {}
 
 // ModuleSpec is a WebAssembly module specification.
 type ModuleSpec struct {
-	Function string
-	Path     string
-	Args     []string
-	Env      []string
+	Path          string
+	Function      string
+	Args          []string
+	Env           []string
+	OutboundProxy *ModuleSpec
 }

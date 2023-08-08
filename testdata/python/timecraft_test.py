@@ -25,7 +25,7 @@ class TestTimecraft(unittest.TestCase):
 
         dir = os.path.dirname(__file__)
         worker_py = os.path.join(dir, "task_worker.py")
-        worker = timecraft.ModuleSpec(path="", args=[worker_py])
+        worker = timecraft.ModuleSpec(args=[worker_py])
 
         requests = [
             timecraft.HTTPRequest(method="POST",
@@ -67,7 +67,7 @@ class TestTimecraft(unittest.TestCase):
     def test_spawn(self):
         dir = os.path.dirname(__file__)
         worker_py = os.path.join(dir, "spawn_worker.py")
-        worker = timecraft.ModuleSpec(path="", args=[worker_py])
+        worker = timecraft.ModuleSpec(args=[worker_py])
 
         process_id, ip_address = self.client.spawn(worker)
         try:

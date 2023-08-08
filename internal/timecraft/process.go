@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -62,9 +61,9 @@ type ProcessInfo struct {
 	// Addr is a unique IP address for the process.
 	Addr netip.Addr
 
-	// Transport is an HTTP transport that can be used to send work to
-	// the process over the work socket.
-	Transport *http.Transport
+	// DialContext is a dialer that can be used to send work to the
+	// process over the work socket.
+	DialContext func(ctx context.Context, network, address string) (net.Conn, error)
 
 	// ParentID is the ID of the process that spawned this one (if applicable).
 	ParentID *ProcessID
@@ -140,8 +139,32 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 
 	dialer := &net.Dialer{}
 	listen := &net.ListenConfig{}
-	netopts := []sandbox.LocalOption{
-		sandbox.DialFunc(dialer.DialContext),
+	netopts := []sandbox.LocalOption{}
+
+	// If an outbound proxy was specified, route outbound traffic through it.
+	// Otherwise, configure the instance so that it dials on the host network.
+	if outboundProxy := moduleSpec.OutboundProxy; outboundProxy != nil {
+		proxyProcessID, err := pm.Start(*outboundProxy, logSpec.Fork(), nil)
+		if err != nil {
+			return ProcessID{}, fmt.Errorf("failed to initialize outbound proxy %v: %w", outboundProxy, err)
+		}
+		proxyProcess, ok := pm.Lookup(proxyProcessID)
+		if !ok {
+			return ProcessID{}, fmt.Errorf("failed to initialize outbound proxy %v: process is not available", outboundProxy)
+		}
+		fmt.Println("OUTBOUND PROXY:", proxyProcessID)
+
+		// Connect the two instances.
+		netopts = append(netopts, sandbox.DialFunc(func(ctx context.Context, network string, address string) (net.Conn, error) {
+			_, dialPort, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			address = net.JoinHostPort(proxyProcess.Addr.String(), dialPort)
+			return proxyProcess.DialContext(ctx, network, address)
+		}))
+	} else {
+		netopts = append(netopts, sandbox.DialFunc(dialer.DialContext))
 	}
 
 	if moduleSpec.HostNetworkBinding {
@@ -364,22 +387,20 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 		ID:       processID,
 		ParentID: parentID,
 		Addr:     ipv4Addr,
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, address string) (conn net.Conn, err error) {
-				// The process isn't necessarily available to take on work immediately.
-				// Retry with exponential backoff when an ECONNREFUSED is encountered.
-				// TODO: make these configurable?
-				const (
-					maxAttempts = 10
-					minDelay    = 500 * time.Millisecond
-					maxDelay    = 5 * time.Second
-				)
-				retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
-					conn, err = guest.Dial(ctx, network, address)
-					return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT)
-				})
-				return
-			},
+		DialContext: func(ctx context.Context, network, address string) (conn net.Conn, err error) {
+			// The process isn't necessarily available to take on work immediately.
+			// Retry with exponential backoff when an ECONNREFUSED is encountered.
+			// TODO: make these configurable?
+			const (
+				maxAttempts = 10
+				minDelay    = 500 * time.Millisecond
+				maxDelay    = 5 * time.Second
+			)
+			retry(ctx, maxAttempts, minDelay, maxDelay, func() bool {
+				conn, err = guest.Dial(ctx, network, address)
+				return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT)
+			})
+			return
 		},
 		ctx:    ctx,
 		cancel: cancel,

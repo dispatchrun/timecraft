@@ -24,6 +24,7 @@ message ModuleSpec {
   string function = 2;
   repeated string args = 3;
   repeated string env = 4;
+  ModuleSpec outbound_proxy = 5;
 }
 
 message HTTPRequest {
