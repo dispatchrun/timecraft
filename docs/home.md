@@ -28,7 +28,7 @@ We are preparing the Timecraft public roadmap and will be publish it soon on Git
 Install Timecraft and run your first application locally.
 
 ```bash
-curl -sL https://timecraft.dev/install.sh | bash
+go install github.com/stealthrocket/timecraft@latest
 ```
 
 Compile your application to WebAssembly and run it:

@@ -17,7 +17,7 @@ func main() {
 ```
 
 ```bash
-$ GOOS=wasip1 GOARCH=wasm gotip build -o hello.wasm hello.go
+$ GOOS=wasip1 GOARCH=wasm go build -o hello.wasm hello.go
 $ timecraft run hello.wasm
 7fdf35be-42e5-43ed-8417-8bc56e4cefd0
 Hello, World!
