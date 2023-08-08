@@ -20,7 +20,7 @@ container.image ?= ghcr.io/stealthrocket/timecraft-python
 
 python.commit.long = $(shell git log --format=format:%H -n1 -- .)
 
-docker-build: 
+docker-build:
 	docker build -f Dockerfile.timecraft -t $(container.image):$(container.version) .
 
 docker-buildx:
