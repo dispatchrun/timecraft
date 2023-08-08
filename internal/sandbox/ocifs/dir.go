@@ -21,7 +21,6 @@ type dirbuf struct {
 	index   int
 	offset  uint64
 	entries []dirent
-	strings stringAllocator
 }
 
 // init is called autoamtically by readDirent to initialize the directory
@@ -42,6 +41,7 @@ type dirbuf struct {
 func (d *dirbuf) init(files []sandbox.File) error {
 	buf := make([]byte, 2*sandbox.PATH_MAX)
 	names := make(map[string]struct{}, 16)
+	alloc := stringAllocator{}
 	opaque := false
 
 	for _, f := range files {
@@ -69,7 +69,7 @@ func (d *dirbuf) init(files []sandbox.File) error {
 					continue
 				}
 
-				name := d.strings.makeString(ent)
+				name := alloc.makeString(ent)
 				switch {
 				case name == whiteoutOpaque:
 					opaque = true
