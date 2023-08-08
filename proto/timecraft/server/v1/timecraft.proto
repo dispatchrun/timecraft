@@ -21,10 +21,10 @@ message TaskResponse {
 
 message ModuleSpec {
   string path = 1;
-  repeated string args = 2;
-  repeated string env = 3;
-
-  ModuleSpec outbound_proxy = 4;
+  string function = 2;
+  repeated string args = 3;
+  repeated string env = 4;
+  ModuleSpec outbound_proxy = 5;
 }
 
 message HTTPRequest {

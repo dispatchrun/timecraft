@@ -84,10 +84,13 @@ func (s *Server) SubmitTasks(ctx context.Context, req *connect.Request[v1.Submit
 func (s *Server) subprocessModuleSpec(r *v1.ModuleSpec) ModuleSpec {
 	child := s.moduleSpec // shallow copy the parent
 
-	// Inherit the parent's path.
+	// Inherit/override the parent's path.
 	if path := r.Path; path != "" {
 		child.Path = path
 	}
+
+	// Override the parent's function.
+	child.Function = r.Function
 
 	// Override the parent's args.
 	child.Args = r.Args

@@ -8,8 +8,9 @@ import (
 	"os/user"
 	"path"
 	"strconv"
-	"strings"
 	"time"
+
+	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 )
 
 const (
@@ -18,7 +19,7 @@ const (
 	//
 	// This limit applies to RootFS, EvalSymlinks, and the functions that
 	// depend on it.
-	maxFollowSymlink = 10
+	MaxFollowSymlink = 10
 )
 
 // FileSystem is the interface representing file systems.
@@ -123,11 +124,11 @@ func MkdirAll(fsys FileSystem, name string, mode fs.FileMode) error {
 }
 
 func mkdirAll(fsys FileSystem, name string, mode fs.FileMode) error {
-	path := cleanPath(name)
+	path := fspath.Clean(name)
 	if path == "/" || path == "." {
 		return nil
 	}
-	path = strings.TrimPrefix(path, "/")
+	path = fspath.TrimLeadingSlash(path)
 
 	d, err := OpenRoot(fsys)
 	if err != nil {
@@ -137,10 +138,7 @@ func mkdirAll(fsys FileSystem, name string, mode fs.FileMode) error {
 
 	for path != "" {
 		var dir string
-		dir, path = walkPath(path)
-		if dir == "." {
-			dir, path = path, ""
-		}
+		dir, path = fspath.Walk(path)
 
 		if err := d.Mkdir(dir, mode); err != nil {
 			if !errors.Is(err, EEXIST) {

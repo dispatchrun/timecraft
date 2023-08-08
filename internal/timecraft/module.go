@@ -15,6 +15,10 @@ type ModuleSpec struct {
 	// Path is the path of the WebAssembly module.
 	Path string
 
+	// Name of the exported function to call in the WebAssembly module.
+	// If empty, the _start function will be executed.
+	Function string
+
 	// Args are command-line arguments to pass to the module.
 	Args []string
 

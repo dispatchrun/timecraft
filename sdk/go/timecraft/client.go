@@ -213,9 +213,10 @@ func (c *Client) makeTaskResponse(res *v1.TaskResponse) (TaskResponse, error) {
 
 func (c *Client) makeModuleSpec(module ModuleSpec) *v1.ModuleSpec {
 	p := &v1.ModuleSpec{
-		Path: module.Path,
-		Args: module.Args,
-		Env:  module.Env,
+		Path:     module.Path,
+		Function: module.Function,
+		Args:     module.Args,
+		Env:      module.Env,
 	}
 	if module.OutboundProxy != nil {
 		p.OutboundProxy = c.makeModuleSpec(*module.OutboundProxy)

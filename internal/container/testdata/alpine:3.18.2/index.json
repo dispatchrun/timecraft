@@ -1,0 +1,1 @@
+{"schemaVersion":2,"manifests":[{"mediaType":"application/vnd.docker.distribution.manifest.v2+json","digest":"sha256:e3bd82196e98898cae9fe7fbfd6e2436530485974dc4fb3b7ddb69134eda2407","size":528,"annotations":{"org.opencontainers.image.ref.name":"3.18.2"},"platform":{"architecture":"arm64","os":"linux","variant":"v8"}}]}

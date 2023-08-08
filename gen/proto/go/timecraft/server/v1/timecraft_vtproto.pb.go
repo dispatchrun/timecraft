@@ -214,7 +214,7 @@ func (m *ModuleSpec) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 		i -= size
 		i = encodeVarint(dAtA, i, uint64(size))
 		i--
-		dAtA[i] = 0x22
+		dAtA[i] = 0x2a
 	}
 	if len(m.Env) > 0 {
 		for iNdEx := len(m.Env) - 1; iNdEx >= 0; iNdEx-- {
@@ -222,7 +222,7 @@ func (m *ModuleSpec) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 			copy(dAtA[i:], m.Env[iNdEx])
 			i = encodeVarint(dAtA, i, uint64(len(m.Env[iNdEx])))
 			i--
-			dAtA[i] = 0x1a
+			dAtA[i] = 0x22
 		}
 	}
 	if len(m.Args) > 0 {
@@ -231,8 +231,15 @@ func (m *ModuleSpec) MarshalToSizedBufferVT(dAtA []byte) (int, error) {
 			copy(dAtA[i:], m.Args[iNdEx])
 			i = encodeVarint(dAtA, i, uint64(len(m.Args[iNdEx])))
 			i--
-			dAtA[i] = 0x12
+			dAtA[i] = 0x1a
 		}
+	}
+	if len(m.Function) > 0 {
+		i -= len(m.Function)
+		copy(dAtA[i:], m.Function)
+		i = encodeVarint(dAtA, i, uint64(len(m.Function)))
+		i--
+		dAtA[i] = 0x12
 	}
 	if len(m.Path) > 0 {
 		i -= len(m.Path)
@@ -1155,6 +1162,10 @@ func (m *ModuleSpec) SizeVT() (n int) {
 	if l > 0 {
 		n += 1 + l + sov(uint64(l))
 	}
+	l = len(m.Function)
+	if l > 0 {
+		n += 1 + l + sov(uint64(l))
+	}
 	if len(m.Args) > 0 {
 		for _, s := range m.Args {
 			l = len(s)
@@ -1877,6 +1888,38 @@ func (m *ModuleSpec) UnmarshalVT(dAtA []byte) error {
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Function", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflow
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLength
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLength
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Function = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Args", wireType)
 			}
 			var stringLen uint64
@@ -1907,7 +1950,7 @@ func (m *ModuleSpec) UnmarshalVT(dAtA []byte) error {
 			}
 			m.Args = append(m.Args, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
-		case 3:
+		case 4:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Env", wireType)
 			}
@@ -1939,7 +1982,7 @@ func (m *ModuleSpec) UnmarshalVT(dAtA []byte) error {
 			}
 			m.Env = append(m.Env, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
-		case 4:
+		case 5:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field OutboundProxy", wireType)
 			}

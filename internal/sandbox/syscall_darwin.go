@@ -11,11 +11,21 @@ import (
 const sizeOfDirent = 21
 
 type dirent struct {
-	ino     uint64
-	seekoff uint64
-	reclen  uint16
-	namlen  uint16
-	typ     uint8
+	ino    uint64
+	off    uint64
+	reclen uint16
+	namlen uint16
+	typ    uint8
+}
+
+func makeDirent(typ uint8, ino, off uint64, name string) dirent {
+	return dirent{
+		ino:    ino,
+		off:    off,
+		reclen: sizeOfDirent + uint16(len(name)) + 1,
+		namlen: uint16(len(name)),
+		typ:    typ,
+	}
 }
 
 const (
