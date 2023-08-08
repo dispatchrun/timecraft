@@ -28,6 +28,7 @@ Options:
    -D, --dial addr                Expose a socket connected to the specified address
        --dir dir                  Expose a directory to the guest module
    -e, --env name=value           Pass an environment variable to the guest module
+   -f, --function function        Exported function to call in the guest module (_start if empty)
        --fly-blind                Disable recording of the guest module execution
    -h, --help                     Show this usage information
    -L, --listen addr              Expose a socket listening on the specified address

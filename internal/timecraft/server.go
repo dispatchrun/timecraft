@@ -229,6 +229,7 @@ func (s *Server) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest
 	moduleSpec.Dials = nil     // not supported
 	moduleSpec.Listens = nil   // not supported
 	moduleSpec.Stdin = nil     // task handlers receive no data on stdin
+	moduleSpec.Function = req.Msg.Module.Function
 	moduleSpec.Args = req.Msg.Module.Args
 	moduleSpec.Env = append(moduleSpec.Env[:len(moduleSpec.Env):len(moduleSpec.Env)], req.Msg.Module.Env...)
 	if path := req.Msg.Module.Path; path != "" {
