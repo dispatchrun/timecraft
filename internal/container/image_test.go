@@ -28,7 +28,7 @@ func TestImageStore(t *testing.T) {
 	local, err := oci.New(t.TempDir())
 	assert.OK(t, err)
 
-	remote, err := oci.NewFromFS(ctx, os.DirFS("testdata/alpine:3.18.2"))
+	remote, err := oci.NewFromFS(ctx, os.DirFS("testdata/alpine-3.18.2"))
 	assert.OK(t, err)
 
 	options := oras.DefaultCopyOptions
@@ -49,7 +49,7 @@ func TestImageCache(t *testing.T) {
 	local, err := oci.New(t.TempDir())
 	assert.OK(t, err)
 
-	remote, err := oci.NewFromFS(ctx, os.DirFS("testdata/alpine:3.18.2"))
+	remote, err := oci.NewFromFS(ctx, os.DirFS("testdata/alpine-3.18.2"))
 	assert.OK(t, err)
 
 	cache := &container.ImageCache{
