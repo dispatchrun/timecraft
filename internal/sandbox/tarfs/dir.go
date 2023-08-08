@@ -2,6 +2,7 @@ package tarfs
 
 import (
 	"archive/tar"
+	"fmt"
 	"io/fs"
 	"path"
 	"sort"
@@ -166,6 +167,10 @@ type openDir struct {
 	mu     sync.Mutex
 	index  int
 	offset uint64
+}
+
+func (d *openDir) String() string {
+	return fmt.Sprintf("&tarfs.openDir{name:%q}", d.name)
 }
 
 func (d *openDir) Name() string {

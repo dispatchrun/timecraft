@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 
@@ -32,8 +33,12 @@ func (fsys *rootFS) Open(name string, flags int, mode fs.FileMode) (File, error)
 
 type rootFile struct{ File }
 
+func (f *rootFile) String() string {
+	return fmt.Sprintf("&sandbox.rootFile{%v}", f.File)
+}
+
 func (f *rootFile) Open(name string, flags int, mode fs.FileMode) (File, error) {
-	file, err := resolvePath(f.File, name, flags, func(dir File, name string) (File, error) {
+	file, err := ResolvePath(f.File, name, flags, func(dir File, name string) (File, error) {
 		return dir.Open(name, flags|O_NOFOLLOW, mode)
 	})
 	if err != nil {
@@ -43,7 +48,11 @@ func (f *rootFile) Open(name string, flags int, mode fs.FileMode) (File, error) 
 }
 
 func (f *rootFile) Stat(name string, flags int) (FileInfo, error) {
-	return withPath2("stat", f, name, flags, func(dir File, name string) (FileInfo, error) {
+	openFlags := 0
+	if (flags & AT_SYMLINK_NOFOLLOW) != 0 {
+		openFlags |= O_NOFOLLOW
+	}
+	return withPath2("stat", f, name, openFlags, func(dir File, name string) (FileInfo, error) {
 		info, err := dir.Stat(name, AT_SYMLINK_NOFOLLOW)
 		if err == nil {
 			if info.Mode.Type() == fs.ModeSymlink && ((flags & AT_SYMLINK_NOFOLLOW) == 0) {
@@ -109,7 +118,7 @@ func (f *rootFile) Unlink(name string) error {
 }
 
 func withPath1(op string, root *rootFile, path string, flags int, do func(File, string) error) error {
-	_, err := resolvePath(root.File, path, flags, func(dir File, name string) (_ struct{}, err error) {
+	_, err := ResolvePath(root.File, path, flags, func(dir File, name string) (_ struct{}, err error) {
 		err = do(dir, name)
 		return
 	})
@@ -120,7 +129,7 @@ func withPath1(op string, root *rootFile, path string, flags int, do func(File, 
 }
 
 func withPath2[R any](op string, root *rootFile, path string, flags int, do func(File, string) (R, error)) (ret R, err error) {
-	ret, err = resolvePath(root.File, path, flags, do)
+	ret, err = ResolvePath(root.File, path, flags, do)
 	if err != nil {
 		err = &fs.PathError{Op: op, Path: path, Err: unwrap(err)}
 	}
@@ -141,15 +150,15 @@ func withPath3(op string, f1 *rootFile, path1 string, f2 *rootFile, path2 string
 	return nil
 }
 
-// resolvePath is the path resolution algorithm which guarantees sandboxing of
+// ResolvePath is the path resolution algorithm which guarantees sandboxing of
 // path access in a root FS.
 //
 // The algorithm walks the path name from f, calling the do function when it
 // reaches a path leaf. The function may return ELOOP to indicate that a symlink
-// was encountered and must be followed, in which case resolvePath continues
+// was encountered and must be followed, in which case ResolvePath continues
 // walking the path at the link target. Any other value or error returned by the
 // do function will be returned immediately.
-func resolvePath[R any](dir File, name string, flags int, do func(File, string) (R, error)) (ret R, err error) {
+func ResolvePath[R any](dir File, name string, flags int, do func(File, string) (R, error)) (ret R, err error) {
 	if name == "" {
 		return do(dir, "")
 	}

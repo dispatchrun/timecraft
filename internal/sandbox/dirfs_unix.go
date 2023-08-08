@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 
@@ -30,6 +31,10 @@ func (root dirFS) Open(name string, flags int, mode fs.FileMode) (File, error) {
 type dirFile struct {
 	fd   int
 	name string
+}
+
+func (f *dirFile) String() string {
+	return fmt.Sprintf("&sandbox.dirFile{fd:%d,name:%q}", f.fd, f.name)
 }
 
 func (f *dirFile) Fd() uintptr {
