@@ -83,26 +83,17 @@ func TestOciFSLAyers(t *testing.T) {
 
 		{
 			scenario: "opaque whiteout masks all files in directory",
-			files:    []string{"answer", "tmp/question"},
+			files:    []string{"answer", "tmp", "tmp/question"},
 		},
 
 		{
 			scenario: "open file in lower layer",
-			files:    []string{"home/answer", "home/message"},
+			files:    []string{"home", "home/answer", "home/message"},
 		},
 
 		{
 			scenario: "merge directory trees",
-			files: []string{
-				"a",
-				"b",
-				"c",
-				"a/b",
-				"a/c",
-				"a/b/a",
-				"a/b/b",
-				"a/b/c",
-			},
+			files:    []string{"a", "b", "c", "a/b", "a/c", "a/b/a", "a/b/b", "a/b/c"},
 		},
 	}
 
