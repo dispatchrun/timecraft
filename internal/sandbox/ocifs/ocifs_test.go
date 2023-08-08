@@ -87,6 +87,11 @@ func TestOciFSLAyers(t *testing.T) {
 		},
 
 		{
+			scenario: "open file in lower layer",
+			files:    []string{"home/answer", "home/message"},
+		},
+
+		{
 			scenario: "merge directory trees",
 			files: []string{
 				"a",
