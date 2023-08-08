@@ -181,24 +181,7 @@ func ExtractLayer(ctx context.Context, dst string, src oras.ReadOnlyTarget, desc
 		return nil, err
 	}
 	success = true
-
-	// Technically we could return the temporary file since it points to the
-	// same layer, however:
-	//
-	// - The value returned by calling Name() on the *os.File is the string
-	//   that was used to open it, and the temporary file was opened with a
-	//   different name than the final layer file path.
-	//
-	// - The temporary file is open for writing, the program could mistakenly
-	//   alter the content of the layer if it were to write to it. Reopening
-	//   the file in read-only mode is an extra safeguard that could prevent
-	//   issues in the future.
-	//
-	l, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	return l, nil
+	return duplicateFile(f, path)
 }
 
 // FetchLayer returns a reader exposing the uncompressed content of an image
