@@ -155,18 +155,20 @@ func TestOciFSLAyers(t *testing.T) {
 			for i, path := range paths {
 				layers[i] = sandbox.DirFS(path)
 			}
-
-			files := make([]string, 0, len(test.present))
-			for name, mode := range test.present {
-				switch mode {
-				case 0, fs.ModeDir:
-					files = append(files, name)
-				}
-			}
-			sort.Strings(files)
-
 			fsys := ocifs.New(layers...)
-			assert.OK(t, fstest.TestFS(sandbox.FS(fsys), files...))
+
+			t.Run("fs.FS", func(t *testing.T) {
+				files := make([]string, 0, len(test.present))
+				for name, mode := range test.present {
+					switch mode {
+					case 0, fs.ModeDir:
+						files = append(files, name)
+					}
+				}
+				sort.Strings(files)
+
+				assert.OK(t, fstest.TestFS(sandbox.FS(fsys), files...))
+			})
 
 			t.Run("present", func(t *testing.T) {
 				for _, name := range test.present.names() {
