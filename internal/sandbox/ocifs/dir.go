@@ -74,12 +74,11 @@ func (d *dirbuf) init(files []sandbox.File) error {
 				case strings.HasPrefix(name, whiteoutPrefix):
 					name = name[len(whiteoutPrefix):]
 				default:
-					dirent := dirent{
+					d.entries = append(d.entries, dirent{
 						typ:  typ,
 						ino:  ino,
 						name: name,
-					}
-					d.entries = append(d.entries, dirent)
+					})
 				}
 
 				names[name] = struct{}{}
