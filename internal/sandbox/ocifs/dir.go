@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 )
@@ -20,6 +21,7 @@ type dirbuf struct {
 	index   int
 	offset  uint64
 	entries []dirent
+	strings stringAllocator
 }
 
 // init is called autoamtically by readDirent to initialize the directory
@@ -67,7 +69,7 @@ func (d *dirbuf) init(files []sandbox.File) error {
 					continue
 				}
 
-				name := string(ent)
+				name := d.strings.makeString(ent)
 				switch {
 				case name == whiteoutOpaque:
 					opaque = true
@@ -123,4 +125,28 @@ func (d *dirbuf) readDirent(buf []byte, files []sandbox.File) (int, error) {
 	}
 
 	return n, nil
+}
+
+type stringAllocator struct {
+	buf []byte
+	off int
+}
+
+func (a *stringAllocator) makeString(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	if len(b) > 1024 {
+		return string(b)
+	}
+	if (len(a.buf) - a.off) < len(b) {
+		a.buf = make([]byte, 4096)
+		a.off = 0
+	}
+	i := a.off
+	j := a.off + len(b)
+	a.off = j
+	s := a.buf[i:j:j]
+	copy(s, b)
+	return unsafe.String(&s[0], len(s))
 }
