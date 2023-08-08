@@ -7,11 +7,6 @@ import (
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 )
 
-const (
-	whiteoutPrefix = ".wh."
-	whiteoutOpaque = ".wh..wh..opq"
-)
-
 // FileSystem is an implementation of the sandbox.FileSystem interface that
 // merges OCI layers into a single view.
 type FileSystem struct {

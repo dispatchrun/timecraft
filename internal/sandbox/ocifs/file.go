@@ -10,6 +10,11 @@ import (
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 )
 
+const (
+	whiteoutPrefix = ".wh."
+	whiteoutOpaque = ".wh..wh..opq"
+)
+
 type file struct {
 	mutex  sync.Mutex
 	fsys   *FileSystem
@@ -134,17 +139,10 @@ func (f *file) openFile(name string, flags int, mode fs.FileMode) (sandbox.File,
 		// This point is reached if the file was successfully opened, or if it
 		// did not exist. We must check for whiteout files to determine whether
 		// we must stop merging layers.
-		_, err = file.Stat(whiteout, sandbox.AT_SYMLINK_NOFOLLOW)
-		if err == nil {
-			break
-		} else if !errors.Is(err, sandbox.ENOENT) {
+		if wh, err := hasWhiteout(file, whiteout); err != nil {
 			return nil, err
-		}
-		_, err = file.Stat(whiteoutOpaque, sandbox.AT_SYMLINK_NOFOLLOW)
-		if err == nil {
+		} else if wh {
 			break
-		} else if !errors.Is(err, sandbox.ENOENT) {
-			return nil, err
 		}
 	}
 
@@ -162,6 +160,22 @@ func (f *file) openFile(name string, flags int, mode fs.FileMode) (sandbox.File,
 	ref(open.layers)
 	files = nil // prevents the defer from closing the files
 	return open, nil
+}
+
+func hasWhiteout(file sandbox.File, whiteout string) (has bool, err error) {
+	_, err = file.Stat(whiteout, sandbox.AT_SYMLINK_NOFOLLOW)
+	if err == nil {
+		return true, nil
+	} else if !errors.Is(err, sandbox.ENOENT) {
+		return false, err
+	}
+	_, err = file.Stat(whiteoutOpaque, sandbox.AT_SYMLINK_NOFOLLOW)
+	if err == nil {
+		return true, nil
+	} else if !errors.Is(err, sandbox.ENOENT) {
+		return false, err
+	}
+	return false, nil
 }
 
 func (f *file) open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
@@ -206,6 +220,8 @@ func (f *file) Stat(name string, flags int) (sandbox.FileInfo, error) {
 		l := at.(*file).ref()
 		defer unref(l)
 
+		whiteout := whiteoutPrefix + name
+
 		for _, file := range l.files {
 			info, err := file.Stat(name, sandbox.AT_SYMLINK_NOFOLLOW)
 			if err != nil {
@@ -217,6 +233,12 @@ func (f *file) Stat(name string, flags int) (sandbox.FileInfo, error) {
 					err = sandbox.ELOOP
 				}
 				return info, err
+			}
+
+			if wh, err := hasWhiteout(file, whiteout); err != nil {
+				return info, err
+			} else if wh {
+				break
 			}
 		}
 
@@ -235,6 +257,8 @@ func (f *file) Readlink(name string, buf []byte) (int, error) {
 		l := at.(*file).ref()
 		defer unref(l)
 
+		whiteout := whiteoutPrefix + name
+
 		for _, file := range l.files {
 			n, err := file.Readlink(name, buf)
 			if err != nil {
@@ -243,6 +267,12 @@ func (f *file) Readlink(name string, buf []byte) (int, error) {
 				}
 			} else {
 				return n, nil
+			}
+
+			if wh, err := hasWhiteout(file, whiteout); err != nil {
+				return 0, err
+			} else if wh {
+				break
 			}
 		}
 

@@ -64,36 +64,84 @@ func TestOciFS(t *testing.T) {
 func TestOciFSLAyers(t *testing.T) {
 	tests := []struct {
 		scenario string
-		files    []string
+		present  fileMap
+		missing  fileMap
 	}{
 		{
 			scenario: "whiteout file masks lower layer",
-			files:    []string{"answer"},
+			present:  fileMap{"answer": 0},
 		},
 
 		{
 			scenario: "whiteout directory masks lower layer",
-			files:    []string{"answer"},
+			present:  fileMap{"answer": 0},
 		},
 
 		{
 			scenario: "whiteout symlink masks lower layer",
-			files:    []string{"answer"},
+			present:  fileMap{"answer": 0},
+		},
+
+		{
+			scenario: "whiteout masks file in sub directory",
+			present: fileMap{
+				"a":     fs.ModeDir,
+				"a/a":   0,
+				"a/b":   fs.ModeDir,
+				"a/c":   0,
+				"a/b/a": 0,
+				"a/b/c": 0,
+			},
+			missing: fileMap{
+				"a/b/b": 0,
+			},
 		},
 
 		{
 			scenario: "opaque whiteout masks all files in directory",
-			files:    []string{"answer", "tmp", "tmp/question"},
+			present: fileMap{
+				"answer":       0,
+				"tmp":          fs.ModeDir,
+				"tmp/question": 0,
+			},
+			missing: fileMap{
+				"tmp/a": 0,
+				"tmp/b": 0,
+				"tmp/c": 0,
+			},
 		},
 
 		{
 			scenario: "open file in lower layer",
-			files:    []string{"home", "home/answer", "home/message"},
+			present: fileMap{
+				"home":         fs.ModeDir,
+				"home/answer":  0,
+				"home/message": 0,
+			},
 		},
 
 		{
 			scenario: "merge directory trees",
-			files:    []string{"a", "b", "c", "a/b", "a/c", "a/b/a", "a/b/b", "a/b/c"},
+			present: fileMap{
+				"a":     fs.ModeDir,
+				"b":     fs.ModeDir,
+				"c":     fs.ModeDir,
+				"a/b":   fs.ModeDir,
+				"a/c":   fs.ModeDir,
+				"a/b/a": fs.ModeDir,
+				"a/b/b": fs.ModeDir,
+				"a/b/c": fs.ModeDir,
+			},
+		},
+
+		{
+			scenario: "directory masks file",
+			present:  fileMap{"test": fs.ModeDir},
+		},
+
+		{
+			scenario: "directory masks symlink masks file",
+			present:  fileMap{"test": fs.ModeDir},
 		},
 	}
 
@@ -108,8 +156,65 @@ func TestOciFSLAyers(t *testing.T) {
 				layers[i] = sandbox.DirFS(path)
 			}
 
-			err = fstest.TestFS(sandbox.FS(ocifs.New(layers...)), test.files...)
-			assert.OK(t, err)
+			files := make([]string, 0, len(test.present))
+			for name, mode := range test.present {
+				switch mode {
+				case 0, fs.ModeDir:
+					files = append(files, name)
+				}
+			}
+			sort.Strings(files)
+
+			fsys := ocifs.New(layers...)
+			assert.OK(t, fstest.TestFS(sandbox.FS(fsys), files...))
+
+			t.Run("present", func(t *testing.T) {
+				for _, name := range test.present.names() {
+					t.Run(name, func(t *testing.T) {
+						mode := test.present[name]
+
+						info, err := sandbox.Lstat(fsys, name)
+						assert.OK(t, err)
+						assert.Equal(t, info.Mode.Type(), mode)
+
+						switch mode {
+						case 0, fs.ModeDir:
+							f, err := sandbox.Open(fsys, name)
+							assert.OK(t, err)
+
+							s, err := f.Stat("", 0)
+							assert.OK(t, err)
+							assert.OK(t, f.Close())
+
+							assert.Equal(t, s.Mode.Type(), mode)
+						}
+					})
+				}
+			})
+
+			t.Run("missing", func(t *testing.T) {
+				for _, name := range test.missing.names() {
+					t.Run(name, func(t *testing.T) {
+						var err error
+
+						_, err = sandbox.Lstat(fsys, name)
+						assert.Error(t, err, sandbox.ENOENT)
+
+						_, err = sandbox.Open(fsys, name)
+						assert.Error(t, err, sandbox.ENOENT)
+					})
+				}
+			})
 		})
 	}
+}
+
+type fileMap map[string]fs.FileMode
+
+func (m fileMap) names() []string {
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	return names
 }
