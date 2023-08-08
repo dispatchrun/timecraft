@@ -53,35 +53,36 @@ func (d *dirbuf) init(files []sandbox.File) error {
 			}
 
 			for b := buf[:n]; len(b) > 0; {
-				n, typ, ino, _, name, err := sandbox.ReadDirent(b)
+				n, typ, ino, _, ent, err := sandbox.ReadDirent(b)
 				if err != nil {
 					if err == io.ErrShortBuffer {
 						break
 					}
 					return err
 				}
+				b = b[n:]
 
-				if _, seen := names[string(name)]; !seen {
-					name := string(name)
-
-					switch {
-					case name == whiteoutOpaque:
-						opaque = true
-					case strings.HasPrefix(name, whiteoutPrefix):
-						name = name[len(whiteoutPrefix):]
-					default:
-						dirent := dirent{
-							typ:  typ,
-							ino:  ino,
-							name: name,
-						}
-						d.entries = append(d.entries, dirent)
-					}
-
-					names[name] = struct{}{}
+				_, seen := names[string(ent)]
+				if seen {
+					continue
 				}
 
-				b = b[n:]
+				name := string(ent)
+				switch {
+				case name == whiteoutOpaque:
+					opaque = true
+				case strings.HasPrefix(name, whiteoutPrefix):
+					name = name[len(whiteoutPrefix):]
+				default:
+					dirent := dirent{
+						typ:  typ,
+						ino:  ino,
+						name: name,
+					}
+					d.entries = append(d.entries, dirent)
+				}
+
+				names[name] = struct{}{}
 			}
 		}
 
