@@ -27,6 +27,9 @@ func (fsys *rootFS) Open(name string, flags int, mode fs.FileMode) (File, error)
 	if err != nil {
 		return nil, err
 	}
+	if fspath.IsRoot(name) {
+		return &rootFile{f}, nil
+	}
 	defer f.Close()
 	return (&rootFile{f}).Open(name, flags, mode)
 }

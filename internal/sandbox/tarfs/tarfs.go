@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
+	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 	"golang.org/x/exp/slices"
 )
 
@@ -28,6 +29,9 @@ func (fsys *FileSystem) Open(name string, flags int, mode fs.FileMode) (sandbox.
 	f, err := fsys.root.open(fsys, "/")
 	if err != nil {
 		return nil, err
+	}
+	if fspath.IsRoot(name) {
+		return f, nil
 	}
 	defer f.Close()
 	return f.Open(name, flags, mode)

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
+	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 )
 
 // FileSystem is an implementation of the sandbox.FileSystem interface that
@@ -39,6 +40,9 @@ func (fsys *FileSystem) Open(name string, flags int, mode fs.FileMode) (sandbox.
 	f, err := fsys.openRoot()
 	if err != nil {
 		return nil, err
+	}
+	if fspath.IsRoot(name) {
+		return f, nil
 	}
 	defer f.Close()
 	return f.Open(name, flags, mode)
