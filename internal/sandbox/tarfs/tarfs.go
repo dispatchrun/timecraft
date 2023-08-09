@@ -26,7 +26,7 @@ type FileSystem struct {
 
 // Open satisfies sandbox.FileSystem.
 func (fsys *FileSystem) Open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
-	f, err := fsys.root.open(fsys, "/")
+	f, err := fsys.root.open(fsys)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +175,7 @@ func OpenFile(f *os.File) (*FileSystem, error) {
 }
 
 type fileEntry interface {
-	open(fsys *FileSystem, name string) (sandbox.File, error)
+	open(fsys *FileSystem) (sandbox.File, error)
 
 	stat() sandbox.FileInfo
 

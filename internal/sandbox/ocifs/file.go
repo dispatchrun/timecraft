@@ -55,14 +55,7 @@ func (f *file) openSelf() (sandbox.File, error) {
 		return nil, sandbox.EBADF
 	}
 	defer unref(l)
-
-	open := &file{
-		fsys:   f.fsys,
-		layers: l,
-	}
-
-	ref(open.layers)
-	return open, nil
+	return f.fsys.newFile(l), nil
 }
 
 func (f *file) openParent() (sandbox.File, error) {
@@ -72,13 +65,26 @@ func (f *file) openParent() (sandbox.File, error) {
 	}
 	defer unref(l)
 
-	open := &file{
-		fsys:   f.fsys,
-		layers: l.parent,
+	p := l.parent
+	if p == nil { // already at the root?
+		p = l
 	}
 
-	ref(open.layers)
-	return open, nil
+	return f.fsys.newFile(p), nil
+}
+
+func (f *file) openRoot() (sandbox.File, error) {
+	l := f.ref()
+	if l == nil {
+		return nil, sandbox.EBADF
+	}
+	defer unref(l)
+
+	for l.parent != nil { // walk up to the root
+		l = l.parent
+	}
+
+	return f.fsys.newFile(l), nil
 }
 
 func (f *file) openFile(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
@@ -209,7 +215,7 @@ func (f *file) Open(name string, flags int, mode fs.FileMode) (sandbox.File, err
 	}
 
 	if fspath.IsRoot(name) {
-		return f.fsys.openRoot()
+		return f.openRoot()
 	}
 
 	return sandbox.ResolvePath(f, name, flags, func(at *file, name string) (sandbox.File, error) {
@@ -300,15 +306,6 @@ func (f *file) Fd() uintptr {
 	}
 	defer unref(l)
 	return l.files[0].Fd()
-}
-
-func (f *file) Name() string {
-	l := f.ref()
-	if l == nil {
-		return ""
-	}
-	defer unref(l)
-	return l.files[0].Name()
 }
 
 func (f *file) Readv(iovs [][]byte) (int, error) {

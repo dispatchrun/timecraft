@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"os/user"
 	"path"
 	"strconv"
@@ -35,22 +36,38 @@ type FileSystem interface {
 // Create creates and opens a file on a file system. The name is the location
 // where the file is created and the mode is used to set permissions.
 func Create(fsys FileSystem, name string, mode fs.FileMode) (File, error) {
-	return fsys.Open(name, O_CREAT|O_TRUNC|O_WRONLY, mode)
+	f, err := fsys.Open(name, O_CREAT|O_TRUNC|O_WRONLY, mode)
+	if err != nil {
+		err = &fs.PathError{Op: "create", Path: name, Err: err}
+	}
+	return f, err
 }
 
 // Open opens a file with the given name on a file system.
 func Open(fsys FileSystem, name string) (File, error) {
-	return fsys.Open(name, O_RDONLY, 0)
+	f, err := fsys.Open(name, O_RDONLY, 0)
+	if err != nil {
+		err = &fs.PathError{Op: "open", Path: name, Err: err}
+	}
+	return f, err
 }
 
 // OpenDir opens a directory with the given name on the file system.
 func OpenDir(fsys FileSystem, name string) (File, error) {
-	return fsys.Open(name, O_DIRECTORY, 0)
+	f, err := fsys.Open(name, O_DIRECTORY, 0)
+	if err != nil {
+		err = &fs.PathError{Op: "open", Path: name, Err: err}
+	}
+	return f, err
 }
 
 // OpenRoot opens the root directory of a file system.
 func OpenRoot(fsys FileSystem) (File, error) {
-	return OpenDir(fsys, "/")
+	f, err := OpenDir(fsys, "/")
+	if err != nil {
+		err = &fs.PathError{Op: "open", Path: "/", Err: err}
+	}
+	return f, err
 }
 
 // Lstat returns information about a file on a file system.
@@ -58,7 +75,13 @@ func OpenRoot(fsys FileSystem) (File, error) {
 // Is the name points to a location where a symbolic link exists, the function
 // returns information about the link itself.
 func Lstat(fsys FileSystem, name string) (FileInfo, error) {
-	return withRoot2(fsys, func(dir File) (FileInfo, error) { return dir.Stat(name, AT_SYMLINK_NOFOLLOW) })
+	info, err := withRoot2(fsys, func(dir File) (FileInfo, error) {
+		return dir.Stat(name, AT_SYMLINK_NOFOLLOW)
+	})
+	if err != nil {
+		err = &fs.PathError{Op: "lstat", Path: name, Err: err}
+	}
+	return info, err
 }
 
 // Stat returns information about a file on a file system.
@@ -66,7 +89,13 @@ func Lstat(fsys FileSystem, name string) (FileInfo, error) {
 // Is the name points to a location where a symbolic link exists, the function
 // returns information about the link target.
 func Stat(fsys FileSystem, name string) (FileInfo, error) {
-	return withRoot2(fsys, func(dir File) (FileInfo, error) { return dir.Stat(name, 0) })
+	info, err := withRoot2(fsys, func(dir File) (FileInfo, error) {
+		return dir.Stat(name, 0)
+	})
+	if err != nil {
+		err = &fs.PathError{Op: "stat", Path: name, Err: err}
+	}
+	return info, err
 }
 
 // ReadFile reads the content of a file on a file system. The name represents
@@ -76,15 +105,12 @@ func Stat(fsys FileSystem, name string) (FileInfo, error) {
 func ReadFile(fsys FileSystem, name string, flags int) ([]byte, error) {
 	f, err := fsys.Open(name, flags|O_RDONLY, 0)
 	if err != nil {
-		return nil, err
+		return nil, &fs.PathError{Op: "read", Path: name, Err: err}
 	}
 	defer f.Close()
 	s, err := f.Stat("", 0)
 	if err != nil {
-		return nil, err
-	}
-	if _, err := f.Seek(0, 0); err != nil {
-		return nil, err
+		return nil, &fs.PathError{Op: "read", Path: name, Err: err}
 	}
 	b := make([]byte, s.Size)
 	v := make([][]byte, 1)
@@ -96,7 +122,7 @@ func ReadFile(fsys FileSystem, name string, flags int) ([]byte, error) {
 			n += rn
 		}
 		if err != nil || rn == 0 {
-			return b[:n], err
+			return b[:n], &fs.PathError{Op: "read", Path: name, Err: err}
 		}
 	}
 	return b, nil
@@ -106,11 +132,13 @@ func ReadFile(fsys FileSystem, name string, flags int) ([]byte, error) {
 func WriteFile(fsys FileSystem, name string, data []byte, mode fs.FileMode) error {
 	f, err := fsys.Open(name, O_CREAT|O_WRONLY|O_TRUNC|O_EXCL, mode)
 	if err != nil {
-		return err
+		return &fs.PathError{Op: "write", Path: name, Err: err}
 	}
 	defer f.Close()
-	_, err = f.Writev([][]byte{data})
-	return err
+	if _, err := f.Writev([][]byte{data}); err != nil {
+		return &fs.PathError{Op: "write", Path: name, Err: err}
+	}
+	return nil
 }
 
 // MkdirAll creates all directories to form the given path name on a file
@@ -159,28 +187,54 @@ func mkdirAll(fsys FileSystem, name string, mode fs.FileMode) error {
 // Mkdir creates a directory on a file system. The mode is used to set the
 // permissions of the new directory.
 func Mkdir(fsys FileSystem, name string, mode fs.FileMode) error {
-	return withRoot1(fsys, func(dir File) error { return dir.Mkdir(name, mode) })
+	if err := withRoot1(fsys, func(dir File) error {
+		return dir.Mkdir(name, mode)
+	}); err != nil {
+		return &fs.PathError{Op: "mkdir", Path: name, Err: err}
+	}
+	return nil
 }
 
 // Rmdir removes an empty directory from a file system.
 func Rmdir(fsys FileSystem, name string) error {
-	return withRoot1(fsys, func(dir File) error { return dir.Rmdir(name) })
+	if err := withRoot1(fsys, func(dir File) error {
+		return dir.Rmdir(name)
+	}); err != nil {
+		return &fs.PathError{Op: "rmdir", Path: name, Err: err}
+	}
+	return nil
 }
 
 // Link creates a hard link between the old and new names passed as arguments.
 func Link(fsys FileSystem, oldName, newName string) error {
-	return withRoot1(fsys, func(dir File) error { return dir.Link(oldName, dir, newName, AT_SYMLINK_NOFOLLOW) })
+	if err := withRoot1(fsys, func(dir File) error {
+		return dir.Link(oldName, dir, newName, AT_SYMLINK_NOFOLLOW)
+	}); err != nil {
+		return &os.LinkError{Op: "link", Old: oldName, New: newName, Err: err}
+	}
+	return nil
 }
 
 // Symlink creates a symbolic link to a file system location.
 func Symlink(fsys FileSystem, oldName, newName string) error {
-	return withRoot1(fsys, func(dir File) error { return dir.Symlink(oldName, newName) })
+	if err := withRoot1(fsys, func(dir File) error {
+		return dir.Symlink(oldName, newName)
+	}); err != nil {
+		return &os.LinkError{Op: "symlink", Old: oldName, New: newName, Err: err}
+	}
+	return nil
 }
 
 // Readlink reads the target of a symbolic link located at the given path name
 // on a file system.
 func Readlink(fsys FileSystem, name string) (string, error) {
-	return withRoot2(fsys, func(dir File) (string, error) { return readlink(dir, name) })
+	link, err := withRoot2(fsys, func(dir File) (string, error) {
+		return readlink(dir, name)
+	})
+	if err != nil {
+		err = &fs.PathError{Op: "readlink", Path: name, Err: err}
+	}
+	return link, err
 }
 
 func readlink(dir File, name string) (string, error) {
@@ -202,13 +256,23 @@ func readlink(dir File, name string) (string, error) {
 
 // Unlink removes a file or symbolic link from a file system.
 func Unlink(fsys FileSystem, name string) error {
-	return withRoot1(fsys, func(dir File) error { return dir.Unlink(name) })
+	if err := withRoot1(fsys, func(dir File) error {
+		return dir.Unlink(name)
+	}); err != nil {
+		return &fs.PathError{Op: "unlink", Path: name, Err: err}
+	}
+	return nil
 }
 
 // Rename changes the name referencing a file, symbolic link, or directory on a
 // file system.
 func Rename(fsys FileSystem, oldName, newName string) error {
-	return withRoot1(fsys, func(dir File) error { return dir.Rename(oldName, dir, newName) })
+	if err := withRoot1(fsys, func(dir File) error {
+		return dir.Rename(oldName, dir, newName)
+	}); err != nil {
+		return &os.LinkError{Op: "rename", Old: oldName, New: newName, Err: err}
+	}
+	return nil
 }
 
 func withRoot1(fsys FileSystem, do func(File) error) error {
@@ -234,12 +298,6 @@ type File interface {
 	// Returns the file descriptor number for the underlying kernel handle for
 	// the file.
 	Fd() uintptr
-
-	// Returns the canonical name of the file on the file system.
-	//
-	// Assuming the file system is not modified concurrently, a file opened at
-	// the location returned by this method will point to the same resource.
-	Name() string
 
 	// Closes the file.
 	//
@@ -481,7 +539,7 @@ func (fsys *fsFileSystem) Open(name string) (fs.File, error) {
 	if err != nil {
 		return nil, fsError("open", name, err)
 	}
-	return &fsFile{fsys: fsys.base, File: f}, nil
+	return &fsFile{fsys: fsys.base, name: name, File: f}, nil
 }
 
 func (fsys *fsFileSystem) Stat(name string) (fs.FileInfo, error) {
@@ -523,6 +581,7 @@ var (
 
 type fsFile struct {
 	fsys FileSystem
+	name string
 	dir  *dirbuf
 	File
 }
@@ -532,7 +591,7 @@ func (f *fsFile) Stat() (fs.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	name := path.Base(f.File.Name())
+	name := path.Base(f.name)
 	return &fsFileInfo{name: name, stat: stat}, nil
 }
 
@@ -665,4 +724,123 @@ func (dirent *fsDirEntry) Info() (fs.FileInfo, error) {
 		return nil, fsError("stat", dirent.Name(), err)
 	}
 	return &fsFileInfo{name: name, stat: stat}, nil
+}
+
+// ResolvePath is the path resolution algorithm which guarantees sandboxing of
+// path access in a root FS.
+//
+// The algorithm walks the path name from f, calling the do function when it
+// reaches a path leaf. The function may return ELOOP to indicate that a symlink
+// was encountered and must be followed, in which case ResolvePath continues
+// walking the path at the link target. Any other value or error returned by the
+// do function will be returned immediately.
+func ResolvePath[F File, R any](dir F, name string, flags int, do func(F, string) (R, error)) (ret R, err error) {
+	if name == "" {
+		return do(dir, "")
+	}
+	if fspath.HasTrailingSlash(name) {
+		flags |= O_DIRECTORY
+	}
+
+	var lastOpenDir File
+	defer func() { closeFileIfNotNil(lastOpenDir) }()
+
+	setCurrentDirectory := func(cd File) {
+		closeFileIfNotNil(lastOpenDir)
+		dir, lastOpenDir = cd.(F), cd
+	}
+
+	followSymlinkDepth := 0
+	followSymlink := func(symlink, target string) error {
+		link, err := readlink(dir, symlink)
+		if err != nil {
+			// This error may be EINVAL if the file system was modified
+			// concurrently and the directory entry was not pointing to a
+			// symbolic link anymore.
+			return err
+		}
+
+		// Limit the maximum number of symbolic links that would be followed
+		// during path resolution; this ensures that if we encounter a loop,
+		// we will eventually abort resolving the path.
+		if followSymlinkDepth == MaxFollowSymlink {
+			return ELOOP
+		}
+		followSymlinkDepth++
+
+		if target != "" {
+			name = link + "/" + target
+		} else {
+			name = link
+		}
+		return nil
+	}
+
+	for {
+		if fspath.IsAbs(name) {
+			if name = fspath.TrimLeadingSlash(name); name == "" {
+				name = "."
+			}
+			d, err := openRoot(dir)
+			if err != nil {
+				return ret, err
+			}
+			setCurrentDirectory(d)
+		}
+
+		var elem string
+		elem, name = fspath.Walk(name)
+
+		if name == "" {
+		doFile:
+			ret, err = do(dir, elem)
+			if err != nil {
+				if !errors.Is(err, ELOOP) || ((flags & O_NOFOLLOW) != 0) {
+					return ret, err
+				}
+				switch err := followSymlink(elem, ""); {
+				case errors.Is(err, nil):
+					continue
+				case errors.Is(err, EINVAL):
+					goto doFile
+				default:
+					return ret, err
+				}
+			}
+			return ret, nil
+		}
+
+		if elem == "." {
+			// This is a minor optimization, the path contains a reference to
+			// the current directory, we don't need to reopen it.
+			continue
+		}
+
+	openPath:
+		d, err := dir.Open(elem, openPathFlags, 0)
+		if err != nil {
+			if !errors.Is(err, ENOTDIR) {
+				return ret, err
+			}
+			switch err := followSymlink(elem, name); {
+			case errors.Is(err, nil):
+				continue
+			case errors.Is(err, EINVAL):
+				goto openPath
+			default:
+				return ret, err
+			}
+		}
+		setCurrentDirectory(d)
+	}
+}
+
+func openRoot(dir File) (File, error) {
+	return dir.Open("/", O_DIRECTORY, 0)
+}
+
+func closeFileIfNotNil(f File) {
+	if f != nil {
+		f.Close()
+	}
 }

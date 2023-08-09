@@ -37,8 +37,8 @@ func newFile(header *tar.Header, offset int64) *file {
 	}
 }
 
-func (f *file) open(fsys *FileSystem, name string) (sandbox.File, error) {
-	open := &openFile{name: name}
+func (f *file) open(fsys *FileSystem) (sandbox.File, error) {
+	open := new(openFile)
 	open.file.Store(f)
 	open.data = *io.NewSectionReader(fsys.data, f.offset, f.size)
 	return open, nil
@@ -67,18 +67,13 @@ func (f *file) memsize() uintptr {
 
 type openFile struct {
 	leafFile
-	name string
 	file atomic.Pointer[file]
 	seek sync.Mutex
 	data io.SectionReader
 }
 
 func (f *openFile) String() string {
-	return fmt.Sprintf("&tarfs.openFile{name:%q}", f.name)
-}
-
-func (f *openFile) Name() string {
-	return f.name
+	return fmt.Sprintf("&tarfs.openFile{size:%d}", f.data.Size())
 }
 
 func (f *openFile) Close() error {

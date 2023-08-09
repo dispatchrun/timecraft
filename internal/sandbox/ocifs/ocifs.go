@@ -55,7 +55,7 @@ func (fsys *FileSystem) openRoot() (sandbox.File, error) {
 
 	files := make([]sandbox.File, 0, len(fsys.layers))
 	defer func() {
-		closeFiles(files)
+		closeFiles(files) // only closed on error or panic
 	}()
 
 	for _, layer := range fsys.layers {
@@ -69,11 +69,16 @@ func (fsys *FileSystem) openRoot() (sandbox.File, error) {
 		}
 	}
 
-	root := &file{
-		fsys:   fsys,
-		layers: &fileLayers{files: files},
-	}
-	ref(root.layers)
+	root := fsys.newFile(&fileLayers{files: files})
 	files = nil
 	return root, nil
+}
+
+func (fsys *FileSystem) newFile(layers *fileLayers) *file {
+	f := &file{
+		fsys:   fsys,
+		layers: layers,
+	}
+	ref(layers)
+	return f
 }
