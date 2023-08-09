@@ -15,7 +15,13 @@ func TestDirFS(t *testing.T) {
 		})
 	})
 
-	sandboxtest.TestFileSystem(t, func(t *testing.T) sandbox.FileSystem {
-		return sandbox.DirFS(t.TempDir())
+	t.Run("sandbox.FileSystem", func(t *testing.T) {
+		sandboxtest.TestFileSystem(t, func(t *testing.T) sandbox.FileSystem {
+			return sandbox.DirFS(t.TempDir())
+		})
+	})
+
+	sandboxtest.TestRootFS(t, func(t *testing.T, path string) sandbox.FileSystem {
+		return sandbox.DirFS(path)
 	})
 }

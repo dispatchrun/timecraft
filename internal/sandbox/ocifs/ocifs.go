@@ -48,7 +48,7 @@ func (fsys *FileSystem) Open(name string, flags int, mode fs.FileMode) (sandbox.
 	return f.Open(name, flags, mode)
 }
 
-func (fsys *FileSystem) openRoot() (*file, error) {
+func (fsys *FileSystem) openRoot() (sandbox.File, error) {
 	if len(fsys.layers) == 0 {
 		return nil, sandbox.ENOENT
 	}
