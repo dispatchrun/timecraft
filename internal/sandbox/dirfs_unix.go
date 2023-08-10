@@ -13,7 +13,7 @@ type dirFS struct {
 	root string
 }
 
-func (fsys *dirFS) Open(name string, flags int, mode fs.FileMode) (File, error) {
+func (fsys *dirFS) Open(name string, flags OpenFlags, mode fs.FileMode) (File, error) {
 	f, err := fsys.openRoot()
 	if err != nil {
 		return nil, err
@@ -26,7 +26,7 @@ func (fsys *dirFS) Open(name string, flags int, mode fs.FileMode) (File, error) 
 }
 
 func (fsys *dirFS) openRoot() (File, error) {
-	dirfd, err := openat(unix.AT_FDCWD, fsys.root, O_DIRECTORY, 0)
+	dirfd, err := openat(unix.AT_FDCWD, fsys.root, O_DIRECTORY.sysFlags(), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -100,15 +100,15 @@ func (f *dirFile) openRoot() (File, error) {
 	return f.openSelf()
 }
 
-func (f *dirFile) openFile(name string, flags int, mode fs.FileMode) (File, error) {
-	fd, err := openat(f.fd, name, flags|O_NOFOLLOW, uint32(mode.Perm()))
+func (f *dirFile) openFile(name string, flags OpenFlags, mode fs.FileMode) (File, error) {
+	fd, err := openat(f.fd, name, (flags | O_NOFOLLOW).sysFlags(), uint32(mode.Perm()))
 	if err != nil {
 		return nil, err
 	}
 	return newFile(f, fd), nil
 }
 
-func (f *dirFile) open(name string, flags int, mode fs.FileMode) (File, error) {
+func (f *dirFile) open(name string, flags OpenFlags, mode fs.FileMode) (File, error) {
 	switch name {
 	case ".":
 		return f.openSelf()
@@ -119,11 +119,14 @@ func (f *dirFile) open(name string, flags int, mode fs.FileMode) (File, error) {
 	}
 }
 
-func (f *dirFile) Open(name string, flags int, mode fs.FileMode) (File, error) {
+func (f *dirFile) Open(name string, flags OpenFlags, mode fs.FileMode) (File, error) {
 	if fspath.IsRoot(name) {
 		return f.openRoot()
 	}
-	return ResolvePath(f, name, flags, func(d *dirFile, name string) (File, error) {
+	if fspath.HasTrailingSlash(name) {
+		flags |= O_DIRECTORY
+	}
+	return ResolvePath(f, name, flags.LookupFlags(), func(d *dirFile, name string) (File, error) {
 		return d.open(name, flags, mode)
 	})
 }
@@ -164,12 +167,13 @@ func (f *dirFile) Datasync() error {
 	return fdatasync(f.fd)
 }
 
-func (f *dirFile) Flags() (int, error) {
-	return unix.FcntlInt(uintptr(f.fd), unix.F_GETFL, 0)
+func (f *dirFile) Flags() (OpenFlags, error) {
+	flags, err := unix.FcntlInt(uintptr(f.fd), unix.F_GETFL, 0)
+	return makeOpenFlags(flags), err
 }
 
-func (f *dirFile) SetFlags(flags int) error {
-	_, err := unix.FcntlInt(uintptr(f.fd), unix.F_SETFL, flags)
+func (f *dirFile) SetFlags(flags OpenFlags) error {
+	_, err := unix.FcntlInt(uintptr(f.fd), unix.F_SETFL, flags.sysFlags())
 	return err
 }
 
@@ -177,15 +181,15 @@ func (f *dirFile) ReadDirent(buf []byte) (int, error) {
 	return ignoreEINTR2(func() (int, error) { return unix.ReadDirent(f.fd, buf) })
 }
 
-func (f *dirFile) Stat(name string, flags int) (FileInfo, error) {
-	return ResolvePath(f, name, openFlags(flags), func(d *dirFile, name string) (FileInfo, error) {
+func (f *dirFile) Stat(name string, flags LookupFlags) (FileInfo, error) {
+	return ResolvePath(f, name, flags, func(d *dirFile, name string) (FileInfo, error) {
 		var stat unix.Stat_t
 		var err error
 
 		if name == "" {
 			err = fstat(d.fd, &stat)
 		} else {
-			err = fstatat(d.fd, name, &stat, AT_SYMLINK_NOFOLLOW)
+			err = fstatat(d.fd, name, &stat, AT_SYMLINK_NOFOLLOW.sysFlags())
 		}
 		if err != nil {
 			return FileInfo{}, err
@@ -231,7 +235,7 @@ func (f *dirFile) Stat(name string, flags int) (FileInfo, error) {
 }
 
 func (f *dirFile) Readlink(name string, buf []byte) (int, error) {
-	return ResolvePath(f, name, O_NOFOLLOW, func(d *dirFile, name string) (int, error) {
+	return ResolvePath(f, name, AT_SYMLINK_NOFOLLOW, func(d *dirFile, name string) (int, error) {
 		if name == "" {
 			return freadlink(d.fd, buf)
 		} else {
@@ -240,24 +244,24 @@ func (f *dirFile) Readlink(name string, buf []byte) (int, error) {
 	})
 }
 
-func (f *dirFile) Chtimes(name string, times [2]Timespec, flags int) error {
-	return resolvePath1(f, name, openFlags(flags), func(d *dirFile, name string) error {
+func (f *dirFile) Chtimes(name string, times [2]Timespec, flags LookupFlags) error {
+	return resolvePath1(f, name, flags, func(d *dirFile, name string) error {
 		if name == "" {
 			return futimens(d.fd, &times)
 		} else {
-			return utimensat(d.fd, name, &times, AT_SYMLINK_NOFOLLOW)
+			return utimensat(d.fd, name, &times, AT_SYMLINK_NOFOLLOW.sysFlags())
 		}
 	})
 }
 
 func (f *dirFile) Mkdir(name string, mode fs.FileMode) error {
-	return resolvePath1(f, name, O_NOFOLLOW, func(d *dirFile, name string) error {
+	return resolvePath1(f, name, AT_SYMLINK_NOFOLLOW, func(d *dirFile, name string) error {
 		return mkdirat(d.fd, name, uint32(mode.Perm()))
 	})
 }
 
 func (f *dirFile) Rmdir(name string) error {
-	return resolvePath1(f, name, O_NOFOLLOW, func(d *dirFile, name string) error {
+	return resolvePath1(f, name, AT_SYMLINK_NOFOLLOW, func(d *dirFile, name string) error {
 		return unlinkat(d.fd, name, unix.AT_REMOVEDIR)
 	})
 }
@@ -267,46 +271,38 @@ func (f1 *dirFile) Rename(oldName string, newDir File, newName string) error {
 	if !ok {
 		return EXDEV
 	}
-	return resolvePath1(f1, oldName, O_NOFOLLOW, func(d1 *dirFile, name1 string) error {
-		return resolvePath1(f2, newName, O_NOFOLLOW, func(d2 *dirFile, name2 string) error {
+	return resolvePath1(f1, oldName, AT_SYMLINK_NOFOLLOW, func(d1 *dirFile, name1 string) error {
+		return resolvePath1(f2, newName, AT_SYMLINK_NOFOLLOW, func(d2 *dirFile, name2 string) error {
 			return renameat(d1.fd, name1, d2.fd, name2)
 		})
 	})
 }
 
-func (f1 *dirFile) Link(oldName string, newDir File, newName string, flags int) error {
+func (f1 *dirFile) Link(oldName string, newDir File, newName string, flags LookupFlags) error {
 	f2, ok := newDir.(*dirFile)
 	if !ok {
 		return EXDEV
 	}
-	oflags := openFlags(flags)
-	return resolvePath1(f1, oldName, oflags, func(d1 *dirFile, name1 string) error {
-		return resolvePath1(f2, newName, oflags, func(d2 *dirFile, name2 string) error {
+	return resolvePath1(f1, oldName, flags, func(d1 *dirFile, name1 string) error {
+		return resolvePath1(f2, newName, flags, func(d2 *dirFile, name2 string) error {
 			return linkat(d1.fd, name1, d2.fd, name2, 0)
 		})
 	})
 }
 
 func (f *dirFile) Symlink(oldName string, newName string) error {
-	return resolvePath1(f, newName, O_NOFOLLOW, func(d *dirFile, name string) error {
+	return resolvePath1(f, newName, AT_SYMLINK_NOFOLLOW, func(d *dirFile, name string) error {
 		return symlinkat(oldName, d.fd, name)
 	})
 }
 
 func (f *dirFile) Unlink(name string) error {
-	return resolvePath1(f, name, O_NOFOLLOW, func(d *dirFile, name string) error {
+	return resolvePath1(f, name, AT_SYMLINK_NOFOLLOW, func(d *dirFile, name string) error {
 		return unlinkat(d.fd, name, 0)
 	})
 }
 
-func openFlags(flags int) int {
-	if (flags & AT_SYMLINK_NOFOLLOW) != 0 {
-		return O_NOFOLLOW
-	}
-	return 0
-}
-
-func resolvePath1(d *dirFile, name string, flags int, do func(*dirFile, string) error) error {
+func resolvePath1(d *dirFile, name string, flags LookupFlags, do func(*dirFile, string) error) error {
 	_, err := ResolvePath(d, name, flags, func(d *dirFile, name string) (_ struct{}, err error) {
 		err = do(d, name)
 		return

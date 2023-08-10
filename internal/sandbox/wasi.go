@@ -305,7 +305,7 @@ func (f *wasiFile) PathLink(ctx context.Context, lookupFlags wasi.LookupFlags, o
 }
 
 func (f *wasiFile) PathOpen(ctx context.Context, lookupFlags wasi.LookupFlags, path string, openFlags wasi.OpenFlags, rightsBase, rightsInheriting wasi.Rights, fdFlags wasi.FDFlags) (anyFile, wasi.Errno) {
-	flags := 0
+	flags := OpenFlags(0)
 
 	if openFlags.Has(wasi.OpenDirectory) {
 		flags |= O_DIRECTORY
@@ -399,7 +399,7 @@ func makeTimespec(t wasi.Timestamp, set, now bool) Timespec {
 	return nsecToTimespec(int64(t))
 }
 
-func makeLookupFlags(lookupFlags wasi.LookupFlags) (flags int) {
+func makeLookupFlags(lookupFlags wasi.LookupFlags) (flags LookupFlags) {
 	if !lookupFlags.Has(wasi.SymlinkFollow) {
 		flags |= AT_SYMLINK_NOFOLLOW
 	}

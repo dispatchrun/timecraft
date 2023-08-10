@@ -30,7 +30,7 @@ const (
 // root directory and use the methods of the returned File instance to access
 // the rest of the directory tree.
 type FileSystem interface {
-	Open(name string, flags int, mode fs.FileMode) (File, error)
+	Open(name string, flags OpenFlags, mode fs.FileMode) (File, error)
 }
 
 // Create creates and opens a file on a file system. The name is the location
@@ -102,8 +102,8 @@ func Stat(fsys FileSystem, name string) (FileInfo, error) {
 // the location where the file is recorded on the file system. The flags are
 // passed to configure how the file is opened (e.g. passing O_NOFOLLOW will
 // fail if a symbolic link exists at that location).
-func ReadFile(fsys FileSystem, name string, flags int) ([]byte, error) {
-	f, err := fsys.Open(name, flags|O_RDONLY, 0)
+func ReadFile(fsys FileSystem, name string, flags LookupFlags) ([]byte, error) {
+	f, err := fsys.Open(name, flags.OpenFlags()|O_RDONLY, 0)
 	if err != nil {
 		return nil, &fs.PathError{Op: "read", Path: name, Err: err}
 	}
@@ -310,7 +310,7 @@ type File interface {
 	// file system.
 	//
 	// The file must point to a directory or the method errors with ENOTDIR.
-	Open(name string, flags int, mode fs.FileMode) (File, error)
+	Open(name string, flags OpenFlags, mode fs.FileMode) (File, error)
 
 	// Readv reads data from the current seek offset of the file into the list
 	// of vectors passed as arguments.
@@ -378,13 +378,13 @@ type File interface {
 	// combination of O_* flags such as those that can be passed to Open.
 	//
 	// The set of flags supported by the file depends on the underlying type.
-	Flags() (int, error)
+	Flags() (OpenFlags, error)
 
 	// Changes the bitset of flags set on the file. The flags are a combination
 	// of O_* flags such as those that can be passed to Open.
 	//
 	// The set of flags supported by the file depends on the underlying type.
-	SetFlags(flags int) error
+	SetFlags(flags OpenFlags) error
 
 	// Read directory entries into the given buffer. The caller must be aware of
 	// the way directory entries are laid out by the underlying file system to
@@ -402,7 +402,7 @@ type File interface {
 	//
 	// If the name is empty, flags are ignored and the method returns metdata
 	// for the receiver.
-	Stat(name string, flags int) (FileInfo, error)
+	Stat(name string, flags LookupFlags) (FileInfo, error)
 
 	// Reads the target of a symbolic link into buf.
 	//
@@ -425,7 +425,7 @@ type File interface {
 	//
 	// If the name is empty, flags are ignored and the method changes times of
 	// the receiver.
-	Chtimes(name string, times [2]Timespec, flags int) error
+	Chtimes(name string, times [2]Timespec, flags LookupFlags) error
 
 	// Creates a directory at the named location.
 	//
@@ -462,7 +462,7 @@ type File interface {
 	//
 	// The flags may be AT_SYMLINK_NOFOLLOW to create a link to a symbolic link
 	// instead of its target.
-	Link(oldName string, newDir File, newName string, flags int) error
+	Link(oldName string, newDir File, newName string, flags LookupFlags) error
 
 	// Creates a symbolic link to a named location.
 	//
@@ -734,12 +734,9 @@ func (dirent *fsDirEntry) Info() (fs.FileInfo, error) {
 // was encountered and must be followed, in which case ResolvePath continues
 // walking the path at the link target. Any other value or error returned by the
 // do function will be returned immediately.
-func ResolvePath[F File, R any](dir F, name string, flags int, do func(F, string) (R, error)) (ret R, err error) {
+func ResolvePath[F File, R any](dir F, name string, flags LookupFlags, do func(F, string) (R, error)) (ret R, err error) {
 	if name == "" {
 		return do(dir, "")
-	}
-	if fspath.HasTrailingSlash(name) {
-		flags |= O_DIRECTORY
 	}
 
 	var lastOpenDir File
@@ -795,7 +792,7 @@ func ResolvePath[F File, R any](dir F, name string, flags int, do func(F, string
 		doFile:
 			ret, err = do(dir, elem)
 			if err != nil {
-				if !errors.Is(err, ELOOP) || ((flags & O_NOFOLLOW) != 0) {
+				if !errors.Is(err, ELOOP) || ((flags & AT_SYMLINK_NOFOLLOW) != 0) {
 					return ret, err
 				}
 				switch err := followSymlink(elem, ""); {
@@ -816,7 +813,6 @@ func ResolvePath[F File, R any](dir F, name string, flags int, do func(F, string
 			continue
 		}
 
-	openPath:
 		d, err := dir.Open(elem, openPathFlags, 0)
 		if err != nil {
 			if !errors.Is(err, ENOTDIR) {
@@ -826,7 +822,7 @@ func ResolvePath[F File, R any](dir F, name string, flags int, do func(F, string
 			case errors.Is(err, nil):
 				continue
 			case errors.Is(err, EINVAL):
-				goto openPath
+				return ret, ENOTDIR
 			default:
 				return ret, err
 			}

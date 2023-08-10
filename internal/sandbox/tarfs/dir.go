@@ -101,7 +101,7 @@ func (d *dir) find(name string) fileEntry {
 	return d.ents[i].file
 }
 
-func resolve[R any](fsys *FileSystem, cwd *dir, name string, flags int, do func(fileEntry) (R, error)) (R, error) {
+func resolve[R any](fsys *FileSystem, cwd *dir, name string, flags sandbox.OpenFlags, do func(fileEntry) (R, error)) (R, error) {
 	var zero R
 
 	for loop := 0; loop < sandbox.MaxFollowSymlink; loop++ {
@@ -171,7 +171,7 @@ func (d *openDir) Close() error {
 	return nil
 }
 
-func (d *openDir) Open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
+func (d *openDir) Open(name string, flags sandbox.OpenFlags, mode fs.FileMode) (sandbox.File, error) {
 	const unsupportedFlags = sandbox.O_CREAT |
 		sandbox.O_APPEND |
 		sandbox.O_RDWR |
@@ -198,16 +198,12 @@ func (d *openDir) Open(name string, flags int, mode fs.FileMode) (sandbox.File, 
 	})
 }
 
-func (d *openDir) Stat(name string, flags int) (sandbox.FileInfo, error) {
+func (d *openDir) Stat(name string, flags sandbox.LookupFlags) (sandbox.FileInfo, error) {
 	dir := d.dir.Load()
 	if dir == nil {
 		return sandbox.FileInfo{}, sandbox.EBADF
 	}
-	openFlags := 0
-	if (flags & sandbox.AT_SYMLINK_NOFOLLOW) != 0 {
-		openFlags |= sandbox.O_NOFOLLOW
-	}
-	return resolve(d.fsys, dir, name, openFlags, func(f fileEntry) (sandbox.FileInfo, error) {
+	return resolve(d.fsys, dir, name, flags.OpenFlags(), func(f fileEntry) (sandbox.FileInfo, error) {
 		return f.stat(), nil
 	})
 }
@@ -287,7 +283,7 @@ func (*openDir) Rmdir(string) error { return sandbox.EROFS }
 
 func (*openDir) Rename(string, sandbox.File, string) error { return sandbox.EROFS }
 
-func (*openDir) Link(string, sandbox.File, string, int) error { return sandbox.EROFS }
+func (*openDir) Link(string, sandbox.File, string, sandbox.LookupFlags) error { return sandbox.EROFS }
 
 func (*openDir) Symlink(string, string) error { return sandbox.EROFS }
 

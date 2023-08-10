@@ -38,4 +38,19 @@ var fsTestStat = fsTestSuite{
 		assert.Equal(t, s.Mode.Type(), 0)
 		assert.Equal(t, s.Size, 5)
 	},
+
+	"stat of a non-existing directory returns ENOENT": func(t *testing.T, fsys sandbox.FileSystem) {
+		assert.OK(t, sandbox.Mkdir(fsys, "test", 0700))
+
+		_, err := sandbox.Stat(fsys, "test/a/b")
+		assert.Error(t, err, sandbox.ENOENT) // "a" does not exist
+	},
+
+	"stat of a path which contains a file instead of a directory returns ENOTDIR": func(t *testing.T, fsys sandbox.FileSystem) {
+		assert.OK(t, sandbox.Mkdir(fsys, "test", 0700))
+		assert.OK(t, sandbox.WriteFile(fsys, "test/a", []byte("123"), 0600))
+
+		_, err := sandbox.Stat(fsys, "test/a/b")
+		assert.Error(t, err, sandbox.ENOTDIR) // "a" is a file, not a directory
+	},
 }
