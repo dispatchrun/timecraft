@@ -42,7 +42,7 @@ jobs:
       - run: go mod download
       - uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.52.2
+          version: v1.54.0
           args: --timeout 5m
 
   python-lint:
