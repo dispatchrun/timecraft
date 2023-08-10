@@ -9,26 +9,32 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type dirFS string
+type dirFS struct {
+	root string
+}
 
-func (root dirFS) Open(name string, flags int, mode fs.FileMode) (File, error) {
-	dirfd, err := openat(unix.AT_FDCWD, string(root), O_DIRECTORY, 0)
+func (fsys *dirFS) Open(name string, flags int, mode fs.FileMode) (File, error) {
+	f, err := fsys.openRoot()
 	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: string(root), Err: err}
+		return nil, err
 	}
-	if name = fspath.Clean(name); name == "/" || name == "." { // root?
-		return &dirFile{fd: dirfd, name: "/"}, nil
+	if fspath.IsRoot(name) {
+		return f, nil
 	}
-	defer closeTraceError(dirfd)
-	relPath := "/" + fspath.TrimLeadingSlash(name)
-	fd, err := openat(dirfd, name, flags, uint32(mode.Perm()))
+	defer f.Close()
+	return f.Open(name, flags, mode)
+}
+
+func (fsys *dirFS) openRoot() (File, error) {
+	dirfd, err := openat(unix.AT_FDCWD, fsys.root, O_DIRECTORY, 0)
 	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: relPath, Err: err}
+		return nil, &fs.PathError{Op: "open", Path: "/", Err: err}
 	}
-	return &dirFile{fd: fd, name: relPath}, nil
+	return &dirFile{fsys: fsys, fd: dirfd, name: "/"}, nil
 }
 
 type dirFile struct {
+	fsys *dirFS
 	fd   int
 	name string
 }
@@ -55,13 +61,17 @@ func (f *dirFile) Close() error {
 }
 
 func (f *dirFile) Open(name string, flags int, mode fs.FileMode) (File, error) {
-	name = fspath.Clean(name)
-	relPath := f.join(name)
-	fd, err := openat(f.fd, name, flags, uint32(mode.Perm()))
-	if err != nil {
-		return nil, &fs.PathError{Op: "open", Path: relPath, Err: err}
+	if fspath.IsRoot(name) {
+		return f.fsys.openRoot()
 	}
-	return &dirFile{fd: fd, name: relPath}, nil
+	relPath := f.join(name)
+	return ResolvePath(f, name, flags, func(d *dirFile, name string) (File, error) {
+		fd, err := openat(d.fd, name, flags|O_NOFOLLOW, uint32(mode.Perm()))
+		if err != nil {
+			return nil, &fs.PathError{Op: "open", Path: relPath, Err: err}
+		}
+		return &dirFile{fsys: f.fsys, fd: fd, name: relPath}, nil
+	})
 }
 
 func (f *dirFile) Readv(iovs [][]byte) (int, error) {
@@ -153,130 +163,176 @@ func (f *dirFile) ReadDirent(buf []byte) (int, error) {
 }
 
 func (f *dirFile) Stat(name string, flags int) (FileInfo, error) {
-	var stat unix.Stat_t
-	var err error
+	return ResolvePath(f, name, openFlags(flags), func(d *dirFile, name string) (FileInfo, error) {
+		var stat unix.Stat_t
+		var err error
 
-	if name == "" {
-		err = fstat(f.fd, &stat)
-	} else {
-		err = fstatat(f.fd, name, &stat, flags)
-	}
-	if err != nil {
-		return FileInfo{}, &fs.PathError{Op: "stat", Path: f.join(name), Err: err}
-	}
+		if name == "" {
+			err = fstat(d.fd, &stat)
+		} else {
+			err = fstatat(d.fd, name, &stat, AT_SYMLINK_NOFOLLOW)
+		}
+		if err != nil {
+			return FileInfo{}, &fs.PathError{Op: "stat", Path: d.join(name), Err: err}
+		}
+		if (stat.Mode & unix.S_IFMT) == unix.S_IFLNK {
+			if (flags & AT_SYMLINK_NOFOLLOW) == 0 {
+				return FileInfo{}, &fs.PathError{Op: "stat", Path: d.join(name), Err: ELOOP}
+			}
+		}
 
-	info := FileInfo{
-		Dev:   uint64(stat.Dev),
-		Ino:   uint64(stat.Ino),
-		Nlink: uint64(stat.Nlink),
-		Mode:  fs.FileMode(stat.Mode & 0777), // perm
-		Uid:   uint32(stat.Uid),
-		Gid:   uint32(stat.Gid),
-		Size:  int64(stat.Size),
-		Atime: stat.Atim,
-		Mtime: stat.Mtim,
-		Ctime: stat.Ctim,
-	}
+		info := FileInfo{
+			Dev:   uint64(stat.Dev),
+			Ino:   uint64(stat.Ino),
+			Nlink: uint64(stat.Nlink),
+			Mode:  fs.FileMode(stat.Mode & 0777), // perm
+			Uid:   uint32(stat.Uid),
+			Gid:   uint32(stat.Gid),
+			Size:  int64(stat.Size),
+			Atime: stat.Atim,
+			Mtime: stat.Mtim,
+			Ctime: stat.Ctim,
+		}
 
-	switch stat.Mode & unix.S_IFMT {
-	case unix.S_IFREG:
-	case unix.S_IFBLK:
-		info.Mode |= fs.ModeDevice
-	case unix.S_IFCHR:
-		info.Mode |= fs.ModeDevice | fs.ModeCharDevice
-	case unix.S_IFDIR:
-		info.Mode |= fs.ModeDir
-	case unix.S_IFIFO:
-		info.Mode |= fs.ModeNamedPipe
-	case unix.S_IFLNK:
-		info.Mode |= fs.ModeSymlink
-	case unix.S_IFSOCK:
-		info.Mode |= fs.ModeSocket
-	default:
-		info.Mode |= fs.ModeIrregular
-	}
-	return info, nil
+		switch stat.Mode & unix.S_IFMT {
+		case unix.S_IFREG:
+		case unix.S_IFBLK:
+			info.Mode |= fs.ModeDevice
+		case unix.S_IFCHR:
+			info.Mode |= fs.ModeDevice | fs.ModeCharDevice
+		case unix.S_IFDIR:
+			info.Mode |= fs.ModeDir
+		case unix.S_IFIFO:
+			info.Mode |= fs.ModeNamedPipe
+		case unix.S_IFLNK:
+			info.Mode |= fs.ModeSymlink
+		case unix.S_IFSOCK:
+			info.Mode |= fs.ModeSocket
+		default:
+			info.Mode |= fs.ModeIrregular
+		}
+		return info, nil
+	})
 }
 
-func (f *dirFile) Readlink(name string, buf []byte) (n int, err error) {
-	if name == "" {
-		n, err = freadlink(f.fd, buf)
-	} else {
-		n, err = readlinkat(f.fd, name, buf)
-	}
-	if err != nil {
-		err = &fs.PathError{Op: "readlink", Path: f.join(name), Err: err}
-	}
-	return n, err
+func (f *dirFile) Readlink(name string, buf []byte) (int, error) {
+	return ResolvePath(f, name, O_NOFOLLOW, func(d *dirFile, name string) (n int, err error) {
+		if name == "" {
+			n, err = freadlink(d.fd, buf)
+		} else {
+			n, err = readlinkat(d.fd, name, buf)
+		}
+		if err != nil {
+			err = &fs.PathError{Op: "readlink", Path: d.join(name), Err: err}
+		}
+		return n, err
+	})
 }
 
 func (f *dirFile) Chtimes(name string, times [2]Timespec, flags int) error {
-	var err error
-	if name == "" {
-		err = futimens(f.fd, &times)
-	} else {
-		err = utimensat(f.fd, name, &times, flags)
-	}
-	if err != nil {
-		return &fs.PathError{Op: "chtimes", Path: f.join(name), Err: err}
-	}
-	return err
+	return resolvePath1(f, name, openFlags(flags), func(d *dirFile, name string) (err error) {
+		if name == "" {
+			err = futimens(d.fd, &times)
+		} else {
+			err = utimensat(d.fd, name, &times, AT_SYMLINK_NOFOLLOW)
+		}
+		if err != nil {
+			return &fs.PathError{Op: "chtimes", Path: f.join(name), Err: err}
+		}
+		return err
+	})
 }
 
 func (f *dirFile) Mkdir(name string, mode fs.FileMode) error {
-	if err := mkdirat(f.fd, name, uint32(mode.Perm())); err != nil {
-		return &fs.PathError{Op: "mkdir", Path: f.join(name), Err: err}
-	}
-	return nil
+	return resolvePath1(f, name, O_NOFOLLOW, func(d *dirFile, name string) error {
+		if err := mkdirat(d.fd, name, uint32(mode.Perm())); err != nil {
+			return &fs.PathError{Op: "mkdir", Path: f.join(name), Err: err}
+		}
+		return nil
+	})
 }
 
 func (f *dirFile) Rmdir(name string) error {
-	if err := unlinkat(f.fd, name, unix.AT_REMOVEDIR); err != nil {
-		return &fs.PathError{Op: "rmdir", Path: f.join(name), Err: err}
-	}
-	return nil
+	return resolvePath1(f, name, O_NOFOLLOW, func(d *dirFile, name string) error {
+		if err := unlinkat(d.fd, name, unix.AT_REMOVEDIR); err != nil {
+			return &fs.PathError{Op: "rmdir", Path: f.join(name), Err: err}
+		}
+		return nil
+	})
 }
 
-func (f *dirFile) Rename(oldName string, newDir File, newName string) error {
-	fd1 := f.fd
-	fd2 := int(newDir.Fd())
-	if err := renameat(fd1, oldName, fd2, newName); err != nil {
-		path1 := f.join(oldName)
-		path2 := fspath.Join(newDir.Name(), newName)
-		return &os.LinkError{Op: "rename", Old: path1, New: path2, Err: err}
+func (f1 *dirFile) Rename(oldName string, newDir File, newName string) error {
+	f2, ok := newDir.(*dirFile)
+	if !ok {
+		path1 := f1.join(oldName)
+		path2 := f2.join(newName)
+		return &os.LinkError{Op: "rename", Old: path1, New: path2, Err: EXDEV}
 	}
-	return nil
+	return resolvePath1(f1, oldName, O_NOFOLLOW, func(d1 *dirFile, name1 string) error {
+		return resolvePath1(f2, newName, O_NOFOLLOW, func(d2 *dirFile, name2 string) error {
+			if err := renameat(d1.fd, name1, d2.fd, name2); err != nil {
+				path1 := d1.join(name1)
+				path2 := d2.join(name2)
+				return &os.LinkError{Op: "rename", Old: path1, New: path2, Err: err}
+			}
+			return nil
+		})
+	})
 }
 
-func (f *dirFile) Link(oldName string, newDir File, newName string, flags int) error {
-	linkFlags := 0
-	if (flags & AT_SYMLINK_NOFOLLOW) == 0 {
-		linkFlags |= unix.AT_SYMLINK_FOLLOW
+func (f1 *dirFile) Link(oldName string, newDir File, newName string, flags int) error {
+	f2, ok := newDir.(*dirFile)
+	if !ok {
+		path1 := f1.join(oldName)
+		path2 := f2.join(newName)
+		return &os.LinkError{Op: "rename", Old: path1, New: path2, Err: EXDEV}
 	}
-	fd1 := f.fd
-	fd2 := int(newDir.Fd())
-	if err := linkat(fd1, oldName, fd2, newName, linkFlags); err != nil {
-		path1 := f.join(oldName)
-		path2 := fspath.Join(newDir.Name(), newName)
-		return &os.LinkError{Op: "link", Old: path1, New: path2, Err: err}
-	}
-	return nil
+	oflags := openFlags(flags)
+	return resolvePath1(f1, oldName, oflags, func(d1 *dirFile, name1 string) error {
+		return resolvePath1(f2, newName, oflags, func(d2 *dirFile, name2 string) error {
+			if err := linkat(d1.fd, name1, d2.fd, name2, 0); err != nil {
+				path1 := d1.join(name1)
+				path2 := f2.join(name2)
+				return &os.LinkError{Op: "link", Old: path1, New: path2, Err: err}
+			}
+			return nil
+		})
+	})
 }
 
 func (f *dirFile) Symlink(oldName string, newName string) error {
-	if err := symlinkat(oldName, f.fd, newName); err != nil {
-		return &fs.PathError{Op: "symlink", Path: f.join(newName), Err: err}
-	}
-	return nil
+	return resolvePath1(f, newName, O_NOFOLLOW, func(d *dirFile, name string) error {
+		if err := symlinkat(oldName, d.fd, name); err != nil {
+			return &fs.PathError{Op: "symlink", Path: f.join(newName), Err: err}
+		}
+		return nil
+	})
 }
 
 func (f *dirFile) Unlink(name string) error {
-	if err := unlinkat(f.fd, name, 0); err != nil {
-		return &fs.PathError{Op: "unlink", Path: f.join(name), Err: err}
-	}
-	return nil
+	return resolvePath1(f, name, O_NOFOLLOW, func(d *dirFile, name string) error {
+		if err := unlinkat(d.fd, name, 0); err != nil {
+			return &fs.PathError{Op: "unlink", Path: f.join(name), Err: err}
+		}
+		return nil
+	})
 }
 
 func (f *dirFile) join(name string) string {
 	return fspath.Join(f.name, name)
+}
+
+func openFlags(flags int) int {
+	if (flags & AT_SYMLINK_NOFOLLOW) != 0 {
+		return O_NOFOLLOW
+	}
+	return 0
+}
+
+func resolvePath1[F File](d F, name string, flags int, do func(F, string) error) error {
+	_, err := ResolvePath(d, name, flags, func(d F, name string) (_ struct{}, err error) {
+		err = do(d, name)
+		return
+	})
+	return err
 }

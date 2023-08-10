@@ -161,7 +161,7 @@ func withPath3(op string, f1 *rootFile, path1 string, f2 *rootFile, path2 string
 // was encountered and must be followed, in which case ResolvePath continues
 // walking the path at the link target. Any other value or error returned by the
 // do function will be returned immediately.
-func ResolvePath[R any](dir File, name string, flags int, do func(File, string) (R, error)) (ret R, err error) {
+func ResolvePath[F File, R any](dir F, name string, flags int, do func(F, string) (R, error)) (ret R, err error) {
 	if name == "" {
 		return do(dir, "")
 	}
@@ -174,7 +174,7 @@ func ResolvePath[R any](dir File, name string, flags int, do func(File, string) 
 
 	setCurrentDirectory := func(cd File) {
 		closeFileIfNotNil(lastOpenDir)
-		dir, lastOpenDir = cd, cd
+		dir, lastOpenDir = cd.(F), cd
 	}
 
 	followSymlinkDepth := 0
@@ -276,23 +276,7 @@ func ResolvePath[R any](dir File, name string, flags int, do func(File, string) 
 }
 
 func openRoot(dir File) (File, error) {
-	depth := fspath.Depth(dir.Name())
-	if depth == 0 {
-		return dir.Open(".", openPathFlags, 0)
-	}
-
-	var lastOpenDir File
-	for depth > 0 {
-		p, err := dir.Open("..", openPathFlags, 0)
-		if err != nil {
-			return nil, err
-		}
-		closeFileIfNotNil(lastOpenDir)
-		dir, lastOpenDir = p, p
-		depth--
-	}
-
-	return dir, nil
+	return dir.Open("/", O_DIRECTORY, 0)
 }
 
 func closeFileIfNotNil(f File) {

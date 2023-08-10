@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
+	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 )
 
 const (
@@ -207,8 +208,12 @@ func (f *file) Open(name string, flags int, mode fs.FileMode) (sandbox.File, err
 		return nil, sandbox.EINVAL
 	}
 
-	return sandbox.ResolvePath(f, name, flags, func(at sandbox.File, name string) (sandbox.File, error) {
-		return at.(*file).open(name, flags, mode)
+	if fspath.IsRoot(name) {
+		return f.fsys.openRoot()
+	}
+
+	return sandbox.ResolvePath(f, name, flags, func(at *file, name string) (sandbox.File, error) {
+		return at.open(name, flags, mode)
 	})
 }
 
@@ -224,8 +229,8 @@ func (f *file) Stat(name string, flags int) (sandbox.FileInfo, error) {
 		openFlags |= sandbox.O_NOFOLLOW
 	}
 
-	return sandbox.ResolvePath(f, name, openFlags, func(at sandbox.File, name string) (sandbox.FileInfo, error) {
-		l := at.(*file).ref()
+	return sandbox.ResolvePath(f, name, openFlags, func(at *file, name string) (sandbox.FileInfo, error) {
+		l := at.ref()
 		defer unref(l)
 
 		whiteout := whiteoutPrefix + name
@@ -261,8 +266,8 @@ func (f *file) Readlink(name string, buf []byte) (int, error) {
 	}
 	defer unref(l)
 
-	return sandbox.ResolvePath(f, name, sandbox.O_NOFOLLOW, func(at sandbox.File, name string) (int, error) {
-		l := at.(*file).ref()
+	return sandbox.ResolvePath(f, name, sandbox.O_NOFOLLOW, func(at *file, name string) (int, error) {
+		l := at.ref()
 		defer unref(l)
 
 		whiteout := whiteoutPrefix + name
