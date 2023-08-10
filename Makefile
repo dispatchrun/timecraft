@@ -3,7 +3,7 @@
 
 SHELL := /bin/bash
 
-GO ?= gotip
+GO ?= go
 
 PYTHONWASM_BUILD = python/cpython/python.wasm
 PYTHONZIP_BUILD = python/cpython/usr/local/lib/python311.zip
