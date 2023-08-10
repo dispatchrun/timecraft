@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"sync"
-	"sync/atomic"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
@@ -19,7 +18,7 @@ const (
 type file struct {
 	mutex  sync.Mutex
 	layers *fileLayers
-	dirbuf atomic.Pointer[dirbuf]
+	dirbuf *dirbuf
 }
 
 func newFile(layers *fileLayers) *file {
@@ -339,7 +338,11 @@ func (f *file) Seek(offset int64, whence int) (int64, error) {
 	}
 	defer unref(l)
 
-	if d := f.dirbuf.Load(); d != nil {
+	f.mutex.Lock()
+	d := f.dirbuf
+	f.mutex.Unlock()
+
+	if d != nil {
 		if offset != 0 || whence != 0 {
 			return 0, sandbox.EINVAL
 		}
@@ -381,17 +384,12 @@ func (f *file) ReadDirent(buf []byte) (int, error) {
 	}
 	defer unref(l)
 
-	var d *dirbuf
-	for {
-		d = f.dirbuf.Load()
-		if d != nil {
-			break
-		}
-		d = &dirbuf{index: -1}
-		if f.dirbuf.CompareAndSwap(nil, d) {
-			break
-		}
+	f.mutex.Lock()
+	if f.dirbuf == nil {
+		f.dirbuf = &dirbuf{index: -1}
 	}
+	d := f.dirbuf
+	f.mutex.Unlock()
 
 	return d.readDirent(buf, l.files)
 }
