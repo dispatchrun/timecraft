@@ -81,7 +81,7 @@ func (f *openFile) Close() error {
 	return nil
 }
 
-func (f *openFile) Stat(name string, flags int) (sandbox.FileInfo, error) {
+func (f *openFile) Stat(name string, flags sandbox.LookupFlags) (sandbox.FileInfo, error) {
 	file := f.file.Load()
 	switch {
 	case file == nil:

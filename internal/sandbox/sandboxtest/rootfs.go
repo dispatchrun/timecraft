@@ -16,7 +16,7 @@ func TestRootFS(t *testing.T, makeRootFS func(*testing.T, string) sandbox.FileSy
 	tests := []struct {
 		scenario string
 		path     string
-		flags    int
+		flags    sandbox.LookupFlags
 		want     string
 		err      error
 	}{
@@ -81,9 +81,9 @@ func TestRootFS(t *testing.T, makeRootFS func(*testing.T, string) sandbox.FileSy
 		},
 
 		{
-			scenario: "does not follow symlinks when O_NOFOLLOW is set",
+			scenario: "does not follow symlinks when AT_SYMLINK_NOFOLLOW is set",
 			path:     "symlink-to-answer",
-			flags:    sandbox.O_NOFOLLOW,
+			flags:    sandbox.AT_SYMLINK_NOFOLLOW,
 			err:      sandbox.ELOOP,
 		},
 

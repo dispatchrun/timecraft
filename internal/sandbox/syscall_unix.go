@@ -49,21 +49,21 @@ const (
 )
 
 const (
-	O_RDONLY    = unix.O_RDONLY
-	O_WRONLY    = unix.O_WRONLY
-	O_RDWR      = unix.O_RDWR
-	O_APPEND    = unix.O_APPEND
-	O_CREAT     = unix.O_CREAT
-	O_EXCL      = unix.O_EXCL
-	O_SYNC      = unix.O_SYNC
-	O_TRUNC     = unix.O_TRUNC
-	O_DIRECTORY = unix.O_DIRECTORY
-	O_NOFOLLOW  = unix.O_NOFOLLOW
-	O_NONBLOCK  = unix.O_NONBLOCK
+	O_RDONLY    OpenFlags = unix.O_RDONLY
+	O_WRONLY    OpenFlags = unix.O_WRONLY
+	O_RDWR      OpenFlags = unix.O_RDWR
+	O_APPEND    OpenFlags = unix.O_APPEND
+	O_CREAT     OpenFlags = unix.O_CREAT
+	O_EXCL      OpenFlags = unix.O_EXCL
+	O_SYNC      OpenFlags = unix.O_SYNC
+	O_TRUNC     OpenFlags = unix.O_TRUNC
+	O_DIRECTORY OpenFlags = unix.O_DIRECTORY
+	O_NOFOLLOW  OpenFlags = unix.O_NOFOLLOW
+	O_NONBLOCK  OpenFlags = unix.O_NONBLOCK
 )
 
 const (
-	AT_SYMLINK_NOFOLLOW = unix.AT_SYMLINK_NOFOLLOW
+	AT_SYMLINK_NOFOLLOW LookupFlags = unix.AT_SYMLINK_NOFOLLOW
 )
 
 const (

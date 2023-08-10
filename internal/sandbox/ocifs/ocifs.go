@@ -36,7 +36,7 @@ func New(layers ...sandbox.FileSystem) *FileSystem {
 }
 
 // Open satisfies the sandbox.FileSystem interface.
-func (fsys *FileSystem) Open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
+func (fsys *FileSystem) Open(name string, flags sandbox.OpenFlags, mode fs.FileMode) (sandbox.File, error) {
 	f, err := fsys.openRoot()
 	if err != nil {
 		return nil, err
