@@ -30,7 +30,7 @@ func newSymlink(header *tar.Header) *symlink {
 	}
 }
 
-func (s *symlink) open(fsys *FileSystem, name string) (sandbox.File, error) {
+func (s *symlink) open(fsys *FileSystem) (sandbox.File, error) {
 	return nil, sandbox.ELOOP
 }
 
