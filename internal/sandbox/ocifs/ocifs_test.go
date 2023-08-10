@@ -61,7 +61,7 @@ func TestOciFS(t *testing.T) {
 	}
 }
 
-func TestOciFSLAyers(t *testing.T) {
+func TestOciFSLayers(t *testing.T) {
 	tests := []struct {
 		scenario string
 		present  fileMap

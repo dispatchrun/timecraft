@@ -69,16 +69,7 @@ func (fsys *FileSystem) openRoot() (sandbox.File, error) {
 		}
 	}
 
-	root := fsys.newFile(&fileLayers{files: files})
+	root := newFile(&fileLayers{files: files})
 	files = nil
 	return root, nil
-}
-
-func (fsys *FileSystem) newFile(layers *fileLayers) *file {
-	f := &file{
-		fsys:   fsys,
-		layers: layers,
-	}
-	ref(layers)
-	return f
 }

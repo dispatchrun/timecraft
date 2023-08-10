@@ -18,9 +18,14 @@ const (
 
 type file struct {
 	mutex  sync.Mutex
-	fsys   *FileSystem
 	layers *fileLayers
 	dirbuf atomic.Pointer[dirbuf]
+}
+
+func newFile(layers *fileLayers) *file {
+	f := &file{layers: layers}
+	ref(layers)
+	return f
 }
 
 func (f *file) String() string {
@@ -55,7 +60,7 @@ func (f *file) openSelf() (sandbox.File, error) {
 		return nil, sandbox.EBADF
 	}
 	defer unref(l)
-	return f.fsys.newFile(l), nil
+	return newFile(l), nil
 }
 
 func (f *file) openParent() (sandbox.File, error) {
@@ -70,7 +75,7 @@ func (f *file) openParent() (sandbox.File, error) {
 		p = l
 	}
 
-	return f.fsys.newFile(p), nil
+	return newFile(p), nil
 }
 
 func (f *file) openRoot() (sandbox.File, error) {
@@ -84,7 +89,7 @@ func (f *file) openRoot() (sandbox.File, error) {
 		l = l.parent
 	}
 
-	return f.fsys.newFile(l), nil
+	return newFile(l), nil
 }
 
 func (f *file) openFile(name string, flags sandbox.OpenFlags, mode fs.FileMode) (sandbox.File, error) {
@@ -96,7 +101,7 @@ func (f *file) openFile(name string, flags sandbox.OpenFlags, mode fs.FileMode) 
 
 	var files []sandbox.File
 	defer func() {
-		closeFiles(files)
+		closeFiles(files) // only closed on error or panic
 	}()
 
 	whiteout := whiteoutPrefix + name
@@ -167,12 +172,9 @@ func (f *file) openFile(name string, flags sandbox.OpenFlags, mode fs.FileMode) 
 		return nil, sandbox.ENOENT
 	}
 
-	open := &file{
-		fsys:   f.fsys,
-		layers: &fileLayers{parent: l, files: files},
-	}
+	open := newFile(&fileLayers{parent: l, files: files})
+	// The new fileLayers value owns a reference to its parent
 	ref(open.layers.parent)
-	ref(open.layers)
 	files = nil // prevents the defer from closing the files
 	return open, nil
 }
