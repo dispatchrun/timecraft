@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/debug/tracing"
@@ -15,7 +16,6 @@ import (
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
-	"golang.org/x/exp/slices"
 )
 
 const traceUsage = `

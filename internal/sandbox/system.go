@@ -6,12 +6,12 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"strconv"
 	"time"
 
 	"github.com/stealthrocket/wasi-go"
 	"github.com/tetratelabs/wazero/sys"
-	"golang.org/x/exp/slices"
 )
 
 // Option represents configuration options that can be set when instantiating a

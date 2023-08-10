@@ -3,12 +3,12 @@ package timemachine
 import (
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	flatbuffers "github.com/google/flatbuffers/go"
 	"github.com/stealthrocket/timecraft/format/logsegment"
 	"github.com/stealthrocket/timecraft/internal/stream"
-	"golang.org/x/exp/slices"
 )
 
 // RecordBatch is a read-only batch of records read from a log segment.

@@ -3,11 +3,11 @@ package textprint
 import (
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/stealthrocket/timecraft/internal/stream"
-	"golang.org/x/exp/slices"
 )
 
 type TableOption[T any] func(*tableWriter[T])
@@ -20,7 +20,7 @@ func List[T any](enable bool) TableOption[T] {
 	return func(t *tableWriter[T]) { t.list = enable }
 }
 
-func OrderBy[T any](f func(T, T) bool) TableOption[T] {
+func OrderBy[T any](f func(T, T) int) TableOption[T] {
 	return func(t *tableWriter[T]) { t.orderBy = f }
 }
 
@@ -40,7 +40,7 @@ type tableWriter[T any] struct {
 	values  []T
 	header  bool
 	list    bool
-	orderBy func(T, T) bool
+	orderBy func(T, T) int
 }
 
 func (t *tableWriter[T]) Write(values []T) (int, error) {

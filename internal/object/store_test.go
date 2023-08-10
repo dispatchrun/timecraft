@@ -1,8 +1,10 @@
 package object_test
 
 import (
+	"cmp"
 	"context"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -10,7 +12,6 @@ import (
 	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/stream"
-	"golang.org/x/exp/slices"
 )
 
 func TestObjectStore(t *testing.T) {
@@ -344,7 +345,7 @@ func clearCreatedAt(objects []object.Info) {
 }
 
 func sortObjectInfo(objects []object.Info) {
-	slices.SortFunc(objects, func(a, b object.Info) bool {
-		return a.Name < b.Name
+	slices.SortFunc(objects, func(a, b object.Info) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 }

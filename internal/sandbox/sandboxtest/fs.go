@@ -4,14 +4,13 @@ import (
 	"io/fs"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"testing/fstest"
 
-	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
-
 	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
+	"golang.org/x/exp/maps"
 )
 
 // TestFS is a test suite based on testing/fstest using test data located in the

@@ -25,6 +25,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -32,7 +33,6 @@ import (
 	"github.com/stealthrocket/timecraft/internal/print/human"
 	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 )
 
 const rootUsage = `timecraft - WebAssembly Time Machine

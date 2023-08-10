@@ -5,13 +5,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 
 	main "github.com/stealthrocket/timecraft"
 	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 	"gopkg.in/yaml.v3"
 )
 

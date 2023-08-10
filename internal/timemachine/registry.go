@@ -2,6 +2,7 @@ package timemachine
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -20,7 +22,6 @@ import (
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/stream"
-	"golang.org/x/exp/slices"
 )
 
 // ErrNoRecords is an error returned when no log records could be found for
@@ -258,8 +259,8 @@ func makeTags(annotations map[string]string) []object.Tag {
 }
 
 func sortTags(tags []object.Tag) {
-	slices.SortFunc(tags, func(t1, t2 object.Tag) bool {
-		return t1.Name < t2.Name
+	slices.SortFunc(tags, func(t1, t2 object.Tag) int {
+		return cmp.Compare(t1.Name, t2.Name)
 	})
 }
 
@@ -559,8 +560,8 @@ func (reg *Registry) LookupLogManifest(ctx context.Context, processID format.UUI
 		return nil, err
 	}
 
-	slices.SortFunc(m.Segments, func(s1, s2 format.LogSegment) bool {
-		return s1.Number < s2.Number
+	slices.SortFunc(m.Segments, func(s1, s2 format.LogSegment) int {
+		return cmp.Compare(s1.Number, s2.Number)
 	})
 	return m, nil
 }

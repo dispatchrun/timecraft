@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/wasi-go"
-	"golang.org/x/exp/slices"
 	"gopkg.in/yaml.v3"
 )
 

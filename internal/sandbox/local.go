@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 	"sync"
 	"sync/atomic"
-
-	"golang.org/x/exp/slices"
 
 	"github.com/stealthrocket/timecraft/internal/ipam"
 )

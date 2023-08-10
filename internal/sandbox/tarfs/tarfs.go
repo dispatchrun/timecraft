@@ -2,16 +2,17 @@ package tarfs
 
 import (
 	"archive/tar"
+	"cmp"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path"
+	"slices"
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
-	"golang.org/x/exp/slices"
 )
 
 // FileSystem is an implementation of the sandbox.FileSystem interface backed by
@@ -145,8 +146,8 @@ func Open(data io.ReaderAt, size int64) (*FileSystem, error) {
 	for name, entry := range files {
 		if d, ok := entry.(*dir); ok {
 			d.parent = files[path.Dir(name)].(*dir)
-			slices.SortFunc(d.ents, func(a, b dirEntry) bool {
-				return a.name < b.name
+			slices.SortFunc(d.ents, func(a, b dirEntry) int {
+				return cmp.Compare(a.name, b.name)
 			})
 		}
 	}
