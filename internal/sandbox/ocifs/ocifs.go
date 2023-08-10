@@ -5,6 +5,7 @@ import (
 	"io/fs"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
+	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 )
 
 // FileSystem is an implementation of the sandbox.FileSystem interface that
@@ -35,23 +36,26 @@ func New(layers ...sandbox.FileSystem) *FileSystem {
 }
 
 // Open satisfies the sandbox.FileSystem interface.
-func (fsys *FileSystem) Open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
+func (fsys *FileSystem) Open(name string, flags sandbox.OpenFlags, mode fs.FileMode) (sandbox.File, error) {
 	f, err := fsys.openRoot()
 	if err != nil {
 		return nil, err
+	}
+	if fspath.IsRoot(name) {
+		return f, nil
 	}
 	defer f.Close()
 	return f.Open(name, flags, mode)
 }
 
-func (fsys *FileSystem) openRoot() (*file, error) {
+func (fsys *FileSystem) openRoot() (sandbox.File, error) {
 	if len(fsys.layers) == 0 {
 		return nil, sandbox.ENOENT
 	}
 
 	files := make([]sandbox.File, 0, len(fsys.layers))
 	defer func() {
-		closeFiles(files)
+		closeFiles(files) // only closed on error or panic
 	}()
 
 	for _, layer := range fsys.layers {
@@ -65,11 +69,16 @@ func (fsys *FileSystem) openRoot() (*file, error) {
 		}
 	}
 
-	root := &file{
-		fsys:   fsys,
-		layers: &fileLayers{files: files},
-	}
-	ref(root.layers)
+	root := fsys.newFile(&fileLayers{files: files})
 	files = nil
 	return root, nil
+}
+
+func (fsys *FileSystem) newFile(layers *fileLayers) *file {
+	f := &file{
+		fsys:   fsys,
+		layers: layers,
+	}
+	ref(layers)
+	return f
 }

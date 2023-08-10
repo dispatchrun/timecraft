@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
+	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 )
 
 const (
@@ -54,14 +55,7 @@ func (f *file) openSelf() (sandbox.File, error) {
 		return nil, sandbox.EBADF
 	}
 	defer unref(l)
-
-	open := &file{
-		fsys:   f.fsys,
-		layers: l,
-	}
-
-	ref(open.layers)
-	return open, nil
+	return f.fsys.newFile(l), nil
 }
 
 func (f *file) openParent() (sandbox.File, error) {
@@ -71,16 +65,29 @@ func (f *file) openParent() (sandbox.File, error) {
 	}
 	defer unref(l)
 
-	open := &file{
-		fsys:   f.fsys,
-		layers: l.parent,
+	p := l.parent
+	if p == nil { // already at the root?
+		p = l
 	}
 
-	ref(open.layers)
-	return open, nil
+	return f.fsys.newFile(p), nil
 }
 
-func (f *file) openFile(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
+func (f *file) openRoot() (sandbox.File, error) {
+	l := f.ref()
+	if l == nil {
+		return nil, sandbox.EBADF
+	}
+	defer unref(l)
+
+	for l.parent != nil { // walk up to the root
+		l = l.parent
+	}
+
+	return f.fsys.newFile(l), nil
+}
+
+func (f *file) openFile(name string, flags sandbox.OpenFlags, mode fs.FileMode) (sandbox.File, error) {
 	l := f.ref()
 	if l == nil {
 		return nil, sandbox.EBADF
@@ -186,7 +193,7 @@ func hasWhiteout(file sandbox.File, whiteout string) (has bool, err error) {
 	return false, nil
 }
 
-func (f *file) open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
+func (f *file) open(name string, flags sandbox.OpenFlags, mode fs.FileMode) (sandbox.File, error) {
 	switch name {
 	case ".":
 		return f.openSelf()
@@ -197,7 +204,7 @@ func (f *file) open(name string, flags int, mode fs.FileMode) (sandbox.File, err
 	}
 }
 
-func (f *file) Open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
+func (f *file) Open(name string, flags sandbox.OpenFlags, mode fs.FileMode) (sandbox.File, error) {
 	const unsupportedFlags = sandbox.O_CREAT |
 		sandbox.O_APPEND |
 		sandbox.O_RDWR |
@@ -206,26 +213,26 @@ func (f *file) Open(name string, flags int, mode fs.FileMode) (sandbox.File, err
 	if ((flags & unsupportedFlags) != 0) || mode != 0 || name == "" {
 		return nil, sandbox.EINVAL
 	}
-
-	return sandbox.ResolvePath(f, name, flags, func(at sandbox.File, name string) (sandbox.File, error) {
-		return at.(*file).open(name, flags, mode)
+	if fspath.IsRoot(name) {
+		return f.openRoot()
+	}
+	if fspath.HasTrailingSlash(name) {
+		flags |= sandbox.O_DIRECTORY
+	}
+	return sandbox.ResolvePath(f, name, flags.LookupFlags(), func(at *file, name string) (sandbox.File, error) {
+		return at.open(name, flags, mode)
 	})
 }
 
-func (f *file) Stat(name string, flags int) (sandbox.FileInfo, error) {
+func (f *file) Stat(name string, flags sandbox.LookupFlags) (sandbox.FileInfo, error) {
 	l := f.ref()
 	if l == nil {
 		return sandbox.FileInfo{}, sandbox.EBADF
 	}
 	defer unref(l)
 
-	openFlags := 0
-	if (flags & sandbox.AT_SYMLINK_NOFOLLOW) != 0 {
-		openFlags |= sandbox.O_NOFOLLOW
-	}
-
-	return sandbox.ResolvePath(f, name, openFlags, func(at sandbox.File, name string) (sandbox.FileInfo, error) {
-		l := at.(*file).ref()
+	return sandbox.ResolvePath(f, name, flags, func(at *file, name string) (sandbox.FileInfo, error) {
+		l := at.ref()
 		defer unref(l)
 
 		whiteout := whiteoutPrefix + name
@@ -261,8 +268,8 @@ func (f *file) Readlink(name string, buf []byte) (int, error) {
 	}
 	defer unref(l)
 
-	return sandbox.ResolvePath(f, name, sandbox.O_NOFOLLOW, func(at sandbox.File, name string) (int, error) {
-		l := at.(*file).ref()
+	return sandbox.ResolvePath(f, name, sandbox.AT_SYMLINK_NOFOLLOW, func(at *file, name string) (int, error) {
+		l := at.ref()
 		defer unref(l)
 
 		whiteout := whiteoutPrefix + name
@@ -295,15 +302,6 @@ func (f *file) Fd() uintptr {
 	}
 	defer unref(l)
 	return l.files[0].Fd()
-}
-
-func (f *file) Name() string {
-	l := f.ref()
-	if l == nil {
-		return ""
-	}
-	defer unref(l)
-	return l.files[0].Name()
 }
 
 func (f *file) Readv(iovs [][]byte) (int, error) {
@@ -366,11 +364,11 @@ func (f *file) Datasync() error {
 	return nil
 }
 
-func (f *file) Flags() (int, error) {
+func (f *file) Flags() (sandbox.OpenFlags, error) {
 	return 0, nil
 }
 
-func (f *file) SetFlags(int) error {
+func (f *file) SetFlags(sandbox.OpenFlags) error {
 	return sandbox.EINVAL
 }
 
@@ -396,7 +394,7 @@ func (f *file) ReadDirent(buf []byte) (int, error) {
 	return d.readDirent(buf, l.files)
 }
 
-func (f *file) Chtimes(string, [2]sandbox.Timespec, int) error {
+func (f *file) Chtimes(string, [2]sandbox.Timespec, sandbox.LookupFlags) error {
 	return sandbox.EPERM
 }
 
@@ -412,7 +410,7 @@ func (f *file) Rename(string, sandbox.File, string) error {
 	return f.expectDirectory()
 }
 
-func (f *file) Link(string, sandbox.File, string, int) error {
+func (f *file) Link(string, sandbox.File, string, sandbox.LookupFlags) error {
 	return f.expectDirectory()
 }
 

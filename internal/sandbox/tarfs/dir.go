@@ -2,7 +2,6 @@ package tarfs
 
 import (
 	"archive/tar"
-	"fmt"
 	"io/fs"
 	"path"
 	"sort"
@@ -48,8 +47,8 @@ type dirEntry struct {
 	file fileEntry
 }
 
-func (d *dir) open(fsys *FileSystem, name string) (sandbox.File, error) {
-	open := &openDir{fsys: fsys, name: name}
+func (d *dir) open(fsys *FileSystem) (sandbox.File, error) {
+	open := &openDir{fsys: fsys}
 	open.dir.Store(d)
 	return open, nil
 }
@@ -102,14 +101,12 @@ func (d *dir) find(name string) fileEntry {
 	return d.ents[i].file
 }
 
-func resolve[R any](fsys *FileSystem, cwd *dir, cwdName, name string, flags int, do func(fileEntry, []string) (R, error)) (R, error) {
+func resolve[R any](fsys *FileSystem, cwd *dir, name string, flags sandbox.OpenFlags, do func(fileEntry) (R, error)) (R, error) {
 	var zero R
-	pathElems := make([]string, 1, 8)
-	pathElems[0] = cwdName
 
 	for loop := 0; loop < sandbox.MaxFollowSymlink; loop++ {
 		if name == "" {
-			return do(cwd, pathElems)
+			return do(cwd)
 		}
 
 		var elem string
@@ -117,7 +114,6 @@ func resolve[R any](fsys *FileSystem, cwd *dir, cwdName, name string, flags int,
 
 		if elem == "/" {
 			cwd = &fsys.root
-			pathElems = append(pathElems[:0], "/")
 			continue
 		}
 
@@ -125,8 +121,6 @@ func resolve[R any](fsys *FileSystem, cwd *dir, cwdName, name string, flags int,
 		if f == nil {
 			return zero, sandbox.ENOENT
 		}
-
-		pathElems = append(pathElems, elem)
 
 		if name != "" {
 			switch c := f.(type) {
@@ -153,7 +147,7 @@ func resolve[R any](fsys *FileSystem, cwd *dir, cwdName, name string, flags int,
 			}
 		}
 
-		return do(f, pathElems)
+		return do(f)
 	}
 
 	return zero, sandbox.ELOOP
@@ -162,7 +156,6 @@ func resolve[R any](fsys *FileSystem, cwd *dir, cwdName, name string, flags int,
 type openDir struct {
 	readOnlyFile
 	fsys   *FileSystem
-	name   string
 	dir    atomic.Pointer[dir]
 	mu     sync.Mutex
 	index  int
@@ -170,11 +163,7 @@ type openDir struct {
 }
 
 func (d *openDir) String() string {
-	return fmt.Sprintf("&tarfs.openDir{name:%q}", d.name)
-}
-
-func (d *openDir) Name() string {
-	return d.name
+	return "&tarfs.openDir{}"
 }
 
 func (d *openDir) Close() error {
@@ -182,7 +171,7 @@ func (d *openDir) Close() error {
 	return nil
 }
 
-func (d *openDir) Open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
+func (d *openDir) Open(name string, flags sandbox.OpenFlags, mode fs.FileMode) (sandbox.File, error) {
 	const unsupportedFlags = sandbox.O_CREAT |
 		sandbox.O_APPEND |
 		sandbox.O_RDWR |
@@ -201,24 +190,20 @@ func (d *openDir) Open(name string, flags int, mode fs.FileMode) (sandbox.File, 
 		flags |= sandbox.O_DIRECTORY
 	}
 
-	return resolve(d.fsys, dir, d.name, name, flags, func(f fileEntry, pathElems []string) (sandbox.File, error) {
+	return resolve(d.fsys, dir, name, flags, func(f fileEntry) (sandbox.File, error) {
 		if _, ok := f.(*symlink); ok {
 			return nil, sandbox.ELOOP
 		}
-		return f.open(d.fsys, path.Join(pathElems...))
+		return f.open(d.fsys)
 	})
 }
 
-func (d *openDir) Stat(name string, flags int) (sandbox.FileInfo, error) {
+func (d *openDir) Stat(name string, flags sandbox.LookupFlags) (sandbox.FileInfo, error) {
 	dir := d.dir.Load()
 	if dir == nil {
 		return sandbox.FileInfo{}, sandbox.EBADF
 	}
-	openFlags := 0
-	if (flags & sandbox.AT_SYMLINK_NOFOLLOW) != 0 {
-		openFlags |= sandbox.O_NOFOLLOW
-	}
-	return resolve(d.fsys, dir, d.name, name, openFlags, func(f fileEntry, _ []string) (sandbox.FileInfo, error) {
+	return resolve(d.fsys, dir, name, flags.OpenFlags(), func(f fileEntry) (sandbox.FileInfo, error) {
 		return f.stat(), nil
 	})
 }
@@ -228,7 +213,7 @@ func (d *openDir) Readlink(name string, buf []byte) (int, error) {
 	if dir == nil {
 		return 0, sandbox.EBADF
 	}
-	return resolve(d.fsys, dir, d.name, name, sandbox.O_NOFOLLOW, func(f fileEntry, _ []string) (int, error) {
+	return resolve(d.fsys, dir, name, sandbox.O_NOFOLLOW, func(f fileEntry) (int, error) {
 		if s, ok := f.(*symlink); ok {
 			return copy(buf, s.link), nil
 		} else {
@@ -298,7 +283,7 @@ func (*openDir) Rmdir(string) error { return sandbox.EROFS }
 
 func (*openDir) Rename(string, sandbox.File, string) error { return sandbox.EROFS }
 
-func (*openDir) Link(string, sandbox.File, string, int) error { return sandbox.EROFS }
+func (*openDir) Link(string, sandbox.File, string, sandbox.LookupFlags) error { return sandbox.EROFS }
 
 func (*openDir) Symlink(string, string) error { return sandbox.EROFS }
 

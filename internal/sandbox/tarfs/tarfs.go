@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox"
+	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 	"golang.org/x/exp/slices"
 )
 
@@ -24,10 +25,13 @@ type FileSystem struct {
 }
 
 // Open satisfies sandbox.FileSystem.
-func (fsys *FileSystem) Open(name string, flags int, mode fs.FileMode) (sandbox.File, error) {
-	f, err := fsys.root.open(fsys, "/")
+func (fsys *FileSystem) Open(name string, flags sandbox.OpenFlags, mode fs.FileMode) (sandbox.File, error) {
+	f, err := fsys.root.open(fsys)
 	if err != nil {
 		return nil, err
+	}
+	if fspath.IsRoot(name) {
+		return f, nil
 	}
 	defer f.Close()
 	return f.Open(name, flags, mode)
@@ -171,7 +175,7 @@ func OpenFile(f *os.File) (*FileSystem, error) {
 }
 
 type fileEntry interface {
-	open(fsys *FileSystem, name string) (sandbox.File, error)
+	open(fsys *FileSystem) (sandbox.File, error)
 
 	stat() sandbox.FileInfo
 
@@ -225,15 +229,19 @@ func (readOnlyFile) Sync() error { return nil }
 
 func (readOnlyFile) Datasync() error { return nil }
 
-func (readOnlyFile) Flags() (int, error) { return 0, nil }
+func (readOnlyFile) Flags() (sandbox.OpenFlags, error) { return 0, nil }
 
-func (readOnlyFile) SetFlags(int) error { return sandbox.EINVAL }
+func (readOnlyFile) SetFlags(sandbox.OpenFlags) error { return sandbox.EINVAL }
 
-func (readOnlyFile) Chtimes(string, [2]sandbox.Timespec, int) error { return sandbox.EPERM }
+func (readOnlyFile) Chtimes(string, [2]sandbox.Timespec, sandbox.LookupFlags) error {
+	return sandbox.EPERM
+}
 
 type leafFile struct{ readOnlyFile }
 
-func (leafFile) Open(string, int, fs.FileMode) (sandbox.File, error) { return nil, sandbox.ENOTDIR }
+func (leafFile) Open(string, sandbox.OpenFlags, fs.FileMode) (sandbox.File, error) {
+	return nil, sandbox.ENOTDIR
+}
 
 func (leafFile) ReadDirent([]byte) (int, error) { return 0, sandbox.ENOTDIR }
 
@@ -243,7 +251,7 @@ func (leafFile) Rmdir(string) error { return sandbox.ENOTDIR }
 
 func (leafFile) Rename(string, sandbox.File, string) error { return sandbox.ENOTDIR }
 
-func (leafFile) Link(string, sandbox.File, string, int) error { return sandbox.ENOTDIR }
+func (leafFile) Link(string, sandbox.File, string, sandbox.LookupFlags) error { return sandbox.ENOTDIR }
 
 func (leafFile) Symlink(string, string) error { return sandbox.ENOTDIR }
 

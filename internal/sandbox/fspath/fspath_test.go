@@ -1,6 +1,7 @@
 package fspath_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stealthrocket/timecraft/internal/assert"
@@ -84,5 +85,33 @@ func TestClean(t *testing.T) {
 func BenchmarkClean(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = fspath.Clean("/tmp/.././//test/")
+	}
+}
+
+func TestIsRoot(t *testing.T) {
+	tests := []struct {
+		path   string
+		isRoot bool
+	}{
+		{"", false},
+		{".", false},
+		{"..", false},
+
+		{"/", true},
+		{"///", true},
+		{"/./././", true},
+		{"/..", true},
+	}
+
+	for _, test := range tests {
+		t.Run(fmt.Sprintf("%s=%t", test.path, test.isRoot), func(t *testing.T) {
+			assert.Equal(t, fspath.IsRoot(test.path), test.isRoot)
+		})
+	}
+}
+
+func BenchmarkIsRoot(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = fspath.IsRoot("/././././")
 	}
 }
