@@ -320,19 +320,6 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 		processID = uuid.New()
 	}
 
-	// Setup a gRPC server for the module so that it can interact with the
-	// timecraft runtime.
-	server := pm.serverFactory.NewServer(pm.ctx, processID, moduleSpec, logSpec)
-	serverListener, err := guest.Listen(pm.ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", timecraftServicePort))
-	if err != nil {
-		return ProcessID{}, err
-	}
-	go func() {
-		if err := server.Serve(serverListener); err != nil && !errors.Is(err, net.ErrClosed) {
-			pm.cancel(fmt.Errorf("failed to serve gRPC server: %w", err))
-		}
-	}()
-
 	if moduleSpec.Trace != nil {
 		system = wasi.Trace(moduleSpec.Trace, system)
 	}
@@ -382,6 +369,21 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 	// the next invocation of PollOneOff to imnmediately terminate the module.
 	// TOOD: the sandbox should terminate on any host call to be more reliable.
 	group.Go(func() error { <-ctx.Done(); guest.Kill(); return nil })
+
+	// Setup a gRPC server for the module so that it can interact with the
+	// timecraft runtime.
+	server := pm.serverFactory.NewServer(pm.ctx, processID, moduleSpec, logSpec)
+	serverListener, err := guest.Listen(pm.ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", timecraftServicePort))
+	if err != nil {
+		return ProcessID{}, err
+	}
+	go func() {
+		if err := server.Serve(serverListener); err != nil {
+			if ctx.Err() == nil && !errors.Is(err, net.ErrClosed) {
+				pm.cancel(fmt.Errorf("failed to serve gRPC server: %w", err))
+			}
+		}
+	}()
 
 	process := &ProcessInfo{
 		ID:       processID,
