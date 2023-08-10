@@ -29,6 +29,9 @@ const (
 // system, which may be a directory. Often time this method is used to open the
 // root directory and use the methods of the returned File instance to access
 // the rest of the directory tree.
+//
+// FileSystem implementations must be safe for concurrent use by multiple
+// goroutines.
 type FileSystem interface {
 	Open(name string, flags OpenFlags, mode fs.FileMode) (File, error)
 }
@@ -294,6 +297,8 @@ func withRoot2[R any](fsys FileSystem, do func(File) (R, error)) (ret R, err err
 }
 
 // File is an interface representing files opened from a file system.
+//
+// File implementations must be safe for concurrent use by multiple goroutines.
 type File interface {
 	// Returns the file descriptor number for the underlying kernel handle for
 	// the file.
