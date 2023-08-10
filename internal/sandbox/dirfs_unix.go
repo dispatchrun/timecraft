@@ -3,7 +3,7 @@ package sandbox
 import (
 	"fmt"
 	"io/fs"
-	"sync/atomic"
+	"sync"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
 	"golang.org/x/sys/unix"
@@ -43,35 +43,23 @@ func newFile(dir *dirFile, fd int) *dirFile {
 }
 
 type dirFile struct {
-	dir  *dirFile
-	refc atomic.Int32
-	once atomic.Int32
-	fd   int
+	dir    *dirFile
+	mutex  sync.Mutex
+	refc   int32
+	closed bool
+	fd     int
 }
 
-func (f *dirFile) acquire() int {
-	for {
-		refCount := f.refc.Load()
-		// Pre-check that we are not using a Closed file which has already
-		// released its file descriptor, or might be in the process of.
-		if refCount == 0 {
-			return -1
-		}
-		// Acquire a reference by compare-and-swap instead of simple increment
-		// so we can coordinate with other reference counters that may have
-		// unreferenced the file down to zero due to a concurrent Close call.
-		if f.refc.CompareAndSwap(refCount, refCount+1) {
-			// If Close was called concurrently, we might observe a non-zero
-			// once at this stage, which indicates that we should abort the
-			// operation and dereference the file, which might cause the file
-			// descriptor to be closed.
-			if f.once.Load() != 0 {
-				f.unref()
-				return -1
-			}
-			return f.fd
-		}
+func (f *dirFile) acquire() (fd int) {
+	f.mutex.Lock()
+	if f.closed {
+		fd = -1
+	} else {
+		fd = f.fd
+		f.refc++
 	}
+	f.mutex.Unlock()
+	return fd
 }
 
 func (f *dirFile) release(fd int) {
@@ -81,17 +69,25 @@ func (f *dirFile) release(fd int) {
 }
 
 func (f *dirFile) ref() {
-	f.refc.Add(1)
+	f.mutex.Lock()
+	f.refc++
+	f.mutex.Unlock()
 }
 
 func (f *dirFile) unref() {
-	if f.refc.Add(-1) == 0 {
-		fd := f.fd
-		f.fd = -1
-		closeTraceError(fd)
-		if f.dir != nil {
-			f.dir.unref()
-		}
+	f.mutex.Lock()
+	if f.refc--; f.refc == 0 {
+		f.close()
+	}
+	f.mutex.Unlock()
+}
+
+func (f *dirFile) close() {
+	fd := f.fd
+	f.fd = -1
+	closeTraceError(fd)
+	if f.dir != nil {
+		f.dir.unref()
 	}
 }
 
@@ -104,9 +100,14 @@ func (f *dirFile) Fd() uintptr {
 }
 
 func (f *dirFile) Close() error {
-	if f.once.Swap(1) == 0 {
-		f.unref()
+	f.mutex.Lock()
+	if !f.closed {
+		f.closed = true
+		if f.refc--; f.refc == 0 {
+			f.close()
+		}
 	}
+	f.mutex.Unlock()
 	return nil
 }
 
