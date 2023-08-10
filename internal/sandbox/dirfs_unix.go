@@ -50,12 +50,28 @@ type dirFile struct {
 }
 
 func (f *dirFile) acquire() int {
-	f.ref()
-	if f.once.Load() != 0 {
-		f.unref()
-		return -1 // closed
+	for {
+		refCount := f.refc.Load()
+		// Pre-check that we are not using a Closed file which has already
+		// released its file descriptor, or might be in the process of.
+		if refCount == 0 {
+			return -1
+		}
+		// Acquire a reference by compare-and-swap instead of simple increment
+		// so we can coordinate with other reference counters that may have
+		// unreferenced the file down to zero due to a concurrent Close call.
+		if f.refc.CompareAndSwap(refCount, refCount+1) {
+			// If Close was called concurrently, we might observe a zero once
+			// at this stage, which indicates that we should abort the operation
+			// and dereference the file, which might cause the file descriptor
+			// to be closed.
+			if f.once.Load() != 0 {
+				f.unref()
+				return -1
+			}
+			return f.fd
+		}
 	}
-	return f.fd
 }
 
 func (f *dirFile) release(fd int) {
