@@ -2,6 +2,8 @@
 // that are more useful for path manipulation in the presence of symbolic links.
 package fspath
 
+import "strings"
+
 // Depth returns the depth of a path. The root "/" has depth zero.
 func Depth(path string) (depth int) {
 	for {
@@ -145,6 +147,33 @@ func TrimTrailingSlash(s string) string {
 	return s[:i]
 }
 
+// IsAbs returns true if the path is absolute, which means that it starts with
+// a slash ("/").
 func IsAbs(path string) bool {
 	return len(path) > 0 && path[0] == '/'
+}
+
+// IsRoot returns true if the path represents a root directory, which means that
+// it is absolute and composed only of sequences of "/", ".", and "..".
+func IsRoot(path string) bool {
+	if len(path) == 0 || path[0] != '/' {
+		return false
+	}
+	for {
+		path = TrimLeadingSlash(path)
+		switch {
+		case path == "":
+			return true
+		case strings.HasPrefix(path, "./"):
+			path = path[2:]
+		case strings.HasPrefix(path, "../"):
+			path = path[3:]
+		case path == ".":
+			path = path[1:]
+		case path == "..":
+			path = path[2:]
+		default:
+			return false
+		}
+	}
 }
