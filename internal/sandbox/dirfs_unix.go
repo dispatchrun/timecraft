@@ -61,10 +61,10 @@ func (f *dirFile) acquire() int {
 		// so we can coordinate with other reference counters that may have
 		// unreferenced the file down to zero due to a concurrent Close call.
 		if f.refc.CompareAndSwap(refCount, refCount+1) {
-			// If Close was called concurrently, we might observe a zero once
-			// at this stage, which indicates that we should abort the operation
-			// and dereference the file, which might cause the file descriptor
-			// to be closed.
+			// If Close was called concurrently, we might observe a non-zero
+			// once at this stage, which indicates that we should abort the
+			// operation and dereference the file, which might cause the file
+			// descriptor to be closed.
 			if f.once.Load() != 0 {
 				f.unref()
 				return -1
