@@ -331,6 +331,15 @@ func (f *file) Pwritev(iovs [][]byte, offset int64) (int, error) {
 	return 0, sandbox.EBADF
 }
 
+func (f *file) CopyFileRange(srcOffset int64, dst sandbox.File, dstOffset int64, length int) (int, error) {
+	l := f.ref()
+	if l == nil {
+		return 0, sandbox.EBADF
+	}
+	defer unref(l)
+	return l.files[0].CopyFileRange(srcOffset, dst, dstOffset, length)
+}
+
 func (f *file) Seek(offset int64, whence int) (int64, error) {
 	l := f.ref()
 	if l == nil {

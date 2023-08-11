@@ -3,6 +3,7 @@ package sandbox
 import (
 	"fmt"
 	"io/fs"
+	"runtime"
 	"sync"
 
 	"github.com/stealthrocket/timecraft/internal/sandbox/fspath"
@@ -180,6 +181,15 @@ func (f *dirFile) Preadv(iovs [][]byte, offset int64) (int, error) {
 
 func (f *dirFile) Pwritev(iovs [][]byte, offset int64) (int, error) {
 	return withFD2(f, func(fd int) (int, error) { return pwritev(fd, iovs, offset) })
+}
+
+func (f *dirFile) CopyFileRange(srcOffset int64, dst File, dstOffset int64, length int) (int, error) {
+	if runtime.GOOS == "linux" {
+		return withFD2(f, func(srcfd int) (int, error) {
+			return copyFileRange(srcfd, srcOffset, int(dst.Fd()), dstOffset, length)
+		})
+	}
+	return CopyFileRange(f, srcOffset, dst, dstOffset, length)
 }
 
 func (f *dirFile) Seek(offset int64, whence int) (int64, error) {

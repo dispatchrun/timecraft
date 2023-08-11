@@ -278,6 +278,29 @@ func Rename(fsys FileSystem, oldName, newName string, flags RenameFlags) error {
 	return nil
 }
 
+// CopyFile creates a copy of oldName at newName in the given file system.
+func CopyFile(fsys FileSystem, oldName, newName string) error {
+	src, err := Open(fsys, oldName)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	stat, err := src.Stat("", 0)
+	if err != nil {
+		return err
+	}
+
+	dst, err := Create(fsys, newName, stat.Mode)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	_, err = CopyFileRange(src, 0, dst, 0, int(stat.Size))
+	return err
+}
+
 func withRoot1(fsys FileSystem, do func(File) error) error {
 	d, err := OpenRoot(fsys)
 	if err != nil {
@@ -349,6 +372,12 @@ type File interface {
 	// The method returns the number of bytes written, which may be less than
 	// the total size of the write buffers, even in the absence of errors.
 	Pwritev(iovs [][]byte, offset int64) (int, error)
+
+	// CopyFileRange copies length bytes from the receiver at srcOffset to the
+	// destination at dstOffset, returning the number of bytes that have been
+	// copied, which might be shorter than the requested length if an error
+	// occured.
+	CopyFileRange(srcOffset int64, dst File, dstOffset int64, length int) (int, error)
 
 	// Seek positions the seek offset of the file at the given location, which
 	// is interpreted relative to the whence value. The whence may be SEEK_SET,
@@ -486,6 +515,52 @@ type File interface {
 	// Unlinking a file only drops the name referencing it, its content is only
 	// reclaimed by the file system once all open references have been closed.
 	Unlink(name string) error
+}
+
+// CopyFileRange is a generic implementation of the File.CopyFileRange method
+// using Preadv/Pwritev.
+func CopyFileRange(src File, srcOffset int64, dst File, dstOffset int64, length int) (int, error) {
+	bufferSize := 128 * 1024
+	if bufferSize > length {
+		bufferSize = length
+	}
+
+	buffer := make([]byte, bufferSize)
+	iovecs := make([][]byte, 1)
+	copied := 0
+
+	for length > 0 {
+		b := buffer
+		if len(b) > length {
+			b = b[:length]
+		}
+		iovecs[0] = b
+		rn, err := src.Preadv(iovecs, srcOffset)
+		if err != nil {
+			return copied, err
+		}
+		if rn == 0 {
+			break
+		}
+
+		for i := 0; i < rn; {
+			iovecs[0] = b[i:rn]
+			wn, err := dst.Pwritev(iovecs, dstOffset)
+			if wn > 0 {
+				dstOffset += int64(wn)
+				copied += wn
+				i += wn
+			}
+			if err != nil {
+				return copied, err
+			}
+		}
+
+		srcOffset += int64(rn)
+		length -= rn
+	}
+
+	return copied, nil
 }
 
 // FileInfo is a type similar to fs.FileInfo or syscall.Stat_t on unix systems.

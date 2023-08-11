@@ -292,3 +292,5 @@ func (*openDir) Unlink(string) error { return sandbox.EROFS }
 func (*openDir) Readv([][]byte) (int, error) { return 0, sandbox.EISDIR }
 
 func (*openDir) Preadv([][]byte, int64) (int, error) { return 0, sandbox.EISDIR }
+
+func (*openDir) CopyFileRange(int64, sandbox.File, int64, int) (int, error) { return 0, sandbox.EISDIR }
