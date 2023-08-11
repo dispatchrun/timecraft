@@ -309,14 +309,14 @@ func (f *dirFile) Rmdir(name string) error {
 	})
 }
 
-func (f1 *dirFile) Rename(oldName string, newDir File, newName string) error {
+func (f1 *dirFile) Rename(oldName string, newDir File, newName string, flags RenameFlags) error {
 	f2, ok := newDir.(*dirFile)
 	if !ok {
 		return EXDEV
 	}
 	return resolvePath1(f1, oldName, AT_SYMLINK_NOFOLLOW, func(fd1 int, name1 string) error {
 		return resolvePath1(f2, newName, AT_SYMLINK_NOFOLLOW, func(fd2 int, name2 string) error {
-			return renameat(fd1, name1, fd2, name2)
+			return renameat(fd1, name1, fd2, name2, flags.sysFlags())
 		})
 	})
 }

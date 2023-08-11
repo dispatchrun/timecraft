@@ -281,7 +281,7 @@ func (*openDir) Mkdir(string, fs.FileMode) error { return sandbox.EROFS }
 
 func (*openDir) Rmdir(string) error { return sandbox.EROFS }
 
-func (*openDir) Rename(string, sandbox.File, string) error { return sandbox.EROFS }
+func (*openDir) Rename(string, sandbox.File, string, sandbox.RenameFlags) error { return sandbox.EROFS }
 
 func (*openDir) Link(string, sandbox.File, string, sandbox.LookupFlags) error { return sandbox.EROFS }
 

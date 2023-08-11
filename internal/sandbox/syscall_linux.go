@@ -25,8 +25,13 @@ func makeDirent(typ uint8, ino, off uint64, name string) dirent {
 }
 
 const (
-	O_DSYNC = unix.O_DSYNC
-	O_RSYNC = unix.O_RSYNC
+	O_DSYNC OpenFlags = unix.O_DSYNC
+	O_RSYNC OpenFlags = unix.O_RSYNC
+)
+
+const (
+	RENAME_EXCHANGE  RenameFlags = unix.RENAME_EXCHANGE
+	RENAME_NOREPLACE RenameFlags = unix.RENAME_NOREPLACE
 )
 
 const (
@@ -110,4 +115,8 @@ func preadv(fd int, iovs [][]byte, offset int64) (int, error) {
 
 func pwritev(fd int, iovs [][]byte, offset int64) (int, error) {
 	return handleEINTR(func() (int, error) { return unix.Pwritev(fd, iovs, offset) })
+}
+
+func renameat(olddirfd int, oldpath string, newdirfd int, newpath string, flags int) error {
+	return ignoreEINTR(func() error { return unix.Renameat2(olddirfd, oldpath, newdirfd, newpath, uint(flags)) })
 }
