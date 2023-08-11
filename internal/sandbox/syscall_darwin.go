@@ -343,6 +343,10 @@ func pwritev(fd int, iovs [][]byte, off int64) (int, error) {
 	return wn, nil
 }
 
+func copyFileRange(srcfd int, srcoff int64, dstfd int, dstoff int64, length int) (int, error) {
+	return -1, ENOSYS
+}
+
 func renameat(olddirfd int, oldpath string, newdirfd int, newpath string, flags int) error {
 	oldpathptr, err := unix.BytePtrFromString(oldpath)
 	if err != nil {

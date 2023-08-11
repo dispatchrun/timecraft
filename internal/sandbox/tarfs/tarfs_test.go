@@ -25,6 +25,30 @@ func TestTarFS(t *testing.T) {
 	})
 
 	sandboxtest.TestRootFS(t, makeTarFS)
+
+	t.Run("CopyFileRange", func(t *testing.T) {
+		tmp := t.TempDir()
+		tmpFS := sandbox.DirFS(tmp)
+		assert.OK(t, sandbox.WriteFile(tmpFS, "src", []byte("Hello World!"), 0644))
+
+		tarFS := makeTarFS(t, tmp)
+
+		srcFile, err := sandbox.Open(tarFS, "src")
+		assert.OK(t, err)
+		defer srcFile.Close()
+
+		dstFile, err := sandbox.Create(tmpFS, "dst", 0644)
+		assert.OK(t, err)
+		defer dstFile.Close()
+
+		_, err = srcFile.CopyFileRange(0, dstFile, 0, 12)
+		assert.OK(t, err)
+		assert.OK(t, dstFile.Close())
+
+		b, err := sandbox.ReadFile(tmpFS, "dst", 0)
+		assert.OK(t, err)
+		assert.Equal(t, string(b), "Hello World!")
+	})
 }
 
 func makeTarFS(t *testing.T, path string) sandbox.FileSystem {

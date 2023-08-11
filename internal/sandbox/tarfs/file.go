@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,7 +40,7 @@ func newFile(header *tar.Header, offset int64) *file {
 }
 
 func (f *file) open(fsys *FileSystem) (sandbox.File, error) {
-	open := new(openFile)
+	open := &openFile{fsys: fsys}
 	open.file.Store(f)
 	open.data = *io.NewSectionReader(fsys.data, f.offset, f.size)
 	return open, nil
@@ -67,6 +69,7 @@ func (f *file) memsize() uintptr {
 
 type openFile struct {
 	leafFile
+	fsys *FileSystem
 	file atomic.Pointer[file]
 	seek sync.Mutex
 	data io.SectionReader
@@ -146,6 +149,30 @@ func (f *openFile) Preadv(buf [][]byte, off int64) (int, error) {
 	}
 
 	return read, nil
+}
+
+func (f *openFile) CopyFileRange(srcOffset int64, dst sandbox.File, dstOffset int64, length int) (int, error) {
+	file := f.file.Load()
+	if file == nil {
+		return 0, sandbox.EBADF
+	}
+
+	if runtime.GOOS == "linux" {
+		if srcFile, ok := f.fsys.data.(*os.File); ok {
+			srcOffset += file.offset
+			endOffset := file.offset + file.size
+
+			if (srcOffset + int64(length)) > endOffset {
+				length = int(endOffset - srcOffset)
+			}
+
+			srcFd := int(srcFile.Fd())
+			dstFd := int(dst.Fd())
+			return copyFileRange(srcFd, srcOffset, dstFd, dstOffset, length)
+		}
+	}
+
+	return sandbox.CopyFileRange(f, srcOffset, dst, dstOffset, length)
 }
 
 func (f *openFile) Seek(offset int64, whence int) (int64, error) {

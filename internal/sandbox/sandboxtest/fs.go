@@ -47,6 +47,7 @@ func TestFileSystem(t *testing.T, makeFS func(*testing.T) sandbox.FileSystem) {
 	t.Run("Rename", func(t *testing.T) { fsTestRename.run(t, makeFS) })
 	t.Run("Mkdir", func(t *testing.T) { fsTestMkdir.run(t, makeFS) })
 	t.Run("Rmdir", func(t *testing.T) { fsTestRmdir.run(t, makeFS) })
+	t.Run("CopyFile", func(t *testing.T) { fsTestCopyFile.run(t, makeFS) })
 }
 
 type fsTestSuite map[string]func(*testing.T, sandbox.FileSystem)
