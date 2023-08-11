@@ -215,44 +215,78 @@ func makePath(files map[string]fileEntry, name string, modTime time.Time, file f
 
 type readOnlyFile struct{}
 
-func (readOnlyFile) Fd() uintptr { return ^uintptr(0) }
+func (readOnlyFile) Fd() uintptr {
+	return ^uintptr(0)
+}
 
-func (readOnlyFile) Writev([][]byte) (int, error) { return 0, sandbox.EBADF }
+func (readOnlyFile) Writev([][]byte) (int, error) {
+	return 0, sandbox.EBADF
+}
 
-func (readOnlyFile) Pwritev([][]byte, int64) (int, error) { return 0, sandbox.EBADF }
+func (readOnlyFile) Pwritev([][]byte, int64) (int, error) {
+	return 0, sandbox.EBADF
+}
 
-func (readOnlyFile) Allocate(int64, int64) error { return sandbox.EBADF }
+func (readOnlyFile) Allocate(int64, int64) error {
+	return sandbox.EBADF
+}
 
-func (readOnlyFile) Truncate(int64) error { return sandbox.EBADF }
+func (readOnlyFile) Truncate(int64) error {
+	return sandbox.EBADF
+}
 
-func (readOnlyFile) Sync() error { return nil }
+func (readOnlyFile) Sync() error {
+	return nil
+}
 
-func (readOnlyFile) Datasync() error { return nil }
+func (readOnlyFile) Datasync() error {
+	return nil
+}
 
-func (readOnlyFile) Flags() (sandbox.OpenFlags, error) { return 0, nil }
+func (readOnlyFile) Flags() (sandbox.OpenFlags, error) {
+	return 0, nil
+}
 
-func (readOnlyFile) SetFlags(sandbox.OpenFlags) error { return sandbox.EINVAL }
+func (readOnlyFile) SetFlags(sandbox.OpenFlags) error {
+	return sandbox.EINVAL
+}
 
 func (readOnlyFile) Chtimes(string, [2]sandbox.Timespec, sandbox.LookupFlags) error {
 	return sandbox.EPERM
 }
 
-type leafFile struct{ readOnlyFile }
+type leafFile struct {
+	readOnlyFile
+}
 
 func (leafFile) Open(string, sandbox.OpenFlags, fs.FileMode) (sandbox.File, error) {
 	return nil, sandbox.ENOTDIR
 }
 
-func (leafFile) ReadDirent([]byte) (int, error) { return 0, sandbox.ENOTDIR }
+func (leafFile) ReadDirent([]byte) (int, error) {
+	return 0, sandbox.ENOTDIR
+}
 
-func (leafFile) Mkdir(string, fs.FileMode) error { return sandbox.ENOTDIR }
+func (leafFile) Mkdir(string, fs.FileMode) error {
+	return sandbox.ENOTDIR
+}
 
-func (leafFile) Rmdir(string) error { return sandbox.ENOTDIR }
+func (leafFile) Rmdir(string) error {
+	return sandbox.ENOTDIR
+}
 
-func (leafFile) Rename(string, sandbox.File, string) error { return sandbox.ENOTDIR }
+func (leafFile) Rename(string, sandbox.File, string, sandbox.RenameFlags) error {
+	return sandbox.ENOTDIR
+}
 
-func (leafFile) Link(string, sandbox.File, string, sandbox.LookupFlags) error { return sandbox.ENOTDIR }
+func (leafFile) Link(string, sandbox.File, string, sandbox.LookupFlags) error {
+	return sandbox.ENOTDIR
+}
 
-func (leafFile) Symlink(string, string) error { return sandbox.ENOTDIR }
+func (leafFile) Symlink(string, string) error {
+	return sandbox.ENOTDIR
+}
 
-func (leafFile) Unlink(string) error { return sandbox.ENOTDIR }
+func (leafFile) Unlink(string) error {
+	return sandbox.ENOTDIR
+}

@@ -269,9 +269,9 @@ func Unlink(fsys FileSystem, name string) error {
 
 // Rename changes the name referencing a file, symbolic link, or directory on a
 // file system.
-func Rename(fsys FileSystem, oldName, newName string) error {
+func Rename(fsys FileSystem, oldName, newName string, flags RenameFlags) error {
 	if err := withRoot1(fsys, func(dir File) error {
-		return dir.Rename(oldName, dir, newName)
+		return dir.Rename(oldName, dir, newName, flags)
 	}); err != nil {
 		return &os.LinkError{Op: "rename", Old: oldName, New: newName, Err: err}
 	}
@@ -454,7 +454,7 @@ type File interface {
 	// The new name is interpreted relative to the directory passed as argument,
 	// which may or may not be the same as the receiver, but must be on the same
 	// file system.
-	Rename(oldName string, newDir File, newName string) error
+	Rename(oldName string, newDir File, newName string, flags RenameFlags) error
 
 	// Creates a hard link to a named location.
 	//

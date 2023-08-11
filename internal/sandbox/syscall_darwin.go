@@ -29,8 +29,13 @@ func makeDirent(typ uint8, ino, off uint64, name string) dirent {
 }
 
 const (
-	O_DSYNC = unix.O_SYNC
-	O_RSYNC = unix.O_SYNC
+	O_DSYNC OpenFlags = unix.O_SYNC
+	O_RSYNC OpenFlags = unix.O_SYNC
+)
+
+const (
+	RENAME_EXCHANGE  RenameFlags = 1 << 1
+	RENAME_NOREPLACE RenameFlags = 1 << 2
 )
 
 const (
@@ -336,4 +341,33 @@ func pwritev(fd int, iovs [][]byte, off int64) (int, error) {
 		}
 	}
 	return wn, nil
+}
+
+func renameat(olddirfd int, oldpath string, newdirfd int, newpath string, flags int) error {
+	oldpathptr, err := unix.BytePtrFromString(oldpath)
+	if err != nil {
+		return err
+	}
+	newpathptr, err := unix.BytePtrFromString(newpath)
+	if err != nil {
+		return err
+	}
+	return ignoreEINTR(func() error {
+		// TODO: staticcheck complains that unix.Syscall6 is deprecated, but
+		// there is no function for renameatx_np in the unix package, so we
+		// have to fallback to using this function and disabling the check.
+		_, _, err := unix.Syscall6(
+			uintptr(unix.SYS_RENAMEATX_NP), //nolint:staticcheck
+			uintptr(olddirfd),
+			uintptr(unsafe.Pointer(oldpathptr)),
+			uintptr(newdirfd),
+			uintptr(unsafe.Pointer(newpathptr)),
+			uintptr(flags),
+			uintptr(0),
+		)
+		if err != 0 {
+			return err
+		}
+		return nil
+	})
 }

@@ -363,10 +363,6 @@ func mkdirat(dirfd int, path string, mode uint32) error {
 	return ignoreEINTR(func() error { return unix.Mkdirat(dirfd, path, mode) })
 }
 
-func renameat(olddirfd int, oldpath string, newdirfd int, newpath string) error {
-	return ignoreEINTR(func() error { return unix.Renameat(olddirfd, oldpath, newdirfd, newpath) })
-}
-
 func linkat(olddirfd int, oldpath string, newdirfd int, newpath string, flags int) error {
 	return ignoreEINTR(func() error { return unix.Linkat(olddirfd, oldpath, newdirfd, newpath, flags) })
 }

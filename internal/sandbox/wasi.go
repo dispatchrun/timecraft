@@ -378,7 +378,7 @@ func (f *wasiFile) PathRename(ctx context.Context, oldPath string, newDir anyFil
 	if !ok {
 		return wasi.EXDEV
 	}
-	return wasi.MakeErrno(f.file.Rename(oldPath, d.file, newPath))
+	return wasi.MakeErrno(f.file.Rename(oldPath, d.file, newPath, 0))
 }
 
 func (f *wasiFile) PathSymlink(ctx context.Context, oldPath string, newPath string) wasi.Errno {

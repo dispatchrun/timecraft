@@ -406,7 +406,7 @@ func (f *file) Rmdir(string) error {
 	return f.expectDirectory()
 }
 
-func (f *file) Rename(string, sandbox.File, string) error {
+func (f *file) Rename(string, sandbox.File, string, sandbox.RenameFlags) error {
 	return f.expectDirectory()
 }
 
