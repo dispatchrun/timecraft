@@ -3,6 +3,7 @@ package timemachine_test
 import (
 	"bytes"
 	"io"
+	"slices"
 	"testing"
 	"time"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/stealthrocket/timecraft/internal/assert"
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
-	"golang.org/x/exp/slices"
 )
 
 func TestReadRecordBatch(t *testing.T) {

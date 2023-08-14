@@ -2,8 +2,7 @@ package stream
 
 import (
 	"io"
-
-	"golang.org/x/exp/slices"
+	"slices"
 )
 
 func MultiReader[T any](readers ...Reader[T]) Reader[T] {

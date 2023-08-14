@@ -1,11 +1,11 @@
 package textprint
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"reflect"
-
-	"golang.org/x/exp/slices"
+	"slices"
 )
 
 type encodeFunc func(io.Writer, reflect.Value) error
@@ -97,12 +97,12 @@ func encodeFuncOfSlice(t reflect.Type) encodeFunc {
 }
 
 func encodeFuncOfMap(key, val reflect.Type) encodeFunc {
-	lessFunc := lessFuncOf(key)
+	cmpFunc := cmpFuncOf(key)
 	encodeKey := encodeFuncOf(key)
 	encodeVal := encodeFuncOf(val)
 	return func(w io.Writer, v reflect.Value) error {
 		keys := v.MapKeys()
-		slices.SortFunc(keys, lessFunc)
+		slices.SortFunc(keys, cmpFunc)
 
 		for i, key := range keys {
 			if i != 0 {
@@ -132,36 +132,41 @@ func encodeFuncOfStructField(t reflect.Type, index []int) encodeFunc {
 	}
 }
 
-type lessFunc func(reflect.Value, reflect.Value) bool
+type cmpFunc func(reflect.Value, reflect.Value) int
 
-func lessBool(v1, v2 reflect.Value) bool {
+func cmpBool(v1, v2 reflect.Value) int {
 	b1 := v1.Bool()
 	b2 := v2.Bool()
-	return !b1 && b1 != b2
+	if !b1 && b2 {
+		return -1
+	} else if b1 && !b2 {
+		return 1
+	}
+	return 0
 }
 
-func lessInt(v1, v2 reflect.Value) bool {
-	return v1.Int() < v2.Int()
+func cmpInt(v1, v2 reflect.Value) int {
+	return cmp.Compare(v1.Int(), v2.Int())
 }
 
-func lessUint(v1, v2 reflect.Value) bool {
-	return v1.Uint() < v2.Uint()
+func cmpUint(v1, v2 reflect.Value) int {
+	return cmp.Compare(v1.Uint(), v2.Uint())
 }
 
-func lessString(v1, v2 reflect.Value) bool {
-	return v1.String() < v2.String()
+func cmpString(v1, v2 reflect.Value) int {
+	return cmp.Compare(v1.String(), v2.String())
 }
 
-func lessFuncOf(t reflect.Type) lessFunc {
+func cmpFuncOf(t reflect.Type) cmpFunc {
 	switch t.Kind() {
 	case reflect.Bool:
-		return lessBool
+		return cmpBool
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return lessInt
+		return cmpInt
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return lessUint
+		return cmpUint
 	case reflect.String:
-		return lessString
+		return cmpString
 	default:
 		panic("cannot compare values of type " + t.String())
 	}

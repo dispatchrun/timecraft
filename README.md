@@ -35,12 +35,10 @@ see [Installing][installing] and [Configuring][configuring].
 
 Timecraft can execute applications compiled to WebAssembly. This repository
 has examples for applications written in Go and Python. At this time, the Go
-programs need the new `GOOS=wasip1` port of Go, which is simpler to install
-using `gotip`:
-```
-go install golang.org/dl/gotip@latest
-gotip download
-```
+programs need the new `GOOS=wasip1` port, which is part of [Go 1.21][go-121].
+
+[go-121]: https://go.dev/blog/go1.21
+
 WebAssembly is an emerging technology which still has limitations when compared
 to native programs. For a more detailed section on building applications to
 WebAssembly, see [Preparing Your Application][preparing].

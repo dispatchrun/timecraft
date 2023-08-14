@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"time"
 
 	pprof "github.com/google/pprof/profile"
@@ -19,7 +20,6 @@ import (
 	"github.com/stealthrocket/wzprof"
 	"github.com/tetratelabs/wazero/experimental"
 	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 )
 
 const profileUsage = `

@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/stealthrocket/timecraft/format"
 	"github.com/stealthrocket/timecraft/internal/stream"
-	"golang.org/x/exp/slices"
 )
 
 const (

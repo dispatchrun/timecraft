@@ -1,14 +1,13 @@
 package assert
 
 import (
+	"cmp"
 	"errors"
 	"math"
 	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
-
-	"golang.org/x/exp/constraints"
 )
 
 func OK(t testing.TB, err error) {
@@ -72,7 +71,7 @@ func EqualAll[T comparable](t testing.TB, got, want []T) {
 	}
 }
 
-func Less[T constraints.Ordered](t testing.TB, less, more T) {
+func Less[T cmp.Ordered](t testing.TB, less, more T) {
 	if less >= more {
 		t.Helper()
 		t.Fatalf("value is too large: %v >= %v", less, more)

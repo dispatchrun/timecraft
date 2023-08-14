@@ -1,13 +1,14 @@
 package tracing
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/stealthrocket/timecraft/internal/stream"
-	"golang.org/x/exp/slices"
 	"gopkg.in/yaml.v3"
 )
 
@@ -221,9 +222,9 @@ func (r *ExchangeReader) Read(exchanges []Exchange) (n int, err error) {
 }
 
 func sortExchanges(exchanges []Exchange) {
-	slices.SortFunc(exchanges, func(e1, e2 Exchange) bool {
+	slices.SortFunc(exchanges, func(e1, e2 Exchange) int {
 		t1 := e1.Req.Time.Add(e1.Res.Time + e1.Res.Span)
 		t2 := e2.Req.Time.Add(e2.Res.Time + e2.Res.Span)
-		return t1.Before(t2)
+		return cmp.Compare(t1.UnixNano(), t2.UnixNano())
 	})
 }

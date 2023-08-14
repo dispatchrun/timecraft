@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -245,8 +246,8 @@ func getConfigs(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 		Size    human.Bytes `text:"SIZE"`
 	}
 	return newTableWriter(w, quiet,
-		func(c1, c2 config) bool {
-			return c1.ID < c2.ID
+		func(c1, c2 config) int {
+			return cmp.Compare(c1.ID, c2.ID)
 		},
 		func(desc *format.Descriptor) (config, error) {
 			c, err := reg.LookupConfig(ctx, desc.Digest)
@@ -273,8 +274,8 @@ func getModules(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 		Size human.Bytes `text:"SIZE"`
 	}
 	return newTableWriter(w, quiet,
-		func(m1, m2 module) bool {
-			return m1.ID < m2.ID
+		func(m1, m2 module) int {
+			return cmp.Compare(m1.ID, m2.ID)
 		},
 		func(desc *format.Descriptor) (module, error) {
 			name := desc.Annotations["timecraft.module.name"]
@@ -296,8 +297,8 @@ func getProcesses(ctx context.Context, w io.Writer, reg *timemachine.Registry, q
 		Size      human.Bytes `text:"SIZE"`
 	}
 	return newTableWriter(w, quiet,
-		func(m1, m2 manifest) bool {
-			return time.Time(m1.StartTime).Before(time.Time(m2.StartTime))
+		func(m1, m2 manifest) int {
+			return cmp.Compare(time.Time(m1.StartTime).UnixNano(), time.Time(m2.StartTime).UnixNano())
 		},
 		func(m *format.Manifest) (manifest, error) {
 			manifest := manifest{
@@ -321,17 +322,17 @@ func getProfiles(ctx context.Context, w io.Writer, reg *timemachine.Registry, qu
 		Size      human.Bytes    `text:"SIZE"`
 	}
 	return newTableWriter(w, quiet,
-		func(p1, p2 profile) bool {
+		func(p1, p2 profile) int {
 			if p1.ProcessID != p2.ProcessID {
-				return bytes.Compare(p1.ProcessID[:], p2.ProcessID[:]) < 0
+				return bytes.Compare(p1.ProcessID[:], p2.ProcessID[:])
 			}
 			if p1.Type != p2.Type {
-				return p1.Type < p2.Type
+				return cmp.Compare(p1.Type, p2.Type)
 			}
 			if !time.Time(p1.StartTime).Equal(time.Time(p2.StartTime)) {
-				return time.Time(p1.StartTime).Before(time.Time(p2.StartTime))
+				return cmp.Compare(time.Time(p1.StartTime).UnixNano(), time.Time(p2.StartTime).UnixNano())
 			}
-			return p1.Duration < p2.Duration
+			return cmp.Compare(p1.Duration, p2.Duration)
 		},
 		func(desc *format.Descriptor) (profile, error) {
 			processID, _ := uuid.Parse(desc.Annotations["timecraft.process.id"])
@@ -355,8 +356,8 @@ func getRuntimes(ctx context.Context, w io.Writer, reg *timemachine.Registry, qu
 		Version string `text:"VERSION"`
 	}
 	return newTableWriter(w, quiet,
-		func(r1, r2 runtime) bool {
-			return r1.ID < r2.ID
+		func(r1, r2 runtime) int {
+			return cmp.Compare(r1.ID, r2.ID)
 		},
 		func(desc *format.Descriptor) (runtime, error) {
 			r, err := reg.LookupRuntime(ctx, desc.Digest)
@@ -391,7 +392,7 @@ func getRecords(ctx context.Context, w io.Writer, reg *timemachine.Registry, qui
 	)
 }
 
-func newTableWriter[T1, T2 any](w io.Writer, quiet bool, orderBy func(T1, T1) bool, conv func(T2) (T1, error)) stream.WriteCloser[T2] {
+func newTableWriter[T1, T2 any](w io.Writer, quiet bool, orderBy func(T1, T1) int, conv func(T2) (T1, error)) stream.WriteCloser[T2] {
 	opts := []textprint.TableOption[T1]{
 		textprint.OrderBy(orderBy),
 	}

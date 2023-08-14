@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -27,7 +29,6 @@ import (
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/tetratelabs/wazero/api"
-	"golang.org/x/exp/slices"
 )
 
 const describeUsage = `
@@ -219,18 +220,18 @@ func describeModule(ctx context.Context, reg *timemachine.Registry, id string, c
 		desc.exports.memories = append(desc.exports.memories, makeMemoryDefinition(desc.name, name, exportedMemory))
 	}
 
-	sortFunctionDefinitions := func(f1, f2 functionDefinition) bool {
+	sortFunctionDefinitions := func(f1, f2 functionDefinition) int {
 		if f1.Module != f2.Module {
-			return f1.Module < f2.Module
+			return cmp.Compare(f1.Module, f2.Module)
 		}
-		return f1.Name < f2.Name
+		return cmp.Compare(f1.Name, f2.Name)
 	}
 
-	sortMemoryDefinitions := func(m1, m2 memoryDefinition) bool {
+	sortMemoryDefinitions := func(m1, m2 memoryDefinition) int {
 		if m1.Module != m2.Module {
-			return m1.Module < m2.Module
+			return cmp.Compare(m1.Module, m2.Module)
 		}
-		return m1.Name < m2.Name
+		return cmp.Compare(m1.Name, m2.Name)
 	}
 
 	slices.SortFunc(desc.imports.functions, sortFunctionDefinitions)
@@ -866,8 +867,8 @@ func describeLog(ctx context.Context, reg *timemachine.Registry, processID forma
 		return nil, errors.Join(errs...)
 	}
 
-	slices.SortFunc(segs, func(s1, s2 logSegment) bool {
-		return s1.Number < s2.Number
+	slices.SortFunc(segs, func(s1, s2 logSegment) int {
+		return cmp.Compare(s1.Number, s2.Number)
 	})
 
 	return logDescriptor(segs), nil
