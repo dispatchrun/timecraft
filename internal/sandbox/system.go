@@ -677,13 +677,18 @@ func (s *System) SockAddressInfo(ctx context.Context, name, service string, hint
 			return 0, wasi.EINVAL
 		}
 	} else if name == "" {
-		if !hints.Flags.Has(wasi.Passive) {
-			return 0, wasi.EINVAL
-		}
-		if hints.Family == wasi.Inet6Family {
-			ip = net.IPv6zero
+		if hints.Flags.Has(wasi.Passive) {
+			if hints.Family == wasi.Inet6Family {
+				ip = net.IPv6zero
+			} else {
+				ip = net.IPv4zero
+			}
 		} else {
-			ip = net.IPv4zero
+			if hints.Family == wasi.Inet6Family {
+				ip = net.IPv6loopback
+			} else {
+				ip = net.IPv4(127, 0, 0, 1)
+			}
 		}
 	}
 
