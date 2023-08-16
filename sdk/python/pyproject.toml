@@ -18,4 +18,6 @@ classifiers = [
 ]
 dependencies = [
     "requests >= 2.31.0",
+    "cloudpickle >= 0.4.1",
+    "aiohttp >= 3.8.5",
 ]
