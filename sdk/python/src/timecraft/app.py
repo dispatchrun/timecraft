@@ -5,7 +5,8 @@ import cloudpickle
 import aiohttp.web
 import pickle
 
-from .client import TaskRequest, TaskResponse, TaskState, ModuleSpec, Client, HTTPRequest
+from .client import TaskRequest, TaskResponse, TaskState, ModuleSpec, Client
+from .client import HTTPRequest
 
 
 class Entrypoint:
@@ -62,7 +63,7 @@ class Promise:
 
         tasks = self._app._client.lookup_tasks([self._tid])
 
-        if len(tasks) >  1:
+        if len(tasks) > 1:
             raise Exception("too many tasks returned")
         if len(tasks) == 0:
             raise Exception(f"task {self._tid} not found")
@@ -76,14 +77,14 @@ class Promise:
 
 class Function:
     """
-    A Function is the execution unit of a timecraft App. Behind the scene, a function 
-    will be scheduled as a task by the Ring scheduler.
+    A Function is the execution unit of a timecraft App. Behind the scene,
+    a function will be scheduled as a task by the Ring scheduler.
     """
     _func: Callable[..., Any]
     _app: "App"
     _name: str
 
-    def __init__(self, app: "App", name: str, f : Callable[..., Any]) -> None:
+    def __init__(self, app: "App", name: str, f: Callable[..., Any]) -> None:
         self._func = f
         self._app = app
         self._name = name
@@ -100,8 +101,8 @@ class Function:
 
 class App:
     """
-    App is the main class of the Timecraft Python engine. An App will be used to register
-    a set of functions to be scheduled by the Ring scheduler.
+    App is the main class of the Timecraft Python engine. An App will be used
+    to register a set of functions to be scheduled by the Ring scheduler.
     """
     _name: Optional[str]
     _client: Client
@@ -116,19 +117,21 @@ class App:
         self._client = Client()
         self._functions = {}
 
-        #TODO: move somewhere else
+        # TODO: move somewhere else
         self._web = aiohttp.web.Application()
         self._web.add_routes([aiohttp.web.post("/", self._handle)])
 
     async def _serve(self):
-        #TODO: handle failures
+        # TODO: handle failures
         await aiohttp.web._run_app(app=self._web, host="0.0.0.0", port=3000)
 
-    # TODO: ensure the HTTP server can be gracefully shutted down once the main function is closed.
+    # TODO: ensure the HTTP server can be gracefully shutted down once
+    # the main function is closed.
     async def run(self, args):
         """
-        Run the app. If no arguments are passed, the entrypoint function will be executed.
-        Otherwise, the app will start an HTTP server waiting for task to be submitted.
+        Run the app. If no arguments are passed, the entrypoint function will
+        be executed. Otherwise, the app will start an HTTP server waiting for
+        task to be submitted.
         """
         if len(args) == 0:
             await self._start()
@@ -174,7 +177,7 @@ class App:
 
         input = pickle.dumps(args)
 
-        #TODO: serialize args and kwargs into input
+        # TODO: serialize args and kwargs into input
         reqs = [TaskRequest(module=spec, input=HTTPRequest(
             method="POST",
             path=f"/{name}",
@@ -190,22 +193,20 @@ class App:
     async def _handle(self, request):
         s = request.path.split("/")
         if len(s) < 2:
-            return aiohttp.web.Response(status=400,body=b"invalid request")
+            return aiohttp.web.Response(status=400, body=b"invalid request")
 
         fname = s[1]
         fn = self._functions[fname]
         if fn is None:
-            return aiohttp.web.Response(status=404,body=b"function not found")
+            return aiohttp.web.Response(status=404, body=b"function not found")
 
         data = await request.read()
         input = pickle.loads(data)
-        print(f"intput {input}")
 
         try:
             res = fn.__call__(*input)
-            print("res", res)
         except TypeError as e:
-            return aiohttp.web.Response(status=500,body=f"{e}")
+            return aiohttp.web.Response(status=500, body=f"{e}")
 
         output = pickle.dumps(res)
-        return aiohttp.web.Response(status=200,body=output)
+        return aiohttp.web.Response(status=200, body=output)
