@@ -26,7 +26,7 @@ type dir struct {
 func newDir(header *tar.Header) *dir {
 	mode := header.FileInfo().Mode()
 	return &dir{
-		perm:  mode.Perm() & 0555,
+		perm:  mode.Perm(),
 		mtime: header.ModTime.UnixNano(),
 		atime: header.AccessTime.UnixNano(),
 		ctime: header.ChangeTime.UnixNano(),
@@ -35,7 +35,7 @@ func newDir(header *tar.Header) *dir {
 
 func makeDir(modTime time.Time) dir {
 	return dir{
-		perm:  0555,
+		perm:  0755,
 		mtime: modTime.UnixNano(),
 		atime: modTime.UnixNano(),
 		ctime: modTime.UnixNano(),
@@ -293,4 +293,4 @@ func (*openDir) Readv([][]byte) (int, error) { return 0, sandbox.EISDIR }
 
 func (*openDir) Preadv([][]byte, int64) (int, error) { return 0, sandbox.EISDIR }
 
-func (*openDir) CopyFileRange(int64, sandbox.File, int64, int) (int, error) { return 0, sandbox.EISDIR }
+func (*openDir) CopyRange(int64, sandbox.File, int64, int) (int, error) { return 0, sandbox.EISDIR }

@@ -17,11 +17,10 @@ type placeholder struct {
 
 func newPlaceholder(header *tar.Header) *placeholder {
 	info := header.FileInfo()
-	mode := info.Mode()
 	return &placeholder{
 		info: sandbox.FileInfo{
 			Size:  info.Size(),
-			Mode:  mode.Type() | (mode.Perm() & 0555),
+			Mode:  info.Mode(),
 			Uid:   1,
 			Gid:   1,
 			Nlink: 1,

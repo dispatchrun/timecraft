@@ -297,7 +297,7 @@ func CopyFile(fsys FileSystem, oldName, newName string) error {
 	}
 	defer dst.Close()
 
-	_, err = CopyFileRange(src, 0, dst, 0, int(stat.Size))
+	_, err = src.CopyRange(0, dst, 0, int(stat.Size))
 	return err
 }
 
@@ -373,11 +373,11 @@ type File interface {
 	// the total size of the write buffers, even in the absence of errors.
 	Pwritev(iovs [][]byte, offset int64) (int, error)
 
-	// CopyFileRange copies length bytes from the receiver at srcOffset to the
+	// CopyRange copies length bytes from the receiver at srcOffset to the
 	// destination at dstOffset, returning the number of bytes that have been
 	// copied, which might be shorter than the requested length if an error
 	// occured.
-	CopyFileRange(srcOffset int64, dst File, dstOffset int64, length int) (int, error)
+	CopyRange(srcOffset int64, dst File, dstOffset int64, length int) (int, error)
 
 	// Seek positions the seek offset of the file at the given location, which
 	// is interpreted relative to the whence value. The whence may be SEEK_SET,
@@ -517,9 +517,100 @@ type File interface {
 	Unlink(name string) error
 }
 
-// CopyFileRange is a generic implementation of the File.CopyFileRange method
+// FileOpen is the generic implementation of the File.Open method.
+//
+// Types implementing the File interface can use this function to handle the
+// common parts of the Open logic, for example:
+//
+//	func (f *file) Open(name string, flags OpenFlags, mode fs.FileMode) (File, error) {
+//		const supportedFlags = ^OpenFlags(0)
+//		return FileOpen(f, name, flags, supportedFlags, mode,
+//			(*file).openRoot,
+//			(*file).openSelf,
+//			(*file).openParent,
+//			(*file).openFile,
+//		}
+//	}
+//
+// The function performs path resolution and invokes one of the callbacks passed
+// as arguments to navigate the directory tree and eventually open and return the
+// final target.
+func FileOpen[F File](f F, name string, flags, supportedFlags OpenFlags, mode fs.FileMode,
+	openRoot func(F) (File, error),
+	openSelf func(F) (File, error),
+	openParent func(F) (File, error),
+	openFile func(F, string, OpenFlags, fs.FileMode) (File, error),
+) (File, error) {
+	if (flags & ^supportedFlags) != 0 || name == "" {
+		return nil, EINVAL
+	}
+	if fspath.IsRoot(name) {
+		return openRoot(f)
+	}
+	if fspath.HasTrailingSlash(name) {
+		flags |= O_DIRECTORY
+	}
+	return ResolvePath(f, name, flags.LookupFlags(), func(at F, name string) (File, error) {
+		switch name {
+		case ".":
+			return openSelf(at)
+		case "..":
+			return openParent(at)
+		default:
+			return openFile(at, name, flags|O_NOFOLLOW, mode)
+		}
+	})
+}
+
+// FileStat is the generic implemtnation of the File.Stat method.
+//
+// Types implementing the File interface can use this function to handle the
+// common parts of the Stat logic, for example:
+//
+//	func (f *file) Stat(name string, flags LookupFlags) (FileInfo, error) {
+//		return FileStat(f, name, func(at *file, name string) (FileInfo, error) {
+//			...
+//		}
+//	}
+//
+// The function performs path resolution and invokes the callback passed as last
+// argument to lookup the file information of a final target. If the name passed
+// to the callback points to a symbolic link, the function is expected to return
+// information about the link itself, not its target.
+func FileStat[F File](f F, name string, flags LookupFlags, lstat func(F, string) (FileInfo, error)) (FileInfo, error) {
+	return ResolvePath(f, name, flags, func(at F, name string) (FileInfo, error) {
+		info, err := lstat(at, name)
+		if err == nil {
+			if info.Mode.Type() == fs.ModeSymlink && ((flags & AT_SYMLINK_NOFOLLOW) == 0) {
+				err = ELOOP
+			}
+		}
+		return info, err
+	})
+}
+
+// FileStat is the generic implemtnation of the File.Stat method.
+//
+// Types implementing the File interface can use this function to handle the
+// common parts of the Readlink logic, for example:
+//
+//	func (f *file) Readlink(name string, buf []byte) (int, error) {
+//		return FileReadlink(f, name, func(at *file, name string) (int, error) {
+//			...
+//		}
+//	}
+//
+// The function performs path resolution and invokes the callback passed as last
+// argument to read the link target.
+func FileReadlink[F File](f F, name string, readlink func(F, string) (int, error)) (int, error) {
+	return ResolvePath(f, name, AT_SYMLINK_NOFOLLOW, func(at F, name string) (int, error) {
+		return readlink(at, name)
+	})
+}
+
+// FileCopyRange is a generic implementation of the File.CopyRange method
 // using Preadv/Pwritev.
-func CopyFileRange(src File, srcOffset int64, dst File, dstOffset int64, length int) (int, error) {
+func FileCopyRange(src File, srcOffset int64, dst File, dstOffset int64, length int) (int, error) {
 	bufferSize := 128 * 1024
 	if bufferSize > length {
 		bufferSize = length

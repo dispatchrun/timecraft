@@ -142,29 +142,13 @@ func (f *dirFile) openFile(name string, flags OpenFlags, mode fs.FileMode) (File
 	return newFile(f, fd), nil
 }
 
-func (f *dirFile) open(name string, flags OpenFlags, mode fs.FileMode) (File, error) {
-	switch name {
-	case ".":
-		return f.openSelf()
-	case "..":
-		return f.openParent()
-	default:
-		return f.openFile(name, flags, mode)
-	}
-}
-
 func (f *dirFile) Open(name string, flags OpenFlags, mode fs.FileMode) (File, error) {
-	return withFD2(f, func(int) (File, error) {
-		if fspath.IsRoot(name) {
-			return f.openRoot()
-		}
-		if fspath.HasTrailingSlash(name) {
-			flags |= O_DIRECTORY
-		}
-		return ResolvePath(f, name, flags.LookupFlags(), func(d *dirFile, name string) (File, error) {
-			return d.open(name, flags, mode)
-		})
-	})
+	return FileOpen(f, name, flags, ^OpenFlags(0), mode,
+		(*dirFile).openRoot,
+		(*dirFile).openSelf,
+		(*dirFile).openParent,
+		(*dirFile).openFile,
+	)
 }
 
 func (f *dirFile) Readv(iovs [][]byte) (int, error) {
@@ -183,13 +167,13 @@ func (f *dirFile) Pwritev(iovs [][]byte, offset int64) (int, error) {
 	return withFD2(f, func(fd int) (int, error) { return pwritev(fd, iovs, offset) })
 }
 
-func (f *dirFile) CopyFileRange(srcOffset int64, dst File, dstOffset int64, length int) (int, error) {
+func (f *dirFile) CopyRange(srcOffset int64, dst File, dstOffset int64, length int) (int, error) {
 	if runtime.GOOS == "linux" {
 		return withFD2(f, func(srcfd int) (int, error) {
 			return copyFileRange(srcfd, srcOffset, int(dst.Fd()), dstOffset, length)
 		})
 	}
-	return CopyFileRange(f, srcOffset, dst, dstOffset, length)
+	return FileCopyRange(f, srcOffset, dst, dstOffset, length)
 }
 
 func (f *dirFile) Seek(offset int64, whence int) (int64, error) {
