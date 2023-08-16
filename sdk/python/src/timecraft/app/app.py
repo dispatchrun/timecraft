@@ -5,8 +5,8 @@ import cloudpickle
 import aiohttp.web
 import pickle
 
-from .client import TaskRequest, TaskResponse, TaskState, ModuleSpec, Client
-from .client import HTTPRequest
+from timecraft import TaskRequest, TaskResponse, TaskState, ModuleSpec, Client
+from timecraft import HTTPRequest
 
 
 class Entrypoint:
@@ -93,6 +93,7 @@ class Function:
         return self._func(*args)
 
     def call(self, *args, **kwargs) -> Promise:
+        print("call", self._name, args, kwargs)
         """
         Calls the function with the given arguments and returns a Promise.
         """
@@ -107,7 +108,7 @@ class App:
     _name: Optional[str]
     _client: Client
 
-    _start: Entrypoint
+    _start: Optional[Entrypoint]
     _functions: Dict[str, Function]
 
     _web: aiohttp.web.Application
@@ -116,6 +117,7 @@ class App:
         self._tasks = {}
         self._client = Client()
         self._functions = {}
+        self._start = None
 
         # TODO: move somewhere else
         self._web = aiohttp.web.Application()
@@ -127,14 +129,15 @@ class App:
 
     # TODO: ensure the HTTP server can be gracefully shutted down once
     # the main function is closed.
-    async def run(self, args):
+    async def run(self, args=None):
+        print("run", args)
         """
         Run the app. If no arguments are passed, the entrypoint function will
         be executed. Otherwise, the app will start an HTTP server waiting for
         task to be submitted.
         """
-        if len(args) == 0:
-            await self._start()
+        if args is None or len(args) == 0:
+            if self._start is not None: return await self._start()
             return
 
         await self._serve()
