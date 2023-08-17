@@ -4,6 +4,7 @@ import hashlib
 import cloudpickle
 import aiohttp.web
 import pickle
+import inspect
 
 from timecraft import TaskRequest, TaskResponse, TaskState, ModuleSpec, Client
 from timecraft import HTTPRequest
@@ -93,7 +94,6 @@ class Function:
         return self._func(*args)
 
     def call(self, *args, **kwargs) -> Promise:
-        print("call", self._name, args, kwargs)
         """
         Calls the function with the given arguments and returns a Promise.
         """
@@ -113,6 +113,8 @@ class App:
 
     _web: aiohttp.web.Application
 
+    _source: Optional[str]
+
     def __init__(self) -> None:
         self._tasks = {}
         self._client = Client()
@@ -123,6 +125,9 @@ class App:
         self._web = aiohttp.web.Application()
         self._web.add_routes([aiohttp.web.post("/", self._handle)])
 
+        # TODO: this is not reliable
+        self._source = inspect.stack()[1].filename
+
     async def _serve(self):
         # TODO: handle failures
         await aiohttp.web._run_app(app=self._web, host="0.0.0.0", port=3000)
@@ -130,7 +135,6 @@ class App:
     # TODO: ensure the HTTP server can be gracefully shutted down once
     # the main function is closed.
     async def run(self, args=None):
-        print("run", args)
         """
         Run the app. If no arguments are passed, the entrypoint function will
         be executed. Otherwise, the app will start an HTTP server waiting for
@@ -175,7 +179,10 @@ class App:
         return decorator
 
     def _spawn_task(self, name: str, *args, **kwargs) -> Promise:
-        workerfile = os.path.abspath(__file__)
+        workerfile = self._source
+        if workerfile is None:
+            workerfile = os.path.abspath(__file__)
+
         spec = ModuleSpec(args=[workerfile, name])
 
         input = pickle.dumps(args)
@@ -213,3 +220,7 @@ class App:
 
         output = pickle.dumps(res)
         return aiohttp.web.Response(status=200, body=output)
+
+
+if __name__ == "__main__":
+    asyncio.run(app.run(sys.argv[1:]))
