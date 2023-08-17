@@ -105,7 +105,7 @@ wasi-testsuite: timecraft testdata/wasi-testsuite $(VIRTUALENV)/bin/activate
 
 python-test: $(timecraft) $(timecraft.sdk.venv.py) $(testdata.py.src) $(PYTHONWASM) $(PYTHONZIP)
 	@if [ -f "$(PYTHONWASM)" ] && [ -f "$(PYTHONZIP)" ]; then \
-		$(timecraft) run --env PYTHONPATH=$(PYTHONPATH) --env PYTHONHOME=$(PYTHONHOME) -- $(PYTHONWASM) -m unittest $(testdata.py.src); \
+		$(timecraft) run --env PYTHONPATH=$(PYTHONPATH) --env PYTHONHOME=$(PYTHONHOME) -- $(PYTHONWASM) -m unittest -v $(testdata.py.src); \
 	else \
 		echo "skipping Python tests (could not find $(PYTHONWASM) and $(PYTHONZIP))"; \
 	fi

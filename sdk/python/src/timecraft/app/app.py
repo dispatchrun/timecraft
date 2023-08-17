@@ -130,7 +130,7 @@ class App:
 
     async def _serve(self):
         # TODO: handle failures
-        await aiohttp.web._run_app(app=self._web, host="0.0.0.0", port=3000)
+        await aiohttp.web._run_app(app=self._web, host="0.0.0.0", port=3000, print=None)
 
     # TODO: ensure the HTTP server can be gracefully shutted down once
     # the main function is closed.
@@ -221,6 +221,3 @@ class App:
         output = pickle.dumps(res)
         return aiohttp.web.Response(status=200, body=output)
 
-
-if __name__ == "__main__":
-    asyncio.run(app.run(sys.argv[1:]))
