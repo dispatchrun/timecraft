@@ -11,7 +11,6 @@ import (
 const defaultFunction = "_start"
 
 func runModule(ctx context.Context, runtime wazero.Runtime, compiledModule wazero.CompiledModule, function string) error {
-	println("runModule")
 	if function == "" {
 		function = defaultFunction
 	}
@@ -28,7 +27,6 @@ func runModule(ctx context.Context, runtime wazero.Runtime, compiledModule wazer
 		return fmt.Errorf("function %q not found in guest", function)
 	}
 	_, err = fn.Call(ctx)
-	fmt.Println("fn.Call ended", err)
 	switch err {
 	case context.Canceled, context.DeadlineExceeded:
 		err = nil
