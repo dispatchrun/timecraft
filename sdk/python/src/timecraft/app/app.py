@@ -62,6 +62,9 @@ class Promise:
             done = [TaskState.SUCCESS, TaskState.ERROR]
             return state in done
 
+        if self._done:
+            return
+
         tasks = self._app._client.lookup_tasks([self._tid])
 
         if len(tasks) > 1:
@@ -72,6 +75,7 @@ class Promise:
         task = tasks[0]
         if _is_done(task.state):
             self._done = True
+            self._app._client.discard_tasks([self._tid])
 
         self._resp = task
 
@@ -131,6 +135,7 @@ class App:
     async def _serve(self):
         # TODO: handle failures
         await aiohttp.web._run_app(app=self._web, host="0.0.0.0", port=3000, print=None)
+            
 
     # TODO: ensure the HTTP server can be gracefully shutted down once
     # the main function is closed.

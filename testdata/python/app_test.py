@@ -13,6 +13,10 @@ class TestApp(unittest.IsolatedAsyncioTestCase):
         res = asyncio.run(app.run())
         self.assertEqual(res, 42)
 
+    async def asyncTearDown(self):
+        #await app.close()
+        pass
+
 
 
 app = App()
