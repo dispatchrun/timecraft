@@ -17,7 +17,7 @@ require (
 	github.com/stealthrocket/wasi-go v0.7.5
 	github.com/stealthrocket/wazergo v0.19.1
 	github.com/stealthrocket/wzprof v0.2.0
-	github.com/tetratelabs/wazero v1.3.0
+	github.com/tetratelabs/wazero v1.5.0
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 	golang.org/x/net v0.11.0
 	golang.org/x/sync v0.3.0
