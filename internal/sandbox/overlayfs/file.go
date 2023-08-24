@@ -84,7 +84,16 @@ func (f *file) openFile(name string, flags sandbox.OpenFlags, mode fs.FileMode) 
 			sandbox.O_WRONLY |
 			sandbox.O_TRUNC
 
-		if overlay.lower != nil {
+		hasWhiteout := false
+		if overlay.lower != nil && overlay.upper != nil {
+			if ok, err := exists(overlay.upper, whiteoutPrefix+name); err != nil {
+				return nil, err
+			} else {
+				hasWhiteout = ok
+			}
+		}
+
+		if overlay.lower != nil && !hasWhiteout {
 			// When the file is going to be created, we must ensure that the
 			// path exists in the upper layer if it exists in the lower layer.
 			if (flags & writeFlags) != 0 {
@@ -131,7 +140,7 @@ func (f *file) openFile(name string, flags sandbox.OpenFlags, mode fs.FileMode) 
 			}
 		}
 
-		if overlay.lower != nil {
+		if overlay.lower != nil && !hasWhiteout {
 			const readOnlyFlags = sandbox.O_DIRECTORY | sandbox.O_NOFOLLOW | sandbox.O_RDONLY
 			lower, err = overlay.lower.Open(name, flags&readOnlyFlags, 0)
 			if err != nil {
@@ -181,7 +190,7 @@ func (f *file) Stat(name string, flags sandbox.LookupFlags) (sandbox.FileInfo, e
 		return withOverlay2(at, func(overlay *fileOverlay) (sandbox.FileInfo, error) {
 			whiteout := whiteoutPrefix + name
 
-			for _, file := range overlay.files() {
+			for i, file := range overlay.files() {
 				info, err := file.Stat(name, sandbox.AT_SYMLINK_NOFOLLOW)
 				if err != nil {
 					if !errors.Is(err, sandbox.ENOENT) {
@@ -195,6 +204,26 @@ func (f *file) Stat(name string, flags sandbox.LookupFlags) (sandbox.FileInfo, e
 					// See (*fileOverlay).makePath for more details.
 					if info.Mode.Type() == fs.ModeDir {
 						info.Mode = fs.ModeDir | 0755
+					}
+					// TOOD: hard links in lower layers are not supported
+					// because we would need to maintain the link entries when
+					// migrating a file from the lower to the upper layer, and
+					// this requires scanning the entire file system to find
+					// other links, so we pretend that there are no hard links
+					// in the lower layers and each entry points to a unique
+					// file (since the lower layers are read-only, it works).
+					//
+					// A potential solution would be to construct an in-memory
+					// view of the file system which maintains the relationships
+					// between directory entries using inodes as deduplication
+					// keys. However, the tarfs layers do not expose inodes,
+					// they are all zero, so we cannot implement it for now.
+					//
+					// Since it is unclear where WASI will land with regard to
+					// hard links, we simply disable them in the lower layers
+					// and will address in the future when needed.
+					if i > 0 {
+						info.Nlink = 1
 					}
 					return info, nil
 				}
@@ -362,19 +391,19 @@ func (f *file) ReadDirent(buf []byte) (int, error) {
 }
 
 func (f *file) Chtimes(name string, times [2]sandbox.Timespec, flags sandbox.LookupFlags) error {
-	return resolvePath1(f, name, flags, func(upper sandbox.File, name string) error {
+	return resolveUpperPath(f, name, flags, func(upper sandbox.File, name string) error {
 		return upper.Chtimes(name, times, flags)
 	})
 }
 
 func (f *file) Mkdir(name string, perm fs.FileMode) error {
-	return resolvePath1(f, name, sandbox.AT_SYMLINK_NOFOLLOW, func(upper sandbox.File, name string) error {
+	return resolveUpperPath(f, name, sandbox.AT_SYMLINK_NOFOLLOW, func(upper sandbox.File, name string) error {
 		return upper.Mkdir(name, perm)
 	})
 }
 
 func (f *file) Rmdir(name string) error {
-	return resolvePath1(f, name, sandbox.AT_SYMLINK_NOFOLLOW, func(upper sandbox.File, name string) error {
+	return resolveUpperPath(f, name, sandbox.AT_SYMLINK_NOFOLLOW, func(upper sandbox.File, name string) error {
 		return upper.Rmdir(name)
 	})
 }
@@ -385,8 +414,8 @@ func (f1 *file) Rename(oldName string, newFile sandbox.File, newName string, fla
 		return sandbox.EXDEV
 	}
 	const lookup = sandbox.AT_SYMLINK_NOFOLLOW
-	return resolvePath1(f1, oldName, lookup, func(upper1 sandbox.File, name1 string) error {
-		return resolvePath1(f2, newName, lookup, func(upper2 sandbox.File, name2 string) error {
+	return resolveUpperPath(f1, oldName, lookup, func(upper1 sandbox.File, name1 string) error {
+		return resolveUpperPath(f2, newName, lookup, func(upper2 sandbox.File, name2 string) error {
 			return upper1.Rename(name1, upper2, name2, flags)
 		})
 	})
@@ -397,26 +426,80 @@ func (f1 *file) Link(oldName string, newFile sandbox.File, newName string, flags
 	if !ok {
 		return sandbox.EXDEV
 	}
-	return resolvePath1(f1, oldName, flags, func(upper1 sandbox.File, name1 string) error {
-		return resolvePath1(f2, newName, flags, func(upper2 sandbox.File, name2 string) error {
+	return resolveUpperPath(f1, oldName, flags, func(upper1 sandbox.File, name1 string) error {
+		return resolveUpperPath(f2, newName, flags, func(upper2 sandbox.File, name2 string) error {
 			return upper1.Link(name1, upper2, name2, flags)
 		})
 	})
 }
 
 func (f *file) Symlink(oldName, newName string) error {
-	return resolvePath1(f, newName, sandbox.AT_SYMLINK_NOFOLLOW, func(upper sandbox.File, name string) error {
+	return resolveUpperPath(f, newName, sandbox.AT_SYMLINK_NOFOLLOW, func(upper sandbox.File, name string) error {
 		return upper.Symlink(oldName, name)
 	})
 }
 
 func (f *file) Unlink(name string) error {
-	return resolvePath1(f, name, sandbox.AT_SYMLINK_NOFOLLOW, func(upper sandbox.File, name string) error {
-		return upper.Unlink(name)
+	return resolveOverlayPath(f, name, sandbox.AT_SYMLINK_NOFOLLOW, func(overlay *fileOverlay, name string) error {
+		// When the file does not exist in the lower layer we should simply
+		// remove it from the upper layer.
+		if overlay.lower == nil {
+			return overlay.upper.Unlink(name)
+		}
+
+		// If the file exists on the lower layer, we must create a whiteout file
+		// to mask it in the upper layer.
+		s, err := overlay.lower.Stat(name, sandbox.AT_SYMLINK_NOFOLLOW)
+		if err != nil {
+			if !errors.Is(err, sandbox.ENOENT) {
+				return err
+			}
+			return overlay.upper.Unlink(name)
+		}
+
+		// If a whiteout file already exists, this indicates that the lower
+		// layer was already masked, we can simply delegate to unlinking the
+		// entry in the upper layer.
+		whiteout := whiteoutPrefix + name
+
+		// If the file is a directory, Rmdir should be used instead. However,
+		// we must make an exception and ignore this condition if the whiteout
+		// file already exists (this coordinates with Rmdir).
+		if s.Mode.IsDir() {
+			if ok, err := exists(overlay.upper, whiteout); err != nil {
+				return err
+			} else if !ok {
+				return sandbox.EISDIR
+			}
+		}
+
+		// Always start by creating the whiteout file; this ensures that we
+		// atomically mask the file in the lower layer.
+		wh, err := overlay.upper.Open(whiteout, sandbox.O_CREAT|sandbox.O_EXCL|sandbox.O_TRUNC, 0666)
+		if err != nil {
+			if !errors.Is(err, sandbox.EEXIST) {
+				return err
+			}
+		} else {
+			wh.Close()
+		}
+
+		// Now there are two conditions: either the file existed in the upper
+		// layer and it can be unlinked, which causes it to disappear from all
+		// layers, or it did not exist and in order to successfully unlink it
+		// from the lower layer the current operation must have created the
+		// whiteout file.
+		if err := overlay.upper.Unlink(name); err != nil {
+			if !errors.Is(err, sandbox.ENOENT) || wh == nil {
+				return err
+			}
+		}
+
+		return nil
 	})
 }
 
-func resolvePath1(f *file, name string, flags sandbox.LookupFlags, do func(sandbox.File, string) error) error {
+func resolveOverlayPath(f *file, name string, flags sandbox.LookupFlags, do func(*fileOverlay, string) error) error {
 	_, err := sandbox.ResolvePath(f, name, flags, func(d *file, name string) (_ struct{}, err error) {
 		err = withOverlay1(d, func(overlay *fileOverlay) error {
 			if overlay.lower != nil {
@@ -424,11 +507,17 @@ func resolvePath1(f *file, name string, flags sandbox.LookupFlags, do func(sandb
 					return err
 				}
 			}
-			return do(overlay.upper, name)
+			return do(overlay, name)
 		})
 		return
 	})
 	return err
+}
+
+func resolveUpperPath(f *file, name string, flags sandbox.LookupFlags, do func(sandbox.File, string) error) error {
+	return resolveOverlayPath(f, name, flags, func(overlay *fileOverlay, name string) error {
+		return do(overlay.upper, name)
+	})
 }
 
 func withOverlay1(f *file, do func(*fileOverlay) error) error {

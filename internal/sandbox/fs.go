@@ -133,7 +133,7 @@ func ReadFile(fsys FileSystem, name string, flags LookupFlags) ([]byte, error) {
 
 // WriteFile writes a file on a file system.
 func WriteFile(fsys FileSystem, name string, data []byte, mode fs.FileMode) error {
-	f, err := fsys.Open(name, O_CREAT|O_WRONLY|O_TRUNC|O_EXCL, mode)
+	f, err := fsys.Open(name, O_CREAT|O_WRONLY|O_TRUNC, mode)
 	if err != nil {
 		return &fs.PathError{Op: "write", Path: name, Err: err}
 	}
