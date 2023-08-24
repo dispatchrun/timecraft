@@ -19,9 +19,9 @@ type symlink struct {
 }
 
 func newSymlink(header *tar.Header) *symlink {
-	mode := header.FileInfo().Mode()
+	info := header.FileInfo()
 	return &symlink{
-		perm:  mode.Perm() & 0555,
+		perm:  info.Mode().Perm(),
 		nlink: 1,
 		mtime: header.ModTime.UnixNano(),
 		atime: header.AccessTime.UnixNano(),

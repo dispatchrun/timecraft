@@ -120,6 +120,9 @@ func (d *dirbuf) readDirent(buf []byte, files []sandbox.File) (int, error) {
 		dirent := &d.entries[d.index]
 		wn := sandbox.WriteDirent(buf[n:], dirent.typ, dirent.ino, d.offset, dirent.name)
 		n += wn
+		if wn < sandbox.SizeOfDirent(len(dirent.name)) {
+			break
+		}
 		d.index++
 		d.offset += uint64(wn)
 	}

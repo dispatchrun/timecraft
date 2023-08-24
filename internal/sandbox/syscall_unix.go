@@ -542,3 +542,9 @@ func WriteDirent(buf []byte, typ fs.FileMode, ino, off uint64, name string) int 
 	}
 	return n
 }
+
+// SizeOfDirent returns the size of a directory entry with a name of the given
+// length.
+func SizeOfDirent(nameLen int) int {
+	return sizeOfDirent + nameLen + 1
+}

@@ -27,10 +27,9 @@ type file struct {
 
 func newFile(header *tar.Header, offset int64) *file {
 	info := header.FileInfo()
-	mode := info.Mode()
 	return &file{
-		perm:   mode.Perm() & 0555,
 		nlink:  1,
+		perm:   info.Mode().Perm(),
 		size:   info.Size(),
 		mtime:  header.ModTime.UnixNano(),
 		atime:  header.AccessTime.UnixNano(),
@@ -151,7 +150,7 @@ func (f *openFile) Preadv(buf [][]byte, off int64) (int, error) {
 	return read, nil
 }
 
-func (f *openFile) CopyFileRange(srcOffset int64, dst sandbox.File, dstOffset int64, length int) (int, error) {
+func (f *openFile) CopyRange(srcOffset int64, dst sandbox.File, dstOffset int64, length int) (int, error) {
 	file := f.file.Load()
 	if file == nil {
 		return 0, sandbox.EBADF
@@ -172,7 +171,7 @@ func (f *openFile) CopyFileRange(srcOffset int64, dst sandbox.File, dstOffset in
 		}
 	}
 
-	return sandbox.CopyFileRange(f, srcOffset, dst, dstOffset, length)
+	return sandbox.FileCopyRange(f, srcOffset, dst, dstOffset, length)
 }
 
 func (f *openFile) Seek(offset int64, whence int) (int64, error) {
