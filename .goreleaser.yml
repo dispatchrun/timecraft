@@ -14,7 +14,7 @@ builds:
       - amd64
       - arm64
 
-    good:
+    goos:
       - darwin
       - linux
 
