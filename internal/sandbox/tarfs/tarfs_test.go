@@ -26,7 +26,7 @@ func TestTarFS(t *testing.T) {
 
 	sandboxtest.TestRootFS(t, makeTarFS)
 
-	t.Run("CopyFileRange", func(t *testing.T) {
+	t.Run("CopyRange", func(t *testing.T) {
 		tmp := t.TempDir()
 		tmpFS := sandbox.DirFS(tmp)
 		assert.OK(t, sandbox.WriteFile(tmpFS, "src", []byte("Hello World!"), 0644))
@@ -41,7 +41,7 @@ func TestTarFS(t *testing.T) {
 		assert.OK(t, err)
 		defer dstFile.Close()
 
-		_, err = srcFile.CopyFileRange(0, dstFile, 0, 12)
+		_, err = srcFile.CopyRange(0, dstFile, 0, 12)
 		assert.OK(t, err)
 		assert.OK(t, dstFile.Close())
 
@@ -103,7 +103,7 @@ func TestAlpine(t *testing.T) {
 	// Also verify that the metadata for the file is what we expected.
 	s, err := sandbox.Stat(fsys, "/usr/share/apk/keys/aarch64/alpine-devel@lists.alpinelinux.org-58199dcc.rsa.pub")
 	assert.OK(t, err)
-	assert.Equal(t, s.Mode, 0444)
+	assert.Equal(t, s.Mode, 0644)
 	assert.Equal(t, s.Size, 451)
 
 	size, memsize, filesize := fsys.Size(), fsys.Memsize(), fsys.Filesize()

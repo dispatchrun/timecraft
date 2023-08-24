@@ -44,6 +44,28 @@ var fsTestUnlink = fsTestSuite{
 		assert.Error(t, err, sandbox.ENOENT)
 	},
 
+	"unlinking a file in a sub directory deletes it from the file system": func(t *testing.T, fsys sandbox.FileSystem) {
+		err := sandbox.MkdirAll(fsys, "tmp", 0755)
+		assert.OK(t, err)
+
+		err = sandbox.WriteFile(fsys, "tmp/test", []byte("123"), 0600)
+		assert.OK(t, err)
+
+		b, err := sandbox.ReadFile(fsys, "tmp/test", 0)
+		assert.OK(t, err)
+		assert.Equal(t, string(b), "123")
+
+		err = sandbox.Unlink(fsys, "tmp/test")
+		assert.OK(t, err)
+
+		_, err = sandbox.ReadFile(fsys, "tmp/test", 0)
+		assert.Error(t, err, sandbox.ENOENT)
+
+		s, err := sandbox.Stat(fsys, "tmp")
+		assert.OK(t, err)
+		assert.Equal(t, s.Mode.IsDir(), true)
+	},
+
 	"unlinking a symlink deletes it from the file system": func(t *testing.T, fsys sandbox.FileSystem) {
 		err := sandbox.Symlink(fsys, "test", "link")
 		assert.OK(t, err)
