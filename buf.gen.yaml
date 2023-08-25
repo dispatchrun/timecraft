@@ -5,7 +5,7 @@ managed:
     default: github.com/stealthrocket/timecraft/gen/proto/go
 
 plugins:
-  - plugin: buf.build/bufbuild/connect-go:v1.8.0
+  - plugin: buf.build/connectrpc/go:v1.11.0
     out: gen/proto/go
     opt: paths=source_relative
   - plugin: buf.build/protocolbuffers/go:v1.30.0

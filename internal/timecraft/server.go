@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	"github.com/planetscale/vtprotobuf/codec/grpc"
 	v1 "github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1"

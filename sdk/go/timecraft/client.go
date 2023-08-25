@@ -12,7 +12,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	v1 "github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1"
 	"github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1/serverv1connect"
