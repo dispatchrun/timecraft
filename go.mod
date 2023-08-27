@@ -3,7 +3,7 @@ module github.com/stealthrocket/timecraft
 go 1.21
 
 require (
-	github.com/bufbuild/connect-go v1.8.0
+	connectrpc.com/connect v1.11.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/google/flatbuffers v23.5.26+incompatible
 	github.com/google/go-cmp v0.5.9

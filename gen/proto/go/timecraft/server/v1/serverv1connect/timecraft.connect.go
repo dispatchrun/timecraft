@@ -5,9 +5,9 @@
 package serverv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	connect_go "github.com/bufbuild/connect-go"
 	v1 "github.com/stealthrocket/timecraft/gen/proto/go/timecraft/server/v1"
 	http "net/http"
 	strings "strings"
@@ -18,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect_go.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion0_1_0
 
 const (
 	// TimecraftServiceName is the fully-qualified name of the TimecraftService service.
@@ -60,16 +60,16 @@ const (
 // TimecraftServiceClient is a client for the timecraft.server.v1.TimecraftService service.
 type TimecraftServiceClient interface {
 	// Task scheduling.
-	SubmitTasks(context.Context, *connect_go.Request[v1.SubmitTasksRequest]) (*connect_go.Response[v1.SubmitTasksResponse], error)
-	LookupTasks(context.Context, *connect_go.Request[v1.LookupTasksRequest]) (*connect_go.Response[v1.LookupTasksResponse], error)
-	PollTasks(context.Context, *connect_go.Request[v1.PollTasksRequest]) (*connect_go.Response[v1.PollTasksResponse], error)
-	DiscardTasks(context.Context, *connect_go.Request[v1.DiscardTasksRequest]) (*connect_go.Response[v1.DiscardTasksResponse], error)
+	SubmitTasks(context.Context, *connect.Request[v1.SubmitTasksRequest]) (*connect.Response[v1.SubmitTasksResponse], error)
+	LookupTasks(context.Context, *connect.Request[v1.LookupTasksRequest]) (*connect.Response[v1.LookupTasksResponse], error)
+	PollTasks(context.Context, *connect.Request[v1.PollTasksRequest]) (*connect.Response[v1.PollTasksResponse], error)
+	DiscardTasks(context.Context, *connect.Request[v1.DiscardTasksRequest]) (*connect.Response[v1.DiscardTasksResponse], error)
 	// Process management.
-	ProcessID(context.Context, *connect_go.Request[v1.ProcessIDRequest]) (*connect_go.Response[v1.ProcessIDResponse], error)
-	Spawn(context.Context, *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error)
-	Kill(context.Context, *connect_go.Request[v1.KillRequest]) (*connect_go.Response[v1.KillResponse], error)
+	ProcessID(context.Context, *connect.Request[v1.ProcessIDRequest]) (*connect.Response[v1.ProcessIDResponse], error)
+	Spawn(context.Context, *connect.Request[v1.SpawnRequest]) (*connect.Response[v1.SpawnResponse], error)
+	Kill(context.Context, *connect.Request[v1.KillRequest]) (*connect.Response[v1.KillResponse], error)
 	// Misc endpoints.
-	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
+	Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error)
 }
 
 // NewTimecraftServiceClient constructs a client for the timecraft.server.v1.TimecraftService
@@ -79,45 +79,45 @@ type TimecraftServiceClient interface {
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewTimecraftServiceClient(httpClient connect_go.HTTPClient, baseURL string, opts ...connect_go.ClientOption) TimecraftServiceClient {
+func NewTimecraftServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) TimecraftServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &timecraftServiceClient{
-		submitTasks: connect_go.NewClient[v1.SubmitTasksRequest, v1.SubmitTasksResponse](
+		submitTasks: connect.NewClient[v1.SubmitTasksRequest, v1.SubmitTasksResponse](
 			httpClient,
 			baseURL+TimecraftServiceSubmitTasksProcedure,
 			opts...,
 		),
-		lookupTasks: connect_go.NewClient[v1.LookupTasksRequest, v1.LookupTasksResponse](
+		lookupTasks: connect.NewClient[v1.LookupTasksRequest, v1.LookupTasksResponse](
 			httpClient,
 			baseURL+TimecraftServiceLookupTasksProcedure,
 			opts...,
 		),
-		pollTasks: connect_go.NewClient[v1.PollTasksRequest, v1.PollTasksResponse](
+		pollTasks: connect.NewClient[v1.PollTasksRequest, v1.PollTasksResponse](
 			httpClient,
 			baseURL+TimecraftServicePollTasksProcedure,
 			opts...,
 		),
-		discardTasks: connect_go.NewClient[v1.DiscardTasksRequest, v1.DiscardTasksResponse](
+		discardTasks: connect.NewClient[v1.DiscardTasksRequest, v1.DiscardTasksResponse](
 			httpClient,
 			baseURL+TimecraftServiceDiscardTasksProcedure,
 			opts...,
 		),
-		processID: connect_go.NewClient[v1.ProcessIDRequest, v1.ProcessIDResponse](
+		processID: connect.NewClient[v1.ProcessIDRequest, v1.ProcessIDResponse](
 			httpClient,
 			baseURL+TimecraftServiceProcessIDProcedure,
 			opts...,
 		),
-		spawn: connect_go.NewClient[v1.SpawnRequest, v1.SpawnResponse](
+		spawn: connect.NewClient[v1.SpawnRequest, v1.SpawnResponse](
 			httpClient,
 			baseURL+TimecraftServiceSpawnProcedure,
 			opts...,
 		),
-		kill: connect_go.NewClient[v1.KillRequest, v1.KillResponse](
+		kill: connect.NewClient[v1.KillRequest, v1.KillResponse](
 			httpClient,
 			baseURL+TimecraftServiceKillProcedure,
 			opts...,
 		),
-		version: connect_go.NewClient[v1.VersionRequest, v1.VersionResponse](
+		version: connect.NewClient[v1.VersionRequest, v1.VersionResponse](
 			httpClient,
 			baseURL+TimecraftServiceVersionProcedure,
 			opts...,
@@ -127,69 +127,69 @@ func NewTimecraftServiceClient(httpClient connect_go.HTTPClient, baseURL string,
 
 // timecraftServiceClient implements TimecraftServiceClient.
 type timecraftServiceClient struct {
-	submitTasks  *connect_go.Client[v1.SubmitTasksRequest, v1.SubmitTasksResponse]
-	lookupTasks  *connect_go.Client[v1.LookupTasksRequest, v1.LookupTasksResponse]
-	pollTasks    *connect_go.Client[v1.PollTasksRequest, v1.PollTasksResponse]
-	discardTasks *connect_go.Client[v1.DiscardTasksRequest, v1.DiscardTasksResponse]
-	processID    *connect_go.Client[v1.ProcessIDRequest, v1.ProcessIDResponse]
-	spawn        *connect_go.Client[v1.SpawnRequest, v1.SpawnResponse]
-	kill         *connect_go.Client[v1.KillRequest, v1.KillResponse]
-	version      *connect_go.Client[v1.VersionRequest, v1.VersionResponse]
+	submitTasks  *connect.Client[v1.SubmitTasksRequest, v1.SubmitTasksResponse]
+	lookupTasks  *connect.Client[v1.LookupTasksRequest, v1.LookupTasksResponse]
+	pollTasks    *connect.Client[v1.PollTasksRequest, v1.PollTasksResponse]
+	discardTasks *connect.Client[v1.DiscardTasksRequest, v1.DiscardTasksResponse]
+	processID    *connect.Client[v1.ProcessIDRequest, v1.ProcessIDResponse]
+	spawn        *connect.Client[v1.SpawnRequest, v1.SpawnResponse]
+	kill         *connect.Client[v1.KillRequest, v1.KillResponse]
+	version      *connect.Client[v1.VersionRequest, v1.VersionResponse]
 }
 
 // SubmitTasks calls timecraft.server.v1.TimecraftService.SubmitTasks.
-func (c *timecraftServiceClient) SubmitTasks(ctx context.Context, req *connect_go.Request[v1.SubmitTasksRequest]) (*connect_go.Response[v1.SubmitTasksResponse], error) {
+func (c *timecraftServiceClient) SubmitTasks(ctx context.Context, req *connect.Request[v1.SubmitTasksRequest]) (*connect.Response[v1.SubmitTasksResponse], error) {
 	return c.submitTasks.CallUnary(ctx, req)
 }
 
 // LookupTasks calls timecraft.server.v1.TimecraftService.LookupTasks.
-func (c *timecraftServiceClient) LookupTasks(ctx context.Context, req *connect_go.Request[v1.LookupTasksRequest]) (*connect_go.Response[v1.LookupTasksResponse], error) {
+func (c *timecraftServiceClient) LookupTasks(ctx context.Context, req *connect.Request[v1.LookupTasksRequest]) (*connect.Response[v1.LookupTasksResponse], error) {
 	return c.lookupTasks.CallUnary(ctx, req)
 }
 
 // PollTasks calls timecraft.server.v1.TimecraftService.PollTasks.
-func (c *timecraftServiceClient) PollTasks(ctx context.Context, req *connect_go.Request[v1.PollTasksRequest]) (*connect_go.Response[v1.PollTasksResponse], error) {
+func (c *timecraftServiceClient) PollTasks(ctx context.Context, req *connect.Request[v1.PollTasksRequest]) (*connect.Response[v1.PollTasksResponse], error) {
 	return c.pollTasks.CallUnary(ctx, req)
 }
 
 // DiscardTasks calls timecraft.server.v1.TimecraftService.DiscardTasks.
-func (c *timecraftServiceClient) DiscardTasks(ctx context.Context, req *connect_go.Request[v1.DiscardTasksRequest]) (*connect_go.Response[v1.DiscardTasksResponse], error) {
+func (c *timecraftServiceClient) DiscardTasks(ctx context.Context, req *connect.Request[v1.DiscardTasksRequest]) (*connect.Response[v1.DiscardTasksResponse], error) {
 	return c.discardTasks.CallUnary(ctx, req)
 }
 
 // ProcessID calls timecraft.server.v1.TimecraftService.ProcessID.
-func (c *timecraftServiceClient) ProcessID(ctx context.Context, req *connect_go.Request[v1.ProcessIDRequest]) (*connect_go.Response[v1.ProcessIDResponse], error) {
+func (c *timecraftServiceClient) ProcessID(ctx context.Context, req *connect.Request[v1.ProcessIDRequest]) (*connect.Response[v1.ProcessIDResponse], error) {
 	return c.processID.CallUnary(ctx, req)
 }
 
 // Spawn calls timecraft.server.v1.TimecraftService.Spawn.
-func (c *timecraftServiceClient) Spawn(ctx context.Context, req *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error) {
+func (c *timecraftServiceClient) Spawn(ctx context.Context, req *connect.Request[v1.SpawnRequest]) (*connect.Response[v1.SpawnResponse], error) {
 	return c.spawn.CallUnary(ctx, req)
 }
 
 // Kill calls timecraft.server.v1.TimecraftService.Kill.
-func (c *timecraftServiceClient) Kill(ctx context.Context, req *connect_go.Request[v1.KillRequest]) (*connect_go.Response[v1.KillResponse], error) {
+func (c *timecraftServiceClient) Kill(ctx context.Context, req *connect.Request[v1.KillRequest]) (*connect.Response[v1.KillResponse], error) {
 	return c.kill.CallUnary(ctx, req)
 }
 
 // Version calls timecraft.server.v1.TimecraftService.Version.
-func (c *timecraftServiceClient) Version(ctx context.Context, req *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error) {
+func (c *timecraftServiceClient) Version(ctx context.Context, req *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
 	return c.version.CallUnary(ctx, req)
 }
 
 // TimecraftServiceHandler is an implementation of the timecraft.server.v1.TimecraftService service.
 type TimecraftServiceHandler interface {
 	// Task scheduling.
-	SubmitTasks(context.Context, *connect_go.Request[v1.SubmitTasksRequest]) (*connect_go.Response[v1.SubmitTasksResponse], error)
-	LookupTasks(context.Context, *connect_go.Request[v1.LookupTasksRequest]) (*connect_go.Response[v1.LookupTasksResponse], error)
-	PollTasks(context.Context, *connect_go.Request[v1.PollTasksRequest]) (*connect_go.Response[v1.PollTasksResponse], error)
-	DiscardTasks(context.Context, *connect_go.Request[v1.DiscardTasksRequest]) (*connect_go.Response[v1.DiscardTasksResponse], error)
+	SubmitTasks(context.Context, *connect.Request[v1.SubmitTasksRequest]) (*connect.Response[v1.SubmitTasksResponse], error)
+	LookupTasks(context.Context, *connect.Request[v1.LookupTasksRequest]) (*connect.Response[v1.LookupTasksResponse], error)
+	PollTasks(context.Context, *connect.Request[v1.PollTasksRequest]) (*connect.Response[v1.PollTasksResponse], error)
+	DiscardTasks(context.Context, *connect.Request[v1.DiscardTasksRequest]) (*connect.Response[v1.DiscardTasksResponse], error)
 	// Process management.
-	ProcessID(context.Context, *connect_go.Request[v1.ProcessIDRequest]) (*connect_go.Response[v1.ProcessIDResponse], error)
-	Spawn(context.Context, *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error)
-	Kill(context.Context, *connect_go.Request[v1.KillRequest]) (*connect_go.Response[v1.KillResponse], error)
+	ProcessID(context.Context, *connect.Request[v1.ProcessIDRequest]) (*connect.Response[v1.ProcessIDResponse], error)
+	Spawn(context.Context, *connect.Request[v1.SpawnRequest]) (*connect.Response[v1.SpawnResponse], error)
+	Kill(context.Context, *connect.Request[v1.KillRequest]) (*connect.Response[v1.KillResponse], error)
 	// Misc endpoints.
-	Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error)
+	Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error)
 }
 
 // NewTimecraftServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -197,82 +197,102 @@ type TimecraftServiceHandler interface {
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewTimecraftServiceHandler(svc TimecraftServiceHandler, opts ...connect_go.HandlerOption) (string, http.Handler) {
-	mux := http.NewServeMux()
-	mux.Handle(TimecraftServiceSubmitTasksProcedure, connect_go.NewUnaryHandler(
+func NewTimecraftServiceHandler(svc TimecraftServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	timecraftServiceSubmitTasksHandler := connect.NewUnaryHandler(
 		TimecraftServiceSubmitTasksProcedure,
 		svc.SubmitTasks,
 		opts...,
-	))
-	mux.Handle(TimecraftServiceLookupTasksProcedure, connect_go.NewUnaryHandler(
+	)
+	timecraftServiceLookupTasksHandler := connect.NewUnaryHandler(
 		TimecraftServiceLookupTasksProcedure,
 		svc.LookupTasks,
 		opts...,
-	))
-	mux.Handle(TimecraftServicePollTasksProcedure, connect_go.NewUnaryHandler(
+	)
+	timecraftServicePollTasksHandler := connect.NewUnaryHandler(
 		TimecraftServicePollTasksProcedure,
 		svc.PollTasks,
 		opts...,
-	))
-	mux.Handle(TimecraftServiceDiscardTasksProcedure, connect_go.NewUnaryHandler(
+	)
+	timecraftServiceDiscardTasksHandler := connect.NewUnaryHandler(
 		TimecraftServiceDiscardTasksProcedure,
 		svc.DiscardTasks,
 		opts...,
-	))
-	mux.Handle(TimecraftServiceProcessIDProcedure, connect_go.NewUnaryHandler(
+	)
+	timecraftServiceProcessIDHandler := connect.NewUnaryHandler(
 		TimecraftServiceProcessIDProcedure,
 		svc.ProcessID,
 		opts...,
-	))
-	mux.Handle(TimecraftServiceSpawnProcedure, connect_go.NewUnaryHandler(
+	)
+	timecraftServiceSpawnHandler := connect.NewUnaryHandler(
 		TimecraftServiceSpawnProcedure,
 		svc.Spawn,
 		opts...,
-	))
-	mux.Handle(TimecraftServiceKillProcedure, connect_go.NewUnaryHandler(
+	)
+	timecraftServiceKillHandler := connect.NewUnaryHandler(
 		TimecraftServiceKillProcedure,
 		svc.Kill,
 		opts...,
-	))
-	mux.Handle(TimecraftServiceVersionProcedure, connect_go.NewUnaryHandler(
+	)
+	timecraftServiceVersionHandler := connect.NewUnaryHandler(
 		TimecraftServiceVersionProcedure,
 		svc.Version,
 		opts...,
-	))
-	return "/timecraft.server.v1.TimecraftService/", mux
+	)
+	return "/timecraft.server.v1.TimecraftService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case TimecraftServiceSubmitTasksProcedure:
+			timecraftServiceSubmitTasksHandler.ServeHTTP(w, r)
+		case TimecraftServiceLookupTasksProcedure:
+			timecraftServiceLookupTasksHandler.ServeHTTP(w, r)
+		case TimecraftServicePollTasksProcedure:
+			timecraftServicePollTasksHandler.ServeHTTP(w, r)
+		case TimecraftServiceDiscardTasksProcedure:
+			timecraftServiceDiscardTasksHandler.ServeHTTP(w, r)
+		case TimecraftServiceProcessIDProcedure:
+			timecraftServiceProcessIDHandler.ServeHTTP(w, r)
+		case TimecraftServiceSpawnProcedure:
+			timecraftServiceSpawnHandler.ServeHTTP(w, r)
+		case TimecraftServiceKillProcedure:
+			timecraftServiceKillHandler.ServeHTTP(w, r)
+		case TimecraftServiceVersionProcedure:
+			timecraftServiceVersionHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 }
 
 // UnimplementedTimecraftServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedTimecraftServiceHandler struct{}
 
-func (UnimplementedTimecraftServiceHandler) SubmitTasks(context.Context, *connect_go.Request[v1.SubmitTasksRequest]) (*connect_go.Response[v1.SubmitTasksResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.SubmitTasks is not implemented"))
+func (UnimplementedTimecraftServiceHandler) SubmitTasks(context.Context, *connect.Request[v1.SubmitTasksRequest]) (*connect.Response[v1.SubmitTasksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.SubmitTasks is not implemented"))
 }
 
-func (UnimplementedTimecraftServiceHandler) LookupTasks(context.Context, *connect_go.Request[v1.LookupTasksRequest]) (*connect_go.Response[v1.LookupTasksResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.LookupTasks is not implemented"))
+func (UnimplementedTimecraftServiceHandler) LookupTasks(context.Context, *connect.Request[v1.LookupTasksRequest]) (*connect.Response[v1.LookupTasksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.LookupTasks is not implemented"))
 }
 
-func (UnimplementedTimecraftServiceHandler) PollTasks(context.Context, *connect_go.Request[v1.PollTasksRequest]) (*connect_go.Response[v1.PollTasksResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.PollTasks is not implemented"))
+func (UnimplementedTimecraftServiceHandler) PollTasks(context.Context, *connect.Request[v1.PollTasksRequest]) (*connect.Response[v1.PollTasksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.PollTasks is not implemented"))
 }
 
-func (UnimplementedTimecraftServiceHandler) DiscardTasks(context.Context, *connect_go.Request[v1.DiscardTasksRequest]) (*connect_go.Response[v1.DiscardTasksResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.DiscardTasks is not implemented"))
+func (UnimplementedTimecraftServiceHandler) DiscardTasks(context.Context, *connect.Request[v1.DiscardTasksRequest]) (*connect.Response[v1.DiscardTasksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.DiscardTasks is not implemented"))
 }
 
-func (UnimplementedTimecraftServiceHandler) ProcessID(context.Context, *connect_go.Request[v1.ProcessIDRequest]) (*connect_go.Response[v1.ProcessIDResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.ProcessID is not implemented"))
+func (UnimplementedTimecraftServiceHandler) ProcessID(context.Context, *connect.Request[v1.ProcessIDRequest]) (*connect.Response[v1.ProcessIDResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.ProcessID is not implemented"))
 }
 
-func (UnimplementedTimecraftServiceHandler) Spawn(context.Context, *connect_go.Request[v1.SpawnRequest]) (*connect_go.Response[v1.SpawnResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Spawn is not implemented"))
+func (UnimplementedTimecraftServiceHandler) Spawn(context.Context, *connect.Request[v1.SpawnRequest]) (*connect.Response[v1.SpawnResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Spawn is not implemented"))
 }
 
-func (UnimplementedTimecraftServiceHandler) Kill(context.Context, *connect_go.Request[v1.KillRequest]) (*connect_go.Response[v1.KillResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Kill is not implemented"))
+func (UnimplementedTimecraftServiceHandler) Kill(context.Context, *connect.Request[v1.KillRequest]) (*connect.Response[v1.KillResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Kill is not implemented"))
 }
 
-func (UnimplementedTimecraftServiceHandler) Version(context.Context, *connect_go.Request[v1.VersionRequest]) (*connect_go.Response[v1.VersionResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Version is not implemented"))
+func (UnimplementedTimecraftServiceHandler) Version(context.Context, *connect.Request[v1.VersionRequest]) (*connect.Response[v1.VersionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("timecraft.server.v1.TimecraftService.Version is not implemented"))
 }
