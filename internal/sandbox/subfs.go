@@ -130,7 +130,7 @@ func (f *subFile) openFile(name string, flags OpenFlags, mode fs.FileMode) (File
 }
 
 func (f *subFile) Open(name string, flags OpenFlags, mode fs.FileMode) (File, error) {
-	return FileOpen(f, name, flags, ^OpenFlags(0), mode,
+	return FileOpen(f, name, flags, mode,
 		(*subFile).openRoot,
 		(*subFile).openSelf,
 		(*subFile).openParent,
