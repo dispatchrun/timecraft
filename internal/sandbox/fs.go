@@ -523,8 +523,7 @@ type File interface {
 // common parts of the Open logic, for example:
 //
 //	func (f *file) Open(name string, flags OpenFlags, mode fs.FileMode) (File, error) {
-//		const supportedFlags = ^OpenFlags(0)
-//		return FileOpen(f, name, flags, supportedFlags, mode,
+//		return FileOpen(f, name, flags, mode,
 //			(*file).openRoot,
 //			(*file).openSelf,
 //			(*file).openParent,
@@ -535,13 +534,13 @@ type File interface {
 // The function performs path resolution and invokes one of the callbacks passed
 // as arguments to navigate the directory tree and eventually open and return the
 // final target.
-func FileOpen[F File](f F, name string, flags, supportedFlags OpenFlags, mode fs.FileMode,
+func FileOpen[F File](f F, name string, flags OpenFlags, mode fs.FileMode,
 	openRoot func(F) (File, error),
 	openSelf func(F) (File, error),
 	openParent func(F) (File, error),
 	openFile func(F, string, OpenFlags, fs.FileMode) (File, error),
 ) (File, error) {
-	if (flags & ^supportedFlags) != 0 || name == "" {
+	if name == "" {
 		return nil, EINVAL
 	}
 	if fspath.IsRoot(name) {

@@ -17,9 +17,15 @@ type FileSystem struct {
 // New constructs a file system which combines layers into a flattened view
 // which stacks layers on each other.
 //
-// The returned file system is read-only, it does not allow modifications of
-// the layers that it was constructed from. This includes writes to files as
-// well as modifcations of the directory structure.
+// The returned file system delegates file and directory operations to the
+// layers that it is composed of. If a layer is read-only, attempting to mutate
+// its directory structure of file(s) content will be forbidden, but if a layer
+// allows mutations, the application may create, update, or remove entries in
+// that layer. Keep in mind that mutating layers can create unexpected
+// situations such as files from lower layers "reappearing" after an entry was
+// deleted in an upper layer; for this reason, it is often preferrable to mask
+// mutable parts of the file system using an opaque layer (such as a file system
+// returned by ocifs.Opaque).
 //
 // For the OCI layer specification, see:
 // https://github.com/opencontainers/image-spec/blob/main/layer.md
