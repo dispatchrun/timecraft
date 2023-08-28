@@ -59,6 +59,15 @@ func TestOciFS(t *testing.T) {
 			sandboxtest.TestRootFS(t, test.makeFS)
 		})
 	}
+
+	t.Run("sandbox.FileSystem", func(t *testing.T) {
+		sandboxtest.TestFileSystem(t, func(t *testing.T) sandbox.FileSystem {
+			return ocifs.New(
+				sandbox.DirFS(t.TempDir()), // empty layer, should be ignored by the test
+				sandbox.DirFS(t.TempDir()), // layer receiving mutations during the test
+			)
+		})
+	})
 }
 
 func TestOciFSLayers(t *testing.T) {

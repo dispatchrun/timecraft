@@ -176,11 +176,7 @@ func hasWhiteout(file sandbox.File, whiteout string) (has bool, err error) {
 }
 
 func (f *file) Open(name string, flags sandbox.OpenFlags, mode fs.FileMode) (sandbox.File, error) {
-	const unsupportedFlags = sandbox.O_CREAT |
-		sandbox.O_APPEND |
-		sandbox.O_RDWR |
-		sandbox.O_WRONLY
-	return sandbox.FileOpen(f, name, flags, ^unsupportedFlags, mode,
+	return sandbox.FileOpen(f, name, flags, mode,
 		(*file).openRoot,
 		(*file).openSelf,
 		(*file).openParent,
@@ -190,51 +186,55 @@ func (f *file) Open(name string, flags sandbox.OpenFlags, mode fs.FileMode) (san
 
 func (f *file) Stat(name string, flags sandbox.LookupFlags) (sandbox.FileInfo, error) {
 	return sandbox.FileStat(f, name, flags, func(at *file, name string) (sandbox.FileInfo, error) {
-		whiteout := whiteoutPrefix + name
+		return withLayers2(at, func(l *fileLayers) (sandbox.FileInfo, error) {
+			whiteout := whiteoutPrefix + name
 
-		for _, file := range at.layers.files {
-			info, err := file.Stat(name, sandbox.AT_SYMLINK_NOFOLLOW)
-			if err != nil {
-				if !errors.Is(err, sandbox.ENOENT) {
-					return sandbox.FileInfo{}, err
+			for _, file := range l.files {
+				info, err := file.Stat(name, sandbox.AT_SYMLINK_NOFOLLOW)
+				if err != nil {
+					if !errors.Is(err, sandbox.ENOENT) {
+						return sandbox.FileInfo{}, err
+					}
+				} else {
+					return info, err
 				}
-			} else {
-				return info, err
+
+				if wh, err := hasWhiteout(file, whiteout); err != nil {
+					return info, err
+				} else if wh {
+					break
+				}
 			}
 
-			if wh, err := hasWhiteout(file, whiteout); err != nil {
-				return info, err
-			} else if wh {
-				break
-			}
-		}
-
-		return sandbox.FileInfo{}, sandbox.ENOENT
+			return sandbox.FileInfo{}, sandbox.ENOENT
+		})
 	})
 }
 
 func (f *file) Readlink(name string, buf []byte) (int, error) {
 	return sandbox.FileReadlink(f, name, func(at *file, name string) (int, error) {
-		whiteout := whiteoutPrefix + name
+		return withLayers2(at, func(l *fileLayers) (int, error) {
+			whiteout := whiteoutPrefix + name
 
-		for _, file := range at.layers.files {
-			n, err := file.Readlink(name, buf)
-			if err != nil {
-				if !errors.Is(err, sandbox.ENOENT) {
-					return 0, err
+			for _, file := range l.files {
+				n, err := file.Readlink(name, buf)
+				if err != nil {
+					if !errors.Is(err, sandbox.ENOENT) {
+						return 0, err
+					}
+				} else {
+					return n, nil
 				}
-			} else {
-				return n, nil
+
+				if wh, err := hasWhiteout(file, whiteout); err != nil {
+					return 0, err
+				} else if wh {
+					break
+				}
 			}
 
-			if wh, err := hasWhiteout(file, whiteout); err != nil {
-				return 0, err
-			} else if wh {
-				break
-			}
-		}
-
-		return 0, sandbox.ENOENT
+			return 0, sandbox.ENOENT
+		})
 	})
 }
 
@@ -254,7 +254,9 @@ func (f *file) Readv(iovs [][]byte) (int, error) {
 }
 
 func (f *file) Writev(iovs [][]byte) (int, error) {
-	return 0, sandbox.EBADF
+	return withLayers2(f, func(l *fileLayers) (int, error) {
+		return l.files[0].Writev(iovs)
+	})
 }
 
 func (f *file) Preadv(iovs [][]byte, offset int64) (int, error) {
@@ -264,7 +266,9 @@ func (f *file) Preadv(iovs [][]byte, offset int64) (int, error) {
 }
 
 func (f *file) Pwritev(iovs [][]byte, offset int64) (int, error) {
-	return 0, sandbox.EBADF
+	return withLayers2(f, func(l *fileLayers) (int, error) {
+		return l.files[0].Pwritev(iovs, offset)
+	})
 }
 
 func (f *file) CopyRange(srcOffset int64, dst sandbox.File, dstOffset int64, length int) (int, error) {
@@ -290,28 +294,40 @@ func (f *file) Seek(offset int64, whence int) (int64, error) {
 	})
 }
 
-func (f *file) Allocate(int64, int64) error {
-	return sandbox.EBADF
+func (f *file) Allocate(offset, length int64) error {
+	return withLayers1(f, func(l *fileLayers) error {
+		return l.files[0].Allocate(offset, length)
+	})
 }
 
-func (f *file) Truncate(int64) error {
-	return sandbox.EBADF
+func (f *file) Truncate(size int64) error {
+	return withLayers1(f, func(l *fileLayers) error {
+		return l.files[0].Truncate(size)
+	})
 }
 
 func (f *file) Sync() error {
-	return nil
+	return withLayers1(f, func(l *fileLayers) error {
+		return l.files[0].Sync()
+	})
 }
 
 func (f *file) Datasync() error {
-	return nil
+	return withLayers1(f, func(l *fileLayers) error {
+		return l.files[0].Datasync()
+	})
 }
 
 func (f *file) Flags() (sandbox.OpenFlags, error) {
-	return 0, nil
+	return withLayers2(f, func(l *fileLayers) (sandbox.OpenFlags, error) {
+		return l.files[0].Flags()
+	})
 }
 
-func (f *file) SetFlags(sandbox.OpenFlags) error {
-	return sandbox.EINVAL
+func (f *file) SetFlags(flags sandbox.OpenFlags) error {
+	return withLayers1(f, func(l *fileLayers) error {
+		return l.files[0].SetFlags(flags)
+	})
 }
 
 func (f *file) ReadDirent(buf []byte) (int, error) {
@@ -326,45 +342,84 @@ func (f *file) ReadDirent(buf []byte) (int, error) {
 	})
 }
 
-func (f *file) Chtimes(string, [2]sandbox.Timespec, sandbox.LookupFlags) error {
-	return sandbox.EPERM
-}
-
-func (f *file) Mkdir(string, fs.FileMode) error {
-	return f.expectDirectory()
-}
-
-func (f *file) Rmdir(string) error {
-	return f.expectDirectory()
-}
-
-func (f *file) Rename(string, sandbox.File, string, sandbox.RenameFlags) error {
-	return f.expectDirectory()
-}
-
-func (f *file) Link(string, sandbox.File, string, sandbox.LookupFlags) error {
-	return f.expectDirectory()
-}
-
-func (f *file) Symlink(string, string) error {
-	return f.expectDirectory()
-}
-
-func (f *file) Unlink(string) error {
-	return f.expectDirectory()
-}
-
-func (f *file) expectDirectory() error {
-	return withLayers1(f, func(l *fileLayers) error {
-		info, err := l.files[0].Stat("", sandbox.AT_SYMLINK_NOFOLLOW)
-		if err != nil {
-			return err
-		}
-		if !info.Mode.IsDir() {
-			return sandbox.ENOTDIR
-		}
-		return sandbox.EROFS
+func (f *file) Chtimes(name string, times [2]sandbox.Timespec, flags sandbox.LookupFlags) error {
+	return f.resolvePath(name, flags, func(at *file, name string) error {
+		return withLayers1(at, func(l *fileLayers) error {
+			return l.files[0].Chtimes(name, times, sandbox.AT_SYMLINK_NOFOLLOW)
+		})
 	})
+}
+
+func (f *file) Mkdir(name string, mode fs.FileMode) error {
+	return f.resolvePath(name, 0, func(at *file, name string) error {
+		return withLayers1(at, func(l *fileLayers) error {
+			return l.files[0].Mkdir(name, mode)
+		})
+	})
+}
+
+func (f *file) Rmdir(name string) error {
+	return f.resolvePath(name, 0, func(at *file, name string) error {
+		return withLayers1(at, func(l *fileLayers) error {
+			return l.files[0].Rmdir(name)
+		})
+	})
+}
+
+func (f *file) Rename(oldName string, newDir sandbox.File, newName string, flags sandbox.RenameFlags) error {
+	d, ok := newDir.(*file)
+	if !ok {
+		return sandbox.EXDEV
+	}
+	return f.resolvePath(oldName, 0, func(f1 *file, name1 string) error {
+		return d.resolvePath(newName, 0, func(f2 *file, name2 string) error {
+			return withLayers1(f1, func(l1 *fileLayers) error {
+				return withLayers1(f2, func(l2 *fileLayers) error {
+					return l1.files[0].Rename(name1, l2.files[0], name2, flags)
+				})
+			})
+		})
+	})
+}
+
+func (f *file) Link(oldName string, newDir sandbox.File, newName string, flags sandbox.LookupFlags) error {
+	d, ok := newDir.(*file)
+	if !ok {
+		return sandbox.EXDEV
+	}
+	return f.resolvePath(oldName, flags, func(f1 *file, name1 string) error {
+		return d.resolvePath(newName, flags, func(f2 *file, name2 string) error {
+			return withLayers1(f1, func(l1 *fileLayers) error {
+				return withLayers1(f2, func(l2 *fileLayers) error {
+					return l1.files[0].Link(name1, l2.files[0], name2, sandbox.AT_SYMLINK_NOFOLLOW)
+				})
+			})
+		})
+	})
+}
+
+func (f *file) Symlink(oldName, newName string) error {
+	return f.resolvePath(newName, 0, func(at *file, name string) error {
+		return withLayers1(at, func(l *fileLayers) error {
+			return l.files[0].Symlink(oldName, name)
+		})
+	})
+}
+
+func (f *file) Unlink(name string) error {
+	return f.resolvePath(name, 0, func(at *file, name string) error {
+		return withLayers1(at, func(l *fileLayers) error {
+			return l.files[0].Unlink(name)
+		})
+	})
+}
+
+func (f *file) resolvePath(name string, flags sandbox.LookupFlags, do func(*file, string) error) error {
+	_, err := sandbox.ResolvePath(f, name, flags, func(at *file, name string) (_ struct{}, err error) {
+		err = do(at, name)
+		return
+	})
+	return err
 }
 
 func withLayers1(f *file, do func(*fileLayers) error) error {
