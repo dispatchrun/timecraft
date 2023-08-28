@@ -280,9 +280,6 @@ func (d *subDir) Close() error {
 }
 
 func (d *subDir) Open(name string, flags OpenFlags, mode fs.FileMode) (File, error) {
-	if ((flags & ^(O_DIRECTORY | O_NOFOLLOW)) != 0) || mode != 0 || name == "" {
-		return nil, EINVAL
-	}
 	switch name {
 	case ".":
 		return &subDir{fsys: d.fsys}, nil
