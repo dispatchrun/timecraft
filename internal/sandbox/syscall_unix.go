@@ -20,6 +20,7 @@ const (
 	EAFNOSUPPORT    = unix.EAFNOSUPPORT
 	EAGAIN          = unix.EAGAIN
 	EBADF           = unix.EBADF
+	EBUSY           = unix.EBUSY
 	ECONNABORTED    = unix.ECONNABORTED
 	ECONNREFUSED    = unix.ECONNREFUSED
 	ECONNRESET      = unix.ECONNRESET

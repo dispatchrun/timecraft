@@ -589,7 +589,7 @@ func FileStat[F File](f F, name string, flags LookupFlags, lstat func(F, string)
 	})
 }
 
-// FileStat is the generic implemtnation of the File.Stat method.
+// FileReadlink is the generic implemtnation of the File.Readlink method.
 //
 // Types implementing the File interface can use this function to handle the
 // common parts of the Readlink logic, for example:
@@ -1002,8 +1002,20 @@ func ResolvePath[F File, R any](dir F, name string, flags LookupFlags, do func(F
 	}
 }
 
+func openDir(dir File, name string) (File, error) {
+	return dir.Open(name, O_DIRECTORY, 0)
+}
+
 func openRoot(dir File) (File, error) {
-	return dir.Open("/", O_DIRECTORY, 0)
+	return openDir(dir, "/")
+}
+
+func openSelf(dir File) (File, error) {
+	return openDir(dir, ".")
+}
+
+func openParent(dir File) (File, error) {
+	return openDir(dir, "..")
 }
 
 func closeFileIfNotNil(f File) {
