@@ -48,7 +48,7 @@ func replay(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	runtime, err := timecraft.NewRuntime(ctx, config)
+	runtime, ctx, err := timecraft.NewRuntime(ctx, config)
 	if err != nil {
 		return err
 	}

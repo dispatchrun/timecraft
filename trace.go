@@ -16,6 +16,7 @@ import (
 	"github.com/stealthrocket/timecraft/internal/stream"
 	"github.com/stealthrocket/timecraft/internal/timecraft"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/stealthrocket/timecraft/internal/timemachine/funccall"
 )
 
 const traceUsage = `
@@ -33,7 +34,7 @@ Options:
 type layer struct {
 	typ   string
 	alt   []string
-	trace func(io.Writer, outputFormat, string, stream.Reader[tracing.Event]) error
+	trace func(io.Writer, outputFormat, string, stream.Reader[timemachine.Record]) error
 }
 
 var layers = [...]layer{
@@ -46,6 +47,11 @@ var layers = [...]layer{
 		typ:   "request",
 		alt:   []string{"req", "reqs", "requests"},
 		trace: traceRequest,
+	},
+	{
+		typ:   "functions",
+		alt:   []string{"f", "func", "funcs"},
+		trace: traceFunctions,
 	},
 }
 
@@ -81,6 +87,7 @@ func trace(ctx context.Context, args []string) error {
 
    $ timecraft trace network <process id> ...
    $ timecraft trace request <process id> ...
+   $ timecraft trace function <process id> ...
 `)
 		return exitCode(2)
 	}
@@ -129,12 +136,11 @@ func trace(ctx context.Context, args []string) error {
 		format = "%+v"
 	}
 
-	return layer.trace(os.Stdout, output, format, &tracing.EventReader{
-		Records: timemachine.NewLogRecordReader(logReader),
-	})
+	return layer.trace(os.Stdout, output, format, timemachine.NewLogRecordReader(logReader))
 }
 
-func traceNetwork(w io.Writer, output outputFormat, format string, events stream.Reader[tracing.Event]) error {
+func traceNetwork(w io.Writer, output outputFormat, format string, records stream.Reader[timemachine.Record]) error {
+	events := &tracing.EventReader{Records: records}
 	var writer stream.WriteCloser[tracing.Event]
 	switch output {
 	case "json":
@@ -152,7 +158,8 @@ func traceNetwork(w io.Writer, output outputFormat, format string, events stream
 	return err
 }
 
-func traceRequest(w io.Writer, output outputFormat, format string, events stream.Reader[tracing.Event]) error {
+func traceRequest(w io.Writer, output outputFormat, format string, records stream.Reader[timemachine.Record]) error {
+	events := &tracing.EventReader{Records: records}
 	var writer stream.WriteCloser[tracing.Exchange]
 	switch output {
 	case "json":
@@ -176,4 +183,12 @@ func traceRequest(w io.Writer, output outputFormat, format string, events stream
 		},
 	})
 	return err
+}
+
+func traceFunctions(w io.Writer, output outputFormat, format string, records stream.Reader[timemachine.Record]) error {
+	switch output {
+	case "json", "yaml":
+		return fmt.Errorf("%s output is not implemented for function tracing", output)
+	}
+	return funccall.Format(w, records)
 }
