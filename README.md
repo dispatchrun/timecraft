@@ -14,7 +14,7 @@ in a software runtime, Timecraft intends to bring the tools and structure to
 help developers on their journey to construct, test, and operate such systems.
 
 [configuring]: https://docs.timecraft.dev/getting-started/configuration
-[discord]:     https://discord.com/channels/1126309607166464131/1126309607875285035
+[discord]:     https://stealthrocket.tech/discord
 [installing]:  https://docs.timecraft.dev/getting-started/installation
 [preparing]:   https://docs.timecraft.dev/category/preparing-your-application
 [wasmedge]:    https://github.com/WasmEdge/WasmEdge
