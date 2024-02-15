@@ -14,11 +14,27 @@ in a software runtime, Timecraft intends to bring the tools and structure to
 help developers on their journey to construct, test, and operate such systems.
 
 [configuring]: https://docs.timecraft.dev/getting-started/configuration
+[discord]:     https://discord.com/channels/1126309607166464131/1126309607875285035
 [installing]:  https://docs.timecraft.dev/getting-started/installation
 [preparing]:   https://docs.timecraft.dev/category/preparing-your-application
 [wasmedge]:    https://github.com/WasmEdge/WasmEdge
 [wazero]:      https://github.com/tetratelabs/wazero
+[website]:     https://stealthrocket.tech
 [wiki]:        https://github.com/stealthrocket/timecraft/wiki
+
+## Project Maintenance Status (2024-02-15)
+
+Timecraft has been archived because we are now focusing on developing solutions
+for a different problem than what the runtime was developed for.
+
+We are keeping the repository open-source because the code can be reused and
+the program is a useful starting point for other projects that would tackle
+similar problems. It is also a great showcase of things that can be built
+with [**Wazero**][wazero] and **WebAssembly**, which are truely amazing pieces
+of technology.
+
+If you are interested in following what we are developing, don't hestitate to
+check out our [website][website] and join our [Discord][discord] channel!
 
 ## Getting Started
 
