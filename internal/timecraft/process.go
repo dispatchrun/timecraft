@@ -21,12 +21,14 @@ import (
 	"github.com/stealthrocket/timecraft/internal/object"
 	"github.com/stealthrocket/timecraft/internal/sandbox"
 	"github.com/stealthrocket/timecraft/internal/timemachine"
+	"github.com/stealthrocket/timecraft/internal/timemachine/funccall"
 	"github.com/stealthrocket/timecraft/internal/timemachine/wasicall"
 	"github.com/stealthrocket/wasi-go"
 	"github.com/stealthrocket/wasi-go/imports"
 	"github.com/stealthrocket/wasi-go/imports/wasi_snapshot_preview1"
 	"github.com/stealthrocket/wazergo"
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/experimental"
 )
 
 // ProcessManager runs WebAssembly modules.
@@ -312,6 +314,17 @@ func (pm *ProcessManager) Start(moduleSpec ModuleSpec, logSpec *LogSpec, parentI
 			b.SetTimestamp(time.Now())
 			b.SetFunctionID(int(id))
 			b.SetFunctionCall(syscallBytes)
+			if err := recordWriter.WriteRecord(&b); err != nil {
+				panic(err) // caught/handled by wazero
+			}
+		})
+
+		funcListenerFactory := pm.ctx.Value(experimental.FunctionListenerFactoryKey{}).(*funccall.Factory)
+		funcListenerFactory.Enable(func(id int, ts time.Time, data []byte) {
+			b.Reset(logSpec.StartTime)
+			b.SetTimestamp(ts)
+			b.SetFunctionID(id)
+			b.SetFunctionCall(data)
 			if err := recordWriter.WriteRecord(&b); err != nil {
 				panic(err) // caught/handled by wazero
 			}

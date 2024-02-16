@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/stealthrocket/timecraft/internal/timemachine/funccall"
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/experimental"
 )
 
 // NewRuntime constructs a wazero.Runtime that's configured according
 // to the provided timecraft Config.
-func NewRuntime(ctx context.Context, config *Config) (wazero.Runtime, error) {
+func NewRuntime(ctx context.Context, config *Config) (wazero.Runtime, context.Context, error) {
 	runtimeConfig := wazero.NewRuntimeConfig()
 
 	var cache wazero.CompilationCache
@@ -18,16 +20,23 @@ func NewRuntime(ctx context.Context, config *Config) (wazero.Runtime, error) {
 		// user but still go ahead with the runtime instantiation.
 		path, err := cachePath.Resolve()
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve timecraft cache location: %w", err)
+			return nil, nil, fmt.Errorf("failed to resolve timecraft cache location: %w", err)
 		} else {
 			cache, err = createCacheDirectory(path)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create timecraft cache directory: %w", err)
+				return nil, nil, fmt.Errorf("failed to create timecraft cache directory: %w", err)
 			} else {
 				runtimeConfig = runtimeConfig.WithCompilationCache(cache)
 			}
 		}
 	}
+
+	// Initialize wazero with a disabled FunctionListenerFactory implementation. We
+	// will later decide to enable this when processing module.
+	//
+	// We have to return this context and pass it down stream so we can have access
+	// to *funccall.Factory initialized with this runtime.
+	ctx = context.WithValue(ctx, experimental.FunctionListenerFactoryKey{}, &funccall.Factory{})
 
 	runtime := wazero.NewRuntimeWithConfig(ctx, runtimeConfig)
 	if cache != nil {
@@ -36,7 +45,7 @@ func NewRuntime(ctx context.Context, config *Config) (wazero.Runtime, error) {
 			cache:   cache,
 		}
 	}
-	return runtime, nil
+	return runtime, ctx, nil
 }
 
 type runtimeWithCompilationCache struct {

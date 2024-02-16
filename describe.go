@@ -184,7 +184,7 @@ func describeModule(ctx context.Context, reg *timemachine.Registry, id string, c
 		return nil, err
 	}
 
-	runtime, err := timecraft.NewRuntime(ctx, config)
+	runtime, ctx, err := timecraft.NewRuntime(ctx, config)
 	if err != nil {
 		return nil, err
 	}
